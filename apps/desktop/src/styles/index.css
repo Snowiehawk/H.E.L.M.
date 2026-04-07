@@ -92,9 +92,11 @@ button {
   justify-content: space-between;
   gap: 18px;
   align-items: center;
-  padding: 18px 20px 14px;
+  min-height: 60px;
+  padding: 12px 18px 10px;
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface-strong) 78%, transparent);
+  backdrop-filter: blur(18px);
 }
 
 .window-bar__left,
@@ -104,10 +106,15 @@ button {
   align-items: center;
 }
 
+.window-bar__left {
+  min-width: 0;
+}
+
 .window-bar__actions {
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .window-bar__copy h1,
@@ -120,9 +127,9 @@ button {
 }
 
 .window-bar__copy h1 {
-  font-size: clamp(1.55rem, 2.4vw, 2.35rem);
-  line-height: 1.06;
-  max-width: 14ch;
+  font-size: 1.02rem;
+  line-height: 1.1;
+  max-width: 24ch;
 }
 
 .window-bar__copy p,
@@ -138,14 +145,34 @@ button {
   line-height: 1.55;
 }
 
+.window-bar__copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.window-bar__copy p {
+  max-width: min(56vw, 840px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.88rem;
+}
+
 .window-bar__eyebrow {
   display: block;
-  margin-bottom: 7px;
-  font-size: 0.76rem;
+  margin-bottom: 1px;
+  font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
+}
+
+.window-bar__spacer {
+  flex: 1 1 auto;
+  min-width: 24px;
+  min-height: 24px;
 }
 
 .welcome-layout,
@@ -708,11 +735,26 @@ button {
 
 .window-bar--dense .window-bar__copy h1 {
   max-width: none;
-  font-size: clamp(1.15rem, 1.5vw, 1.45rem);
+  font-size: 1rem;
 }
 
 .window-bar--dense .window-bar__copy p {
-  font-size: 0.92rem;
+  font-size: 0.84rem;
+}
+
+.window-bar--dense .window-bar__copy {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.window-bar--dense .window-bar__eyebrow {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.window-bar--dense .window-bar__copy p {
+  max-width: min(44vw, 720px);
 }
 
 .launch-layout {
@@ -785,6 +827,15 @@ button {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+.app-frame--macos .window-bar {
+  padding-left: 92px;
+  padding-right: 16px;
+}
+
+.app-frame--macos .window-bar--dense {
+  padding-left: 92px;
 }
 
 .explorer-shell {
@@ -1012,5 +1063,25 @@ button {
   .graph-detail--compact {
     width: min(calc(100% - 24px), 100%);
     max-width: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .window-bar,
+  .window-bar--dense,
+  .app-frame--macos .window-bar,
+  .app-frame--macos .window-bar--dense {
+    padding-left: 18px;
+  }
+
+  .window-bar__copy,
+  .window-bar--dense .window-bar__copy {
+    display: grid;
+    gap: 2px;
+  }
+
+  .window-bar__copy p,
+  .window-bar--dense .window-bar__copy p {
+    max-width: 100%;
   }
 }
