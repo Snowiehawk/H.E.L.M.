@@ -23,6 +23,7 @@ export function WorkspaceScreen() {
   const graphDepth = useUiStore((state) => state.graphDepth);
   const graphFilters = useUiStore((state) => state.graphFilters);
   const highlightGraphPath = useUiStore((state) => state.highlightGraphPath);
+  const showEdgeLabels = useUiStore((state) => state.showEdgeLabels);
   const sidebarQuery = useUiStore((state) => state.sidebarQuery);
   const setSidebarQuery = useUiStore((state) => state.setSidebarQuery);
   const openFile = useUiStore((state) => state.openFile);
@@ -34,6 +35,7 @@ export function WorkspaceScreen() {
   const reduceGraphDepth = useUiStore((state) => state.reduceGraphDepth);
   const toggleGraphFilter = useUiStore((state) => state.toggleGraphFilter);
   const toggleGraphPathHighlight = useUiStore((state) => state.toggleGraphPathHighlight);
+  const toggleEdgeLabels = useUiStore((state) => state.toggleEdgeLabels);
   const resetWorkspace = useUiStore((state) => state.resetWorkspace);
 
   useEffect(() => {
@@ -133,6 +135,19 @@ export function WorkspaceScreen() {
   };
 
   const selectedGraphNode = graphQuery.data?.nodes.find((node) => node.id === activeNodeId);
+  const parentEdge = graphQuery.data?.edges.find(
+    (edge) =>
+      edge.target === activeNodeId &&
+      (edge.kind === "contains" || edge.kind === "defines"),
+  );
+  const parentNodeId =
+    parentEdge?.source ??
+    (activeNodeId && repoSession && activeNodeId !== repoSession.id && activeNodeId.startsWith("module:")
+      ? repoSession.id
+      : undefined);
+  const currentNodeLabel =
+    selectedGraphNode?.label ??
+    (activeNodeId === repoSession?.id ? repoSession?.name : undefined);
   const effectiveBackendStatus = overviewQuery.data?.backend ?? backendStatusQuery.data;
 
   return (
@@ -165,14 +180,21 @@ export function WorkspaceScreen() {
           <GraphCanvas
             graph={graphQuery.data}
             activeNodeId={activeNodeId}
+            currentNodeLabel={currentNodeLabel}
+            canNavigateUp={Boolean(parentNodeId)}
+            canNavigateRoot={Boolean(repoSession && activeNodeId && activeNodeId !== repoSession.id)}
             graphDepth={graphDepth}
             graphFilters={graphFilters}
             highlightGraphPath={highlightGraphPath}
+            showEdgeLabels={showEdgeLabels}
             onSelectNode={handleGraphSelectNode}
+            onNavigateUp={() => parentNodeId && openGraph(parentNodeId)}
+            onNavigateRoot={() => repoSession && openGraph(repoSession.id)}
             onExpandDepth={expandGraphDepth}
             onReduceDepth={reduceGraphDepth}
             onToggleGraphFilter={toggleGraphFilter}
             onToggleGraphPathHighlight={toggleGraphPathHighlight}
+            onToggleEdgeLabels={toggleEdgeLabels}
           />
 
           {activeTab === "file" || activeTab === "symbol" ? (

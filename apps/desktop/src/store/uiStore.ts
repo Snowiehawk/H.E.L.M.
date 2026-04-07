@@ -19,6 +19,7 @@ interface UiState {
   graphDepth: number;
   graphFilters: GraphFilters;
   highlightGraphPath: boolean;
+  showEdgeLabels: boolean;
   setTheme: (theme: ThemeMode) => void;
   setPaletteOpen: (isOpen: boolean) => void;
   setSidebarQuery: (query: string) => void;
@@ -33,6 +34,7 @@ interface UiState {
   reduceGraphDepth: () => void;
   toggleGraphFilter: (key: keyof GraphFilters) => void;
   toggleGraphPathHighlight: () => void;
+  toggleEdgeLabels: () => void;
   resetWorkspace: () => void;
 }
 
@@ -50,6 +52,7 @@ export const useUiStore = create<UiState>((set) => ({
   graphDepth: 1,
   graphFilters: defaultGraphFilters,
   highlightGraphPath: true,
+  showEdgeLabels: false,
   setTheme: (theme) => set({ theme }),
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
   setSidebarQuery: (sidebarQuery) => set({ sidebarQuery }),
@@ -122,6 +125,8 @@ export const useUiStore = create<UiState>((set) => ({
     })),
   toggleGraphPathHighlight: () =>
     set((state) => ({ highlightGraphPath: !state.highlightGraphPath })),
+  toggleEdgeLabels: () =>
+    set((state) => ({ showEdgeLabels: !state.showEdgeLabels })),
   resetWorkspace: () =>
     set({
       sidebarQuery: "",
@@ -132,5 +137,6 @@ export const useUiStore = create<UiState>((set) => ({
       graphDepth: 1,
       graphFilters: defaultGraphFilters,
       highlightGraphPath: true,
+      showEdgeLabels: false,
     }),
 }));

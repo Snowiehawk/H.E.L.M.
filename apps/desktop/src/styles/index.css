@@ -567,10 +567,12 @@ button {
   border-radius: 24px;
 }
 
-.graph-node-shell .react-flow__node-default {
-  border: none;
-  background: transparent;
-  padding: 0;
+.react-flow__node.graph-node-shell,
+.react-flow__node-default.graph-node-shell {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
 }
 
 .graph-node {
@@ -944,28 +946,114 @@ button {
   height: 100%;
 }
 
-.graph-toolbar {
+.graph-hud {
+  display: grid;
+  gap: 10px;
+  max-width: min(420px, calc(100vw - 420px));
+}
+
+.graph-hud__bar,
+.graph-hud__panel {
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-strong) 88%, transparent);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(18px);
+}
+
+.graph-hud__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px;
+  border-radius: 18px;
+}
+
+.graph-hud__focus {
+  display: grid;
+  gap: 2px;
+}
+
+.graph-hud__focus strong {
+  font-size: 0.95rem;
+  letter-spacing: -0.02em;
+}
+
+.graph-hud__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.graph-hud__nav {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
+}
+
+.graph-hud__nav .ghost-button {
+  padding: 7px 12px;
+  border-radius: 999px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.graph-hud__toggle,
+.graph-depth__value {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.graph-hud__toggle {
+  justify-content: center;
+  min-height: 36px;
+  font-weight: 600;
+  border-color: color-mix(in srgb, var(--accent-strong) 30%, var(--line) 70%);
+  background: color-mix(in srgb, var(--accent) 34%, var(--surface-solid) 66%);
+}
+
+.graph-hud__toggle.is-active {
+  color: var(--accent-strong);
+  border-color: color-mix(in srgb, var(--accent-strong) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 64%, var(--surface-solid) 36%);
+}
+
+.graph-hud__panel {
   display: grid;
   gap: 12px;
-  max-width: min(560px, calc(100vw - 420px));
-  padding: 14px;
-  border: 1px solid var(--line);
+  padding: 12px;
   border-radius: 20px;
-  background: color-mix(in srgb, var(--surface-strong) 84%, transparent);
-  box-shadow: var(--shadow-card);
-  backdrop-filter: blur(20px);
 }
 
-.graph-toolbar__copy {
+.graph-hud__section {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
+.graph-depth,
 .graph-filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
+}
+
+.graph-depth .ghost-button,
+.graph-filters .toggle-button {
+  padding: 8px 12px;
+  border-radius: 14px;
 }
 
 .graph-detail {
@@ -1038,8 +1126,8 @@ button {
     grid-template-columns: 260px minmax(0, 1fr);
   }
 
-  .graph-toolbar {
-    max-width: min(480px, calc(100vw - 340px));
+  .graph-hud {
+    max-width: min(360px, calc(100vw - 340px));
   }
 }
 
@@ -1058,7 +1146,7 @@ button {
     min-height: 0;
   }
 
-  .graph-toolbar,
+  .graph-hud,
   .graph-detail,
   .graph-detail--compact {
     width: min(calc(100% - 24px), 100%);
