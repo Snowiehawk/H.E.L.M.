@@ -19,6 +19,7 @@ class RepoLoaderTests(unittest.TestCase):
                     "pkg/service.py": "",
                     "tools/run.py": "",
                     ".git/ignored.py": "",
+                    ".vendor/libcst/runtime.py": "",
                     ".venv/site.py": "",
                     "pkg/__pycache__/skip.py": "",
                     "README.md": "not python",
@@ -43,3 +44,40 @@ class RepoLoaderTests(unittest.TestCase):
             self.assertEqual(len(inventory.modules), 1)
             self.assertEqual(inventory.modules[0].module_name, "__init__")
             self.assertTrue(inventory.modules[0].is_package)
+
+    def test_respects_root_gitignore_for_module_discovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    ".gitignore": "generated/\n*.tmp.py\n",
+                    "app.py": "",
+                    "generated/skip.py": "",
+                    "scratch.tmp.py": "",
+                },
+            )
+
+            inventory = discover_python_modules(root)
+
+            self.assertEqual([module.relative_path for module in inventory.modules], ["app.py"])
+
+    def test_respects_nested_gitignore_scopes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "pkg/.gitignore": "generated/\n",
+                    "pkg/service.py": "",
+                    "pkg/generated/skip.py": "",
+                    "other/generated/keep.py": "",
+                },
+            )
+
+            inventory = discover_python_modules(root)
+
+            self.assertEqual(
+                [module.relative_path for module in inventory.modules],
+                ["other/generated/keep.py", "pkg/service.py"],
+            )

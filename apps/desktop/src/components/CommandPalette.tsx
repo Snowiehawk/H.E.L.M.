@@ -15,6 +15,7 @@ export function CommandPalette() {
     queryKey: ["command-palette", query],
     queryFn: () =>
       adapter.searchRepo(query, {
+        includeModules: true,
         includeFiles: true,
         includeSymbols: true,
       }),

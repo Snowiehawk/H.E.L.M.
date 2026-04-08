@@ -16,6 +16,8 @@ function resetStore() {
     activeFilePath: undefined,
     activeSymbolId: undefined,
     activeNodeId: undefined,
+    graphTargetId: undefined,
+    activeLevel: "module",
   });
 }
 
@@ -41,6 +43,6 @@ describe("CommandPalette", () => {
 
     const state = useUiStore.getState();
     expect(state.activeTab).toBe("symbol");
-    expect(state.activeSymbolId).toBe("symbol:helm.ui.api.build_graph_summary");
+    expect(state.activeSymbolId).toBe("symbol:helm.ui.api:build_graph_summary");
   });
 });

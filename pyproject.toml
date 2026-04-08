@@ -9,7 +9,7 @@ description = "H.E.L.M. is a bidirectional repo-to-graph structural editor for P
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{ name = "OpenAI Codex" }]
-dependencies = []
+dependencies = ["libcst>=1.8.6"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]

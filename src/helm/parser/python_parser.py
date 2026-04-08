@@ -82,14 +82,14 @@ class _ModuleVisitor(ast.NodeVisitor):
         self._symbol_stack: list[SymbolDef] = []
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        symbol = self._make_symbol(node.name, SymbolKind.CLASS, node)
+        symbol = self._make_symbol(node.name, self._class_symbol_kind(node), node)
         self._symbol_stack.append(symbol)
         for statement in node.body:
             self.visit(statement)
         self._symbol_stack.pop()
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        kind = SymbolKind.METHOD if self._direct_parent_is_class() else SymbolKind.FUNCTION
+        kind = SymbolKind.METHOD if self._direct_parent_is_class_like() else SymbolKind.FUNCTION
         symbol = self._make_symbol(node.name, kind, node)
         self._symbol_stack.append(symbol)
         for statement in node.body:
@@ -99,7 +99,7 @@ class _ModuleVisitor(ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         kind = (
             SymbolKind.ASYNC_METHOD
-            if self._direct_parent_is_class()
+            if self._direct_parent_is_class_like()
             else SymbolKind.ASYNC_FUNCTION
         )
         symbol = self._make_symbol(node.name, kind, node)
@@ -107,6 +107,17 @@ class _ModuleVisitor(ast.NodeVisitor):
         for statement in node.body:
             self.visit(statement)
         self._symbol_stack.pop()
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if not self._symbol_stack:
+            for name in _assignment_target_names(node):
+                self._make_symbol(name, SymbolKind.VARIABLE, node)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if not self._symbol_stack and isinstance(node.target, ast.Name):
+            self._make_symbol(node.target.id, SymbolKind.VARIABLE, node)
+        self.generic_visit(node)
 
     def visit_Import(self, node: ast.Import) -> None:
         owner_symbol_id = self._current_symbol_id()
@@ -209,8 +220,16 @@ class _ModuleVisitor(ast.NodeVisitor):
             return None
         return self._symbol_stack[-1].symbol_id
 
-    def _direct_parent_is_class(self) -> bool:
-        return bool(self._symbol_stack and self._symbol_stack[-1].kind == SymbolKind.CLASS)
+    def _class_symbol_kind(self, node: ast.ClassDef) -> SymbolKind:
+        if any(_is_enum_base(base) for base in node.bases):
+            return SymbolKind.ENUM
+        return SymbolKind.CLASS
+
+    def _direct_parent_is_class_like(self) -> bool:
+        return bool(
+            self._symbol_stack
+            and self._symbol_stack[-1].kind in {SymbolKind.CLASS, SymbolKind.ENUM}
+        )
 
     def _span_for(self, node: ast.AST) -> SourceSpan:
         return _span_for_node(self.module.file_path, self.source, self.line_starts, node)
@@ -228,6 +247,32 @@ def _extract_call_path(node: ast.AST) -> tuple[str | None, tuple[str, ...]]:
         if isinstance(current, ast.Name):
             return current.id, tuple(reversed(parts))
     return None, ()
+
+
+def _assignment_target_names(node: ast.Assign) -> list[str]:
+    names: list[str] = []
+    for target in node.targets:
+        if isinstance(target, ast.Name):
+            names.append(target.id)
+    return names
+
+
+def _is_enum_base(node: ast.AST) -> bool:
+    dotted_name = _dotted_name(node)
+    if dotted_name is None:
+        return False
+    return dotted_name.split(".")[-1] in {"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"}
+
+
+def _dotted_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        root = _dotted_name(node.value)
+        if root is None:
+            return None
+        return f"{root}.{node.attr}"
+    return None
 
 
 def _line_starts(source: str) -> list[int]:

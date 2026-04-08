@@ -28,4 +28,4 @@ export function useDesktopAdapter(): DesktopAdapter {
   return adapter;
 }
 
-export type * from "./contracts";
+export * from "./contracts";

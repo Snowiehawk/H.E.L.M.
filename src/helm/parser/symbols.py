@@ -9,6 +9,8 @@ from typing import Any
 
 class SymbolKind(str, Enum):
     CLASS = "class"
+    ENUM = "enum"
+    VARIABLE = "variable"
     FUNCTION = "function"
     METHOD = "method"
     ASYNC_FUNCTION = "async_function"

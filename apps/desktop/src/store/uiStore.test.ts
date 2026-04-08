@@ -19,6 +19,9 @@ function resetStore() {
       includeCalls: true,
       includeDefines: true,
     },
+    graphSettings: {
+      includeExternalDependencies: false,
+    },
     highlightGraphPath: true,
   });
 }
@@ -30,20 +33,20 @@ describe("uiStore", () => {
 
   it("opens a symbol from search results and syncs the graph node selection", () => {
     useUiStore.getState().selectSearchResult({
-      id: "symbol:helm.ui.api.build_graph_summary",
+      id: "symbol:helm.ui.api:build_graph_summary",
       kind: "symbol",
       title: "build_graph_summary",
       subtitle: "helm.ui.api.build_graph_summary",
       score: 1,
       filePath: "src/helm/ui/api.py",
-      symbolId: "symbol:helm.ui.api.build_graph_summary",
-      nodeId: "symbol:helm.ui.api.build_graph_summary",
+      symbolId: "symbol:helm.ui.api:build_graph_summary",
+      nodeId: "symbol:helm.ui.api:build_graph_summary",
     });
 
     const state = useUiStore.getState();
     expect(state.activeTab).toBe("symbol");
-    expect(state.activeSymbolId).toBe("symbol:helm.ui.api.build_graph_summary");
-    expect(state.activeNodeId).toBe("symbol:helm.ui.api.build_graph_summary");
+    expect(state.activeSymbolId).toBe("symbol:helm.ui.api:build_graph_summary");
+    expect(state.activeNodeId).toBe("symbol:helm.ui.api:build_graph_summary");
   });
 
   it("expands and collapses graph depth within bounds", () => {
@@ -60,5 +63,14 @@ describe("uiStore", () => {
     useUiStore.getState().reduceGraphDepth();
 
     expect(useUiStore.getState().graphDepth).toBe(1);
+  });
+
+  it("defaults advanced graph visibility settings to authored-only", () => {
+    useUiStore.getState().toggleGraphSetting("includeExternalDependencies");
+    expect(useUiStore.getState().graphSettings.includeExternalDependencies).toBe(true);
+
+    useUiStore.getState().resetWorkspace();
+
+    expect(useUiStore.getState().graphSettings.includeExternalDependencies).toBe(false);
   });
 });

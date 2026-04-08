@@ -34,7 +34,7 @@ export function IndexingScreen() {
     <DesktopWindow
       eyebrow="Indexing"
       title="Preparing the workspace."
-      subtitle="This is where the desktop shell stays honest about what it knows, what it is still scanning, and when the repo is ready to browse."
+      subtitle="This is where the desktop shell stays honest about what it knows, what it is still scanning, and when the blueprint is ready."
       actions={<ThemeCycleButton />}
       compact
     >
@@ -108,9 +108,9 @@ export function IndexingScreen() {
               <span>After indexing</span>
             </div>
             <ul className="bullet-list">
-              <li>Open straight into the repo graph with the file explorer pinned on the left.</li>
-              <li>Select a file or symbol to tighten the graph around that neighborhood.</li>
-              <li>Use the command palette for quick jumps once the workspace opens.</li>
+              <li>Open straight into the architecture map at the right abstraction level.</li>
+              <li>Select a module or symbol to tighten the blueprint around that structure.</li>
+              <li>Reveal source only when you explicitly ask for it.</li>
             </ul>
           </article>
         </section>

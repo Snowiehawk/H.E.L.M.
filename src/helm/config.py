@@ -7,20 +7,27 @@ from pathlib import Path
 
 
 DEFAULT_EXCLUDE_DIRS = (
+    ".cache",
     ".git",
     ".hg",
     ".mypy_cache",
     ".nox",
+    ".next",
+    ".parcel-cache",
     ".pytest_cache",
     ".ruff_cache",
     ".svn",
+    ".turbo",
+    ".vendor",
     ".tox",
     ".venv",
     "__pycache__",
     "build",
+    "coverage",
     "dist",
     "env",
     "node_modules",
+    "vendor",
     "venv",
 )
 

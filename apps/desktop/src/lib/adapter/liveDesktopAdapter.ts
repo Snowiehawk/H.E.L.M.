@@ -3,19 +3,30 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type {
   BackendStatus,
   DesktopAdapter,
+  EditableNodeSource,
   FileContents,
+  GraphAbstractionLevel,
+  GraphActionDto,
+  GraphBreadcrumbDto,
   GraphEdgeDto,
   GraphFilters,
+  GraphFocusDto,
+  GraphSettings,
   GraphNeighborhood,
   GraphNodeDto,
+  GraphView,
   IndexingJobState,
   OverviewData,
+  OverviewOutlineItem,
   OverviewModule,
   RecentRepo,
   RelationshipItem,
   RepoSession,
+  RevealedSource,
   SearchFilters,
   SearchResult,
+  StructuralEditRequest,
+  StructuralEditResult,
   SymbolDetails,
 } from "./contracts";
 
@@ -62,16 +73,6 @@ interface RawDiagnostic {
   column?: number | null;
 }
 
-interface RawUnresolvedCall {
-  call_id: string;
-  source_id: string;
-  module_id: string;
-  owner_symbol_id?: string | null;
-  callee_expr: string;
-  reason: string;
-  span: RawSourceSpan;
-}
-
 interface RawModuleSummary {
   module_id: string;
   module_name: string;
@@ -98,7 +99,7 @@ interface RawScanPayload {
     nodes: RawGraphNode[];
     edges: RawGraphEdge[];
     diagnostics: RawDiagnostic[];
-    unresolved_calls: RawUnresolvedCall[];
+    unresolved_calls: Array<Record<string, unknown>>;
     report: {
       module_count: number;
       symbol_count: number;
@@ -108,6 +109,75 @@ interface RawScanPayload {
       diagnostic_count: number;
     };
   };
+  workspace: {
+    language: string;
+    default_level: GraphAbstractionLevel;
+    default_focus_node_id: string;
+    source_hidden_by_default: boolean;
+    supported_edit_kinds: string[];
+  };
+}
+
+interface RawGraphAction {
+  action_id: string;
+  label: string;
+  enabled: boolean;
+  reason?: string | null;
+  payload: Record<string, unknown>;
+}
+
+interface RawGraphViewNode {
+  node_id: string;
+  kind:
+    | "repo"
+    | "module"
+    | "symbol"
+    | "function"
+    | "class"
+    | "enum"
+    | "variable"
+    | "entry"
+    | "param"
+    | "assign"
+    | "call"
+    | "branch"
+    | "loop"
+    | "return";
+  label: string;
+  subtitle?: string | null;
+  metadata: Record<string, unknown>;
+  available_actions: RawGraphAction[];
+}
+
+interface RawGraphViewEdge {
+  edge_id: string;
+  kind: "contains" | "imports" | "defines" | "calls" | "controls" | "data";
+  source_id: string;
+  target_id: string;
+  label?: string | null;
+  metadata: Record<string, unknown>;
+}
+
+interface RawGraphView {
+  root_node_id: string;
+  target_id: string;
+  level: GraphAbstractionLevel;
+  nodes: RawGraphViewNode[];
+  edges: RawGraphViewEdge[];
+  breadcrumbs: Array<{
+    node_id: string;
+    level: GraphAbstractionLevel;
+    label: string;
+    subtitle?: string | null;
+  }>;
+  focus?: {
+    target_id: string;
+    level: GraphAbstractionLevel;
+    label: string;
+    subtitle?: string | null;
+    available_levels: GraphAbstractionLevel[];
+  } | null;
+  truncated: boolean;
 }
 
 interface RawBackendHealth {
@@ -116,6 +186,44 @@ interface RawBackendHealth {
   python_command: string;
   workspace_root: string;
   note: string;
+}
+
+interface RawEditResult {
+  request: {
+    kind: StructuralEditRequest["kind"];
+    target_id?: string | null;
+    relative_path?: string | null;
+    new_name?: string | null;
+    symbol_kind?: string | null;
+    destination_relative_path?: string | null;
+    imported_module?: string | null;
+    imported_name?: string | null;
+    alias?: string | null;
+    body?: string | null;
+    content?: string | null;
+  };
+  summary: string;
+  touched_relative_paths: string[];
+  reparsed_relative_paths: string[];
+  changed_node_ids: string[];
+  warnings: string[];
+}
+
+interface RawApplyEditResponse {
+  edit: RawEditResult;
+  payload: RawScanPayload;
+}
+
+interface RawEditableNodeSource {
+  target_id: string;
+  title: string;
+  path: string;
+  start_line: number;
+  end_line: number;
+  content: string;
+  editable: boolean;
+  node_kind: GraphNodeDto["kind"];
+  reason?: string | null;
 }
 
 interface ScanJob {
@@ -258,6 +366,9 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       if (entry.kind === "file" && !filters.includeFiles) {
         return false;
       }
+      if (entry.kind === "module" && !filters.includeModules) {
+        return false;
+      }
       if (entry.kind === "symbol" && !filters.includeSymbols) {
         return false;
       }
@@ -357,85 +468,141 @@ export class LiveDesktopAdapter implements DesktopAdapter {
 
   async getGraphNeighborhood(
     nodeId: string,
-    depth: number,
+    _depth: number,
     filters: GraphFilters,
   ): Promise<GraphNeighborhood> {
+    return this.getGraphView(nodeId, "symbol", filters);
+  }
+
+  async getGraphView(
+    targetId: string,
+    level: GraphAbstractionLevel,
+    filters: GraphFilters,
+    settings: GraphSettings = { includeExternalDependencies: false },
+  ): Promise<GraphView> {
     const cache = this.requireScanCache();
-    const rootNode = cache.nodeById.get(nodeId);
-    if (!rootNode) {
-      throw new Error(`No indexed graph node matched ${nodeId}.`);
-    }
-
-    const relevantEdges = cache.payload.graph.edges.filter((edge) => {
-      if (edge.kind === "calls") {
-        return filters.includeCalls;
-      }
-      if (edge.kind === "imports") {
-        return filters.includeImports;
-      }
-      if (edge.kind === "defines") {
-        return filters.includeDefines;
-      }
-      return true;
+    const raw = await invoke<RawGraphView>("graph_view", {
+      repoPath: cache.session.path,
+      targetId,
+      level,
+      filtersJson: JSON.stringify({
+        ...filters,
+        includeExternalDependencies: settings.includeExternalDependencies,
+      }),
     });
-    const selectedNodeIds = collectNeighborhood(nodeId, depth, relevantEdges);
-    const nodes = Array.from(selectedNodeIds)
-      .map((selectedId) => cache.nodeById.get(selectedId))
-      .filter((node): node is RawGraphNode => Boolean(node));
-    const edges = relevantEdges.filter(
-      (edge) => selectedNodeIds.has(edge.source_id) && selectedNodeIds.has(edge.target_id),
-    );
+    return layoutGraphView(raw);
+  }
 
+  async getFlowView(symbolId: string): Promise<GraphView> {
+    const cache = this.requireScanCache();
+    const raw = await invoke<RawGraphView>("flow_view", {
+      repoPath: cache.session.path,
+      symbolId,
+    });
+    return layoutGraphView(raw);
+  }
+
+  async applyStructuralEdit(request: StructuralEditRequest): Promise<StructuralEditResult> {
+    const cache = this.requireScanCache();
+    const response = await invoke<RawApplyEditResponse>("apply_structural_edit", {
+      repoPath: cache.session.path,
+      requestJson: JSON.stringify(toRawEditRequest(request)),
+    });
+    this.scanCache = buildScanCache(response.payload, cache.session, cache.backend);
+    return toStructuralEditResult(response.edit);
+  }
+
+  async revealSource(targetId: string): Promise<RevealedSource> {
+    const cache = this.requireScanCache();
+    const raw = await invoke<{
+      target_id: string;
+      title: string;
+      path: string;
+      start_line: number;
+      end_line: number;
+      content: string;
+    }>("reveal_source", {
+      repoPath: cache.session.path,
+      targetId,
+    });
     return {
-      rootNodeId: nodeId,
-      depth,
-      truncated: selectedNodeIds.size < cache.payload.graph.nodes.length,
-      nodes: layoutGraphNodes(nodes, nodeId, edges),
-      edges: edges.map((edge) => ({
-        id: edge.edge_id,
-        kind: edge.kind,
-        source: edge.source_id,
-        target: edge.target_id,
-        label:
-          edge.kind === "calls"
-            ? String(edge.metadata.callee_expr ?? "calls")
-            : edge.kind === "imports"
-              ? String(edge.metadata.local_name ?? "imports")
-              : undefined,
-      })),
+      targetId: raw.target_id,
+      title: raw.title,
+      path: raw.path,
+      startLine: raw.start_line,
+      endLine: raw.end_line,
+      content: raw.content,
     };
+  }
+
+  async getEditableNodeSource(targetId: string): Promise<EditableNodeSource> {
+    const cache = this.requireScanCache();
+    const raw = await invoke<RawEditableNodeSource>("editable_node_source", {
+      repoPath: cache.session.path,
+      targetId,
+    });
+    return {
+      targetId: raw.target_id,
+      title: raw.title,
+      path: raw.path,
+      startLine: raw.start_line,
+      endLine: raw.end_line,
+      content: raw.content,
+      editable: raw.editable,
+      nodeKind: raw.node_kind,
+      reason: raw.reason ?? undefined,
+    };
+  }
+
+  async saveNodeSource(targetId: string, content: string): Promise<StructuralEditResult> {
+    const cache = this.requireScanCache();
+    const response = await invoke<RawApplyEditResponse>("save_node_source", {
+      repoPath: cache.session.path,
+      targetId,
+      contentJson: JSON.stringify(content),
+    });
+    this.scanCache = buildScanCache(response.payload, cache.session, cache.backend);
+    return toStructuralEditResult(response.edit);
+  }
+
+  async openNodeInDefaultEditor(targetId: string): Promise<void> {
+    const cache = this.requireScanCache();
+    const node = cache.nodeById.get(targetId);
+    if (!node?.file_path) {
+      throw new Error(`No source file is associated with ${targetId}.`);
+    }
+    await invoke("open_path_in_default_editor", {
+      filePath: normalizePath(node.file_path),
+    });
   }
 
   async getOverview(): Promise<OverviewData> {
     const cache = this.requireScanCache();
     const topSymbols = topSymbolResults(cache, 5);
-    const savedViews = topSymbols.slice(0, 3).map((symbol, index) => ({
-      id: `saved:${symbol.id}`,
-      label: index === 0 ? "Primary flow" : `Focus ${index}`,
-      description: `Explore the neighborhood around ${symbol.subtitle}.`,
-      nodeId: symbol.nodeId ?? symbol.id,
-    }));
+    const savedViews = [
+      {
+        id: "saved:architecture",
+        label: "Architecture Map",
+        description: "Start at the repo boundary and inspect module interactions.",
+        nodeId: cache.payload.graph.repo_id,
+        level: "repo" as GraphAbstractionLevel,
+      },
+      ...topSymbols.slice(0, 2).map((symbol, index) => ({
+        id: `saved:${symbol.id}`,
+        label: index === 0 ? "Primary Blueprint" : `Focus ${index + 1}`,
+        description: `Inspect ${symbol.subtitle} without opening raw source.`,
+        nodeId: symbol.nodeId ?? symbol.id,
+        level: "symbol" as GraphAbstractionLevel,
+      })),
+    ];
 
-    const modules: OverviewModule[] = cache.payload.summary.modules.map((module) => ({
-      id: `module:${module.module_id}`,
-      moduleId: module.module_id,
-      moduleName: module.module_name,
-      relativePath: module.relative_path,
-      symbolCount: module.symbol_count,
-      importCount: module.import_count,
-      callCount: module.outgoing_call_count,
-    }));
+    const modules = buildOverviewModules(cache);
 
     const diagnostics = cache.payload.graph.diagnostics
       .slice(0, 3)
       .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`);
     if (!diagnostics.length) {
       diagnostics.push("No parser diagnostics were reported in the last scan.");
-    }
-    if (cache.payload.graph.unresolved_calls.length) {
-      diagnostics.push(
-        `${cache.payload.graph.unresolved_calls.length} unresolved calls need a closer look.`,
-      );
     }
 
     return {
@@ -456,6 +623,8 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       focusSymbols: topSymbols,
       diagnostics,
       backend: cache.backend,
+      defaultLevel: cache.payload.workspace.default_level,
+      defaultFocusNodeId: cache.payload.workspace.default_focus_node_id,
     };
   }
 
@@ -655,18 +824,34 @@ function buildScanCache(
 }
 
 function buildSearchEntries(cache: ScanCache): SearchResult[] {
-  const fileEntries = cache.payload.graph.nodes
+  const moduleEntries = cache.payload.graph.nodes
     .filter((node) => node.kind === "module" && !node.is_external)
     .map((node) => {
       const filePath = relativePathForNode(node, cache);
       return {
         id: node.node_id,
-        kind: "file" as const,
-        title: filePath,
-        subtitle: node.module_name ?? node.display_name,
+        kind: "module" as const,
+        title: node.module_name ?? node.name,
+        subtitle: filePath,
         score: 0,
         filePath,
         nodeId: node.node_id,
+        level: "module" as GraphAbstractionLevel,
+      };
+    });
+  const fileEntries = cache.payload.graph.nodes
+    .filter((node) => node.kind === "module" && !node.is_external)
+    .map((node) => {
+      const filePath = relativePathForNode(node, cache);
+      return {
+        id: `file:${filePath}`,
+        kind: "file" as const,
+        title: filePath,
+        subtitle: "Raw source utility",
+        score: 0,
+        filePath,
+        nodeId: node.node_id,
+        level: "module" as GraphAbstractionLevel,
       };
     });
   const symbolEntries = cache.payload.graph.nodes
@@ -680,9 +865,10 @@ function buildSearchEntries(cache: ScanCache): SearchResult[] {
       filePath: relativePathForNode(node, cache),
       symbolId: node.node_id,
       nodeId: node.node_id,
+      level: "symbol" as GraphAbstractionLevel,
     }));
 
-  return [...symbolEntries, ...fileEntries];
+  return [...symbolEntries, ...moduleEntries, ...fileEntries];
 }
 
 function relativePathForRawNode(node: RawGraphNode, rootPath: string): string {
@@ -738,6 +924,12 @@ function buildSignature(node: RawGraphNode): string {
   if (symbolKind === "class") {
     return `${node.qualname ?? node.display_name} class`;
   }
+  if (symbolKind === "enum") {
+    return `${node.qualname ?? node.display_name} enum`;
+  }
+  if (symbolKind === "variable") {
+    return `${node.qualname ?? node.display_name} value`;
+  }
   return `${node.qualname ?? node.display_name}(...)`;
 }
 
@@ -769,128 +961,113 @@ function buildHotspots(cache: ScanCache) {
   const hotspots = [];
   if (topModule) {
     hotspots.push({
-      title: `${topModule.module_name} is the densest module`,
-      description: `${topModule.relative_path} leads the current summary with ${topModule.symbol_count} symbols and ${topModule.outgoing_call_count} outgoing calls.`,
+      title: `${topModule.module_name} anchors the architecture map`,
+      description: `${topModule.relative_path} currently leads the scan with ${topModule.symbol_count} symbols and ${topModule.outgoing_call_count} outgoing calls.`,
     });
   }
   hotspots.push({
-    title: `${cache.payload.graph.unresolved_calls.length} unresolved calls`,
+    title: `${cache.payload.workspace.default_level} is the default opening level`,
     description:
-      cache.payload.graph.unresolved_calls.length > 0
-        ? "The graph builder found conservative call sites that still need human review, which makes them a good UI-level validation target."
-        : "The current scan resolved every tracked call edge in this repo slice.",
+      cache.payload.workspace.default_level === "module"
+        ? "This repo is large enough to open at the module architecture layer first."
+        : "This repo is compact enough to open directly at the symbol layer.",
   });
   hotspots.push({
-    title: `${cache.payload.graph.diagnostics.length} parser diagnostics`,
+    title: `${cache.payload.graph.report.diagnostic_count} parser diagnostics`,
     description:
-      cache.payload.graph.diagnostics.length > 0
-        ? "Diagnostics are surfaced in the overview so you can validate parser edge cases without leaving the desktop app."
+      cache.payload.graph.report.diagnostic_count > 0
+        ? "Diagnostics are surfaced in the overview so you can validate parser edge cases without leaving the graph editor."
         : "No parser diagnostics were surfaced in the last scan.",
   });
   return hotspots;
 }
 
-function collectNeighborhood(
-  rootNodeId: string,
-  depth: number,
-  edges: RawGraphEdge[],
-): Set<string> {
-  const adjacency = new Map<string, Set<string>>();
-  const connect = (left: string, right: string) => {
-    adjacency.set(left, new Set([...(adjacency.get(left) ?? []), right]));
-  };
-  edges.forEach((edge) => {
-    connect(edge.source_id, edge.target_id);
-    connect(edge.target_id, edge.source_id);
+function buildOverviewModules(cache: ScanCache): OverviewModule[] {
+  const symbolCountByModule = new Map<string, number>();
+  const importCountByModule = new Map<string, number>();
+  const callCountByModule = new Map<string, number>();
+
+  cache.payload.graph.nodes.forEach((node) => {
+    if (node.kind === "symbol" && node.module_name) {
+      const moduleId = `module:${node.module_name}`;
+      symbolCountByModule.set(moduleId, (symbolCountByModule.get(moduleId) ?? 0) + 1);
+    }
   });
 
-  const visited = new Set<string>([rootNodeId]);
-  const queue: Array<{ nodeId: string; distance: number }> = [
-    { nodeId: rootNodeId, distance: 0 },
-  ];
+  cache.payload.graph.edges.forEach((edge) => {
+    const sourceNode = cache.nodeById.get(edge.source_id);
+    const targetNode = cache.nodeById.get(edge.target_id);
+    const moduleName =
+      sourceNode?.kind === "module"
+        ? sourceNode.module_name
+        : sourceNode?.module_name;
+    if (!moduleName) {
+      return;
+    }
+    const moduleId = `module:${moduleName}`;
+    if (edge.kind === "imports" && targetNode?.is_external !== true) {
+      importCountByModule.set(moduleId, (importCountByModule.get(moduleId) ?? 0) + 1);
+    }
+    if (edge.kind === "calls") {
+      callCountByModule.set(moduleId, (callCountByModule.get(moduleId) ?? 0) + 1);
+    }
+  });
 
-  while (queue.length) {
-    const current = queue.shift();
-    if (!current) {
-      continue;
-    }
-    if (current.distance >= depth) {
-      continue;
-    }
-    for (const nextNodeId of adjacency.get(current.nodeId) ?? []) {
-      if (visited.has(nextNodeId)) {
-        continue;
-      }
-      visited.add(nextNodeId);
-      queue.push({ nodeId: nextNodeId, distance: current.distance + 1 });
-    }
-  }
-
-  return visited;
+  return cache.payload.graph.nodes
+    .filter((node) => node.kind === "module" && !node.is_external)
+    .sort((left, right) =>
+      relativePathForNode(left, cache).localeCompare(relativePathForNode(right, cache)),
+    )
+    .map((node) => ({
+      id: `module:${node.node_id}`,
+      moduleId: node.node_id,
+      moduleName: node.module_name ?? node.name,
+      relativePath: relativePathForNode(node, cache),
+      symbolCount: symbolCountByModule.get(node.node_id) ?? 0,
+      importCount: importCountByModule.get(node.node_id) ?? 0,
+      callCount: callCountByModule.get(node.node_id) ?? 0,
+      outline: buildModuleOutline(node, cache),
+    }));
 }
 
-function layoutGraphNodes(
-  nodes: RawGraphNode[],
-  rootNodeId: string,
-  edges: RawGraphEdge[],
-): GraphNodeDto[] {
-  const adjacency = new Map<string, Set<string>>();
-  const connect = (left: string, right: string) => {
-    adjacency.set(left, new Set([...(adjacency.get(left) ?? []), right]));
-  };
-  edges.forEach((edge) => {
-    connect(edge.source_id, edge.target_id);
-    connect(edge.target_id, edge.source_id);
-  });
-
-  const levels = new Map<string, number>([[rootNodeId, 0]]);
-  const queue = [rootNodeId];
-  while (queue.length) {
-    const current = queue.shift();
-    if (!current) {
-      continue;
-    }
-    const currentLevel = levels.get(current) ?? 0;
-    for (const next of adjacency.get(current) ?? []) {
-      if (levels.has(next)) {
-        continue;
+function buildModuleOutline(
+  moduleNode: RawGraphNode,
+  cache: ScanCache,
+): OverviewOutlineItem[] {
+  return (cache.edgesBySource.get(moduleNode.node_id) ?? [])
+    .filter((edge) => edge.kind === "defines")
+    .map((edge) => cache.nodeById.get(edge.target_id))
+    .filter((node): node is RawGraphNode => {
+      if (!node || node.kind !== "symbol" || node.is_external) {
+        return false;
       }
-      levels.set(next, currentLevel + 1);
-      queue.push(next);
-    }
-  }
+      return isOutlineSymbolKind(String(node.metadata.symbol_kind ?? ""));
+    })
+    .sort((left, right) => {
+      const lineDelta = (left.span?.start_line ?? Number.MAX_SAFE_INTEGER) - (right.span?.start_line ?? Number.MAX_SAFE_INTEGER);
+      if (lineDelta !== 0) {
+        return lineDelta;
+      }
+      return left.name.localeCompare(right.name);
+    })
+    .map((node) => ({
+      id: `outline:${node.node_id}`,
+      nodeId: node.node_id,
+      label: node.name,
+      kind: String(node.metadata.symbol_kind ?? "function") as OverviewOutlineItem["kind"],
+      startLine: node.span?.start_line ?? 0,
+      topLevel: true,
+    }));
+}
 
-  const grouped = new Map<number, RawGraphNode[]>();
-  nodes.forEach((node) => {
-    const level = levels.get(node.node_id) ?? 0;
-    grouped.set(level, [...(grouped.get(level) ?? []), node]);
-  });
-
-  const sortedGroups = Array.from(grouped.entries()).sort((left, right) => left[0] - right[0]);
-  const positioned: GraphNodeDto[] = [];
-  sortedGroups.forEach(([level, group]) => {
-    const sortedNodes = group.sort((left, right) =>
-      `${left.kind}:${left.display_name}`.localeCompare(`${right.kind}:${right.display_name}`),
-    );
-    const totalHeight = (sortedNodes.length - 1) * 140;
-    sortedNodes.forEach((node, index) => {
-      positioned.push({
-        id: node.node_id,
-        kind: node.kind,
-        label: node.name,
-        subtitle:
-          node.kind === "symbol"
-            ? node.qualname ?? node.display_name
-            : typeof node.metadata.relative_path === "string"
-              ? node.metadata.relative_path
-              : node.display_name,
-        x: level * 280,
-        y: index * 140 - totalHeight / 2,
-      });
-    });
-  });
-
-  return positioned;
+function isOutlineSymbolKind(value: string): value is OverviewOutlineItem["kind"] {
+  return (
+    value === "function"
+    || value === "async_function"
+    || value === "class"
+    || value === "enum"
+    || value === "variable"
+  );
 }
 
 function scoreSearchResult(
@@ -899,12 +1076,14 @@ function scoreSearchResult(
   degreeByNodeId: Map<string, number>,
 ): number {
   const degree = degreeByNodeId.get(result.nodeId ?? result.id) ?? 0;
+  const kindWeight =
+    result.kind === "symbol" ? 18 : result.kind === "module" ? 12 : 2;
   if (!query) {
-    return degree + (result.kind === "symbol" ? 8 : 4);
+    return degree + kindWeight;
   }
 
   const haystacks = [result.title.toLowerCase(), result.subtitle.toLowerCase(), result.filePath];
-  let score = degree;
+  let score = degree + kindWeight;
   if (haystacks.some((value) => value === query)) {
     score += 60;
   }
@@ -913,9 +1092,6 @@ function scoreSearchResult(
   }
   if (haystacks.some((value) => value.includes(query))) {
     score += 12;
-  }
-  if (result.kind === "symbol") {
-    score += 4;
   }
   return score;
 }
@@ -945,4 +1121,391 @@ function toMessage(reason: unknown): string {
     return reason;
   }
   return "Unknown desktop bridge failure.";
+}
+
+function toRawEditRequest(request: StructuralEditRequest) {
+  return {
+    kind: request.kind,
+    target_id: request.targetId,
+    relative_path: request.relativePath,
+    new_name: request.newName,
+    symbol_kind: request.symbolKind,
+    destination_relative_path: request.destinationRelativePath,
+    imported_module: request.importedModule,
+    imported_name: request.importedName,
+    alias: request.alias,
+    body: request.body,
+    content: request.content,
+  };
+}
+
+function toStructuralEditResult(raw: RawEditResult): StructuralEditResult {
+  return {
+    request: raw.request,
+    summary: raw.summary,
+    touchedRelativePaths: raw.touched_relative_paths,
+    reparsedRelativePaths: raw.reparsed_relative_paths,
+    changedNodeIds: raw.changed_node_ids,
+    warnings: raw.warnings,
+  };
+}
+
+function layoutGraphView(raw: RawGraphView): GraphView {
+  const architectureView = raw.level === "repo" || raw.level === "module";
+  const flowView = raw.level === "flow";
+  const layoutEdges = architectureView
+    ? raw.edges.filter((edge) => edge.kind !== "contains")
+    : raw.edges;
+  const edgesForLevels = layoutEdges.length ? layoutEdges : raw.edges;
+  const levels = architectureView
+    ? buildArchitectureLevels(raw.nodes, edgesForLevels)
+    : flowView
+      ? buildFlowLevels(raw.nodes, edgesForLevels)
+      : buildBreadthLevels(raw.root_node_id, edgesForLevels);
+  const repoNode = raw.nodes.find((node) => node.kind === "repo");
+  const positioned = layoutRelaxedDirectedGraph(raw.nodes, raw.edges, levels, {
+    architectureView,
+    flowView,
+    repoNodeId: architectureView ? repoNode?.node_id : undefined,
+  });
+
+  return {
+    rootNodeId: raw.root_node_id,
+    targetId: raw.target_id,
+    level: raw.level,
+    nodes: raw.nodes.map((node) => ({
+      id: node.node_id,
+      kind: node.kind,
+      label: node.label,
+      subtitle: node.subtitle ?? "",
+      metadata: node.metadata,
+      availableActions: node.available_actions.map(toGraphAction),
+      x: positioned.get(node.node_id)?.x ?? 0,
+      y: positioned.get(node.node_id)?.y ?? 0,
+    })),
+    edges: raw.edges.map((edge) => ({
+      id: edge.edge_id,
+      kind: edge.kind,
+      source: edge.source_id,
+      target: edge.target_id,
+      label: edge.label ?? undefined,
+      metadata: edge.metadata,
+    })),
+    breadcrumbs: raw.breadcrumbs.map(
+      (breadcrumb): GraphBreadcrumbDto => ({
+        nodeId: breadcrumb.node_id,
+        level: breadcrumb.level,
+        label: breadcrumb.label,
+        subtitle: breadcrumb.subtitle ?? undefined,
+      }),
+    ),
+    focus: raw.focus
+      ? ({
+          targetId: raw.focus.target_id,
+          level: raw.focus.level,
+          label: raw.focus.label,
+          subtitle: raw.focus.subtitle ?? undefined,
+          availableLevels: raw.focus.available_levels,
+        } satisfies GraphFocusDto)
+      : undefined,
+    truncated: raw.truncated,
+  };
+}
+
+function buildBreadthLevels(
+  rootNodeId: string,
+  edges: RawGraphViewEdge[],
+): Map<string, number> {
+  const adjacency = new Map<string, Set<string>>();
+  const connect = (left: string, right: string) => {
+    adjacency.set(left, new Set([...(adjacency.get(left) ?? []), right]));
+  };
+
+  edges.forEach((edge) => {
+    connect(edge.source_id, edge.target_id);
+    connect(edge.target_id, edge.source_id);
+  });
+
+  const levels = new Map<string, number>([[rootNodeId, 0]]);
+  const queue = [rootNodeId];
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+    const currentLevel = levels.get(current) ?? 0;
+    for (const next of adjacency.get(current) ?? []) {
+      if (levels.has(next)) {
+        continue;
+      }
+      levels.set(next, currentLevel + 1);
+      queue.push(next);
+    }
+  }
+
+  return levels;
+}
+
+function buildFlowLevels(
+  nodes: RawGraphViewNode[],
+  edges: RawGraphViewEdge[],
+): Map<string, number> {
+  const levels = new Map<string, number>();
+
+  nodes.forEach((node) => {
+    if (node.kind === "entry" || node.kind === "param") {
+      levels.set(node.node_id, 0);
+    }
+  });
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const edge of edges) {
+      if (edge.kind !== "controls") {
+        continue;
+      }
+      const sourceLevel = levels.get(edge.source_id);
+      if (sourceLevel === undefined) {
+        continue;
+      }
+      const nextLevel = sourceLevel + 1;
+      const currentLevel = levels.get(edge.target_id);
+      if (currentLevel === undefined || nextLevel > currentLevel) {
+        levels.set(edge.target_id, nextLevel);
+        changed = true;
+      }
+    }
+  }
+
+  nodes.forEach((node) => {
+    if (!levels.has(node.node_id)) {
+      levels.set(node.node_id, node.kind === "param" ? 0 : 1);
+    }
+  });
+
+  return levels;
+}
+
+function buildArchitectureLevels(
+  nodes: RawGraphViewNode[],
+  edges: RawGraphViewEdge[],
+): Map<string, number> {
+  const moduleLikeNodes = nodes.filter((node) => node.kind !== "repo");
+  const nodeIds = new Set(moduleLikeNodes.map((node) => node.node_id));
+  const indegree = new Map<string, number>();
+  const outgoing = new Map<string, string[]>();
+
+  moduleLikeNodes.forEach((node) => indegree.set(node.node_id, 0));
+
+  edges.forEach((edge) => {
+    if (!nodeIds.has(edge.source_id) || !nodeIds.has(edge.target_id)) {
+      return;
+    }
+    outgoing.set(edge.source_id, [...(outgoing.get(edge.source_id) ?? []), edge.target_id]);
+    indegree.set(edge.target_id, (indegree.get(edge.target_id) ?? 0) + 1);
+  });
+
+  const queue = Array.from(indegree.entries())
+    .filter(([, count]) => count === 0)
+    .map(([nodeId]) => nodeId);
+  const levels = new Map<string, number>();
+
+  if (!queue.length) {
+    moduleLikeNodes.forEach((node) => levels.set(node.node_id, 0));
+    return levels;
+  }
+
+  queue.forEach((nodeId) => levels.set(nodeId, 0));
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+    const currentLevel = levels.get(current) ?? 0;
+    for (const next of outgoing.get(current) ?? []) {
+      levels.set(next, Math.max(levels.get(next) ?? 0, currentLevel + 1));
+      const nextDegree = (indegree.get(next) ?? 0) - 1;
+      indegree.set(next, nextDegree);
+      if (nextDegree === 0) {
+        queue.push(next);
+      }
+    }
+  }
+
+  moduleLikeNodes.forEach((node) => {
+    if (!levels.has(node.node_id)) {
+      levels.set(node.node_id, 0);
+    }
+  });
+  return levels;
+}
+
+function layoutRelaxedDirectedGraph(
+  nodes: RawGraphViewNode[],
+  edges: RawGraphViewEdge[],
+  levels: Map<string, number>,
+  options: {
+    architectureView: boolean;
+    flowView: boolean;
+    repoNodeId?: string;
+  },
+): Map<string, { x: number; y: number }> {
+  const nodeIds = new Set(nodes.map((node) => node.node_id));
+  const relevantEdges = edges.filter(
+    (edge) => nodeIds.has(edge.source_id) && nodeIds.has(edge.target_id),
+  );
+  const buckets = new Map<number, RawGraphViewNode[]>();
+
+  nodes.forEach((node) => {
+    const baseLevel =
+      node.node_id === options.repoNodeId ? -1 : (levels.get(node.node_id) ?? 0);
+    buckets.set(baseLevel, [...(buckets.get(baseLevel) ?? []), node]);
+  });
+
+  const sortedLevels = Array.from(buckets.keys()).sort((left, right) => left - right);
+  const minLevel = sortedLevels[0] ?? 0;
+  const levelGap = options.architectureView ? 420 : options.flowView ? 340 : 380;
+  const rowGap = options.architectureView ? 210 : options.flowView ? 170 : 190;
+  const positions = new Map<string, { x: number; y: number }>();
+  const fixedNodeIds = new Set<string>(options.repoNodeId ? [options.repoNodeId] : []);
+
+  sortedLevels.forEach((level) => {
+    const group = [...(buckets.get(level) ?? [])].sort((left, right) =>
+      `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
+    );
+    group.forEach((node, index) => {
+      const centeredIndex = index - (group.length - 1) / 2;
+      positions.set(node.node_id, {
+        x:
+          (level - minLevel) * levelGap
+          + centeredIndex * 54
+          + stableLayoutOffset(node.node_id, 82),
+        y: centeredIndex * rowGap + stableLayoutOffset(node.node_id, 96),
+      });
+    });
+  });
+
+  if (options.repoNodeId && positions.has(options.repoNodeId)) {
+    positions.set(options.repoNodeId, { x: -levelGap * 1.15, y: 0 });
+  }
+
+  for (let iteration = 0; iteration < 140; iteration += 1) {
+    const displacement = new Map<string, { x: number; y: number }>();
+    nodes.forEach((node) => displacement.set(node.node_id, { x: 0, y: 0 }));
+
+    for (let index = 0; index < nodes.length; index += 1) {
+      const left = nodes[index];
+      const leftPosition = positions.get(left.node_id);
+      if (!leftPosition) {
+        continue;
+      }
+
+      for (let otherIndex = index + 1; otherIndex < nodes.length; otherIndex += 1) {
+        const right = nodes[otherIndex];
+        const rightPosition = positions.get(right.node_id);
+        if (!rightPosition) {
+          continue;
+        }
+
+        const dx = rightPosition.x - leftPosition.x;
+        const dy = rightPosition.y - leftPosition.y;
+        const distance = Math.max(Math.hypot(dx, dy), 1);
+        const repulsion = Math.min(180000 / (distance * distance), 22);
+        const unitX = dx / distance;
+        const unitY = dy / distance;
+
+        displacement.get(left.node_id)!.x -= unitX * repulsion;
+        displacement.get(left.node_id)!.y -= unitY * repulsion;
+        displacement.get(right.node_id)!.x += unitX * repulsion;
+        displacement.get(right.node_id)!.y += unitY * repulsion;
+      }
+    }
+
+    relevantEdges.forEach((edge) => {
+      const sourcePosition = positions.get(edge.source_id);
+      const targetPosition = positions.get(edge.target_id);
+      if (!sourcePosition || !targetPosition) {
+        return;
+      }
+
+      const desiredGap = desiredHorizontalGap(edge, options.flowView);
+      const dx = targetPosition.x - sourcePosition.x;
+      const dy = targetPosition.y - sourcePosition.y;
+      const xError = dx - desiredGap;
+      const yError = dy;
+      const xAdjust = xError * 0.05;
+      const yAdjust = yError * 0.025;
+
+      displacement.get(edge.source_id)!.x += xAdjust * 0.5;
+      displacement.get(edge.target_id)!.x -= xAdjust * 0.5;
+      displacement.get(edge.source_id)!.y += yAdjust * 0.5;
+      displacement.get(edge.target_id)!.y -= yAdjust * 0.5;
+    });
+
+    nodes.forEach((node) => {
+      const position = positions.get(node.node_id);
+      const change = displacement.get(node.node_id);
+      if (!position || !change) {
+        return;
+      }
+
+      if (fixedNodeIds.has(node.node_id)) {
+        position.y += clampLayoutDelta((0 - position.y) * 0.08, 20);
+        return;
+      }
+
+      const nodeLevel =
+        node.node_id === options.repoNodeId ? -1 : (levels.get(node.node_id) ?? 0);
+      const anchorX =
+        (nodeLevel - minLevel) * levelGap
+        + stableLayoutOffset(node.node_id, 82);
+
+      position.x += clampLayoutDelta(change.x + (anchorX - position.x) * 0.02, 28);
+      position.y += clampLayoutDelta(change.y + (0 - position.y) * 0.003, 24);
+    });
+  }
+
+  return positions;
+}
+
+function stableLayoutOffset(nodeId: string, spread: number): number {
+  let hash = 0;
+  for (let index = 0; index < nodeId.length; index += 1) {
+    hash = (hash * 31 + nodeId.charCodeAt(index)) >>> 0;
+  }
+  return ((hash / 0xffffffff) - 0.5) * spread;
+}
+
+function desiredHorizontalGap(edge: RawGraphViewEdge, flowView: boolean): number {
+  if (edge.kind === "defines") {
+    return flowView ? 250 : 320;
+  }
+  if (edge.kind === "controls") {
+    return 240;
+  }
+  if (edge.kind === "data") {
+    return 210;
+  }
+  if (edge.kind === "calls") {
+    return flowView ? 260 : 380;
+  }
+  if (edge.kind === "imports") {
+    return 360;
+  }
+  return 300;
+}
+
+function clampLayoutDelta(value: number, maxMagnitude: number): number {
+  return Math.max(-maxMagnitude, Math.min(maxMagnitude, value));
+}
+
+function toGraphAction(action: RawGraphAction): GraphActionDto {
+  return {
+    actionId: action.action_id,
+    label: action.label,
+    enabled: action.enabled,
+    reason: action.reason ?? undefined,
+    payload: action.payload,
+  };
 }
