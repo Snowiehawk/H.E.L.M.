@@ -1,11 +1,24 @@
 import { PropsWithChildren, useEffect, useState, type CSSProperties } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   AdapterProvider,
   createDesktopAdapter,
   DesktopAdapter,
 } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
+
+const GRAPH_VIEW_MENU_EVENT = "helm://graph-view-menu";
+
+function isNativeMacApp() {
+  return (
+    typeof window !== "undefined"
+    && "__TAURI_INTERNALS__" in window
+    && typeof navigator !== "undefined"
+    && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
+  );
+}
 
 function ThemeBridge() {
   const theme = useUiStore((state) => state.theme);
@@ -75,6 +88,86 @@ function UiScaleBridge() {
   return null;
 }
 
+function NativeGraphViewMenuBridge() {
+  const graphFilters = useUiStore((state) => state.graphFilters);
+  const highlightGraphPath = useUiStore((state) => state.highlightGraphPath);
+  const showEdgeLabels = useUiStore((state) => state.showEdgeLabels);
+  const toggleGraphFilter = useUiStore((state) => state.toggleGraphFilter);
+  const toggleGraphPathHighlight = useUiStore((state) => state.toggleGraphPathHighlight);
+  const toggleEdgeLabels = useUiStore((state) => state.toggleEdgeLabels);
+
+  useEffect(() => {
+    if (!isNativeMacApp()) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void (async () => {
+      const detach = await listen<{ action?: string }>(GRAPH_VIEW_MENU_EVENT, (event) => {
+        switch (event.payload?.action) {
+          case "toggle-calls":
+            toggleGraphFilter("includeCalls");
+            break;
+          case "toggle-imports":
+            toggleGraphFilter("includeImports");
+            break;
+          case "toggle-defines":
+            toggleGraphFilter("includeDefines");
+            break;
+          case "toggle-path-highlight":
+            toggleGraphPathHighlight();
+            break;
+          case "toggle-edge-labels":
+            toggleEdgeLabels();
+            break;
+          default:
+            break;
+        }
+      });
+
+      if (disposed) {
+        detach();
+        return;
+      }
+
+      unlisten = detach;
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [toggleEdgeLabels, toggleGraphFilter, toggleGraphPathHighlight]);
+
+  useEffect(() => {
+    if (!isNativeMacApp()) {
+      return;
+    }
+
+    void (async () => {
+      await invoke("sync_graph_view_menu_state", {
+        stateJson: JSON.stringify({
+          includeCalls: graphFilters.includeCalls,
+          includeImports: graphFilters.includeImports,
+          includeDefines: graphFilters.includeDefines,
+          highlightGraphPath,
+          showEdgeLabels,
+        }),
+      });
+    })();
+  }, [
+    graphFilters.includeCalls,
+    graphFilters.includeDefines,
+    graphFilters.includeImports,
+    highlightGraphPath,
+    showEdgeLabels,
+  ]);
+
+  return null;
+}
+
 export function AppProviders({
   children,
   adapter,
@@ -99,6 +192,7 @@ export function AppProviders({
       <AdapterProvider adapter={resolvedAdapter}>
         <ThemeBridge />
         <UiScaleBridge />
+        <NativeGraphViewMenuBridge />
         <div
           className="app-scale-shell"
           style={{ "--app-ui-scale": String(uiScale) } as CSSProperties}

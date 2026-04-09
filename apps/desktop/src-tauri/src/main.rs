@@ -7,6 +7,18 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
+use tauri::{
+    menu::{AboutMetadata, CheckMenuItem, Menu, PredefinedMenuItem, Submenu},
+    AppHandle, Emitter, Manager, Wry,
+};
+
+const GRAPH_VIEW_MENU_EVENT: &str = "helm://graph-view-menu";
+const MENU_ID_SHOW_CALLS: &str = "graph-view.show-calls";
+const MENU_ID_SHOW_IMPORTS: &str = "graph-view.show-imports";
+const MENU_ID_SHOW_DEFINES: &str = "graph-view.show-defines";
+const MENU_ID_HIGHLIGHT_PATH: &str = "graph-view.highlight-path";
+const MENU_ID_SHOW_EDGE_LABELS: &str = "graph-view.show-edge-labels";
 
 #[derive(Serialize)]
 struct BackendHealth {
@@ -46,6 +58,31 @@ struct StoredGraphViewLayout {
 #[derive(Default, Serialize, Deserialize)]
 struct RepoGraphLayouts {
     views: BTreeMap<String, StoredGraphViewLayout>,
+}
+
+#[derive(Default)]
+struct GraphViewMenuState {
+    show_calls: Mutex<Option<CheckMenuItem<Wry>>>,
+    show_imports: Mutex<Option<CheckMenuItem<Wry>>>,
+    show_defines: Mutex<Option<CheckMenuItem<Wry>>>,
+    highlight_path: Mutex<Option<CheckMenuItem<Wry>>>,
+    show_edge_labels: Mutex<Option<CheckMenuItem<Wry>>>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphViewMenuActionPayload {
+    action: &'static str,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphViewMenuSyncPayload {
+    include_calls: bool,
+    include_imports: bool,
+    include_defines: bool,
+    highlight_graph_path: bool,
+    show_edge_labels: bool,
 }
 
 #[tauri::command]
@@ -216,6 +253,17 @@ fn reveal_path_in_file_explorer(file_path: String) -> Result<(), String> {
                 Err(format!("File explorer command failed for {}", path.display()))
             }
         })
+}
+
+#[tauri::command]
+fn sync_graph_view_menu_state(
+    state: tauri::State<'_, GraphViewMenuState>,
+    state_json: String,
+) -> Result<(), String> {
+    let payload: GraphViewMenuSyncPayload = serde_json::from_str(&state_json)
+        .map_err(|err| format!("Unable to decode graph view menu state: {}", err))?;
+
+    sync_graph_view_menu_items(state.inner(), &payload)
 }
 
 fn run_bridge_json(args: &[&str]) -> Result<Value, String> {
@@ -409,8 +457,205 @@ fn normalize_reroutes(value: Option<&Value>) -> Vec<StoredGraphRerouteNode> {
         .collect()
 }
 
+fn set_graph_view_menu_item(
+    item: &Mutex<Option<CheckMenuItem<Wry>>>,
+    checked: bool,
+) -> Result<(), String> {
+    let handle = item
+        .lock()
+        .map_err(|_| "Unable to lock graph view menu state.".to_string())?;
+
+    if let Some(item) = handle.as_ref() {
+        item.set_checked(checked)
+            .map_err(|err| format!("Unable to update graph view menu item: {}", err))?;
+    }
+
+    Ok(())
+}
+
+fn sync_graph_view_menu_items(
+    state: &GraphViewMenuState,
+    payload: &GraphViewMenuSyncPayload,
+) -> Result<(), String> {
+    set_graph_view_menu_item(&state.show_calls, payload.include_calls)?;
+    set_graph_view_menu_item(&state.show_imports, payload.include_imports)?;
+    set_graph_view_menu_item(&state.show_defines, payload.include_defines)?;
+    set_graph_view_menu_item(&state.highlight_path, payload.highlight_graph_path)?;
+    set_graph_view_menu_item(&state.show_edge_labels, payload.show_edge_labels)?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_app_menu(
+    app: &AppHandle<Wry>,
+    state: &GraphViewMenuState,
+) -> tauri::Result<Menu<Wry>> {
+    let pkg_info = app.package_info();
+    let config = app.config();
+    let about_metadata = AboutMetadata {
+        name: Some(pkg_info.name.clone()),
+        version: Some(pkg_info.version.to_string()),
+        copyright: config.bundle.copyright.clone(),
+        authors: config.bundle.publisher.clone().map(|publisher| vec![publisher]),
+        ..Default::default()
+    };
+
+    let show_calls = CheckMenuItem::with_id(
+        app,
+        MENU_ID_SHOW_CALLS,
+        "Show Calls",
+        true,
+        true,
+        None::<&str>,
+    )?;
+    let show_imports = CheckMenuItem::with_id(
+        app,
+        MENU_ID_SHOW_IMPORTS,
+        "Show Imports",
+        true,
+        true,
+        None::<&str>,
+    )?;
+    let show_defines = CheckMenuItem::with_id(
+        app,
+        MENU_ID_SHOW_DEFINES,
+        "Show Defines",
+        true,
+        true,
+        None::<&str>,
+    )?;
+    let highlight_path = CheckMenuItem::with_id(
+        app,
+        MENU_ID_HIGHLIGHT_PATH,
+        "Highlight Current Path",
+        true,
+        true,
+        None::<&str>,
+    )?;
+    let show_edge_labels = CheckMenuItem::with_id(
+        app,
+        MENU_ID_SHOW_EDGE_LABELS,
+        "Show Edge Labels",
+        true,
+        true,
+        None::<&str>,
+    )?;
+
+    if let Ok(mut item) = state.show_calls.lock() {
+        *item = Some(show_calls.clone());
+    }
+    if let Ok(mut item) = state.show_imports.lock() {
+        *item = Some(show_imports.clone());
+    }
+    if let Ok(mut item) = state.show_defines.lock() {
+        *item = Some(show_defines.clone());
+    }
+    if let Ok(mut item) = state.highlight_path.lock() {
+        *item = Some(highlight_path.clone());
+    }
+    if let Ok(mut item) = state.show_edge_labels.lock() {
+        *item = Some(show_edge_labels.clone());
+    }
+
+    Menu::with_items(
+        app,
+        &[
+            &Submenu::with_items(
+                app,
+                pkg_info.name.clone(),
+                true,
+                &[
+                    &PredefinedMenuItem::about(app, None, Some(about_metadata))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::services(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::hide(app, None)?,
+                    &PredefinedMenuItem::hide_others(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::quit(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "File",
+                true,
+                &[&PredefinedMenuItem::close_window(app, None)?],
+            )?,
+            &Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &PredefinedMenuItem::undo(app, None)?,
+                    &PredefinedMenuItem::redo(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::cut(app, None)?,
+                    &PredefinedMenuItem::copy(app, None)?,
+                    &PredefinedMenuItem::paste(app, None)?,
+                    &PredefinedMenuItem::select_all(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "View",
+                true,
+                &[
+                    &show_calls,
+                    &show_imports,
+                    &show_defines,
+                    &PredefinedMenuItem::separator(app)?,
+                    &highlight_path,
+                    &show_edge_labels,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::fullscreen(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "Window",
+                true,
+                &[
+                    &PredefinedMenuItem::minimize(app, None)?,
+                    &PredefinedMenuItem::maximize(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::close_window(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(app, "Help", true, &[])?,
+        ],
+    )
+}
+
 fn main() {
     tauri::Builder::default()
+        .manage(GraphViewMenuState::default())
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                let menu_state = app.state::<GraphViewMenuState>();
+                let menu = build_macos_app_menu(app.handle(), menu_state.inner())?;
+                app.handle().set_menu(menu)?;
+            }
+
+            Ok(())
+        })
+        .on_menu_event(|app, event| {
+            let action = match event.id().as_ref() {
+                MENU_ID_SHOW_CALLS => Some("toggle-calls"),
+                MENU_ID_SHOW_IMPORTS => Some("toggle-imports"),
+                MENU_ID_SHOW_DEFINES => Some("toggle-defines"),
+                MENU_ID_HIGHLIGHT_PATH => Some("toggle-path-highlight"),
+                MENU_ID_SHOW_EDGE_LABELS => Some("toggle-edge-labels"),
+                _ => None,
+            };
+
+            if let Some(action) = action {
+                let _ = app.emit(
+                    GRAPH_VIEW_MENU_EVENT,
+                    GraphViewMenuActionPayload { action },
+                );
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             backend_health,
@@ -425,7 +670,8 @@ fn main() {
             write_repo_graph_layout,
             read_repo_file,
             open_path_in_default_editor,
-            reveal_path_in_file_explorer
+            reveal_path_in_file_explorer,
+            sync_graph_view_menu_state
         ])
         .run(tauri::generate_context!())
         .expect("failed to run H.E.L.M. desktop shell");

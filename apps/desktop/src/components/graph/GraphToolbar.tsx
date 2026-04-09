@@ -16,6 +16,15 @@ interface Point {
 
 const TOOLBAR_MARGIN = 16;
 
+function isNativeMacApp() {
+  return (
+    typeof window !== "undefined"
+    && "__TAURI_INTERNALS__" in window
+    && typeof navigator !== "undefined"
+    && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
+  );
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -124,6 +133,8 @@ export function GraphToolbar({
   if (!graph) {
     return null;
   }
+
+  const showInlineViewOptions = !isNativeMacApp();
 
   const startDragging = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const toolbar = toolbarRef.current;
@@ -234,48 +245,50 @@ export function GraphToolbar({
               ))}
             </div>
 
-            <div className="graph-toolbar__row graph-filters">
-              <button
-                {...helpTargetProps("graph.filter.calls")}
-                className={`toggle-button${graphFilters.includeCalls ? " is-active" : ""}`}
-                type="button"
-                onClick={() => onToggleGraphFilter("includeCalls")}
-              >
-                Calls
-              </button>
-              <button
-                {...helpTargetProps("graph.filter.imports")}
-                className={`toggle-button${graphFilters.includeImports ? " is-active" : ""}`}
-                type="button"
-                onClick={() => onToggleGraphFilter("includeImports")}
-              >
-                Imports
-              </button>
-              <button
-                {...helpTargetProps("graph.filter.defines")}
-                className={`toggle-button${graphFilters.includeDefines ? " is-active" : ""}`}
-                type="button"
-                onClick={() => onToggleGraphFilter("includeDefines")}
-              >
-                Defines
-              </button>
-              <button
-                {...helpTargetProps("graph.filter.path")}
-                className={`toggle-button${highlightGraphPath ? " is-active" : ""}`}
-                type="button"
-                onClick={onToggleGraphPathHighlight}
-              >
-                Path
-              </button>
-              <button
-                {...helpTargetProps("graph.filter.labels")}
-                className={`toggle-button${showEdgeLabels ? " is-active" : ""}`}
-                type="button"
-                onClick={onToggleEdgeLabels}
-              >
-                Labels
-              </button>
-            </div>
+            {showInlineViewOptions ? (
+              <div className="graph-toolbar__row graph-filters">
+                <button
+                  {...helpTargetProps("graph.filter.calls")}
+                  className={`toggle-button${graphFilters.includeCalls ? " is-active" : ""}`}
+                  type="button"
+                  onClick={() => onToggleGraphFilter("includeCalls")}
+                >
+                  Calls
+                </button>
+                <button
+                  {...helpTargetProps("graph.filter.imports")}
+                  className={`toggle-button${graphFilters.includeImports ? " is-active" : ""}`}
+                  type="button"
+                  onClick={() => onToggleGraphFilter("includeImports")}
+                >
+                  Imports
+                </button>
+                <button
+                  {...helpTargetProps("graph.filter.defines")}
+                  className={`toggle-button${graphFilters.includeDefines ? " is-active" : ""}`}
+                  type="button"
+                  onClick={() => onToggleGraphFilter("includeDefines")}
+                >
+                  Defines
+                </button>
+                <button
+                  {...helpTargetProps("graph.filter.path")}
+                  className={`toggle-button${highlightGraphPath ? " is-active" : ""}`}
+                  type="button"
+                  onClick={onToggleGraphPathHighlight}
+                >
+                  Path
+                </button>
+                <button
+                  {...helpTargetProps("graph.filter.labels")}
+                  className={`toggle-button${showEdgeLabels ? " is-active" : ""}`}
+                  type="button"
+                  onClick={onToggleEdgeLabels}
+                >
+                  Labels
+                </button>
+              </div>
+            ) : null}
 
             <div className="graph-breadcrumbs graph-breadcrumbs--toolbar">
               {graph.breadcrumbs.map((breadcrumb) => (
