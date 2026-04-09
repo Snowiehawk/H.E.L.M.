@@ -23,11 +23,29 @@ struct StoredGraphNodePosition {
     y: f64,
 }
 
-type StoredGraphLayout = BTreeMap<String, StoredGraphNodePosition>;
+type StoredGraphNodeLayout = BTreeMap<String, StoredGraphNodePosition>;
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredGraphRerouteNode {
+    id: String,
+    edge_id: String,
+    order: usize,
+    x: f64,
+    y: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+struct StoredGraphViewLayout {
+    #[serde(default)]
+    nodes: StoredGraphNodeLayout,
+    #[serde(default)]
+    reroutes: Vec<StoredGraphRerouteNode>,
+}
 
 #[derive(Default, Serialize, Deserialize)]
 struct RepoGraphLayouts {
-    views: BTreeMap<String, StoredGraphLayout>,
+    views: BTreeMap<String, StoredGraphViewLayout>,
 }
 
 #[tauri::command]
@@ -94,20 +112,17 @@ fn save_node_source(repo_path: String, target_id: String, content_json: String) 
 }
 
 #[tauri::command]
-fn read_repo_graph_layout(repo_path: String, view_key: String) -> Result<StoredGraphLayout, String> {
+fn read_repo_graph_layout(repo_path: String, view_key: String) -> Result<StoredGraphViewLayout, String> {
     let layouts = read_repo_graph_layouts(&repo_path)?;
     Ok(layouts.views.get(&view_key).cloned().unwrap_or_default())
 }
 
 #[tauri::command]
 fn write_repo_graph_layout(repo_path: String, view_key: String, layout_json: String) -> Result<(), String> {
-    let layout: StoredGraphLayout = serde_json::from_str(&layout_json)
+    let layout: StoredGraphViewLayout = serde_json::from_str(&layout_json)
         .map_err(|err| format!("Unable to decode graph layout payload: {}", err))?;
     let mut layouts = read_repo_graph_layouts(&repo_path)?;
-    let stored_layout = layouts.views.entry(view_key).or_default();
-    layout.into_iter().for_each(|(node_id, position)| {
-        stored_layout.insert(node_id, position);
-    });
+    layouts.views.insert(view_key, layout);
     write_repo_graph_layouts(&repo_path, &layouts)
 }
 
@@ -153,6 +168,52 @@ fn open_path_in_default_editor(file_path: String) -> Result<(), String> {
                 Ok(())
             } else {
                 Err(format!("Default editor command failed for {}", path.display()))
+            }
+        })
+}
+
+#[tauri::command]
+fn reveal_path_in_file_explorer(file_path: String) -> Result<(), String> {
+    let path = PathBuf::from(&file_path);
+    if !path.exists() {
+        return Err(format!("File does not exist: {}", path.display()));
+    }
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.args(["-R"]).arg(&path);
+        command
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let display = path.display().to_string();
+        let mut command = Command::new("explorer");
+        command.arg(format!("/select,{}", display));
+        command
+    };
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        let target = if path.is_dir() {
+            path.clone()
+        } else {
+            path.parent().unwrap_or(path.as_path()).to_path_buf()
+        };
+        command.arg(target);
+        command
+    };
+
+    command
+        .status()
+        .map_err(|err| format!("Unable to reveal {}: {}", path.display(), err))
+        .and_then(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("File explorer command failed for {}", path.display()))
             }
         })
 }
@@ -247,7 +308,8 @@ fn read_repo_graph_layouts(repo_path: &str) -> Result<RepoGraphLayouts, String> 
 
     let raw = fs::read_to_string(&layout_path)
         .map_err(|err| format!("Unable to read {}: {}", layout_path.display(), err))?;
-    Ok(serde_json::from_str(&raw).unwrap_or_default())
+    let parsed: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+    Ok(normalize_repo_graph_layouts(parsed))
 }
 
 fn write_repo_graph_layouts(repo_path: &str, layouts: &RepoGraphLayouts) -> Result<(), String> {
@@ -261,6 +323,90 @@ fn write_repo_graph_layouts(repo_path: &str, layouts: &RepoGraphLayouts) -> Resu
         .map_err(|err| format!("Unable to encode graph layout file: {}", err))?;
     fs::write(&layout_path, serialized)
         .map_err(|err| format!("Unable to write {}: {}", layout_path.display(), err))
+}
+
+fn normalize_repo_graph_layouts(value: Value) -> RepoGraphLayouts {
+    let mut layouts = RepoGraphLayouts::default();
+    let Some(views) = value
+        .get("views")
+        .and_then(Value::as_object)
+    else {
+        return layouts;
+    };
+
+    views.iter().for_each(|(view_key, raw_layout)| {
+        layouts
+            .views
+            .insert(view_key.clone(), normalize_graph_view_layout(raw_layout));
+    });
+
+    layouts
+}
+
+fn normalize_graph_view_layout(value: &Value) -> StoredGraphViewLayout {
+    if let Some(object) = value.as_object() {
+        if object.contains_key("nodes") || object.contains_key("reroutes") {
+            return StoredGraphViewLayout {
+                nodes: normalize_node_layout(object.get("nodes")),
+                reroutes: normalize_reroutes(object.get("reroutes")),
+            };
+        }
+    }
+
+    StoredGraphViewLayout {
+        nodes: normalize_node_layout(Some(value)),
+        reroutes: Vec::new(),
+    }
+}
+
+fn normalize_node_layout(value: Option<&Value>) -> StoredGraphNodeLayout {
+    let mut layout = StoredGraphNodeLayout::new();
+    let Some(entries) = value.and_then(Value::as_object) else {
+        return layout;
+    };
+
+    entries.iter().for_each(|(node_id, position)| {
+        let Some(object) = position.as_object() else {
+            return;
+        };
+
+        let Some(x) = object.get("x").and_then(Value::as_f64) else {
+            return;
+        };
+        let Some(y) = object.get("y").and_then(Value::as_f64) else {
+            return;
+        };
+
+        layout.insert(node_id.clone(), StoredGraphNodePosition { x, y });
+    });
+
+    layout
+}
+
+fn normalize_reroutes(value: Option<&Value>) -> Vec<StoredGraphRerouteNode> {
+    let Some(items) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+
+    items
+        .iter()
+        .filter_map(|item| {
+            let object = item.as_object()?;
+            let id = object.get("id")?.as_str()?.to_string();
+            let edge_id = object.get("edgeId")?.as_str()?.to_string();
+            let order = usize::try_from(object.get("order")?.as_u64()?).ok()?;
+            let x = object.get("x")?.as_f64()?;
+            let y = object.get("y")?.as_f64()?;
+
+            Some(StoredGraphRerouteNode {
+                id,
+                edge_id,
+                order,
+                x,
+                y,
+            })
+        })
+        .collect()
 }
 
 fn main() {
@@ -278,7 +424,8 @@ fn main() {
             read_repo_graph_layout,
             write_repo_graph_layout,
             read_repo_file,
-            open_path_in_default_editor
+            open_path_in_default_editor,
+            reveal_path_in_file_explorer
         ])
         .run(tauri::generate_context!())
         .expect("failed to run H.E.L.M. desktop shell");

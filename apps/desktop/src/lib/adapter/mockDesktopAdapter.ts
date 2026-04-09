@@ -218,6 +218,10 @@ export class MockDesktopAdapter implements DesktopAdapter {
     await delay(40);
   }
 
+  async revealNodeInFileExplorer(_targetId: string): Promise<void> {
+    await delay(40);
+  }
+
   async getOverview(): Promise<OverviewData> {
     await delay(100);
     return buildOverview(this.currentSession, this.workspace);

@@ -576,6 +576,17 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     });
   }
 
+  async revealNodeInFileExplorer(targetId: string): Promise<void> {
+    const cache = this.requireScanCache();
+    const node = cache.nodeById.get(targetId);
+    if (!node?.file_path) {
+      throw new Error(`No source file is associated with ${targetId}.`);
+    }
+    await invoke("reveal_path_in_file_explorer", {
+      filePath: normalizePath(node.file_path),
+    });
+  }
+
   async getOverview(): Promise<OverviewData> {
     const cache = this.requireScanCache();
     const topSymbols = topSymbolResults(cache, 5);

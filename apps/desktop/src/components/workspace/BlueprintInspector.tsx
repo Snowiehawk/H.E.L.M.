@@ -11,6 +11,7 @@ import {
   isInspectableGraphNodeKind,
 } from "../../lib/adapter";
 import { StatusPill } from "../shared/StatusPill";
+import { helpTargetProps } from "./workspaceHelp";
 
 function metadataString(node: GraphNodeDto | undefined, key: string): string | undefined {
   const camelKey = key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
@@ -191,7 +192,12 @@ export function BlueprintInspector({
               <span className="window-bar__eyebrow">Inspector</span>
               <h2>Nothing selected</h2>
             </div>
-            <button className="ghost-button" type="button" onClick={onClose}>
+            <button
+              {...helpTargetProps("inspector.close")}
+              className="ghost-button"
+              type="button"
+              onClick={onClose}
+            >
               Close
             </button>
           </div>
@@ -211,7 +217,12 @@ export function BlueprintInspector({
           </div>
           <div className="blueprint-inspector__chrome">
             <StatusPill tone="default">{selectedNode.kind}</StatusPill>
-            <button className="ghost-button" type="button" onClick={onClose}>
+            <button
+              {...helpTargetProps("inspector.close")}
+              className="ghost-button"
+              type="button"
+              onClick={onClose}
+            >
               Close
             </button>
           </div>
@@ -226,13 +237,25 @@ export function BlueprintInspector({
 
           <div className="blueprint-inspector__header-actions">
             {nodePath ? (
-              <button className="secondary-button" type="button" onClick={() => void handleOpenInEditor()}>
+              <button
+                {...helpTargetProps("inspector.open-default-editor")}
+                className="secondary-button"
+                type="button"
+                onClick={() => void handleOpenInEditor()}
+              >
                 Open File In Default Editor
               </button>
             ) : null}
             {quickActions.map((action) => (
               <button
                 key={action.id}
+                {...helpTargetProps(
+                  action.id === "open-flow"
+                    ? "inspector.open-flow"
+                    : action.id === "open-blueprint"
+                      ? "inspector.open-blueprint"
+                      : "inspector.reveal-source",
+                )}
                 className="ghost-button"
                 type="button"
                 onClick={action.onClick}
@@ -300,6 +323,7 @@ export function BlueprintInspector({
                   <StatusPill tone={dirty ? "accent" : "default"}>{dirty ? "Unsaved" : "Synced"}</StatusPill>
                 </span>
                 <textarea
+                  {...helpTargetProps("inspector.editor")}
                   className="blueprint-editor"
                   spellCheck={false}
                   value={draftSource}
@@ -312,6 +336,7 @@ export function BlueprintInspector({
 
               <div className="blueprint-inspector__editor-actions">
                 <button
+                  {...helpTargetProps("inspector.save")}
                   className="primary-button"
                   type="button"
                   disabled={!dirty || isSavingSource}
@@ -320,6 +345,7 @@ export function BlueprintInspector({
                   {isSavingSource ? "Saving..." : "Save"}
                 </button>
                 <button
+                  {...helpTargetProps("inspector.cancel")}
                   className="ghost-button"
                   type="button"
                   disabled={!dirty || isSavingSource}
@@ -365,7 +391,12 @@ export function BlueprintInspector({
         <section className="sidebar-section blueprint-inspector__section">
           <div className="section-header">
             <h3>Revealed Source</h3>
-            <button className="ghost-button" type="button" onClick={onDismissSource}>
+            <button
+              {...helpTargetProps("inspector.reveal-source")}
+              className="ghost-button"
+              type="button"
+              onClick={onDismissSource}
+            >
               Hide
             </button>
           </div>

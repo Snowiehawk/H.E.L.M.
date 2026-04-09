@@ -2,13 +2,25 @@ import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { GraphNodeKind } from "../../lib/adapter";
 import type { BlueprintPort } from "./blueprintPorts";
+import {
+  helpIdForGraphNodeKind,
+  helpIdForPort,
+  helpTargetProps,
+} from "../workspace/workspaceHelp";
+
+export interface BlueprintNodePort extends BlueprintPort {
+  isHighlighted?: boolean;
+  isDimmed?: boolean;
+  onHoverStart?: () => void;
+  onHoverEnd?: () => void;
+}
 
 export interface BlueprintNodeData extends Record<string, unknown> {
   kind: GraphNodeKind;
   label: string;
   summary?: string;
-  inputPorts: BlueprintPort[];
-  outputPorts: BlueprintPort[];
+  inputPorts: BlueprintNodePort[];
+  outputPorts: BlueprintNodePort[];
   primaryActionLabel?: string;
   onPrimaryAction?: () => void;
 }
@@ -18,7 +30,7 @@ function PortList({
   ports,
 }: {
   direction: "input" | "output";
-  ports: BlueprintPort[];
+  ports: BlueprintNodePort[];
 }) {
   return (
     <div
@@ -40,12 +52,28 @@ function PortList({
         return (
           <div
             key={port.id}
-            className={`graph-node__port graph-node__port--${direction} graph-node__port--${port.kind}`}
+            {...helpTargetProps(helpIdForPort(port.kind, port.label), {
+              label: port.label,
+            })}
+            className={[
+              "graph-node__port",
+              `graph-node__port--${direction}`,
+              `graph-node__port--${port.kind}`,
+              port.isHighlighted ? "is-highlighted" : "",
+              port.isDimmed ? "is-dimmed" : "",
+            ].filter(Boolean).join(" ")}
+            onMouseEnter={port.onHoverStart}
+            onMouseLeave={port.onHoverEnd}
           >
             {direction === "input" ? (
               <Handle
                 id={port.id}
-                className={`graph-node__handle graph-node__handle--${port.kind}`}
+                className={[
+                  "graph-node__handle",
+                  `graph-node__handle--${port.kind}`,
+                  port.isHighlighted ? "is-highlighted" : "",
+                  port.isDimmed ? "is-dimmed" : "",
+                ].filter(Boolean).join(" ")}
                 type="target"
                 position={Position.Left}
                 isConnectable={false}
@@ -57,7 +85,12 @@ function PortList({
             {direction === "output" ? (
               <Handle
                 id={port.id}
-                className={`graph-node__handle graph-node__handle--${port.kind}`}
+                className={[
+                  "graph-node__handle",
+                  `graph-node__handle--${port.kind}`,
+                  port.isHighlighted ? "is-highlighted" : "",
+                  port.isDimmed ? "is-dimmed" : "",
+                ].filter(Boolean).join(" ")}
                 type="source"
                 position={Position.Right}
                 isConnectable={false}
@@ -76,7 +109,12 @@ export const BlueprintNode = memo(function BlueprintNode({
   const blueprintData = data as unknown as BlueprintNodeData;
 
   return (
-    <div className={`graph-node graph-node--${blueprintData.kind}`}>
+    <div
+      {...helpTargetProps(helpIdForGraphNodeKind(blueprintData.kind), {
+        label: blueprintData.label,
+      })}
+      className={`graph-node graph-node--${blueprintData.kind}`}
+    >
       <PortList direction="input" ports={blueprintData.inputPorts} />
 
       <div className="graph-node__body">
@@ -84,6 +122,11 @@ export const BlueprintNode = memo(function BlueprintNode({
           <span className="graph-node__kind">{blueprintData.kind}</span>
           {blueprintData.primaryActionLabel && blueprintData.onPrimaryAction ? (
             <button
+              {...helpTargetProps(
+                blueprintData.primaryActionLabel === "Enter"
+                  ? "graph.node.action.enter"
+                  : "graph.node.action.inspect",
+              )}
               className="graph-node__action nodrag"
               type="button"
               onPointerDown={(event) => {

@@ -30,6 +30,8 @@ describe("GraphToolbar", () => {
   it("renders settings controls and forwards clicks", async () => {
     const user = userEvent.setup();
     const onToggleGraphSetting = vi.fn();
+    const onDeclutter = vi.fn();
+    const onUndoDeclutter = vi.fn();
 
     render(
       <div>
@@ -46,23 +48,30 @@ describe("GraphToolbar", () => {
           highlightGraphPath={false}
           showEdgeLabels={false}
           inspectorOpen={false}
+          canUndoDeclutter
           onSelectBreadcrumb={vi.fn()}
           onSelectLevel={vi.fn()}
+          onDeclutter={onDeclutter}
           onToggleGraphFilter={vi.fn()}
           onToggleGraphSetting={onToggleGraphSetting}
           onToggleGraphPathHighlight={vi.fn()}
           onToggleEdgeLabels={vi.fn()}
           onToggleInspector={vi.fn()}
+          onUndoDeclutter={onUndoDeclutter}
         />
       </div>,
     );
 
     await user.click(screen.getByRole("button", { name: "Controls" }));
+    await user.click(screen.getByRole("button", { name: "Declutter" }));
+    await user.click(screen.getByRole("button", { name: "Undo declutter" }));
     await user.click(screen.getByRole("button", { name: "Settings" }));
     await user.click(
       screen.getByRole("button", { name: /Show external dependencies/i }),
     );
 
+    expect(onDeclutter).toHaveBeenCalledTimes(1);
+    expect(onUndoDeclutter).toHaveBeenCalledTimes(1);
     expect(onToggleGraphSetting).toHaveBeenCalledWith("includeExternalDependencies");
   });
 });

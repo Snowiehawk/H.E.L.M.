@@ -7,6 +7,7 @@ import type {
   GraphSettings,
   GraphView,
 } from "../../lib/adapter";
+import { helpTargetProps } from "../workspace/workspaceHelp";
 
 interface Point {
   x: number;
@@ -39,13 +40,16 @@ export function GraphToolbar({
   highlightGraphPath,
   showEdgeLabels,
   inspectorOpen,
+  canUndoDeclutter,
   onSelectBreadcrumb,
   onSelectLevel,
+  onDeclutter,
   onToggleGraphFilter,
   onToggleGraphSetting,
   onToggleGraphPathHighlight,
   onToggleEdgeLabels,
   onToggleInspector,
+  onUndoDeclutter,
 }: {
   graph?: GraphView;
   graphFilters: GraphFilters;
@@ -53,13 +57,16 @@ export function GraphToolbar({
   highlightGraphPath: boolean;
   showEdgeLabels: boolean;
   inspectorOpen: boolean;
+  canUndoDeclutter: boolean;
   onSelectBreadcrumb: (breadcrumb: GraphBreadcrumbDto) => void;
   onSelectLevel: (level: GraphAbstractionLevel) => void;
+  onDeclutter: () => void;
   onToggleGraphFilter: (key: keyof GraphFilters) => void;
   onToggleGraphSetting: (key: keyof GraphSettings) => void;
   onToggleGraphPathHighlight: () => void;
   onToggleEdgeLabels: () => void;
   onToggleInspector: () => void;
+  onUndoDeclutter: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -168,6 +175,7 @@ export function GraphToolbar({
       <div className="graph-toolbar__surface">
         <div className="graph-toolbar__compact">
           <button
+            {...helpTargetProps("graph.toolbar.drag")}
             aria-label="Move graph controls"
             className="graph-toolbar__drag"
             type="button"
@@ -179,6 +187,10 @@ export function GraphToolbar({
           </button>
 
           <button
+            {...helpTargetProps("graph.toolbar.focus", {
+              label: graph.focus?.label ?? "Graph",
+              kind: graph.level,
+            })}
             className="graph-toolbar__focus"
             type="button"
             onClick={() => setExpanded((current) => !current)}
@@ -188,6 +200,7 @@ export function GraphToolbar({
           </button>
 
           <button
+            {...helpTargetProps("graph.toolbar.inspector")}
             className={`toggle-button${inspectorOpen ? " is-active" : ""}`}
             type="button"
             onClick={onToggleInspector}
@@ -196,6 +209,7 @@ export function GraphToolbar({
           </button>
 
           <button
+            {...helpTargetProps("graph.toolbar.controls")}
             className={`toggle-button${expanded ? " is-active" : ""}`}
             type="button"
             onClick={() => setExpanded((current) => !current)}
@@ -210,6 +224,7 @@ export function GraphToolbar({
               {(graph.focus?.availableLevels ?? [graph.level]).map((level) => (
                 <button
                   key={level}
+                  {...helpTargetProps(`graph.level.${level}` as const)}
                   className={`toggle-button${graph.level === level ? " is-active" : ""}`}
                   type="button"
                   onClick={() => onSelectLevel(level)}
@@ -221,6 +236,7 @@ export function GraphToolbar({
 
             <div className="graph-toolbar__row graph-filters">
               <button
+                {...helpTargetProps("graph.filter.calls")}
                 className={`toggle-button${graphFilters.includeCalls ? " is-active" : ""}`}
                 type="button"
                 onClick={() => onToggleGraphFilter("includeCalls")}
@@ -228,6 +244,7 @@ export function GraphToolbar({
                 Calls
               </button>
               <button
+                {...helpTargetProps("graph.filter.imports")}
                 className={`toggle-button${graphFilters.includeImports ? " is-active" : ""}`}
                 type="button"
                 onClick={() => onToggleGraphFilter("includeImports")}
@@ -235,6 +252,7 @@ export function GraphToolbar({
                 Imports
               </button>
               <button
+                {...helpTargetProps("graph.filter.defines")}
                 className={`toggle-button${graphFilters.includeDefines ? " is-active" : ""}`}
                 type="button"
                 onClick={() => onToggleGraphFilter("includeDefines")}
@@ -242,6 +260,7 @@ export function GraphToolbar({
                 Defines
               </button>
               <button
+                {...helpTargetProps("graph.filter.path")}
                 className={`toggle-button${highlightGraphPath ? " is-active" : ""}`}
                 type="button"
                 onClick={onToggleGraphPathHighlight}
@@ -249,6 +268,7 @@ export function GraphToolbar({
                 Path
               </button>
               <button
+                {...helpTargetProps("graph.filter.labels")}
                 className={`toggle-button${showEdgeLabels ? " is-active" : ""}`}
                 type="button"
                 onClick={onToggleEdgeLabels}
@@ -261,6 +281,7 @@ export function GraphToolbar({
               {graph.breadcrumbs.map((breadcrumb) => (
                 <button
                   key={`${breadcrumb.level}:${breadcrumb.nodeId}`}
+                  {...helpTargetProps("graph.toolbar.breadcrumb", { label: breadcrumb.label })}
                   className="graph-breadcrumb"
                   type="button"
                   onClick={() => onSelectBreadcrumb(breadcrumb)}
@@ -273,6 +294,25 @@ export function GraphToolbar({
 
             <div className="graph-toolbar__row graph-toolbar__settings-row">
               <button
+                {...helpTargetProps("graph.declutter")}
+                className="toggle-button"
+                type="button"
+                onClick={onDeclutter}
+              >
+                Declutter
+              </button>
+              {canUndoDeclutter ? (
+                <button
+                  {...helpTargetProps("graph.undo-declutter")}
+                  className="ghost-button"
+                  type="button"
+                  onClick={onUndoDeclutter}
+                >
+                  Undo declutter
+                </button>
+              ) : null}
+              <button
+                {...helpTargetProps("graph.toolbar.settings")}
                 className={`toggle-button${settingsOpen ? " is-active" : ""}`}
                 type="button"
                 onClick={() => setSettingsOpen((current) => !current)}
@@ -307,6 +347,7 @@ export function GraphToolbar({
               <span>Reveal dependency nodes and edges outside the authored repo boundary.</span>
             </div>
             <button
+              {...helpTargetProps("graph.settings.external-dependencies")}
               aria-pressed={graphSettings.includeExternalDependencies}
               className={`toggle-button${graphSettings.includeExternalDependencies ? " is-active" : ""}`}
               type="button"

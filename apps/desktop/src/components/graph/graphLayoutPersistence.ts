@@ -6,7 +6,27 @@ export interface StoredGraphNodePosition {
   y: number;
 }
 
-export type StoredGraphLayout = Record<string, StoredGraphNodePosition>;
+export type StoredGraphNodeLayout = Record<string, StoredGraphNodePosition>;
+
+export interface StoredGraphReroute {
+  id: string;
+  edgeId: string;
+  order: number;
+  x: number;
+  y: number;
+}
+
+export interface StoredGraphLayout {
+  nodes: StoredGraphNodeLayout;
+  reroutes: StoredGraphReroute[];
+}
+
+function emptyStoredGraphLayout(): StoredGraphLayout {
+  return {
+    nodes: {},
+    reroutes: [],
+  };
+}
 
 export function graphLayoutNodeKey(
   nodeId: string,
@@ -29,7 +49,7 @@ function normalizePosition(value: unknown): StoredGraphNodePosition | null {
   return { x, y };
 }
 
-function normalizeLayout(value: unknown): StoredGraphLayout {
+function normalizeNodeLayout(value: unknown): StoredGraphNodeLayout {
   if (!value || typeof value !== "object") {
     return {};
   }
@@ -42,6 +62,62 @@ function normalizeLayout(value: unknown): StoredGraphLayout {
   );
 }
 
+function normalizeReroute(value: unknown): StoredGraphReroute | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const id = Reflect.get(value, "id");
+  const edgeId = Reflect.get(value, "edgeId");
+  const order = Reflect.get(value, "order");
+  const x = Reflect.get(value, "x");
+  const y = Reflect.get(value, "y");
+
+  if (
+    typeof id !== "string"
+    || typeof edgeId !== "string"
+    || typeof order !== "number"
+    || typeof x !== "number"
+    || typeof y !== "number"
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    edgeId,
+    order,
+    x,
+    y,
+  };
+}
+
+function normalizeLayout(value: unknown): StoredGraphLayout {
+  if (!value || typeof value !== "object") {
+    return emptyStoredGraphLayout();
+  }
+
+  const maybeNodes = Reflect.get(value, "nodes");
+  const maybeReroutes = Reflect.get(value, "reroutes");
+
+  if (maybeNodes !== undefined || maybeReroutes !== undefined) {
+    return {
+      nodes: normalizeNodeLayout(maybeNodes),
+      reroutes: Array.isArray(maybeReroutes)
+        ? maybeReroutes.flatMap((item) => {
+            const normalized = normalizeReroute(item);
+            return normalized ? [normalized] : [];
+          })
+        : [],
+    };
+  }
+
+  return {
+    nodes: normalizeNodeLayout(value),
+    reroutes: [],
+  };
+}
+
 export function graphLayoutViewKey(graph: GraphView): string {
   const targetKey = graph.level === "repo" ? "repo-root" : graph.targetId;
   return [graph.level, targetKey].join("|");
@@ -52,7 +128,7 @@ export async function readStoredGraphLayout(
   viewKey: string | undefined,
 ): Promise<StoredGraphLayout> {
   if (!repoPath || !viewKey) {
-    return {};
+    return emptyStoredGraphLayout();
   }
 
   try {
@@ -62,7 +138,7 @@ export async function readStoredGraphLayout(
     });
     return normalizeLayout(layout);
   } catch {
-    return {};
+    return emptyStoredGraphLayout();
   }
 }
 

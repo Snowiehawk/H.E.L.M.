@@ -12,6 +12,7 @@ export interface BlueprintPort {
   label: string;
   kind: BlueprintPortKind;
   memberLabels?: string[];
+  memberEdgeIds?: string[];
 }
 
 export interface BlueprintNodePorts {
@@ -48,15 +49,42 @@ function normalizePortKey(value: string): string {
   return normalized || "port";
 }
 
-function uniquePorts(ports: BlueprintPort[]): BlueprintPort[] {
-  const seen = new Set<string>();
-  return ports.filter((port) => {
-    if (seen.has(port.id)) {
-      return false;
+function mergePorts(ports: BlueprintPort[]): BlueprintPort[] {
+  const merged = new Map<string, BlueprintPort>();
+
+  ports.forEach((port) => {
+    const existing = merged.get(port.id);
+    if (!existing) {
+      merged.set(port.id, {
+        ...port,
+        memberLabels: [...(port.memberLabels ?? [])],
+        memberEdgeIds: [...(port.memberEdgeIds ?? [])],
+      });
+      return;
     }
-    seen.add(port.id);
-    return true;
+
+    merged.set(port.id, {
+      ...existing,
+      memberLabels: [
+        ...(existing.memberLabels ?? []),
+        ...(port.memberLabels ?? []),
+      ],
+      memberEdgeIds: [
+        ...(existing.memberEdgeIds ?? []),
+        ...(port.memberEdgeIds ?? []),
+      ],
+    });
   });
+
+  return Array.from(merged.values()).map((port) => ({
+    ...port,
+    memberLabels: port.memberLabels?.filter(
+      (label, index, all) => all.indexOf(label) === index,
+    ),
+    memberEdgeIds: port.memberEdgeIds?.filter(
+      (edgeId, index, all) => all.indexOf(edgeId) === index,
+    ),
+  }));
 }
 
 function graphPortLabel(kind: GraphEdgeDto["kind"]): string {
@@ -148,6 +176,7 @@ function buildArchitecturePortList(
     memberLabels: groupedEdges.map((edge) =>
       architecturePortMemberLabel(direction, edge, nodeById),
     ),
+    memberEdgeIds: groupedEdges.map((edge) => edge.id),
   }));
 }
 
@@ -157,29 +186,52 @@ function buildArchitecturePorts(
   nodeById: Map<string, GraphNodeDto>,
 ): BlueprintNodePorts {
   return {
-    inputs: uniquePorts(buildArchitecturePortList("input", incoming, nodeById)),
-    outputs: uniquePorts(buildArchitecturePortList("output", outgoing, nodeById)),
+    inputs: mergePorts(buildArchitecturePortList("input", incoming, nodeById)),
+    outputs: mergePorts(buildArchitecturePortList("output", outgoing, nodeById)),
   };
+}
+
+function flowPortMemberLabel(
+  direction: "input" | "output",
+  edge: GraphEdgeDto,
+  nodeById: Map<string, GraphNodeDto>,
+) {
+  const adjacentNodeId = direction === "input" ? edge.source : edge.target;
+  const adjacentNode = nodeById.get(adjacentNodeId);
+  const adjacentLabel = adjacentNode?.label ?? adjacentNodeId;
+  const edgeLabel = edge.label?.trim();
+
+  if (!edgeLabel || edgeLabel === adjacentLabel) {
+    return adjacentLabel;
+  }
+
+  return `${adjacentLabel} · ${edgeLabel}`;
 }
 
 function buildFlowPorts(
   node: GraphNodeDto,
   incoming: GraphEdgeDto[],
   outgoing: GraphEdgeDto[],
+  nodeById: Map<string, GraphNodeDto>,
 ): BlueprintNodePorts {
   const inputs: BlueprintPort[] = [];
   const outputs: BlueprintPort[] = [];
 
-  if (incoming.some((edge) => edge.kind === "controls")) {
+  const incomingControlEdges = incoming.filter((edge) => edge.kind === "controls");
+  if (incomingControlEdges.length) {
     inputs.push({
       id: controlInputPortId(),
       label: "exec",
       kind: "control",
+      memberLabels: incomingControlEdges.map((edge) =>
+        flowPortMemberLabel("input", edge, nodeById),
+      ),
+      memberEdgeIds: incomingControlEdges.map((edge) => edge.id),
     });
   }
 
   inputs.push(
-    ...uniquePorts(
+    ...mergePorts(
       incoming
         .filter((edge) => edge.kind === "data")
         .map((edge) => {
@@ -188,12 +240,14 @@ function buildFlowPorts(
             id: dataInputPortId(label),
             label,
             kind: "data" as const,
+            memberLabels: [flowPortMemberLabel("input", edge, nodeById)],
+            memberEdgeIds: [edge.id],
           };
         }),
     ),
   );
 
-  const outgoingControlPorts = uniquePorts(
+  const outgoingControlPorts = mergePorts(
     outgoing
       .filter((edge) => edge.kind === "controls")
       .map((edge) => {
@@ -202,12 +256,14 @@ function buildFlowPorts(
           id: controlOutputPortId(label),
           label,
           kind: "control" as const,
+          memberLabels: [flowPortMemberLabel("output", edge, nodeById)],
+          memberEdgeIds: [edge.id],
         };
       }),
   );
   outputs.push(...outgoingControlPorts);
 
-  const outgoingDataPorts = uniquePorts(
+  const outgoingDataPorts = mergePorts(
     outgoing
       .filter((edge) => edge.kind === "data")
       .map((edge) => {
@@ -216,6 +272,8 @@ function buildFlowPorts(
           id: dataOutputPortId(label),
           label,
           kind: "data" as const,
+          memberLabels: [flowPortMemberLabel("output", edge, nodeById)],
+          memberEdgeIds: [edge.id],
         };
       }),
   );
@@ -238,8 +296,8 @@ function buildFlowPorts(
   }
 
   return {
-    inputs: uniquePorts(inputs),
-    outputs: uniquePorts(outputs),
+    inputs: mergePorts(inputs),
+    outputs: mergePorts(outputs),
   };
 }
 
@@ -286,7 +344,7 @@ export function buildBlueprintPresentation(graph: GraphView): BlueprintPresentat
     nodePorts.set(
       node.id,
       FLOW_KINDS.has(node.kind)
-        ? buildFlowPorts(node, incoming, outgoing)
+        ? buildFlowPorts(node, incoming, outgoing, nodeById)
         : buildArchitecturePorts(incoming, outgoing, nodeById),
     );
   });

@@ -55,8 +55,11 @@ describe("graphLayoutPersistence", () => {
     await expect(
       readStoredGraphLayout("/workspace/project", "module|module:alpha"),
     ).resolves.toEqual({
-      "module:alpha": { x: 120, y: -40 },
-      "module:beta": { x: 440, y: 80 },
+      nodes: {
+        "module:alpha": { x: 120, y: -40 },
+        "module:beta": { x: 440, y: 80 },
+      },
+      reroutes: [],
     });
 
     expect(invokeMock).toHaveBeenCalledWith("read_repo_graph_layout", {
@@ -69,15 +72,52 @@ describe("graphLayoutPersistence", () => {
     invokeMock.mockResolvedValue(undefined);
 
     await writeStoredGraphLayout("/workspace/project", "module|module:alpha", {
-      "module:alpha": { x: 120, y: -40 },
-      "module:beta": { x: 440, y: 80 },
+      nodes: {
+        "module:alpha": { x: 120, y: -40 },
+        "module:beta": { x: 440, y: 80 },
+      },
+      reroutes: [],
     });
 
     expect(invokeMock).toHaveBeenCalledWith("write_repo_graph_layout", {
       repoPath: "/workspace/project",
       viewKey: "module|module:alpha",
       layoutJson:
-        "{\"module:alpha\":{\"x\":120,\"y\":-40},\"module:beta\":{\"x\":440,\"y\":80}}",
+        "{\"nodes\":{\"module:alpha\":{\"x\":120,\"y\":-40},\"module:beta\":{\"x\":440,\"y\":80}},\"reroutes\":[]}",
+    });
+  });
+
+  it("reads structured layouts with reroutes intact", async () => {
+    invokeMock.mockResolvedValue({
+      nodes: {
+        "module:alpha": { x: 120, y: -40 },
+      },
+      reroutes: [
+        {
+          id: "reroute-1",
+          edgeId: "calls:alpha:beta",
+          order: 0,
+          x: 280,
+          y: 24,
+        },
+      ],
+    });
+
+    await expect(
+      readStoredGraphLayout("/workspace/project", "module|module:alpha"),
+    ).resolves.toEqual({
+      nodes: {
+        "module:alpha": { x: 120, y: -40 },
+      },
+      reroutes: [
+        {
+          id: "reroute-1",
+          edgeId: "calls:alpha:beta",
+          order: 0,
+          x: 280,
+          y: 24,
+        },
+      ],
     });
   });
 });

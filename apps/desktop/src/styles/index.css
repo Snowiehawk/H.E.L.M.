@@ -740,11 +740,13 @@ button {
 .blueprint-field input,
 .blueprint-field textarea {
   width: 100%;
+  max-width: 100%;
   padding: 12px 13px;
   border-radius: 14px;
   border: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface-solid) 86%, transparent);
   color: var(--text);
+  box-sizing: border-box;
 }
 
 .blueprint-field--editor {
@@ -780,11 +782,73 @@ button {
 }
 
 .react-flow__node.graph-node-shell,
-.react-flow__node-default.graph-node-shell {
+.react-flow__node-default.graph-node-shell,
+.react-flow__node.graph-reroute-shell,
+.react-flow__node-default.graph-reroute-shell {
   border: none !important;
   background: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
+  transition: opacity 160ms ease, filter 160ms ease, transform 160ms ease;
+}
+
+.graph-reroute-node {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent-strong) 46%, var(--line-strong) 54%);
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent-strong) 28%, #dfe8ff 72%) 0, color-mix(in srgb, var(--surface-solid) 86%, transparent) 68%),
+    color-mix(in srgb, var(--surface-solid) 94%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent-strong) 16%, transparent),
+    0 10px 18px color-mix(in srgb, #020611 26%, transparent);
+  transition:
+    opacity 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.graph-reroute-node__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-strong) 78%, #e9f2ff 22%);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent-strong) 18%, transparent);
+}
+
+.graph-reroute-node__handle {
+  width: 8px !important;
+  height: 8px !important;
+  opacity: 0 !important;
+  pointer-events: none;
+  background: transparent !important;
+  border: none !important;
+}
+
+.graph-reroute-shell.is-related .graph-reroute-node {
+  border-color: color-mix(in srgb, var(--accent-strong) 72%, white 18%);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent-strong) 22%, transparent),
+    0 12px 22px color-mix(in srgb, #020611 30%, transparent);
+}
+
+.graph-reroute-shell.is-dimmed {
+  opacity: 0.28;
+  filter: saturate(0.66) brightness(0.82);
+}
+
+.graph-reroute-shell:hover .graph-reroute-node,
+.graph-reroute-node.is-selected {
+  border-color: color-mix(in srgb, var(--accent-strong) 74%, white 18%);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent-strong) 28%, transparent),
+    0 0 0 6px color-mix(in srgb, var(--accent-strong) 14%, transparent),
+    0 14px 24px color-mix(in srgb, #020611 34%, transparent);
 }
 
 .graph-node {
@@ -1092,10 +1156,19 @@ button {
   align-items: center;
   gap: 6px;
   max-width: 92px;
+  transition: opacity 140ms ease, filter 140ms ease;
 }
 
 .graph-node__port--output {
   justify-content: flex-end;
+}
+
+.graph-node__port.is-highlighted {
+  filter: brightness(1.12);
+}
+
+.graph-node__port.is-dimmed {
+  opacity: 0.34;
 }
 
 .graph-node__port-label {
@@ -1108,6 +1181,11 @@ button {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  transition: color 140ms ease;
+}
+
+.graph-node__port.is-highlighted .graph-node__port-label {
+  color: var(--text);
 }
 
 .graph-node__port-badge {
@@ -1125,6 +1203,15 @@ button {
   font-weight: 700;
   letter-spacing: 0.02em;
   cursor: help;
+  transition:
+    opacity 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.graph-node__port.is-highlighted .graph-node__port-badge {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-strong) 18%, transparent);
 }
 
 .graph-node__port--control .graph-node__port-label {
@@ -1151,6 +1238,11 @@ button {
   border: 2px solid var(--line-strong) !important;
   border-radius: 999px !important;
   background: var(--surface-solid) !important;
+  transition:
+    opacity 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background 140ms ease;
 }
 
 .graph-node__port--input .graph-node__handle {
@@ -1177,12 +1269,69 @@ button {
   border-color: var(--accent-strong) !important;
 }
 
+.graph-node__handle.is-highlighted {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-strong) 18%, transparent);
+}
+
+.graph-node__handle.is-dimmed {
+  opacity: 0.3;
+}
+
 .graph-node-shell.is-active .graph-node {
-  border-color: color-mix(in srgb, var(--node-border) 86%, white 14%);
+  border-color: color-mix(in srgb, var(--node-border) 76%, white 24%);
   box-shadow:
-    0 0 0 5px color-mix(in srgb, var(--node-glow) 42%, transparent),
-    0 24px 52px color-mix(in srgb, #020611 52%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--node-border) 36%, white 64%),
+    0 0 0 7px color-mix(in srgb, var(--node-glow) 34%, transparent),
+    0 26px 56px color-mix(in srgb, #020611 56%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 14%, transparent);
+}
+
+.graph-node-shell.is-active .graph-node::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 21px;
+  border: 2px solid color-mix(in srgb, var(--node-border) 32%, white 68%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--node-glow) 22%, transparent),
+    0 0 18px color-mix(in srgb, var(--node-glow) 20%, transparent);
+  pointer-events: none;
+}
+
+.graph-node-shell.is-related:not(.is-active) .graph-node {
+  border-color: color-mix(in srgb, var(--node-border) 80%, white 8%);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--node-glow) 16%, transparent),
+    0 18px 38px color-mix(in srgb, #020611 40%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 12%, transparent);
+}
+
+.graph-node-shell:hover:not(.is-active) .graph-node {
+  border-color: color-mix(in srgb, var(--node-border) 72%, white 20%);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--node-border) 24%, white 42%),
+    0 0 0 5px color-mix(in srgb, var(--node-glow) 20%, transparent),
+    0 22px 46px color-mix(in srgb, #020611 48%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 14%, transparent);
+}
+
+.graph-node-shell.is-dimmed {
+  opacity: 0.34;
+  filter: saturate(0.72) brightness(0.82);
+}
+
+.graph-panel .react-flow__edge-path,
+.graph-panel .react-flow__edge-text,
+.graph-panel .react-flow__edge-textbg {
+  transition:
+    opacity 140ms ease,
+    stroke 140ms ease,
+    stroke-width 140ms ease,
+    fill 140ms ease;
+}
+
+.graph-edge__interaction {
+  cursor: cell;
 }
 
 .graph-controls {
@@ -1476,6 +1625,79 @@ button {
   align-content: start;
 }
 
+.workspace-help-box {
+  display: grid;
+  gap: 8px;
+  min-height: 122px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-strong) 78%, transparent),
+    color-mix(in srgb, var(--surface-subtle) 84%, transparent)
+  );
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.workspace-help-box__title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workspace-help-box__title {
+  display: block;
+  font-size: 0.82rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.workspace-help-box__description {
+  margin: 0;
+  min-height: calc(1.46em * 2);
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  line-height: 1.46;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.workspace-help-box__meta {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.workspace-help-box__meta-item {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workspace-help-box__meta-item strong {
+  font-size: 0.64rem;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.workspace-help-box__meta-item span {
+  display: -webkit-box;
+  color: color-mix(in srgb, var(--text-muted) 88%, var(--text) 12%);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+}
+
 .explorer-tree__rows {
   display: grid;
   gap: 4px;
@@ -1664,6 +1886,7 @@ button {
 }
 
 .graph-location__button,
+.graph-location__link,
 .graph-location__segment {
   max-width: min(28vw, 320px);
   padding: 0;
@@ -1683,6 +1906,25 @@ button {
 
 .graph-location__button:hover {
   color: var(--text);
+}
+
+.graph-location__link {
+  border: none;
+  background: transparent;
+  color: color-mix(in srgb, var(--accent-strong) 84%, var(--text) 16%);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent-strong) 48%, transparent);
+  text-underline-offset: 0.16em;
+}
+
+.graph-location__link:hover {
+  color: color-mix(in srgb, var(--accent-strong) 56%, white 44%);
+  text-decoration-color: currentColor;
+}
+
+.graph-location__link.is-current {
+  font-weight: 600;
 }
 
 .graph-location__segment {
@@ -1985,15 +2227,20 @@ button {
 
 .blueprint-main__body > .blueprint-inspector {
   min-height: 0;
+  min-width: 0;
   display: grid;
   gap: 16px;
-  padding: 0;
+  padding: 0 12px 0 0;
   background: transparent;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  scrollbar-gutter: stable;
 }
 
 .blueprint-main__body > .blueprint-inspector > .blueprint-inspector__card,
 .blueprint-main__body > .blueprint-inspector > .blueprint-inspector__section {
+  min-width: 0;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -2013,12 +2260,14 @@ button {
 }
 
 .blueprint-inspector__meta {
+  min-width: 0;
   display: grid;
   gap: 12px;
 }
 
 .blueprint-inspector__header-actions,
 .blueprint-inspector__editor-actions {
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -2029,9 +2278,33 @@ button {
 }
 
 .blueprint-inspector__chrome {
+  min-width: 0;
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.blueprint-inspector .sidebar-card__header,
+.blueprint-inspector .section-header,
+.blueprint-inspector .info-card,
+.blueprint-inspector .code-panel,
+.blueprint-inspector .blueprint-field,
+.blueprint-inspector .blueprint-field__label {
+  min-width: 0;
+}
+
+.blueprint-inspector .info-card strong,
+.blueprint-inspector .info-card p,
+.blueprint-inspector .section-header h3,
+.blueprint-inspector .muted-copy,
+.blueprint-inspector .error-copy {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.blueprint-inspector .blueprint-source-panel,
+.blueprint-inspector .blueprint-editor {
+  max-width: 100%;
 }
 
 .graph-hud {

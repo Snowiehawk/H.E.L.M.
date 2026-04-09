@@ -8,6 +8,11 @@ import { DesktopWindow } from "../components/layout/DesktopWindow";
 import { SidebarPane } from "../components/panes/SidebarPane";
 import { ThemeCycleButton } from "../components/shared/ThemeCycleButton";
 import { BlueprintInspector } from "../components/workspace/BlueprintInspector";
+import {
+  WorkspaceHelpProvider,
+  WorkspaceHelpScope,
+  helpTargetProps,
+} from "../components/workspace/workspaceHelp";
 import { useDesktopAdapter } from "../lib/adapter";
 import type {
   GraphAbstractionLevel,
@@ -73,6 +78,7 @@ interface GraphPathItem {
   key: string;
   label: string;
   breadcrumb?: GraphBreadcrumbDto;
+  revealTargetId?: string;
 }
 
 function breadcrumbRelativePath(breadcrumb: GraphBreadcrumbDto): string | undefined {
@@ -120,6 +126,7 @@ function buildGraphPathItems(graph?: GraphView): GraphPathItem[] {
             key: `module:${moduleBreadcrumb.nodeId}:${index}:${segment}`,
             label: segment,
             breadcrumb: index === parts.length - 1 ? moduleBreadcrumb : undefined,
+            revealTargetId: index === parts.length - 1 ? moduleBreadcrumb.nodeId : undefined,
           });
         });
     } else {
@@ -127,6 +134,7 @@ function buildGraphPathItems(graph?: GraphView): GraphPathItem[] {
         key: `module:${moduleBreadcrumb.nodeId}`,
         label: moduleBreadcrumb.label,
         breadcrumb: moduleBreadcrumb,
+        revealTargetId: moduleBreadcrumb.nodeId,
       });
     }
   }
@@ -236,6 +244,7 @@ function buildFallbackGraphPathItems(
                   subtitle: modulePath,
                 }
               : undefined,
+          revealTargetId: index === parts.length - 1 ? moduleId : undefined,
         });
       });
   }
@@ -281,6 +290,7 @@ export function WorkspaceScreen() {
   const [isSavingSource, setIsSavingSource] = useState(false);
   const [inspectorDraftContent, setInspectorDraftContent] = useState<string | undefined>(undefined);
   const [inspectorDirty, setInspectorDirty] = useState(false);
+  const [graphPathRevealError, setGraphPathRevealError] = useState<string | null>(null);
   const repoSession = useUiStore((state) => state.repoSession);
   const graphTargetId = useUiStore((state) => state.graphTargetId);
   const activeLevel = useUiStore((state) => state.activeLevel);
@@ -733,6 +743,23 @@ export function WorkspaceScreen() {
     handleNavigateGraphOut();
   };
 
+  const handleRevealGraphPath = useCallback(async (targetId: string) => {
+    setGraphPathRevealError(null);
+    try {
+      await adapter.revealNodeInFileExplorer(targetId);
+    } catch (reason) {
+      setGraphPathRevealError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to reveal the current file in the system file explorer.",
+      );
+    }
+  }, [adapter]);
+
+  useEffect(() => {
+    setGraphPathRevealError(null);
+  }, [activeLevel, graphTargetId]);
+
   return (
     <DesktopWindow
       eyebrow="Blueprint Editor"
@@ -745,135 +772,169 @@ export function WorkspaceScreen() {
       actions={<ThemeCycleButton />}
       dense
     >
-      <main
-        className="workspace-layout workspace-layout--blueprint"
-        onKeyDownCapture={handleWorkspaceKeyDownCapture}
-      >
-        <SidebarPane
-          backendStatus={effectiveBackendStatus}
-          overview={overviewQuery.data}
-          sidebarQuery={sidebarQuery}
-          searchResults={sidebarSearchQuery.data ?? []}
-          isSearching={sidebarSearchQuery.isFetching}
-          selectedFilePath={
-            selectedFilePath
-            ?? graphNodeRelativePath(inspectorNode?.metadata, inspectorNode?.subtitle)
-          }
-          selectedNodeId={activeNodeId}
-          onSidebarQueryChange={setSidebarQuery}
-          onSelectResult={selectSidebarResult}
-          onSelectModule={selectOverviewModule}
-          onSelectSymbol={selectOverviewSymbol}
-          onFocusRepoGraph={() => repoSession && focusGraph(repoSession.id, "repo")}
-          onReindexRepo={reindexCurrentRepo}
-          onOpenRepo={openAndIndexRepo}
-        />
+      <WorkspaceHelpProvider>
+        <WorkspaceHelpScope
+          className="workspace-layout workspace-layout--blueprint"
+          onKeyDownCapture={handleWorkspaceKeyDownCapture}
+        >
+          <SidebarPane
+            backendStatus={effectiveBackendStatus}
+            overview={overviewQuery.data}
+            sidebarQuery={sidebarQuery}
+            searchResults={sidebarSearchQuery.data ?? []}
+            isSearching={sidebarSearchQuery.isFetching}
+            selectedFilePath={
+              selectedFilePath
+              ?? graphNodeRelativePath(inspectorNode?.metadata, inspectorNode?.subtitle)
+            }
+            selectedNodeId={activeNodeId}
+            onSidebarQueryChange={setSidebarQuery}
+            onSelectResult={selectSidebarResult}
+            onSelectModule={selectOverviewModule}
+            onSelectSymbol={selectOverviewSymbol}
+            onFocusRepoGraph={() => repoSession && focusGraph(repoSession.id, "repo")}
+            onReindexRepo={reindexCurrentRepo}
+            onOpenRepo={openAndIndexRepo}
+          />
 
-        <section className="pane pane--main blueprint-main">
-          {repoOpenError ? <p className="error-copy graph-stage__error">{repoOpenError}</p> : null}
-          <div className="blueprint-stage__header">
-            <div className="blueprint-stage__header-copy">
-              <span className="window-bar__eyebrow">Workspace</span>
-              <h2>{titleCopy}</h2>
+          <section className="pane pane--main blueprint-main">
+            {repoOpenError ? <p className="error-copy graph-stage__error">{repoOpenError}</p> : null}
+            <div className="blueprint-stage__header">
+              <div className="blueprint-stage__header-copy">
+                <span className="window-bar__eyebrow">Workspace</span>
+                <h2>{titleCopy}</h2>
+              </div>
+
+              {graphPathItems.length ? (
+                <div className="graph-location">
+                  <span className="graph-location__label">Graph path</span>
+                  <nav aria-label="Graph path" className="graph-location__trail">
+                    {graphPathItems.map((item, index) => {
+                      const isCurrent = index === graphPathItems.length - 1;
+                      const itemHelpId =
+                        item.revealTargetId || item.key.startsWith("module:") || item.key.startsWith("fallback-module:")
+                          ? "graph.path.file"
+                          : item.breadcrumb?.level === "repo"
+                            ? "graph.path.repo"
+                            : item.breadcrumb?.level === "symbol"
+                              ? "graph.path.symbol"
+                              : item.breadcrumb?.level === "flow"
+                                ? "graph.path.flow"
+                                : undefined;
+
+                      return (
+                        <div key={item.key} className="graph-location__item">
+                          {index > 0 ? (
+                            <span aria-hidden="true" className="graph-location__separator">
+                              /
+                            </span>
+                          ) : null}
+
+                          {item.revealTargetId ? (
+                            <button
+                              {...helpTargetProps("graph.path.file", { label: item.label })}
+                              className={`graph-location__link${isCurrent ? " is-current" : ""}`}
+                              type="button"
+                              title="Reveal this file in the system file explorer"
+                              onClick={() => void handleRevealGraphPath(item.revealTargetId as string)}
+                            >
+                              {item.label}
+                            </button>
+                          ) : !isCurrent && item.breadcrumb ? (
+                            <button
+                              {...helpTargetProps(
+                                itemHelpId ?? "graph.path.symbol",
+                                { label: item.label },
+                              )}
+                              className="graph-location__button"
+                              type="button"
+                              onClick={() => handleSelectBreadcrumb(item.breadcrumb as GraphBreadcrumbDto)}
+                            >
+                              {item.label}
+                            </button>
+                          ) : (
+                            <span
+                              {...helpTargetProps(
+                                itemHelpId
+                                ?? (isCurrent && activeLevel === "flow"
+                                  ? "graph.path.flow"
+                                  : "graph.path.symbol"),
+                                { label: item.label },
+                              )}
+                              aria-current={isCurrent ? "page" : undefined}
+                              className={`graph-location__segment${isCurrent ? " is-current" : ""}`}
+                            >
+                              {item.label}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </nav>
+                  {graphPathRevealError ? <p className="error-copy">{graphPathRevealError}</p> : null}
+                </div>
+              ) : null}
             </div>
 
-            {graphPathItems.length ? (
-              <div className="graph-location">
-                <span className="graph-location__label">Graph path</span>
-                <nav aria-label="Graph path" className="graph-location__trail">
-                  {graphPathItems.map((item, index) => {
-                    const isCurrent = index === graphPathItems.length - 1;
+            <div className="blueprint-main__body">
+              {inspectorOpen ? (
+                <BlueprintInspector
+                  selectedNode={inspectorNode}
+                  symbol={symbolQuery.data}
+                  editableSource={editableSourceQuery.data}
+                  editableSourceLoading={editableSourceQuery.isFetching}
+                  editableSourceError={
+                    editableSourceQuery.error instanceof Error
+                      ? editableSourceQuery.error.message
+                      : editableSourceQuery.error
+                        ? "Unable to load editable source."
+                        : null
+                  }
+                  revealedSource={revealedSource}
+                  lastEdit={lastEdit}
+                  isSavingSource={isSavingSource}
+                  onSaveSource={handleSaveNodeSource}
+                  onEditorStateChange={(content, dirty) => {
+                    setInspectorDraftContent(content);
+                    setInspectorDirty(Boolean(dirty));
+                  }}
+                  onOpenFlow={(symbolId) => {
+                    setInspectorTargetId(symbolId);
+                    focusGraph(symbolId, "flow");
+                  }}
+                  onOpenBlueprint={handleOpenBlueprint}
+                  onRevealSource={handleRevealSource}
+                  onOpenInDefaultEditor={(targetId) => adapter.openNodeInDefaultEditor(targetId)}
+                  onDismissSource={() => setRevealedSource(undefined)}
+                  onClose={() => void requestInspectorClose()}
+                />
+              ) : null}
 
-                    return (
-                      <div key={item.key} className="graph-location__item">
-                        {index > 0 ? (
-                          <span aria-hidden="true" className="graph-location__separator">
-                            /
-                          </span>
-                        ) : null}
-
-                        {!isCurrent && item.breadcrumb ? (
-                          <button
-                            className="graph-location__button"
-                            type="button"
-                            onClick={() => handleSelectBreadcrumb(item.breadcrumb as GraphBreadcrumbDto)}
-                          >
-                            {item.label}
-                          </button>
-                        ) : (
-                          <span
-                            aria-current={isCurrent ? "page" : undefined}
-                            className={`graph-location__segment${isCurrent ? " is-current" : ""}`}
-                          >
-                            {item.label}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </nav>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="blueprint-main__body">
-            {inspectorOpen ? (
-              <BlueprintInspector
-                selectedNode={inspectorNode}
-                symbol={symbolQuery.data}
-                editableSource={editableSourceQuery.data}
-                editableSourceLoading={editableSourceQuery.isFetching}
-                editableSourceError={
-                  editableSourceQuery.error instanceof Error
-                    ? editableSourceQuery.error.message
-                    : editableSourceQuery.error
-                      ? "Unable to load editable source."
-                      : null
-                }
-                revealedSource={revealedSource}
-                lastEdit={lastEdit}
-                isSavingSource={isSavingSource}
-                onSaveSource={handleSaveNodeSource}
-                onEditorStateChange={(content, dirty) => {
-                  setInspectorDraftContent(content);
-                  setInspectorDirty(Boolean(dirty));
-                }}
-                onOpenFlow={(symbolId) => {
-                  setInspectorTargetId(symbolId);
-                  focusGraph(symbolId, "flow");
-                }}
-                onOpenBlueprint={handleOpenBlueprint}
-                onRevealSource={handleRevealSource}
-                onOpenInDefaultEditor={(targetId) => adapter.openNodeInDefaultEditor(targetId)}
-                onDismissSource={() => setRevealedSource(undefined)}
-                onClose={() => void requestInspectorClose()}
+              <GraphCanvas
+                repoPath={repoSession?.path}
+                graph={graphQuery.data}
+                activeNodeId={activeNodeId}
+                graphFilters={graphFilters}
+                graphSettings={graphSettings}
+                highlightGraphPath={highlightGraphPath}
+                showEdgeLabels={showEdgeLabels}
+                inspectorOpen={inspectorOpen}
+                onSelectNode={handleGraphSelectNode}
+                onActivateNode={handleGraphActivateNode}
+                onSelectBreadcrumb={handleSelectBreadcrumb}
+                onSelectLevel={handleSelectLevel}
+                onToggleGraphFilter={toggleGraphFilter}
+                onToggleGraphSetting={toggleGraphSetting}
+                onToggleGraphPathHighlight={toggleGraphPathHighlight}
+                onToggleEdgeLabels={toggleEdgeLabels}
+                onToggleInspector={handleToggleInspector}
+                onNavigateOut={handleNavigateGraphOut}
+                onClearSelection={() => void handleClearGraphSelection()}
               />
-            ) : null}
-
-            <GraphCanvas
-              repoPath={repoSession?.path}
-              graph={graphQuery.data}
-              activeNodeId={activeNodeId}
-              graphFilters={graphFilters}
-              graphSettings={graphSettings}
-              highlightGraphPath={highlightGraphPath}
-              showEdgeLabels={showEdgeLabels}
-              inspectorOpen={inspectorOpen}
-              onSelectNode={handleGraphSelectNode}
-              onActivateNode={handleGraphActivateNode}
-              onSelectBreadcrumb={handleSelectBreadcrumb}
-              onSelectLevel={handleSelectLevel}
-              onToggleGraphFilter={toggleGraphFilter}
-              onToggleGraphSetting={toggleGraphSetting}
-              onToggleGraphPathHighlight={toggleGraphPathHighlight}
-              onToggleEdgeLabels={toggleEdgeLabels}
-              onToggleInspector={handleToggleInspector}
-              onNavigateOut={handleNavigateGraphOut}
-              onClearSelection={() => void handleClearGraphSelection()}
-            />
-          </div>
-        </section>
-      </main>
+            </div>
+          </section>
+        </WorkspaceHelpScope>
+      </WorkspaceHelpProvider>
       <CommandPalette />
     </DesktopWindow>
   );

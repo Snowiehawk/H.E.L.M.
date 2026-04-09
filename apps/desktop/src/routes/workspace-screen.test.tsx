@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "../app/AppProviders";
 import { buildRepoSession } from "../lib/mocks/mockData";
 import { MockDesktopAdapter } from "../lib/adapter/mockDesktopAdapter";
@@ -91,7 +91,7 @@ describe("WorkspaceScreen", () => {
 
     const graphPane = (graphPanel as HTMLElement).querySelector(".react-flow__pane");
     expect(graphPane).not.toBeNull();
-    fireEvent.click(graphPane as Element);
+    await user.click(graphPane as HTMLElement);
 
     await waitFor(() =>
       expect(screen.queryByText(/Declaration editor/i)).not.toBeInTheDocument(),
@@ -132,5 +132,116 @@ describe("WorkspaceScreen", () => {
     expect(
       within(screen.getByRole("navigation", { name: /Graph path/i })).queryByText("Flow"),
     ).not.toBeInTheDocument();
+  });
+
+  it("treats class nodes as inspectable instead of enterable", async () => {
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const classNode = (await graph.findByText("GraphSummary")).closest(".graph-node");
+    expect(classNode).not.toBeNull();
+    expect(within(classNode as HTMLElement).getByText("Inspect")).toBeInTheDocument();
+    expect(within(classNode as HTMLElement).queryByText("Enter")).not.toBeInTheDocument();
+
+    fireEvent.click(within(classNode as HTMLElement).getByText("Inspect"));
+
+    expect(await screen.findByRole("button", { name: /Open File In Default Editor/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Open flow/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Open blueprint/i })).not.toBeInTheDocument();
+  });
+
+  it("reveals the current graph file from the graph path", async () => {
+    const user = userEvent.setup();
+    const adapter = new MockDesktopAdapter();
+    const revealSpy = vi
+      .spyOn(adapter, "revealNodeInFileExplorer")
+      .mockResolvedValue(undefined);
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const graphPath = await screen.findByRole("navigation", { name: /Graph path/i });
+    await user.click(within(graphPath).getByRole("button", { name: "api.py" }));
+
+    expect(revealSpy).toHaveBeenCalledWith("module:helm.ui.api");
+  });
+
+  it("updates the footer help box across explorer, graph path, graph nodes, and inspector actions", async () => {
+    const user = userEvent.setup();
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const helpBox = document.querySelector(".workspace-help-box");
+    expect(helpBox).not.toBeNull();
+    const help = within(helpBox as HTMLElement);
+    expect(help.getByText("Hover help")).toBeInTheDocument();
+
+    await user.hover(await screen.findByRole("button", { name: "Open Repo" }));
+    expect(help.getByText("Open repo")).toBeInTheDocument();
+
+    await user.hover(screen.getByPlaceholderText("Jump to file or symbol"));
+    expect(help.getByText("Search")).toBeInTheDocument();
+    expect(help.getByText("Cmd/Ctrl + K")).toBeInTheDocument();
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const graphPath = await screen.findByRole("navigation", { name: /Graph path/i });
+    await user.hover(within(graphPath).getByRole("button", { name: "api.py" }));
+    expect(help.getByText("api.py in Finder/Explorer")).toBeInTheDocument();
+
+    const moduleNode = (await graph.findByText("api.py")).closest(".graph-node");
+    expect(moduleNode).not.toBeNull();
+    await user.hover(moduleNode as HTMLElement);
+    expect(help.getByText("api.py module node")).toBeInTheDocument();
+
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    const inspectButton = within(functionNode as HTMLElement).getByText("Inspect");
+    await user.hover(inspectButton);
+    expect(help.getByText("Inspect node")).toBeInTheDocument();
+
+    fireEvent.click(inspectButton);
+    const openInEditor = await screen.findByRole("button", { name: /Open File In Default Editor/i });
+    await user.hover(openInEditor);
+    expect(help.getByText("Open file in default editor")).toBeInTheDocument();
   });
 });

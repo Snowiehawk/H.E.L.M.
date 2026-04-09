@@ -94,7 +94,9 @@ describe("buildBlueprintPresentation", () => {
       "out:graph:calls",
     ]);
     expect(focusImportPort?.memberLabels).toEqual(["right-a"]);
+    expect(focusImportPort?.memberEdgeIds).toEqual(["imports:focus-right-a"]);
     expect(focusCallPort?.memberLabels).toEqual(["right-b"]);
+    expect(focusCallPort?.memberEdgeIds).toEqual(["calls:focus-right-b"]);
     expect(presentation.edgeHandles.get("imports:focus-right-a")).toEqual({
       sourceHandle: "out:graph:imports",
       targetHandle: "in:graph:imports",
@@ -171,6 +173,10 @@ describe("buildBlueprintPresentation", () => {
     expect(callPort?.memberLabels).toEqual([
       "left-a · 2 calls",
       "left-b · 1 call",
+    ]);
+    expect(callPort?.memberEdgeIds).toEqual([
+      "calls:left-a-focus",
+      "calls:left-b-focus",
     ]);
     expect(presentation.edgeHandles.get("calls:left-a-focus")).toEqual({
       sourceHandle: "out:graph:calls",

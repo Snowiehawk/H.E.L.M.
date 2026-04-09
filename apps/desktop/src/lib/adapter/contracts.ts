@@ -213,14 +213,14 @@ export function isGraphSymbolNodeKind(
 
 export function isInspectableGraphNodeKind(
   kind: GraphNodeKind | string | null | undefined,
-): kind is "function" | "variable" | "enum" {
-  return kind === "function" || kind === "variable" || kind === "enum";
+): kind is "function" | "class" | "variable" | "enum" {
+  return kind === "function" || kind === "class" || kind === "variable" || kind === "enum";
 }
 
 export function isEnterableGraphNodeKind(
   kind: GraphNodeKind | string | null | undefined,
-): kind is "repo" | "module" | "symbol" | "class" {
-  return kind === "repo" || kind === "module" || kind === "symbol" || kind === "class";
+): kind is "repo" | "module" | "symbol" {
+  return kind === "repo" || kind === "module" || kind === "symbol";
 }
 
 export interface RevealedSource {
@@ -362,5 +362,6 @@ export interface DesktopAdapter {
   getEditableNodeSource(targetId: string): Promise<EditableNodeSource>;
   saveNodeSource(targetId: string, content: string): Promise<StructuralEditResult>;
   openNodeInDefaultEditor(targetId: string): Promise<void>;
+  revealNodeInFileExplorer(targetId: string): Promise<void>;
   getOverview(): Promise<OverviewData>;
 }

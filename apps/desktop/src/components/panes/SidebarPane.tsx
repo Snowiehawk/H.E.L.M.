@@ -7,6 +7,11 @@ import type {
   SearchResult,
 } from "../../lib/adapter";
 import { StatusPill } from "../shared/StatusPill";
+import {
+  WorkspaceHelpBox,
+  helpIdForOutlineKind,
+  helpTargetProps,
+} from "../workspace/workspaceHelp";
 
 type ExplorerTreeNodeKind = "directory" | "file" | "outline";
 
@@ -430,13 +435,28 @@ export function SidebarPane({
       </div>
 
       <div className="explorer-actions">
-        <button className="primary-button" type="button" onClick={() => onOpenRepo()}>
+        <button
+          {...helpTargetProps("explorer.open-repo")}
+          className="primary-button"
+          type="button"
+          onClick={() => onOpenRepo()}
+        >
           Open Repo
         </button>
-        <button className="ghost-button" type="button" onClick={onReindexRepo}>
+        <button
+          {...helpTargetProps("explorer.reindex")}
+          className="ghost-button"
+          type="button"
+          onClick={onReindexRepo}
+        >
           Reindex
         </button>
-        <button className="ghost-button" type="button" onClick={onFocusRepoGraph}>
+        <button
+          {...helpTargetProps("explorer.repo-graph")}
+          className="ghost-button"
+          type="button"
+          onClick={onFocusRepoGraph}
+        >
           Repo Graph
         </button>
       </div>
@@ -447,6 +467,7 @@ export function SidebarPane({
           <span>Cmd/Ctrl + K</span>
         </div>
         <input
+          {...helpTargetProps("explorer.search")}
           className="sidebar-search"
           value={sidebarQuery}
           onChange={(event) => onSidebarQueryChange(event.target.value)}
@@ -463,6 +484,7 @@ export function SidebarPane({
           {searchResults.map((result) => (
             <button
               key={result.id}
+              {...helpTargetProps("explorer.search-result", { label: result.title })}
               className="list-button"
               type="button"
               onClick={() => onSelectResult(result)}
@@ -489,6 +511,14 @@ export function SidebarPane({
                 return (
                   <div
                     key={row.id}
+                    {...helpTargetProps(
+                      row.kind === "directory"
+                        ? "explorer.directory"
+                        : row.kind === "file"
+                          ? "explorer.file"
+                          : helpIdForOutlineKind(row.outlineItem?.kind ?? "function"),
+                      { label: row.label },
+                    )}
                     ref={(element) => {
                       if (element) {
                         rowRefs.current.set(row.id, element);
@@ -562,6 +592,7 @@ export function SidebarPane({
                     }}
                   >
                     <button
+                      {...helpTargetProps("explorer.disclosure", { label: row.label })}
                       aria-hidden={!isExpandable}
                       className={`explorer-row__disclosure${isExpandable ? "" : " is-hidden"}`}
                       tabIndex={-1}
@@ -603,7 +634,7 @@ export function SidebarPane({
         </div>
       )}
 
-      {backendStatus?.note ? <p className="launch-note">{backendStatus.note}</p> : null}
+      <WorkspaceHelpBox />
     </aside>
   );
 }
