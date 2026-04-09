@@ -3,6 +3,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { GraphNodeKind } from "../../lib/adapter";
 import type { BlueprintPort } from "./blueprintPorts";
 import {
+  type HelpDescriptorId,
   helpIdForGraphNodeKind,
   helpIdForPort,
   helpTargetProps,
@@ -19,11 +20,13 @@ export interface BlueprintNodeData extends Record<string, unknown> {
   kind: GraphNodeKind;
   label: string;
   summary?: string;
+  isPinned?: boolean;
   inputPorts: BlueprintNodePort[];
   outputPorts: BlueprintNodePort[];
   actions?: Array<{
-    id: "enter" | "inspect";
+    id: "enter" | "inspect" | "pin";
     label: string;
+    helpId: HelpDescriptorId;
     onAction: () => void;
   }>;
   onDefaultAction?: () => void;
@@ -118,7 +121,7 @@ export const BlueprintNode = memo(function BlueprintNode({
       {...helpTargetProps(helpIdForGraphNodeKind(blueprintData.kind), {
         label: blueprintData.label,
       })}
-      className={`graph-node graph-node--${blueprintData.kind}`}
+      className={`graph-node graph-node--${blueprintData.kind}${blueprintData.isPinned ? " graph-node--pinned" : ""}`}
     >
       <PortList direction="input" ports={blueprintData.inputPorts} />
 
@@ -130,9 +133,7 @@ export const BlueprintNode = memo(function BlueprintNode({
               {actions.map((action) => (
                 <button
                   key={action.id}
-                  {...helpTargetProps(
-                    action.id === "enter" ? "graph.node.action.enter" : "graph.node.action.inspect",
-                  )}
+                  {...helpTargetProps(action.helpId)}
                   className="graph-node__action nodrag"
                   type="button"
                   onPointerDown={(event) => {

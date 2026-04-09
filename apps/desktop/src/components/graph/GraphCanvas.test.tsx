@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GraphView } from "../../lib/adapter";
@@ -128,14 +128,63 @@ const originalLayout = {
     "return:done": { x: 520, y: 150 },
   },
   reroutes: [],
+  pinnedNodeIds: [],
 };
 
 describe("GraphCanvas", () => {
   beforeEach(() => {
     readStoredGraphLayoutMock.mockReset();
     writeStoredGraphLayoutMock.mockReset();
-    readStoredGraphLayoutMock.mockResolvedValue({ nodes: {}, reroutes: [] });
+    readStoredGraphLayoutMock.mockResolvedValue(originalLayout);
     writeStoredGraphLayoutMock.mockResolvedValue(undefined);
+  });
+
+  it("initializes and persists a structured flow layout on first open when no layout is saved", async () => {
+    readStoredGraphLayoutMock.mockResolvedValueOnce({
+      nodes: {},
+      reroutes: [],
+      pinnedNodeIds: [],
+    });
+
+    render(
+      <GraphCanvas
+        repoPath="/workspace/calculator"
+        graph={baseGraph}
+        activeNodeId="entry:calculate"
+        graphFilters={{
+          includeCalls: true,
+          includeDefines: true,
+          includeImports: true,
+        }}
+        graphSettings={{
+          includeExternalDependencies: false,
+        }}
+        highlightGraphPath={false}
+        showEdgeLabels={false}
+        inspectorOpen={false}
+        onSelectNode={vi.fn()}
+        onActivateNode={vi.fn()}
+        onInspectNode={vi.fn()}
+        onSelectBreadcrumb={vi.fn()}
+        onSelectLevel={vi.fn()}
+        onToggleGraphFilter={vi.fn()}
+        onToggleGraphSetting={vi.fn()}
+        onToggleGraphPathHighlight={vi.fn()}
+        onToggleEdgeLabels={vi.fn()}
+        onToggleInspector={vi.fn()}
+        onNavigateOut={vi.fn()}
+        onClearSelection={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(writeStoredGraphLayoutMock).toHaveBeenCalledTimes(1));
+    const initialWrite = writeStoredGraphLayoutMock.mock.calls[0];
+    expect(initialWrite[0]).toBe("/workspace/calculator");
+    expect(initialWrite[1]).toBe("flow|symbol:calculator:calculate");
+    expect(initialWrite[2].pinnedNodeIds).toEqual([]);
+    expect(Object.keys(initialWrite[2].nodes)).toEqual(
+      expect.arrayContaining(["entry:calculate", "branch:left", "branch:right", "return:done"]),
+    );
   });
 
   it("declutters the current view and can undo the saved layout change", async () => {
@@ -486,6 +535,7 @@ describe("GraphCanvas", () => {
           y: 164,
         },
       ],
+      pinnedNodeIds: [],
     });
 
     render(
@@ -521,6 +571,60 @@ describe("GraphCanvas", () => {
 
     expect(await screen.findByTestId("rf__node-reroute:reroute-1")).toBeInTheDocument();
     expect(writeStoredGraphLayoutMock).not.toHaveBeenCalled();
+  });
+
+  it("pins nodes through the node action and toggles them back with the hotkey", async () => {
+    render(
+      <GraphCanvas
+        repoPath="/workspace/calculator"
+        graph={baseGraph}
+        activeNodeId="entry:calculate"
+        graphFilters={{
+          includeCalls: true,
+          includeDefines: true,
+          includeImports: true,
+        }}
+        graphSettings={{
+          includeExternalDependencies: false,
+        }}
+        highlightGraphPath={false}
+        showEdgeLabels={false}
+        inspectorOpen={false}
+        onSelectNode={vi.fn()}
+        onActivateNode={vi.fn()}
+        onInspectNode={vi.fn()}
+        onSelectBreadcrumb={vi.fn()}
+        onSelectLevel={vi.fn()}
+        onToggleGraphFilter={vi.fn()}
+        onToggleGraphSetting={vi.fn()}
+        onToggleGraphPathHighlight={vi.fn()}
+        onToggleEdgeLabels={vi.fn()}
+        onToggleInspector={vi.fn()}
+        onNavigateOut={vi.fn()}
+        onClearSelection={vi.fn()}
+      />,
+    );
+
+    const entryNodeHost = await screen.findByTestId("rf__node-entry:calculate");
+    expect(writeStoredGraphLayoutMock).not.toHaveBeenCalled();
+    expect(within(entryNodeHost).getByText("Pin")).toBeInTheDocument();
+
+    const graphPanel = screen.getByRole("region", { name: /Graph canvas/i });
+    fireEvent.keyDown(graphPanel, { key: "p" });
+
+    await waitFor(() =>
+      expect(
+        writeStoredGraphLayoutMock.mock.calls[writeStoredGraphLayoutMock.mock.calls.length - 1]?.[2].pinnedNodeIds,
+      ).toEqual(["entry:calculate"]),
+    );
+
+    fireEvent.keyDown(graphPanel, { key: "p" });
+
+    await waitFor(() =>
+      expect(
+        writeStoredGraphLayoutMock.mock.calls[writeStoredGraphLayoutMock.mock.calls.length - 1]?.[2].pinnedNodeIds,
+      ).toEqual([]),
+    );
   });
 
   it("clears selection when the graph pane background is clicked", async () => {

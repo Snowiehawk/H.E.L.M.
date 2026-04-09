@@ -61,11 +61,9 @@ describe("AppProviders", () => {
 
     fireEvent.keyDown(window, { key: "=", ctrlKey: true });
     expect(useUiStore.getState().uiScale).toBe(1.1);
-    expect((scaleShell as HTMLElement).style.getPropertyValue("--app-ui-scale")).toBe("1.1");
 
     fireEvent.keyDown(window, { key: "-", ctrlKey: true });
     expect(useUiStore.getState().uiScale).toBe(1);
-    expect((scaleShell as HTMLElement).style.getPropertyValue("--app-ui-scale")).toBe("1");
 
     fireEvent.keyDown(window, { key: "0", ctrlKey: true });
     expect(useUiStore.getState().uiScale).toBe(1);

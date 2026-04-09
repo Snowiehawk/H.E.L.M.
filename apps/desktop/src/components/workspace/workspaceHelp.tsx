@@ -59,6 +59,8 @@ export type HelpDescriptorId =
   | "graph.settings.external-dependencies"
   | "graph.node.action.enter"
   | "graph.node.action.inspect"
+  | "graph.node.action.pin"
+  | "graph.node.action.unpin"
   | "graph.node.repo"
   | "graph.node.module"
   | "graph.node.symbol"
@@ -197,7 +199,7 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.path.flow": () => ({
     title: "Flow path",
-    description: "Shows that you are viewing the function flow blueprint for the current function.",
+    description: "Shows that you are viewing the internal flow blueprint for the current function or class.",
     shortcut: "Backspace",
   }),
   "graph.canvas": () => ({
@@ -243,7 +245,7 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.level.flow": () => ({
     title: "Flow level",
-    description: "Shows the inside of a function as a node-based flow graph.",
+    description: "Shows the inside of a function or class as a node-based internal graph.",
   }),
   "graph.filter.calls": () => ({
     title: "Calls filter",
@@ -267,11 +269,11 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.declutter": () => ({
     title: "Declutter",
-    description: "Clean up only the current graph view by separating crowded nodes while keeping the camera stable.",
+    description: "Re-run layout for the current graph view. Flow views use a structured left-to-right pass, while the camera stays where it is.",
   }),
   "graph.undo-declutter": () => ({
     title: "Undo declutter",
-    description: "Restore the last saved node positions from before the current view was decluttered.",
+    description: "Restore the last saved node positions and pin state from before the current view was decluttered.",
   }),
   "graph.settings.external-dependencies": () => ({
     title: "Show external dependencies",
@@ -284,6 +286,16 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   "graph.node.action.inspect": () => ({
     title: "Inspect node",
     description: "Open the docked inspector for this code node. Double-clicking the node does the same thing.",
+  }),
+  "graph.node.action.pin": () => ({
+    title: "Pin node",
+    description: "Keep this node fixed as an anchor the next time flow declutter runs.",
+    shortcut: "P",
+  }),
+  "graph.node.action.unpin": () => ({
+    title: "Unpin node",
+    description: "Let flow declutter reposition this node again during the next structured layout pass.",
+    shortcut: "P",
   }),
   "graph.node.repo": ({ label }) => ({
     title: `${fallbackLabel(label, "Repo")} repo node`,
@@ -303,7 +315,7 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.node.class": ({ label }) => ({
     title: `${fallbackLabel(label, "Class")} class node`,
-    description: "Represents a top-level class. Enter it to graph class internals, or inspect it to review code details and source location.",
+    description: "Represents a top-level class. Enter it to graph class internals, inspect it to review code details, or open its internal flow.",
   }),
   "graph.node.enum": ({ label }) => ({
     title: `${fallbackLabel(label, "Enum")} enum node`,
@@ -408,7 +420,7 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "inspector.open-flow": () => ({
     title: "Open flow",
-    description: "Open the function’s internal flow graph.",
+    description: "Open the selected function or class as an internal flow graph.",
   }),
   "inspector.open-blueprint": () => ({
     title: "Open blueprint",

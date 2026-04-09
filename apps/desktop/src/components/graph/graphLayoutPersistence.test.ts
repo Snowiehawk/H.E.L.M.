@@ -60,6 +60,7 @@ describe("graphLayoutPersistence", () => {
         "module:beta": { x: 440, y: 80 },
       },
       reroutes: [],
+      pinnedNodeIds: [],
     });
 
     expect(invokeMock).toHaveBeenCalledWith("read_repo_graph_layout", {
@@ -77,13 +78,14 @@ describe("graphLayoutPersistence", () => {
         "module:beta": { x: 440, y: 80 },
       },
       reroutes: [],
+      pinnedNodeIds: ["module:beta"],
     });
 
     expect(invokeMock).toHaveBeenCalledWith("write_repo_graph_layout", {
       repoPath: "/workspace/project",
       viewKey: "module|module:alpha",
       layoutJson:
-        "{\"nodes\":{\"module:alpha\":{\"x\":120,\"y\":-40},\"module:beta\":{\"x\":440,\"y\":80}},\"reroutes\":[]}",
+        "{\"nodes\":{\"module:alpha\":{\"x\":120,\"y\":-40},\"module:beta\":{\"x\":440,\"y\":80}},\"reroutes\":[],\"pinnedNodeIds\":[\"module:beta\"]}",
     });
   });
 
@@ -101,6 +103,7 @@ describe("graphLayoutPersistence", () => {
           y: 24,
         },
       ],
+      pinnedNodeIds: ["module:alpha"],
     });
 
     await expect(
@@ -118,6 +121,7 @@ describe("graphLayoutPersistence", () => {
           y: 24,
         },
       ],
+      pinnedNodeIds: ["module:alpha"],
     });
   });
 });

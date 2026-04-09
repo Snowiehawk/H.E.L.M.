@@ -19,12 +19,14 @@ export interface StoredGraphReroute {
 export interface StoredGraphLayout {
   nodes: StoredGraphNodeLayout;
   reroutes: StoredGraphReroute[];
+  pinnedNodeIds: string[];
 }
 
 function emptyStoredGraphLayout(): StoredGraphLayout {
   return {
     nodes: {},
     reroutes: [],
+    pinnedNodeIds: [],
   };
 }
 
@@ -99,8 +101,9 @@ function normalizeLayout(value: unknown): StoredGraphLayout {
 
   const maybeNodes = Reflect.get(value, "nodes");
   const maybeReroutes = Reflect.get(value, "reroutes");
+  const maybePinnedNodeIds = Reflect.get(value, "pinnedNodeIds");
 
-  if (maybeNodes !== undefined || maybeReroutes !== undefined) {
+  if (maybeNodes !== undefined || maybeReroutes !== undefined || maybePinnedNodeIds !== undefined) {
     return {
       nodes: normalizeNodeLayout(maybeNodes),
       reroutes: Array.isArray(maybeReroutes)
@@ -109,12 +112,16 @@ function normalizeLayout(value: unknown): StoredGraphLayout {
             return normalized ? [normalized] : [];
           })
         : [],
+      pinnedNodeIds: Array.isArray(maybePinnedNodeIds)
+        ? maybePinnedNodeIds.filter((item): item is string => typeof item === "string")
+        : [],
     };
   }
 
   return {
     nodes: normalizeNodeLayout(value),
     reroutes: [],
+    pinnedNodeIds: [],
   };
 }
 

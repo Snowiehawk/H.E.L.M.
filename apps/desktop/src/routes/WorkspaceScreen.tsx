@@ -714,7 +714,7 @@ export function WorkspaceScreen() {
 
   const titleCopy = useMemo(() => {
     if (activeLevel === "flow") {
-      return "Function flow";
+      return "Internal flow";
     }
     if (activeLevel === "symbol") {
       return "Symbol blueprint";

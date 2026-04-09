@@ -51,7 +51,7 @@ describe("workspaceHelp", () => {
     expect(resolveHelpDescriptor("graph.node.class", { label: "Widget" }).title).toBe("Widget class node");
     expect(resolveHelpDescriptor("graph.node.function", { label: "build_graph" }).description).toMatch(/function/i);
     expect(resolveHelpDescriptor("graph.node.param", { label: "operation" }).description).toMatch(/function signature/i);
-    expect(resolveHelpDescriptor("graph.path.flow").description).toMatch(/function flow/i);
+    expect(resolveHelpDescriptor("graph.path.flow").description).toMatch(/function or class/i);
     expect(resolveHelpDescriptor("graph.port.imports").description).toMatch(/import relationships/i);
     expect(resolveHelpDescriptor("graph.port.calls").description).toMatch(/call relationships/i);
   });

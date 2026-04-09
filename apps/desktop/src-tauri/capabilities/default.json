@@ -3,5 +3,9 @@
   "identifier": "default",
   "description": "Default capability set for the H.E.L.M. desktop shell.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:default"]
+  "permissions": [
+    "core:default",
+    "core:webview:allow-set-webview-zoom",
+    "dialog:default"
+  ]
 }

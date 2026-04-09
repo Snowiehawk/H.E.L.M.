@@ -290,4 +290,146 @@ describe("buildBlueprintPresentation", () => {
       targetHandle: "in:data:flag",
     });
   });
+
+  it("assigns distinct control handles for labeled and unlabeled split paths", () => {
+    const graph: GraphView = {
+      rootNodeId: "flow:entry",
+      targetId: "symbol:service:run",
+      level: "flow",
+      truncated: false,
+      breadcrumbs: [],
+      focus: {
+        targetId: "symbol:service:run",
+        level: "flow",
+        label: "run",
+        availableLevels: ["repo", "module", "symbol", "flow"],
+      },
+      nodes: [
+        {
+          id: "flow:entry",
+          kind: "entry",
+          label: "Entry",
+          x: 0,
+          y: 0,
+          metadata: {},
+          availableActions: [],
+        },
+        {
+          id: "flow:branch",
+          kind: "branch",
+          label: "if flag",
+          x: 220,
+          y: 0,
+          metadata: {},
+          availableActions: [],
+        },
+        {
+          id: "flow:true",
+          kind: "assign",
+          label: "true path",
+          x: 440,
+          y: -80,
+          metadata: {},
+          availableActions: [],
+        },
+        {
+          id: "flow:false",
+          kind: "assign",
+          label: "false path",
+          x: 440,
+          y: 80,
+          metadata: {},
+          availableActions: [],
+        },
+        {
+          id: "flow:multi",
+          kind: "call",
+          label: "dispatch()",
+          x: 660,
+          y: 0,
+          metadata: {},
+          availableActions: [],
+        },
+        {
+          id: "flow:path-a",
+          kind: "return",
+          label: "path a",
+          x: 880,
+          y: -80,
+          metadata: {},
+          availableActions: [],
+        },
+        {
+          id: "flow:path-b",
+          kind: "return",
+          label: "path b",
+          x: 880,
+          y: 80,
+          metadata: {},
+          availableActions: [],
+        },
+      ],
+      edges: [
+        {
+          id: "controls:entry-branch",
+          kind: "controls",
+          source: "flow:entry",
+          target: "flow:branch",
+          metadata: {},
+        },
+        {
+          id: "controls:branch-true",
+          kind: "controls",
+          source: "flow:branch",
+          target: "flow:true",
+          label: "true",
+          metadata: { path_key: "true", path_label: "true", path_order: 0 },
+        },
+        {
+          id: "controls:branch-false",
+          kind: "controls",
+          source: "flow:branch",
+          target: "flow:false",
+          label: "false",
+          metadata: { path_key: "false", path_label: "false", path_order: 1 },
+        },
+        {
+          id: "controls:true-multi",
+          kind: "controls",
+          source: "flow:true",
+          target: "flow:multi",
+          metadata: {},
+        },
+        {
+          id: "controls:multi-a",
+          kind: "controls",
+          source: "flow:multi",
+          target: "flow:path-a",
+          metadata: {},
+        },
+        {
+          id: "controls:multi-b",
+          kind: "controls",
+          source: "flow:multi",
+          target: "flow:path-b",
+          metadata: {},
+        },
+      ],
+    };
+
+    const presentation = buildBlueprintPresentation(graph);
+    const branchPorts = presentation.nodePorts.get("flow:branch");
+    const multiPorts = presentation.nodePorts.get("flow:multi");
+
+    expect(branchPorts?.outputs.map((port) => port.label)).toEqual(["true", "false"]);
+    expect(multiPorts?.outputs.map((port) => port.label)).toEqual(["path 1", "path 2"]);
+    expect(presentation.edgeHandles.get("controls:branch-true")).toEqual({
+      sourceHandle: "out:control:true",
+      targetHandle: "in:control:exec",
+    });
+    expect(presentation.edgeHandles.get("controls:multi-b")).toEqual({
+      sourceHandle: "out:control:path-2",
+      targetHandle: "in:control:exec",
+    });
+  });
 });

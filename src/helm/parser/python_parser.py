@@ -85,6 +85,8 @@ class _ModuleVisitor(ast.NodeVisitor):
         symbol = self._make_symbol(node.name, self._class_symbol_kind(node), node)
         self._symbol_stack.append(symbol)
         for statement in node.body:
+            if symbol.kind == SymbolKind.CLASS:
+                self._record_direct_class_body_symbol(statement)
             self.visit(statement)
         self._symbol_stack.pop()
 
@@ -233,6 +235,14 @@ class _ModuleVisitor(ast.NodeVisitor):
 
     def _span_for(self, node: ast.AST) -> SourceSpan:
         return _span_for_node(self.module.file_path, self.source, self.line_starts, node)
+
+    def _record_direct_class_body_symbol(self, statement: ast.stmt) -> None:
+        if isinstance(statement, ast.Assign):
+            for name in _assignment_target_names(statement):
+                self._make_symbol(name, SymbolKind.VARIABLE, statement)
+            return
+        if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+            self._make_symbol(statement.target.id, SymbolKind.VARIABLE, statement)
 
 
 def _extract_call_path(node: ast.AST) -> tuple[str | None, tuple[str, ...]]:

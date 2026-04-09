@@ -62,7 +62,7 @@ class PythonParserTests(unittest.TestCase):
             self.assertEqual(parsed.diagnostics[0].code, "syntax_error")
             self.assertEqual(parsed.symbols, ())
 
-    def test_extracts_top_level_enums_and_variables_without_locals_or_attributes(self) -> None:
+    def test_extracts_top_level_enums_and_direct_class_attributes_without_locals(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             write_repo_files(
@@ -95,8 +95,9 @@ class PythonParserTests(unittest.TestCase):
                     "LIMIT": "variable",
                     "Mode": "enum",
                     "Service": "class",
+                    "Service.enabled": "variable",
                     "Service.run": "method",
                 },
             )
-            self.assertNotIn("Service.enabled", qualnames)
+            self.assertNotIn("Mode.FAST", qualnames)
             self.assertNotIn("local_value", qualnames)

@@ -9,16 +9,19 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 use tauri::{
-    menu::{AboutMetadata, CheckMenuItem, Menu, PredefinedMenuItem, Submenu},
+    menu::{AboutMetadata, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Emitter, Manager, Wry,
 };
 
-const GRAPH_VIEW_MENU_EVENT: &str = "helm://graph-view-menu";
+const APP_MENU_EVENT: &str = "helm://app-menu";
 const MENU_ID_SHOW_CALLS: &str = "graph-view.show-calls";
 const MENU_ID_SHOW_IMPORTS: &str = "graph-view.show-imports";
 const MENU_ID_SHOW_DEFINES: &str = "graph-view.show-defines";
 const MENU_ID_HIGHLIGHT_PATH: &str = "graph-view.highlight-path";
 const MENU_ID_SHOW_EDGE_LABELS: &str = "graph-view.show-edge-labels";
+const MENU_ID_ZOOM_IN: &str = "app.zoom-in";
+const MENU_ID_ZOOM_OUT: &str = "app.zoom-out";
+const MENU_ID_ZOOM_RESET: &str = "app.zoom-reset";
 
 #[derive(Serialize)]
 struct BackendHealth {
@@ -53,6 +56,8 @@ struct StoredGraphViewLayout {
     nodes: StoredGraphNodeLayout,
     #[serde(default)]
     reroutes: Vec<StoredGraphRerouteNode>,
+    #[serde(default)]
+    pinned_node_ids: Vec<String>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -119,8 +124,23 @@ fn scan_repo_payload(repo_path: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
-fn graph_view(repo_path: String, target_id: String, level: String, filters_json: String) -> Result<Value, String> {
-    run_bridge_json(["graph-view", &repo_path, &target_id, &level, "--filters-json", &filters_json].as_slice())
+fn graph_view(
+    repo_path: String,
+    target_id: String,
+    level: String,
+    filters_json: String,
+) -> Result<Value, String> {
+    run_bridge_json(
+        [
+            "graph-view",
+            &repo_path,
+            &target_id,
+            &level,
+            "--filters-json",
+            &filters_json,
+        ]
+        .as_slice(),
+    )
 }
 
 #[tauri::command]
@@ -144,18 +164,38 @@ fn editable_node_source(repo_path: String, target_id: String) -> Result<Value, S
 }
 
 #[tauri::command]
-fn save_node_source(repo_path: String, target_id: String, content_json: String) -> Result<Value, String> {
-    run_bridge_json(["save-node-source", &repo_path, &target_id, "--content-json", &content_json].as_slice())
+fn save_node_source(
+    repo_path: String,
+    target_id: String,
+    content_json: String,
+) -> Result<Value, String> {
+    run_bridge_json(
+        [
+            "save-node-source",
+            &repo_path,
+            &target_id,
+            "--content-json",
+            &content_json,
+        ]
+        .as_slice(),
+    )
 }
 
 #[tauri::command]
-fn read_repo_graph_layout(repo_path: String, view_key: String) -> Result<StoredGraphViewLayout, String> {
+fn read_repo_graph_layout(
+    repo_path: String,
+    view_key: String,
+) -> Result<StoredGraphViewLayout, String> {
     let layouts = read_repo_graph_layouts(&repo_path)?;
     Ok(layouts.views.get(&view_key).cloned().unwrap_or_default())
 }
 
 #[tauri::command]
-fn write_repo_graph_layout(repo_path: String, view_key: String, layout_json: String) -> Result<(), String> {
+fn write_repo_graph_layout(
+    repo_path: String,
+    view_key: String,
+    layout_json: String,
+) -> Result<(), String> {
     let layout: StoredGraphViewLayout = serde_json::from_str(&layout_json)
         .map_err(|err| format!("Unable to decode graph layout payload: {}", err))?;
     let mut layouts = read_repo_graph_layouts(&repo_path)?;
@@ -204,7 +244,10 @@ fn open_path_in_default_editor(file_path: String) -> Result<(), String> {
             if status.success() {
                 Ok(())
             } else {
-                Err(format!("Default editor command failed for {}", path.display()))
+                Err(format!(
+                    "Default editor command failed for {}",
+                    path.display()
+                ))
             }
         })
 }
@@ -250,7 +293,10 @@ fn reveal_path_in_file_explorer(file_path: String) -> Result<(), String> {
             if status.success() {
                 Ok(())
             } else {
-                Err(format!("File explorer command failed for {}", path.display()))
+                Err(format!(
+                    "File explorer command failed for {}",
+                    path.display()
+                ))
             }
         })
 }
@@ -340,10 +386,16 @@ fn workspace_root() -> Result<PathBuf, String> {
 fn repo_graph_layout_path(repo_path: &str) -> Result<PathBuf, String> {
     let repo_root = PathBuf::from(repo_path);
     if !repo_root.exists() {
-        return Err(format!("Repository path does not exist: {}", repo_root.display()));
+        return Err(format!(
+            "Repository path does not exist: {}",
+            repo_root.display()
+        ));
     }
     if !repo_root.is_dir() {
-        return Err(format!("Repository path is not a directory: {}", repo_root.display()));
+        return Err(format!(
+            "Repository path is not a directory: {}",
+            repo_root.display()
+        ));
     }
     Ok(repo_root.join(".helm").join("graph-layouts.v1.json"))
 }
@@ -375,10 +427,7 @@ fn write_repo_graph_layouts(repo_path: &str, layouts: &RepoGraphLayouts) -> Resu
 
 fn normalize_repo_graph_layouts(value: Value) -> RepoGraphLayouts {
     let mut layouts = RepoGraphLayouts::default();
-    let Some(views) = value
-        .get("views")
-        .and_then(Value::as_object)
-    else {
+    let Some(views) = value.get("views").and_then(Value::as_object) else {
         return layouts;
     };
 
@@ -393,10 +442,14 @@ fn normalize_repo_graph_layouts(value: Value) -> RepoGraphLayouts {
 
 fn normalize_graph_view_layout(value: &Value) -> StoredGraphViewLayout {
     if let Some(object) = value.as_object() {
-        if object.contains_key("nodes") || object.contains_key("reroutes") {
+        if object.contains_key("nodes")
+            || object.contains_key("reroutes")
+            || object.contains_key("pinnedNodeIds")
+        {
             return StoredGraphViewLayout {
                 nodes: normalize_node_layout(object.get("nodes")),
                 reroutes: normalize_reroutes(object.get("reroutes")),
+                pinned_node_ids: normalize_pinned_node_ids(object.get("pinnedNodeIds")),
             };
         }
     }
@@ -404,6 +457,7 @@ fn normalize_graph_view_layout(value: &Value) -> StoredGraphViewLayout {
     StoredGraphViewLayout {
         nodes: normalize_node_layout(Some(value)),
         reroutes: Vec::new(),
+        pinned_node_ids: Vec::new(),
     }
 }
 
@@ -457,6 +511,17 @@ fn normalize_reroutes(value: Option<&Value>) -> Vec<StoredGraphRerouteNode> {
         .collect()
 }
 
+fn normalize_pinned_node_ids(value: Option<&Value>) -> Vec<String> {
+    let Some(items) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+
+    items
+        .iter()
+        .filter_map(|item| item.as_str().map(ToOwned::to_owned))
+        .collect()
+}
+
 fn set_graph_view_menu_item(
     item: &Mutex<Option<CheckMenuItem<Wry>>>,
     checked: bool,
@@ -496,7 +561,11 @@ fn build_macos_app_menu(
         name: Some(pkg_info.name.clone()),
         version: Some(pkg_info.version.to_string()),
         copyright: config.bundle.copyright.clone(),
-        authors: config.bundle.publisher.clone().map(|publisher| vec![publisher]),
+        authors: config
+            .bundle
+            .publisher
+            .clone()
+            .map(|publisher| vec![publisher]),
         ..Default::default()
     };
 
@@ -539,6 +608,21 @@ fn build_macos_app_menu(
         true,
         true,
         None::<&str>,
+    )?;
+    let zoom_in = MenuItem::with_id(
+        app,
+        MENU_ID_ZOOM_IN,
+        "Zoom In",
+        true,
+        Some("CmdOrCtrl+Shift+="),
+    )?;
+    let zoom_out = MenuItem::with_id(app, MENU_ID_ZOOM_OUT, "Zoom Out", true, Some("CmdOrCtrl+-"))?;
+    let zoom_reset = MenuItem::with_id(
+        app,
+        MENU_ID_ZOOM_RESET,
+        "Actual Size",
+        true,
+        Some("CmdOrCtrl+0"),
     )?;
 
     if let Ok(mut item) = state.show_calls.lock() {
@@ -600,6 +684,10 @@ fn build_macos_app_menu(
                 "View",
                 true,
                 &[
+                    &zoom_in,
+                    &zoom_out,
+                    &zoom_reset,
+                    &PredefinedMenuItem::separator(app)?,
                     &show_calls,
                     &show_imports,
                     &show_defines,
@@ -637,6 +725,9 @@ fn main() {
     builder
         .on_menu_event(|app, event| {
             let action = match event.id().as_ref() {
+                MENU_ID_ZOOM_IN => Some("zoom-in"),
+                MENU_ID_ZOOM_OUT => Some("zoom-out"),
+                MENU_ID_ZOOM_RESET => Some("zoom-reset"),
                 MENU_ID_SHOW_CALLS => Some("toggle-calls"),
                 MENU_ID_SHOW_IMPORTS => Some("toggle-imports"),
                 MENU_ID_SHOW_DEFINES => Some("toggle-defines"),
@@ -646,10 +737,7 @@ fn main() {
             };
 
             if let Some(action) = action {
-                let _ = app.emit(
-                    GRAPH_VIEW_MENU_EVENT,
-                    GraphViewMenuActionPayload { action },
-                );
+                let _ = app.emit(APP_MENU_EVENT, GraphViewMenuActionPayload { action });
             }
         })
         .plugin(tauri_plugin_dialog::init())

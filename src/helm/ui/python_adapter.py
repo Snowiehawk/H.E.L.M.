@@ -105,13 +105,19 @@ class PythonRepoAdapter:
             raise ValueError("Flow view is only available for symbols.")
 
         parsed, symbol = self._require_symbol(symbol_id)
-        if symbol.kind not in {
-            SymbolKind.FUNCTION,
-            SymbolKind.ASYNC_FUNCTION,
-            SymbolKind.METHOD,
-            SymbolKind.ASYNC_METHOD,
-        }:
-            raise ValueError("Flow view is only available for functions and methods.")
+        if _is_function_like_symbol_kind(symbol.kind):
+            return self._build_function_flow_view(symbol_node, parsed, symbol)
+        if symbol.kind == SymbolKind.CLASS:
+            return self._build_class_flow_view(symbol_node, symbol)
+        raise ValueError("Flow view is only available for functions, methods, and classes.")
+
+    def _build_function_flow_view(
+        self,
+        symbol_node: GraphNode,
+        parsed: ParsedModule,
+        symbol: SymbolDef,
+    ) -> GraphView:
+        symbol_id = symbol.symbol_id
 
         source = Path(parsed.module.file_path).read_text(encoding="utf-8")
         tree = ast.parse(source, filename=parsed.module.file_path)
@@ -129,6 +135,7 @@ class PythonRepoAdapter:
                 kind=GraphViewNodeKind.ENTRY,
                 label="Entry",
                 subtitle=symbol.qualname,
+                metadata={"flow_order": 0},
             )
         )
 
@@ -146,17 +153,97 @@ class PythonRepoAdapter:
             )
             definitions[argument.arg] = param_id
 
-        statement_index = 0
-        for statement in function_node.body:
-            previous_control_id, statement_index = _append_statement_flow(
-                statement=statement,
-                symbol_id=symbol_id,
-                previous_control_id=previous_control_id,
-                nodes=nodes,
-                edges=edges,
-                definitions=definitions,
-                statement_index=statement_index,
+        _, statement_index = _append_statement_block(
+            statements=function_node.body,
+            symbol_id=symbol_id,
+            pending_links=[_PendingControlLink(source_id=previous_control_id)],
+            nodes=nodes,
+            edges=edges,
+            definitions=definitions,
+            statement_index=0,
+        )
+
+        return GraphView(
+            root_node_id=entry_id,
+            target_id=symbol_id,
+            level=GraphAbstractionLevel.FLOW,
+            nodes=tuple(nodes),
+            edges=tuple(edges),
+            breadcrumbs=breadcrumbs,
+            focus=GraphFocus(
+                target_id=symbol_id,
+                level=GraphAbstractionLevel.FLOW,
+                label=symbol_node.name,
+                subtitle=symbol.qualname,
+                available_levels=(
+                    GraphAbstractionLevel.REPO,
+                    GraphAbstractionLevel.MODULE,
+                    GraphAbstractionLevel.SYMBOL,
+                    GraphAbstractionLevel.FLOW,
+                ),
+            ),
+            truncated=False,
+        )
+
+    def _build_class_flow_view(
+        self,
+        symbol_node: GraphNode,
+        symbol: SymbolDef,
+    ) -> GraphView:
+        symbol_id = symbol.symbol_id
+        breadcrumbs = self._breadcrumbs_for_symbol(symbol_node, include_flow=True)
+        entry_id = f"flow:{symbol_id}:entry"
+        nodes: list[GraphViewNode] = [
+            GraphViewNode(
+                node_id=entry_id,
+                kind=GraphViewNodeKind.ENTRY,
+                label="Entry",
+                subtitle=symbol.qualname,
+                metadata={"flow_order": 0},
             )
+        ]
+        edges: list[GraphViewEdge] = []
+        direct_children = self._direct_child_symbols(symbol_id)
+        direct_child_ids = {child.symbol_id for child in direct_children}
+
+        for index, child in enumerate(direct_children, start=1):
+            child_node = self._require_graph_node(child.symbol_id)
+            child_view = self._symbol_view_node(child_node)
+            nodes.append(
+                GraphViewNode(
+                    node_id=child_view.node_id,
+                    kind=child_view.kind,
+                    label=child_view.label,
+                    subtitle=child_view.subtitle,
+                    metadata={**child_view.metadata, "flow_order": index},
+                    available_actions=child_view.available_actions,
+                )
+            )
+            edges.append(
+                GraphViewEdge(
+                    edge_id=f"contains:{entry_id}->{child.symbol_id}",
+                    kind=GraphViewEdgeKind.CONTAINS,
+                    source_id=entry_id,
+                    target_id=child.symbol_id,
+                )
+            )
+
+        for edge in self.graph.edges:
+            if (
+                edge.kind == EdgeKind.CALLS
+                and edge.source_id in direct_child_ids
+                and edge.target_id in direct_child_ids
+            ):
+                edges.append(
+                    GraphViewEdge(
+                        edge_id=edge.edge_id,
+                        kind=GraphViewEdgeKind.CALLS,
+                        source_id=edge.source_id,
+                        target_id=edge.target_id,
+                        label=str(edge.metadata.get("callee_expr", "calls")),
+                        metadata=edge.metadata,
+                    )
+                )
 
         return GraphView(
             root_node_id=entry_id,
@@ -432,6 +519,18 @@ class PythonRepoAdapter:
                 )
             )
 
+        for child_symbol in self._direct_child_symbols(symbol_node.node_id):
+            child_node = self._require_graph_node(child_symbol.symbol_id)
+            nodes[child_node.node_id] = self._symbol_view_node(child_node)
+            edges.append(
+                GraphViewEdge(
+                    edge_id=f"contains:{symbol_node.node_id}->{child_node.node_id}",
+                    kind=GraphViewEdgeKind.CONTAINS,
+                    source_id=symbol_node.node_id,
+                    target_id=child_node.node_id,
+                )
+            )
+
         for edge in self.graph.edges:
             if edge.kind == EdgeKind.CALLS and view_filters["includeCalls"]:
                 if edge.source_id == symbol_node.node_id or edge.target_id == symbol_node.node_id:
@@ -498,14 +597,7 @@ class PythonRepoAdapter:
                         GraphAbstractionLevel.SYMBOL,
                         GraphAbstractionLevel.FLOW,
                     )
-                    if level != GraphAbstractionLevel.FLOW
-                    or parsed_symbol.kind
-                    in {
-                        SymbolKind.FUNCTION,
-                        SymbolKind.ASYNC_FUNCTION,
-                        SymbolKind.METHOD,
-                        SymbolKind.ASYNC_METHOD,
-                    }
+                    if level != GraphAbstractionLevel.FLOW or _supports_flow(parsed_symbol.kind)
                 ),
             ),
             truncated=False,
@@ -597,6 +689,16 @@ class PythonRepoAdapter:
             nodes.append(self._symbol_view_node(node))
         nodes.sort(key=lambda node: node.label)
         return nodes
+
+    def _direct_child_symbols(self, parent_symbol_id: str) -> list[SymbolDef]:
+        children = [
+            symbol
+            for parsed in self.parsed_modules
+            for symbol in parsed.symbols
+            if symbol.parent_symbol_id == parent_symbol_id
+        ]
+        children.sort(key=_symbol_source_order)
+        return children
 
     def _breadcrumbs_for_module(self, module_node: GraphNode) -> tuple[GraphBreadcrumb, ...]:
         repo_node = self.graph.nodes[self.graph.repo_id]
@@ -698,12 +800,7 @@ class PythonRepoAdapter:
 
     def _symbol_view_node(self, node: GraphNode) -> GraphViewNode:
         parsed_symbol = self._parsed_symbol(node.node_id)
-        function_like = parsed_symbol.kind in {
-            SymbolKind.FUNCTION,
-            SymbolKind.ASYNC_FUNCTION,
-            SymbolKind.METHOD,
-            SymbolKind.ASYNC_METHOD,
-        }
+        flow_enabled = _supports_flow(parsed_symbol.kind)
         top_level = parsed_symbol.parent_symbol_id is None
         inbound_count = self._inbound_dependency_count().get(node.node_id, 0)
         rename_enabled = top_level and inbound_count == 0
@@ -731,7 +828,7 @@ class PythonRepoAdapter:
                     GraphAction("rename_symbol", "Rename symbol", enabled=rename_enabled, reason=structural_reason),
                     GraphAction("delete_symbol", "Delete symbol", enabled=rename_enabled, reason=structural_reason),
                     GraphAction("move_symbol", "Move symbol", enabled=rename_enabled, reason=structural_reason),
-                    GraphAction("open_flow", "Open flow", enabled=function_like, reason=None if function_like else "Flow only exists for functions and methods."),
+                    GraphAction("open_flow", "Open flow", enabled=flow_enabled, reason=None if flow_enabled else "Flow only exists for functions, methods, and classes."),
                     GraphAction("reveal_source", "Reveal source"),
                 )
             ),
@@ -896,6 +993,25 @@ def _graph_view_kind_for_symbol(symbol_kind: SymbolKind) -> GraphViewNodeKind:
     return GraphViewNodeKind.SYMBOL
 
 
+def _is_function_like_symbol_kind(symbol_kind: SymbolKind) -> bool:
+    return symbol_kind in {
+        SymbolKind.FUNCTION,
+        SymbolKind.ASYNC_FUNCTION,
+        SymbolKind.METHOD,
+        SymbolKind.ASYNC_METHOD,
+    }
+
+
+def _supports_flow(symbol_kind: SymbolKind) -> bool:
+    return _is_function_like_symbol_kind(symbol_kind) or symbol_kind == SymbolKind.CLASS
+
+
+def _symbol_source_order(symbol: SymbolDef) -> tuple[int, int, str]:
+    if symbol.span is None:
+        return (10**9, 10**9, symbol.qualname)
+    return (symbol.span.start_line, symbol.span.start_column, symbol.qualname)
+
+
 def _find_ast_symbol(tree: ast.AST, qualname: str) -> ast.AST | None:
     parts = qualname.split(".")
     candidates: list[ast.AST] = list(getattr(tree, "body", []))
@@ -914,17 +1030,96 @@ def _find_ast_symbol(tree: ast.AST, qualname: str) -> ast.AST | None:
     return current
 
 
-def _append_statement_flow(
+@dataclass(frozen=True)
+class _PendingControlLink:
+    source_id: str
+    path_key: str | None = None
+    path_label: str | None = None
+    path_order: int | None = None
+
+
+def _append_statement_block(
     *,
-    statement: ast.stmt,
+    statements: list[ast.stmt],
     symbol_id: str,
-    previous_control_id: str,
+    pending_links: list[_PendingControlLink],
     nodes: list[GraphViewNode],
     edges: list[GraphViewEdge],
     definitions: dict[str, str],
     statement_index: int,
-) -> tuple[str, int]:
+) -> tuple[list[_PendingControlLink], int]:
+    current_links = pending_links
+    for statement in statements:
+        current_links, statement_index = _append_statement_flow(
+            statement=statement,
+            symbol_id=symbol_id,
+            pending_links=current_links,
+            nodes=nodes,
+            edges=edges,
+            definitions=definitions,
+            statement_index=statement_index,
+        )
+    return current_links, statement_index
+
+
+def _append_control_edges(
+    *,
+    pending_links: list[_PendingControlLink],
+    target_id: str,
+    edges: list[GraphViewEdge],
+) -> None:
+    for pending in pending_links:
+        metadata: dict[str, Any] = {}
+        if pending.path_key is not None:
+            metadata["path_key"] = pending.path_key
+        if pending.path_label is not None:
+            metadata["path_label"] = pending.path_label
+        if pending.path_order is not None:
+            metadata["path_order"] = pending.path_order
+
+        suffix = f":{pending.path_key}" if pending.path_key else ""
+        edges.append(
+            GraphViewEdge(
+                edge_id=f"controls:{pending.source_id}->{target_id}{suffix}",
+                kind=GraphViewEdgeKind.CONTROLS,
+                source_id=pending.source_id,
+                target_id=target_id,
+                label=pending.path_label,
+                metadata=metadata,
+            )
+        )
+
+
+def _pending_path(
+    source_id: str,
+    path_key: str,
+    path_label: str,
+    path_order: int,
+) -> _PendingControlLink:
+    return _PendingControlLink(
+        source_id=source_id,
+        path_key=path_key,
+        path_label=path_label,
+        path_order=path_order,
+    )
+
+
+def _strip_pending_paths(pending_links: list[_PendingControlLink]) -> list[_PendingControlLink]:
+    return [_PendingControlLink(source_id=pending.source_id) for pending in pending_links]
+
+
+def _append_statement_flow(
+    *,
+    statement: ast.stmt,
+    symbol_id: str,
+    pending_links: list[_PendingControlLink],
+    nodes: list[GraphViewNode],
+    edges: list[GraphViewEdge],
+    definitions: dict[str, str],
+    statement_index: int,
+) -> tuple[list[_PendingControlLink], int]:
     node_id = f"flow:{symbol_id}:statement:{statement_index}"
+    flow_order = statement_index + 1
     statement_index += 1
     kind = _statement_kind(statement)
     label = _statement_label(statement)
@@ -934,16 +1129,10 @@ def _append_statement_flow(
             kind=kind,
             label=label,
             subtitle=statement.__class__.__name__,
+            metadata={"flow_order": flow_order},
         )
     )
-    edges.append(
-        GraphViewEdge(
-            edge_id=f"controls:{previous_control_id}->{node_id}",
-            kind=GraphViewEdgeKind.CONTROLS,
-            source_id=previous_control_id,
-            target_id=node_id,
-        )
-    )
+    _append_control_edges(pending_links=pending_links, target_id=node_id, edges=edges)
 
     for used_name in _names_used(statement):
         source_id = definitions.get(used_name)
@@ -962,46 +1151,45 @@ def _append_statement_flow(
         definitions[assigned_name] = node_id
 
     if isinstance(statement, ast.If):
-        last_control_id = node_id
-        for branch_label, branch_body in (("true", statement.body), ("false", statement.orelse)):
-            branch_prev = node_id
-            for child in branch_body:
-                branch_prev, statement_index = _append_statement_flow(
-                    statement=child,
-                    symbol_id=symbol_id,
-                    previous_control_id=branch_prev,
-                    nodes=nodes,
-                    edges=edges,
-                    definitions=definitions,
-                    statement_index=statement_index,
-                )
-                if branch_prev != node_id:
-                    edges[-1] = GraphViewEdge(
-                        edge_id=edges[-1].edge_id,
-                        kind=edges[-1].kind,
-                        source_id=edges[-1].source_id,
-                        target_id=edges[-1].target_id,
-                        label=branch_label,
-                        metadata=edges[-1].metadata,
-                    )
-            last_control_id = branch_prev
-        return last_control_id, statement_index
+        true_exits, statement_index = _append_statement_block(
+            statements=statement.body,
+            symbol_id=symbol_id,
+            pending_links=[_pending_path(node_id, "true", "true", 0)],
+            nodes=nodes,
+            edges=edges,
+            definitions=definitions,
+            statement_index=statement_index,
+        )
+        false_exits, statement_index = _append_statement_block(
+            statements=statement.orelse,
+            symbol_id=symbol_id,
+            pending_links=[_pending_path(node_id, "false", "false", 1)],
+            nodes=nodes,
+            edges=edges,
+            definitions=definitions,
+            statement_index=statement_index,
+        )
+        return [*true_exits, *false_exits], statement_index
 
     if isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
-        loop_prev = node_id
-        for child in statement.body:
-            loop_prev, statement_index = _append_statement_flow(
-                statement=child,
-                symbol_id=symbol_id,
-                previous_control_id=loop_prev,
-                nodes=nodes,
+        body_exits, statement_index = _append_statement_block(
+            statements=statement.body,
+            symbol_id=symbol_id,
+            pending_links=[_pending_path(node_id, "body", "body", 0)],
+            nodes=nodes,
+            edges=edges,
+            definitions=definitions,
+            statement_index=statement_index,
+        )
+        if statement.body:
+            _append_control_edges(
+                pending_links=_strip_pending_paths(body_exits),
+                target_id=node_id,
                 edges=edges,
-                definitions=definitions,
-                statement_index=statement_index,
             )
-        return loop_prev, statement_index
+        return [_pending_path(node_id, "exit", "exit", 1)], statement_index
 
-    return node_id, statement_index
+    return [_PendingControlLink(source_id=node_id)], statement_index
 
 
 def _statement_kind(statement: ast.stmt) -> GraphViewNodeKind:

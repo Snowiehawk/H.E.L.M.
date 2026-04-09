@@ -898,6 +898,14 @@ button {
   pointer-events: none;
 }
 
+.graph-node--pinned {
+  box-shadow:
+    0 20px 40px color-mix(in srgb, #020611 46%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--node-glow) 22%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, #ffd47a 58%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 12%, transparent);
+}
+
 .graph-node__body {
   min-width: 0;
   display: grid;

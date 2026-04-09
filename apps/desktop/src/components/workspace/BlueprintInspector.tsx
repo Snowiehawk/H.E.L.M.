@@ -132,6 +132,9 @@ export function BlueprintInspector({
         label: "Open blueprint",
         onClick: () => onOpenBlueprint(selectedNode.id),
       });
+    }
+
+    if (selectedNode.kind === "function" || selectedNode.kind === "class") {
       actions.push({
         id: "open-flow",
         label: "Open flow",

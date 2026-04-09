@@ -59,6 +59,28 @@ class DesktopBridgeTests(unittest.TestCase):
             self.assertEqual(revealed["path"], "service.py")
             self.assertIn("def run(value):", revealed["content"])
 
+    def test_class_flow_payload_is_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "class Service:\n"
+                        "    enabled = True\n\n"
+                        "    def run(self):\n"
+                        "        return self.enabled\n"
+                    ),
+                },
+            )
+
+            flow = build_flow_view_payload(root, "symbol:service:Service")
+
+            self.assertEqual(flow["level"], "flow")
+            self.assertEqual(flow["nodes"][0]["kind"], "entry")
+            self.assertIn("variable", {node["kind"] for node in flow["nodes"]})
+            self.assertIn("function", {node["kind"] for node in flow["nodes"]})
+
     def test_apply_edit_to_payload_returns_refreshed_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir) / "repo"

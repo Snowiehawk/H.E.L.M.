@@ -1,4 +1,4 @@
-import { PropsWithChildren, useEffect, useState, type CSSProperties } from "react";
+import { PropsWithChildren, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -10,12 +10,15 @@ import {
 } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
 
-const GRAPH_VIEW_MENU_EVENT = "helm://graph-view-menu";
+const APP_MENU_EVENT = "helm://app-menu";
+
+function isTauriApp() {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
 
 function isNativeMacApp() {
   return (
-    typeof window !== "undefined"
-    && "__TAURI_INTERNALS__" in window
+    isTauriApp()
     && typeof navigator !== "undefined"
     && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
   );
@@ -47,6 +50,10 @@ function UiScaleBridge() {
   const resetUiScale = useUiStore((state) => state.resetUiScale);
 
   useEffect(() => {
+    if (isNativeMacApp()) {
+      return;
+    }
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey) {
         return;
@@ -88,24 +95,25 @@ function UiScaleBridge() {
   }, [decreaseUiScale, increaseUiScale, resetUiScale]);
 
   useEffect(() => {
-    document.documentElement.style.setProperty("--app-ui-scale", String(uiScale));
-
-    if (!isNativeMacApp() && !("__TAURI_INTERNALS__" in window)) {
+    if (!isTauriApp()) {
       return;
     }
 
-    void getCurrentWebview().setZoom(uiScale).catch(() => {
-      // Keep the shell usable even if native zoom is unavailable on a given host.
+    void getCurrentWebview().setZoom(uiScale).catch((error) => {
+      console.warn("Unable to apply native webview zoom.", error);
     });
   }, [uiScale]);
 
   return null;
 }
 
-function NativeGraphViewMenuBridge() {
+function NativeMacMenuBridge() {
   const graphFilters = useUiStore((state) => state.graphFilters);
   const highlightGraphPath = useUiStore((state) => state.highlightGraphPath);
   const showEdgeLabels = useUiStore((state) => state.showEdgeLabels);
+  const increaseUiScale = useUiStore((state) => state.increaseUiScale);
+  const decreaseUiScale = useUiStore((state) => state.decreaseUiScale);
+  const resetUiScale = useUiStore((state) => state.resetUiScale);
   const toggleGraphFilter = useUiStore((state) => state.toggleGraphFilter);
   const toggleGraphPathHighlight = useUiStore((state) => state.toggleGraphPathHighlight);
   const toggleEdgeLabels = useUiStore((state) => state.toggleEdgeLabels);
@@ -119,8 +127,17 @@ function NativeGraphViewMenuBridge() {
     let unlisten: (() => void) | undefined;
 
     void (async () => {
-      const detach = await listen<{ action?: string }>(GRAPH_VIEW_MENU_EVENT, (event) => {
+      const detach = await listen<{ action?: string }>(APP_MENU_EVENT, (event) => {
         switch (event.payload?.action) {
+          case "zoom-in":
+            increaseUiScale();
+            break;
+          case "zoom-out":
+            decreaseUiScale();
+            break;
+          case "zoom-reset":
+            resetUiScale();
+            break;
           case "toggle-calls":
             toggleGraphFilter("includeCalls");
             break;
@@ -153,7 +170,14 @@ function NativeGraphViewMenuBridge() {
       disposed = true;
       unlisten?.();
     };
-  }, [toggleEdgeLabels, toggleGraphFilter, toggleGraphPathHighlight]);
+  }, [
+    decreaseUiScale,
+    increaseUiScale,
+    resetUiScale,
+    toggleEdgeLabels,
+    toggleGraphFilter,
+    toggleGraphPathHighlight,
+  ]);
 
   useEffect(() => {
     if (!isNativeMacApp()) {
@@ -186,7 +210,6 @@ export function AppProviders({
   children,
   adapter,
 }: PropsWithChildren<{ adapter?: DesktopAdapter }>) {
-  const uiScale = useUiStore((state) => state.uiScale);
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -206,13 +229,8 @@ export function AppProviders({
       <AdapterProvider adapter={resolvedAdapter}>
         <ThemeBridge />
         <UiScaleBridge />
-        <NativeGraphViewMenuBridge />
-        <div
-          className="app-scale-shell"
-          style={{ "--app-ui-scale": String(uiScale) } as CSSProperties}
-        >
-          {children}
-        </div>
+        <NativeMacMenuBridge />
+        <div className="app-scale-shell">{children}</div>
       </AdapterProvider>
     </QueryClientProvider>
   );

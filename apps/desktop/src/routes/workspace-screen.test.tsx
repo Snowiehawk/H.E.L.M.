@@ -130,7 +130,7 @@ describe("WorkspaceScreen", () => {
     fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
     await user.click(await screen.findByRole("button", { name: /Open flow/i }));
 
-    expect(await screen.findByText(/Function flow/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Internal flow/i })).toBeInTheDocument();
     (graphPanel as HTMLElement).focus();
     fireEvent.keyDown(graphPanel as HTMLElement, { key: "Backspace" });
 
@@ -169,13 +169,87 @@ describe("WorkspaceScreen", () => {
     fireEvent.click(within(classNode as HTMLElement).getByText("Inspect"));
 
     expect(await screen.findByRole("button", { name: /Open File In Default Editor/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Open flow/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Open flow/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Open blueprint/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Close/i }));
     fireEvent.click(within(classNode as HTMLElement).getByText("Enter"));
 
     expect(await screen.findByText(/Symbol blueprint/i)).toBeInTheDocument();
+    expect(await screen.findByText("repo_path")).toBeInTheDocument();
+    expect(await screen.findByText("module_count")).toBeInTheDocument();
+    expect(await screen.findByText("to_payload")).toBeInTheDocument();
+  });
+
+  it("opens class flow and lets nested methods drill into their own flow", async () => {
+    const user = userEvent.setup();
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const classNode = (await graph.findByText("GraphSummary")).closest(".graph-node");
+    expect(classNode).not.toBeNull();
+    fireEvent.click(within(classNode as HTMLElement).getByText("Inspect"));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+
+    expect(await screen.findByRole("heading", { name: /Internal flow/i })).toBeInTheDocument();
+    expect(await graph.findByText("repo_path")).toBeInTheDocument();
+    expect(await graph.findByText("module_count")).toBeInTheDocument();
+
+    const methodNode = (await graph.findByText("to_payload")).closest(".graph-node");
+    expect(methodNode).not.toBeNull();
+    fireEvent.click(within(methodNode as HTMLElement).getByText("Inspect"));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+
+    expect(await screen.findByRole("heading", { name: /Internal flow/i })).toBeInTheDocument();
+    expect((await graph.findAllByText("self")).length).toBeGreaterThan(0);
+  });
+
+  it("navigates one layer out with Backspace from class flow to class blueprint", async () => {
+    const user = userEvent.setup();
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const classNode = (await graph.findByText("GraphSummary")).closest(".graph-node");
+    expect(classNode).not.toBeNull();
+    fireEvent.click(within(classNode as HTMLElement).getByText("Inspect"));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+
+    expect(await screen.findByRole("heading", { name: /Internal flow/i })).toBeInTheDocument();
+    (graphPanel as HTMLElement).focus();
+    fireEvent.keyDown(graphPanel as HTMLElement, { key: "Backspace" });
+
+    await waitFor(() =>
+      expect(screen.getByText(/Symbol blueprint/i)).toBeInTheDocument(),
+    );
+    expect(await graph.findByText("to_payload")).toBeInTheDocument();
   });
 
   it("reveals the current graph file from the graph path", async () => {

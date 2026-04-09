@@ -110,11 +110,51 @@ function dataPortLabel(edge: GraphEdgeDto, fallback: string): string {
   return edge.label?.trim() || fallback;
 }
 
-function controlPortLabel(edge: GraphEdgeDto, sourceNode: GraphNodeDto): string {
-  if ((sourceNode.kind === "branch" || sourceNode.kind === "loop") && edge.label?.trim()) {
-    return edge.label.trim();
+function edgeMetadataString(edge: GraphEdgeDto, key: string): string | undefined {
+  const value =
+    edge.metadata?.[key]
+    ?? edge.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+  return typeof value === "string" ? value.trim() || undefined : undefined;
+}
+
+function edgeMetadataNumber(edge: GraphEdgeDto, key: string): number | undefined {
+  const value =
+    edge.metadata?.[key]
+    ?? edge.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+  return typeof value === "number" ? value : undefined;
+}
+
+function controlPathSortKey(edge: GraphEdgeDto): [number, string, string] {
+  const explicitOrder = edgeMetadataNumber(edge, "path_order");
+  const label = edgeMetadataString(edge, "path_label") ?? edge.label?.trim() ?? "";
+  return [explicitOrder ?? Number.MAX_SAFE_INTEGER, label.toLowerCase(), edge.id];
+}
+
+function resolveControlPortLabels(
+  sourceNode: GraphNodeDto,
+  controlEdges: GraphEdgeDto[],
+): Map<string, string> {
+  if (!controlEdges.length) {
+    return new Map();
   }
-  return "exec";
+
+  const ordered = controlEdges.slice().sort((left, right) => {
+    const leftKey = controlPathSortKey(left);
+    const rightKey = controlPathSortKey(right);
+    return leftKey[0] - rightKey[0] || leftKey[1].localeCompare(rightKey[1]) || leftKey[2].localeCompare(rightKey[2]);
+  });
+  const labels = new Map<string, string>();
+  const needsDistinctLabels = ordered.length > 1;
+
+  ordered.forEach((edge, index) => {
+    const explicitLabel =
+      edgeMetadataString(edge, "path_label")
+      ?? edge.label?.trim()
+      ?? ((sourceNode.kind === "branch" || sourceNode.kind === "loop") ? undefined : undefined);
+    labels.set(edge.id, explicitLabel || (needsDistinctLabels ? `path ${index + 1}` : "exec"));
+  });
+
+  return labels;
 }
 
 function graphInputPortId(edgeKind: GraphEdgeDto["kind"]): string {
@@ -213,9 +253,12 @@ function buildFlowPorts(
   incoming: GraphEdgeDto[],
   outgoing: GraphEdgeDto[],
   nodeById: Map<string, GraphNodeDto>,
+  controlPortLabels: Map<string, string>,
 ): BlueprintNodePorts {
   const inputs: BlueprintPort[] = [];
   const outputs: BlueprintPort[] = [];
+  const incomingGraphEdges = incoming.filter((edge) => edge.kind !== "controls" && edge.kind !== "data");
+  const outgoingGraphEdges = outgoing.filter((edge) => edge.kind !== "controls" && edge.kind !== "data");
 
   const incomingControlEdges = incoming.filter((edge) => edge.kind === "controls");
   if (incomingControlEdges.length) {
@@ -243,15 +286,16 @@ function buildFlowPorts(
             memberLabels: [flowPortMemberLabel("input", edge, nodeById)],
             memberEdgeIds: [edge.id],
           };
-        }),
+      }),
     ),
   );
+  inputs.push(...buildArchitecturePortList("input", incomingGraphEdges, nodeById));
 
   const outgoingControlPorts = mergePorts(
     outgoing
       .filter((edge) => edge.kind === "controls")
       .map((edge) => {
-        const label = controlPortLabel(edge, node);
+        const label = controlPortLabels.get(edge.id) ?? "exec";
         return {
           id: controlOutputPortId(label),
           label,
@@ -294,6 +338,7 @@ function buildFlowPorts(
       kind: "control",
     });
   }
+  outputs.push(...buildArchitecturePortList("output", outgoingGraphEdges, nodeById));
 
   return {
     inputs: mergePorts(inputs),
@@ -303,17 +348,17 @@ function buildFlowPorts(
 
 function resolveEdgeHandles(
   edge: GraphEdgeDto,
-  sourceNode: GraphNodeDto,
+  controlPortLabels: Map<string, string>,
 ): BlueprintEdgeHandles {
-  if (FLOW_KINDS.has(sourceNode.kind) || edge.kind === "controls" || edge.kind === "data") {
-    if (edge.kind === "controls") {
-      const label = controlPortLabel(edge, sourceNode);
-      return {
-        sourceHandle: controlOutputPortId(label),
-        targetHandle: controlInputPortId(),
-      };
-    }
+  if (edge.kind === "controls") {
+    const label = controlPortLabels.get(edge.id) ?? "exec";
+    return {
+      sourceHandle: controlOutputPortId(label),
+      targetHandle: controlInputPortId(),
+    };
+  }
 
+  if (edge.kind === "data") {
     const label = dataPortLabel(edge, "value");
     return {
       sourceHandle: dataOutputPortId(label),
@@ -338,24 +383,28 @@ export function buildBlueprintPresentation(graph: GraphView): BlueprintPresentat
   });
 
   const nodePorts = new Map<string, BlueprintNodePorts>();
+  const controlPortLabelsByEdgeId = new Map<string, string>();
   graph.nodes.forEach((node) => {
     const incoming = incomingByNodeId.get(node.id) ?? [];
     const outgoing = outgoingByNodeId.get(node.id) ?? [];
+    const controlPortLabels = resolveControlPortLabels(
+      node,
+      outgoing.filter((edge) => edge.kind === "controls"),
+    );
+    controlPortLabels.forEach((label, edgeId) => {
+      controlPortLabelsByEdgeId.set(edgeId, label);
+    });
     nodePorts.set(
       node.id,
       FLOW_KINDS.has(node.kind)
-        ? buildFlowPorts(node, incoming, outgoing, nodeById)
+        ? buildFlowPorts(node, incoming, outgoing, nodeById, controlPortLabels)
         : buildArchitecturePorts(incoming, outgoing, nodeById),
     );
   });
 
   const edgeHandles = new Map<string, BlueprintEdgeHandles>();
   graph.edges.forEach((edge) => {
-    const sourceNode = nodeById.get(edge.source);
-    if (!sourceNode) {
-      return;
-    }
-    edgeHandles.set(edge.id, resolveEdgeHandles(edge, sourceNode));
+    edgeHandles.set(edge.id, resolveEdgeHandles(edge, controlPortLabelsByEdgeId));
   });
 
   return { nodePorts, edgeHandles };

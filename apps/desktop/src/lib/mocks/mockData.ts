@@ -76,6 +76,22 @@ export function createMockWorkspaceState(): MockWorkspaceState {
   };
 }
 
+function graphSummarySymbolId() {
+  return symbolId("helm.ui.api", "GraphSummary");
+}
+
+function graphSummaryRepoPathSymbolId() {
+  return symbolId("helm.ui.api", "GraphSummary.repo_path");
+}
+
+function graphSummaryModuleCountSymbolId() {
+  return symbolId("helm.ui.api", "GraphSummary.module_count");
+}
+
+function graphSummaryToPayloadSymbolId() {
+  return symbolId("helm.ui.api", "GraphSummary.to_payload");
+}
+
 export function buildOverview(
   session: RepoSession,
   state: MockWorkspaceState,
@@ -85,7 +101,7 @@ export function buildOverview(
     repo: session,
     metrics: [
       { label: "Modules", value: "3" },
-      { label: "Symbols", value: String(5 + state.uiApiExtraSymbols.length) },
+      { label: "Symbols", value: String(8 + state.uiApiExtraSymbols.length) },
       { label: "Calls", value: "3", tone: "accent" },
       { label: "Diagnostics", value: "0" },
     ],
@@ -114,16 +130,16 @@ export function buildOverview(
         moduleId: "module:helm.ui.api",
         moduleName: "helm.ui.api",
         relativePath: "src/helm/ui/api.py",
-        symbolCount: 3 + state.uiApiExtraSymbols.length,
+        symbolCount: 6 + state.uiApiExtraSymbols.length,
         importCount: 1,
         callCount: 1,
         outline: [
           {
             id: "outline:symbol:helm.ui.api:GraphSummary",
-            nodeId: symbolId("helm.ui.api", "GraphSummary"),
+            nodeId: graphSummarySymbolId(),
             label: "GraphSummary",
             kind: "class",
-            startLine: 5,
+            startLine: 6,
             topLevel: true,
           },
           {
@@ -362,6 +378,10 @@ export function buildFiles(state: MockWorkspaceState): Record<string, FileConten
 
 export function buildSymbols(state: MockWorkspaceState): Record<string, SymbolDetails> {
   const primarySymbolId = symbolId("helm.ui.api", state.primarySummarySymbolName);
+  const summaryClassId = graphSummarySymbolId();
+  const summaryRepoPathId = graphSummaryRepoPathSymbolId();
+  const summaryModuleCountId = graphSummaryModuleCountSymbolId();
+  const summaryToPayloadId = graphSummaryToPayloadSymbolId();
   const result: Record<string, SymbolDetails> = {
     [symbolId("helm.cli", "main")]: {
       symbolId: symbolId("helm.cli", "main"),
@@ -410,8 +430,8 @@ export function buildSymbols(state: MockWorkspaceState): Record<string, SymbolDe
       signature: `${state.primarySummarySymbolName}(graph: RepoGraph, top_n: int = 10) -> GraphSummary`,
       docSummary:
         "Projects the structural graph into architecture-friendly summary cards and seeds the blueprint editor with a clean starting view.",
-      startLine: 10,
-      endLine: 20,
+      startLine: 18,
+      endLine: 21,
       callers: [
         {
           id: symbolId("helm.cli", "main"),
@@ -443,9 +463,9 @@ export function buildSymbols(state: MockWorkspaceState): Record<string, SymbolDe
         Role: "architecture projection",
       },
     },
-    [symbolId("helm.ui.api", "GraphSummary")]: {
-      symbolId: symbolId("helm.ui.api", "GraphSummary"),
-      nodeId: symbolId("helm.ui.api", "GraphSummary"),
+    [summaryClassId]: {
+      symbolId: summaryClassId,
+      nodeId: summaryClassId,
       kind: "class",
       name: "GraphSummary",
       qualname: "helm.ui.api.GraphSummary",
@@ -454,8 +474,8 @@ export function buildSymbols(state: MockWorkspaceState): Record<string, SymbolDe
       signature: "GraphSummary(repo_path, module_count)",
       docSummary:
         "Simple top-level summary container used to project the repo graph into explorer-friendly overview data.",
-      startLine: 5,
-      endLine: 8,
+      startLine: 6,
+      endLine: 15,
       callers: [],
       callees: [],
       references: [
@@ -471,6 +491,90 @@ export function buildSymbols(state: MockWorkspaceState): Record<string, SymbolDe
         Role: "data container",
       },
     },
+    [summaryRepoPathId]: {
+      symbolId: summaryRepoPathId,
+      nodeId: summaryRepoPathId,
+      kind: "variable",
+      name: "repo_path",
+      qualname: "helm.ui.api.GraphSummary.repo_path",
+      moduleName: "helm.ui.api",
+      filePath: "src/helm/ui/api.py",
+      signature: "repo_path: str",
+      docSummary: "Stored repo path field on the summary dataclass.",
+      startLine: 8,
+      endLine: 8,
+      callers: [],
+      callees: [],
+      references: [
+        {
+          id: summaryClassId,
+          label: "GraphSummary",
+          subtitle: "helm.ui.api.GraphSummary",
+          nodeId: summaryClassId,
+          symbolId: summaryClassId,
+        },
+      ],
+      metadata: {
+        Surface: "summary",
+        Role: "field",
+      },
+    },
+    [summaryModuleCountId]: {
+      symbolId: summaryModuleCountId,
+      nodeId: summaryModuleCountId,
+      kind: "variable",
+      name: "module_count",
+      qualname: "helm.ui.api.GraphSummary.module_count",
+      moduleName: "helm.ui.api",
+      filePath: "src/helm/ui/api.py",
+      signature: "module_count: int",
+      docSummary: "Stored module count field on the summary dataclass.",
+      startLine: 9,
+      endLine: 9,
+      callers: [],
+      callees: [],
+      references: [
+        {
+          id: summaryClassId,
+          label: "GraphSummary",
+          subtitle: "helm.ui.api.GraphSummary",
+          nodeId: summaryClassId,
+          symbolId: summaryClassId,
+        },
+      ],
+      metadata: {
+        Surface: "summary",
+        Role: "field",
+      },
+    },
+    [summaryToPayloadId]: {
+      symbolId: summaryToPayloadId,
+      nodeId: summaryToPayloadId,
+      kind: "function",
+      name: "to_payload",
+      qualname: "helm.ui.api.GraphSummary.to_payload",
+      moduleName: "helm.ui.api",
+      filePath: "src/helm/ui/api.py",
+      signature: "to_payload(self) -> dict[str, object]",
+      docSummary: "Converts the summary dataclass into a JSON-friendly shape for display.",
+      startLine: 11,
+      endLine: 15,
+      callers: [],
+      callees: [],
+      references: [
+        {
+          id: summaryClassId,
+          label: "GraphSummary",
+          subtitle: "helm.ui.api.GraphSummary",
+          nodeId: summaryClassId,
+          symbolId: summaryClassId,
+        },
+      ],
+      metadata: {
+        Surface: "summary",
+        Role: "member function",
+      },
+    },
     [symbolId("helm.ui.api", "build_export_payload")]: {
       symbolId: symbolId("helm.ui.api", "build_export_payload"),
       nodeId: symbolId("helm.ui.api", "build_export_payload"),
@@ -482,8 +586,8 @@ export function buildSymbols(state: MockWorkspaceState): Record<string, SymbolDe
       signature: "build_export_payload(graph: RepoGraph) -> dict[str, object]",
       docSummary:
         "Packages the graph scan into a JSON-ready payload for the desktop bridge and UI adapters.",
-      startLine: 16,
-      endLine: 17,
+      startLine: 24,
+      endLine: 25,
       callers: [],
       callees: [],
       references: [
@@ -581,90 +685,17 @@ export function buildGraphView(
   level: GraphAbstractionLevel,
 ): GraphView {
   const primarySymbolId = symbolId("helm.ui.api", state.primarySummarySymbolName);
+  const symbols = buildSymbols(state);
   if (level === "flow") {
-    return {
-      rootNodeId: "flow:entry",
-      targetId: primarySymbolId,
-      level: "flow",
-      truncated: false,
-      breadcrumbs: [
-        { nodeId: session.id, level: "repo", label: session.name, subtitle: "Architecture map" },
-        { nodeId: "module:helm.ui.api", level: "module", label: "helm.ui.api", subtitle: "src/helm/ui/api.py" },
-        { nodeId: primarySymbolId, level: "symbol", label: state.primarySummarySymbolName, subtitle: `helm.ui.api.${state.primarySummarySymbolName}` },
-        { nodeId: `flow:${primarySymbolId}`, level: "flow", label: "Flow", subtitle: "On-demand operation graph" },
-      ],
-      focus: {
-        targetId: primarySymbolId,
-        level: "flow",
-        label: state.primarySummarySymbolName,
-        subtitle: "On-demand flow graph",
-        availableLevels: ["repo", "module", "symbol", "flow"],
-      },
-      nodes: [
-        node("flow:entry", "entry", "Entry", "helm.ui.api", 0, 180),
-        node("flow:param:graph", "param", "graph", "parameter", 220, 80),
-        node("flow:param:top_n", "param", "top_n", "parameter", 220, 280),
-        node("flow:assign:modules", "assign", "module_summaries", "collect module stats", 470, 80),
-        node("flow:call:rank", "call", "sorted(...)", "rank modules", 720, 80),
-        node("flow:return", "return", "return GraphSummary(...)", "emit blueprint summary", 970, 180),
-      ],
-      edges: [
-        edge("controls:entry-assign", "controls", "flow:entry", "flow:assign:modules"),
-        edge("controls:assign-rank", "controls", "flow:assign:modules", "flow:call:rank"),
-        edge("controls:rank-return", "controls", "flow:call:rank", "flow:return"),
-        edge("data:graph-assign", "data", "flow:param:graph", "flow:assign:modules", "graph"),
-        edge("data:top-rank", "data", "flow:param:top_n", "flow:call:rank", "top_n"),
-        edge("data:assign-rank", "data", "flow:assign:modules", "flow:call:rank", "module_summaries"),
-        edge("data:rank-return", "data", "flow:call:rank", "flow:return", "ranked_modules"),
-      ],
-    };
+    const symbol = symbols[targetId] ?? symbols[primarySymbolId];
+    return symbol.kind === "class"
+      ? buildMockClassFlowView(session, symbol, symbols)
+      : buildMockFunctionFlowView(session, state, symbol);
   }
 
   if (level === "symbol" || targetId.startsWith("symbol:")) {
     const symbolIdValue = targetId.startsWith("symbol:") ? targetId : primarySymbolId;
-    const symbol = buildSymbols(state)[symbolIdValue];
-    const symbolParts = symbolIdValue.split(":");
-    const fallbackSymbolLabel = symbolParts[symbolParts.length - 1] ?? "Symbol";
-    const symbolLabel = symbol?.name ?? fallbackSymbolLabel;
-    const moduleId = symbol ? `module:${symbol.moduleName}` : "module:helm.ui.api";
-    const moduleLabel = symbol?.moduleName ?? "helm.ui.api";
-    const modulePath = symbol?.filePath ?? "src/helm/ui/api.py";
-    const flowEnabled = symbol?.kind === "function";
-    const symbolNodeKind = graphNodeKindForSymbolKind(symbol?.kind ?? "function");
-    return {
-      rootNodeId: symbolIdValue,
-      targetId: symbolIdValue,
-      level: "symbol",
-      truncated: false,
-      breadcrumbs: [
-        { nodeId: session.id, level: "repo", label: session.name, subtitle: "Architecture map" },
-        { nodeId: moduleId, level: "module", label: moduleLabel, subtitle: modulePath },
-        { nodeId: symbolIdValue, level: "symbol", label: symbolLabel, subtitle: symbol?.qualname ?? symbolIdValue.replace("symbol:", "").replace(/:/g, ".") },
-      ],
-      focus: {
-        targetId: symbolIdValue,
-        level: "symbol",
-        label: symbolLabel,
-        subtitle: "Semantic node",
-        availableLevels: flowEnabled ? ["repo", "module", "symbol", "flow"] : ["repo", "module", "symbol"],
-      },
-      nodes: [
-        node(moduleId, "module", moduleLabel, modulePath, 0, 160, {
-          symbolCount:
-            symbol?.moduleName === "helm.ui.api"
-              ? 3 + state.uiApiExtraSymbols.length
-              : 1,
-          importCount: symbol?.moduleName === "helm.ui.api" ? state.uiApiImports.length : 0,
-          callCount: symbol?.moduleName === "helm.ui.api" ? 1 : 0,
-        }),
-        node(symbolIdValue, symbolNodeKind, symbolLabel, symbol?.qualname ?? symbolLabel, 310, 160, {
-          symbolKind: symbol?.kind ?? "function",
-        }, symbolActions(true, flowEnabled)),
-      ],
-      edges: [
-        edge(`defines:${moduleId}:${symbolIdValue}`, "defines", moduleId, symbolIdValue),
-      ],
-    };
+    return buildMockSymbolView(session, state, symbols, symbolIdValue);
   }
 
   if (level === "module" && targetId === "module:helm.ui.api") {
@@ -698,7 +729,7 @@ export function buildGraphView(
       },
       nodes: [
         node("module:helm.ui.api", "module", "helm.ui.api", "src/helm/ui/api.py", 0, 220, {
-          symbolCount: 3 + state.uiApiExtraSymbols.length,
+          symbolCount: 6 + state.uiApiExtraSymbols.length,
           importCount: 1,
           callCount: 1,
         }, moduleActions()),
@@ -707,9 +738,9 @@ export function buildGraphView(
         node("module:rich.console", "module", "rich.console", "External dependency", 310, 500, {
           isExternal: true,
         }),
-        node(symbolId("helm.ui.api", "GraphSummary"), "class", "GraphSummary", "helm.ui.api.GraphSummary", 700, 40, {
+        node(graphSummarySymbolId(), "class", "GraphSummary", "helm.ui.api.GraphSummary", 700, 40, {
           symbolKind: "class",
-        }, symbolActions(false)),
+        }, symbolActions(false, true)),
         node(primarySymbolId, "function", state.primarySummarySymbolName, `helm.ui.api.${state.primarySummarySymbolName}`, 700, 140, {
           symbolKind: "function",
         }, symbolActions(true)),
@@ -722,7 +753,7 @@ export function buildGraphView(
         edge("imports:cli-ui", "imports", "module:helm.cli", "module:helm.ui.api", "1 import"),
         edge("imports:ui-models", "imports", "module:helm.ui.api", "module:helm.graph.models", "1 import"),
         edge("imports:ui-rich", "imports", "module:helm.ui.api", "module:rich.console", "1 import"),
-        edge("defines:ui-summary-class", "defines", "module:helm.ui.api", symbolId("helm.ui.api", "GraphSummary")),
+        edge("defines:ui-summary-class", "defines", "module:helm.ui.api", graphSummarySymbolId()),
         edge("defines:ui-primary", "defines", "module:helm.ui.api", primarySymbolId),
         edge("defines:ui-export", "defines", "module:helm.ui.api", symbolId("helm.ui.api", "build_export_payload")),
         ...extraNodes.map((symbolNode, index) =>
@@ -748,7 +779,11 @@ export function buildGraphView(
     nodes: [
       node(session.id, "repo", session.name, "Architecture map", 0, 180),
       node("module:helm.cli", "module", "helm.cli", "src/helm/cli.py", 320, 40),
-      node("module:helm.ui.api", "module", "helm.ui.api", "src/helm/ui/api.py", 320, 210, undefined, moduleActions()),
+      node("module:helm.ui.api", "module", "helm.ui.api", "src/helm/ui/api.py", 320, 210, {
+        symbolCount: 6 + state.uiApiExtraSymbols.length,
+        importCount: 1,
+        callCount: 1,
+      }, moduleActions()),
       node("module:helm.graph.models", "module", "helm.graph.models", "src/helm/graph/models.py", 320, 380),
       node("module:rich.console", "module", "rich.console", "External dependency", 320, 550, {
         isExternal: true,
@@ -760,6 +795,231 @@ export function buildGraphView(
       edge("imports:ui-rich", "imports", "module:helm.ui.api", "module:rich.console", "1 import"),
       edge("calls:cli-ui", "calls", "module:helm.cli", "module:helm.ui.api", "1 call"),
     ],
+  };
+}
+
+function buildMockSymbolView(
+  session: RepoSession,
+  state: MockWorkspaceState,
+  symbols: Record<string, SymbolDetails>,
+  symbolIdValue: string,
+): GraphView {
+  const symbol = symbols[symbolIdValue];
+  const symbolParts = symbolIdValue.split(":");
+  const fallbackSymbolLabel = symbolParts[symbolParts.length - 1] ?? "Symbol";
+  const symbolLabel = symbol?.name ?? fallbackSymbolLabel;
+  const moduleId = symbol ? `module:${symbol.moduleName}` : "module:helm.ui.api";
+  const moduleLabel = symbol?.moduleName ?? "helm.ui.api";
+  const modulePath = symbol?.filePath ?? "src/helm/ui/api.py";
+  const flowEnabled = symbol ? flowEnabledForSymbol(symbol) : true;
+  const symbolNodeKind = graphNodeKindForSymbolKind(symbol?.kind ?? "function");
+  const nodes: GraphView["nodes"] = [
+    node(moduleId, "module", moduleLabel, modulePath, 0, 160, {
+      symbolCount:
+        symbol?.moduleName === "helm.ui.api"
+          ? 6 + state.uiApiExtraSymbols.length
+          : 1,
+      importCount: symbol?.moduleName === "helm.ui.api" ? state.uiApiImports.length : 0,
+      callCount: symbol?.moduleName === "helm.ui.api" ? 1 : 0,
+    }),
+    node(symbolIdValue, symbolNodeKind, symbolLabel, symbol?.qualname ?? symbolLabel, 310, 160, {
+      symbolKind: symbol?.kind ?? "function",
+    }, symbolActions(mockSymbolEditable(symbol), flowEnabled)),
+  ];
+  const edges: GraphView["edges"] = [
+    edge(`defines:${moduleId}:${symbolIdValue}`, "defines", moduleId, symbolIdValue),
+  ];
+
+  if (symbol?.nodeId === graphSummarySymbolId()) {
+    const members = [
+      { memberId: graphSummaryRepoPathSymbolId(), x: 620, y: 40 },
+      { memberId: graphSummaryModuleCountSymbolId(), x: 620, y: 180 },
+      { memberId: graphSummaryToPayloadSymbolId(), x: 620, y: 320 },
+    ];
+    members.forEach(({ memberId, x, y }) => {
+      const member = symbols[memberId];
+      nodes.push(
+        node(memberId, graphNodeKindForSymbolKind(member.kind), member.name, member.qualname, x, y, {
+          symbolKind: member.kind,
+        }, symbolActions(mockSymbolEditable(member), flowEnabledForSymbol(member))),
+      );
+      edges.push(edge(`contains:${symbolIdValue}:${memberId}`, "contains", symbolIdValue, memberId));
+    });
+  }
+
+  if (symbol?.nodeId === graphSummaryToPayloadSymbolId()) {
+    nodes.push(
+      node(graphSummarySymbolId(), "class", "GraphSummary", "helm.ui.api.GraphSummary", 620, 160, {
+        symbolKind: "class",
+      }, symbolActions(false, true)),
+    );
+    edges.push(
+      edge(`contains:${graphSummarySymbolId()}:${symbolIdValue}`, "contains", graphSummarySymbolId(), symbolIdValue),
+    );
+  }
+
+  return {
+    rootNodeId: symbolIdValue,
+    targetId: symbolIdValue,
+    level: "symbol",
+    truncated: false,
+    breadcrumbs: [
+      { nodeId: session.id, level: "repo", label: session.name, subtitle: "Architecture map" },
+      { nodeId: moduleId, level: "module", label: moduleLabel, subtitle: modulePath },
+      { nodeId: symbolIdValue, level: "symbol", label: symbolLabel, subtitle: symbol?.qualname ?? symbolIdValue.replace("symbol:", "").replace(/:/g, ".") },
+    ],
+    focus: {
+      targetId: symbolIdValue,
+      level: "symbol",
+      label: symbolLabel,
+      subtitle: "Semantic node",
+      availableLevels: flowEnabled ? ["repo", "module", "symbol", "flow"] : ["repo", "module", "symbol"],
+    },
+    nodes,
+    edges,
+  };
+}
+
+function buildMockFunctionFlowView(
+  session: RepoSession,
+  state: MockWorkspaceState,
+  symbol: SymbolDetails,
+): GraphView {
+  const entryId = `flow:${symbol.nodeId}:entry`;
+  const breadcrumbs = [
+    { nodeId: session.id, level: "repo" as const, label: session.name, subtitle: "Architecture map" },
+    { nodeId: `module:${symbol.moduleName}`, level: "module" as const, label: symbol.moduleName, subtitle: symbol.filePath },
+    { nodeId: symbol.nodeId, level: "symbol" as const, label: symbol.name, subtitle: symbol.qualname },
+    { nodeId: `flow:${symbol.nodeId}`, level: "flow" as const, label: "Flow", subtitle: symbol.qualname },
+  ];
+
+  if (symbol.nodeId === symbolId("helm.ui.api", state.primarySummarySymbolName)) {
+    return {
+      rootNodeId: entryId,
+      targetId: symbol.nodeId,
+      level: "flow",
+      truncated: false,
+      breadcrumbs,
+      focus: {
+        targetId: symbol.nodeId,
+        level: "flow",
+        label: symbol.name,
+        subtitle: "On-demand flow graph",
+        availableLevels: ["repo", "module", "symbol", "flow"],
+      },
+      nodes: [
+        node(entryId, "entry", "Entry", symbol.qualname, 0, 180),
+        node(`flow:${symbol.nodeId}:param:graph`, "param", "graph", "parameter", 220, 80),
+        node(`flow:${symbol.nodeId}:param:top_n`, "param", "top_n", "parameter", 220, 280),
+        node(`flow:${symbol.nodeId}:assign:modules`, "assign", "module_summaries", "collect module stats", 470, 80),
+        node(`flow:${symbol.nodeId}:call:rank`, "call", "sorted(...)", "rank modules", 720, 80),
+        node(`flow:${symbol.nodeId}:return`, "return", "return GraphSummary(...)", "emit blueprint summary", 970, 180),
+      ],
+      edges: [
+        edge(`controls:${entryId}:assign`, "controls", entryId, `flow:${symbol.nodeId}:assign:modules`),
+        edge(`controls:${symbol.nodeId}:assign:rank`, "controls", `flow:${symbol.nodeId}:assign:modules`, `flow:${symbol.nodeId}:call:rank`),
+        edge(`controls:${symbol.nodeId}:rank:return`, "controls", `flow:${symbol.nodeId}:call:rank`, `flow:${symbol.nodeId}:return`),
+        edge(`data:${symbol.nodeId}:graph:assign`, "data", `flow:${symbol.nodeId}:param:graph`, `flow:${symbol.nodeId}:assign:modules`, "graph"),
+        edge(`data:${symbol.nodeId}:top:rank`, "data", `flow:${symbol.nodeId}:param:top_n`, `flow:${symbol.nodeId}:call:rank`, "top_n"),
+        edge(`data:${symbol.nodeId}:assign:rank`, "data", `flow:${symbol.nodeId}:assign:modules`, `flow:${symbol.nodeId}:call:rank`, "module_summaries"),
+        edge(`data:${symbol.nodeId}:rank:return`, "data", `flow:${symbol.nodeId}:call:rank`, `flow:${symbol.nodeId}:return`, "ranked_modules"),
+      ],
+    };
+  }
+
+  if (symbol.nodeId === graphSummaryToPayloadSymbolId()) {
+    return {
+      rootNodeId: entryId,
+      targetId: symbol.nodeId,
+      level: "flow",
+      truncated: false,
+      breadcrumbs,
+      focus: {
+        targetId: symbol.nodeId,
+        level: "flow",
+        label: symbol.name,
+        subtitle: "On-demand flow graph",
+        availableLevels: ["repo", "module", "symbol", "flow"],
+      },
+      nodes: [
+        node(entryId, "entry", "Entry", symbol.qualname, 0, 180),
+        node(`flow:${symbol.nodeId}:param:self`, "param", "self", "parameter", 220, 180),
+        node(`flow:${symbol.nodeId}:return`, "return", "return {...}", "emit payload map", 500, 180),
+      ],
+      edges: [
+        edge(`controls:${entryId}:return`, "controls", entryId, `flow:${symbol.nodeId}:return`),
+        edge(`data:${symbol.nodeId}:self:return`, "data", `flow:${symbol.nodeId}:param:self`, `flow:${symbol.nodeId}:return`, "self"),
+      ],
+    };
+  }
+
+  return {
+    rootNodeId: entryId,
+    targetId: symbol.nodeId,
+    level: "flow",
+    truncated: false,
+    breadcrumbs,
+    focus: {
+      targetId: symbol.nodeId,
+      level: "flow",
+      label: symbol.name,
+      subtitle: "On-demand flow graph",
+      availableLevels: ["repo", "module", "symbol", "flow"],
+    },
+    nodes: [
+      node(entryId, "entry", "Entry", symbol.qualname, 0, 180),
+      node(`flow:${symbol.nodeId}:return`, "return", "return", "complete operation", 320, 180),
+    ],
+    edges: [
+      edge(`controls:${entryId}:return`, "controls", entryId, `flow:${symbol.nodeId}:return`),
+    ],
+  };
+}
+
+function buildMockClassFlowView(
+  session: RepoSession,
+  symbol: SymbolDetails,
+  symbols: Record<string, SymbolDetails>,
+): GraphView {
+  const entryId = `flow:${symbol.nodeId}:entry`;
+  const members = symbol.nodeId === graphSummarySymbolId()
+    ? [
+        { symbol: symbols[graphSummaryRepoPathSymbolId()], order: 1 },
+        { symbol: symbols[graphSummaryModuleCountSymbolId()], order: 2 },
+        { symbol: symbols[graphSummaryToPayloadSymbolId()], order: 3 },
+      ]
+    : [];
+
+  return {
+    rootNodeId: entryId,
+    targetId: symbol.nodeId,
+    level: "flow",
+    truncated: false,
+    breadcrumbs: [
+      { nodeId: session.id, level: "repo", label: session.name, subtitle: "Architecture map" },
+      { nodeId: `module:${symbol.moduleName}`, level: "module", label: symbol.moduleName, subtitle: symbol.filePath },
+      { nodeId: symbol.nodeId, level: "symbol", label: symbol.name, subtitle: symbol.qualname },
+      { nodeId: `flow:${symbol.nodeId}`, level: "flow", label: "Flow", subtitle: symbol.qualname },
+    ],
+    focus: {
+      targetId: symbol.nodeId,
+      level: "flow",
+      label: symbol.name,
+      subtitle: "On-demand flow graph",
+      availableLevels: ["repo", "module", "symbol", "flow"],
+    },
+    nodes: [
+      node(entryId, "entry", "Entry", symbol.qualname, 0, 180, { flow_order: 0 }),
+      ...members.map(({ symbol: member, order }) =>
+        node(member.nodeId, graphNodeKindForSymbolKind(member.kind), member.name, member.qualname, order * 260, 180, {
+          symbolKind: member.kind,
+          flow_order: order,
+        }, symbolActions(mockSymbolEditable(member), flowEnabledForSymbol(member))),
+      ),
+    ],
+    edges: members.map(({ symbol: member }) =>
+      edge(`contains:${entryId}:${member.nodeId}`, "contains", entryId, member.nodeId),
+    ),
   };
 }
 
@@ -786,8 +1046,8 @@ export function buildRevealedSource(
     targetId,
     title: state.primarySummarySymbolName,
     path: "src/helm/ui/api.py",
-    startLine: 10,
-    endLine: 20,
+    startLine: 18,
+    endLine: 21,
     content: `def ${state.primarySummarySymbolName}(graph: RepoGraph, top_n: int = 10) -> GraphSummary:\n    module_summaries = []\n    return GraphSummary(repo_path=graph.root_path, module_count=len(module_summaries))`,
   };
 }
@@ -811,10 +1071,10 @@ export function buildEditableNodeSource(
     startLine: symbol.startLine,
     endLine: symbol.endLine,
     content: defaultContent,
-    editable: symbol.kind === "function" || symbol.kind === "variable",
+    editable: mockInlineEditableSymbol(symbol),
     nodeKind: graphNodeKindForSymbolKind(symbol.kind),
     reason:
-      symbol.kind === "function" || symbol.kind === "variable"
+      mockInlineEditableSymbol(symbol)
         ? undefined
         : "Inline editing currently supports only top-level functions and variables.",
   };
@@ -946,7 +1206,7 @@ function buildUiApiSource(state: MockWorkspaceState): string {
         : `def ${symbol.name}() -> None:\n    pass\n`,
     )
     .join("\n");
-  return `${state.uiApiImports.join("\n")}\n\n\n@dataclass(frozen=True)\nclass GraphSummary:\n    repo_path: str\n    module_count: int\n\n\ndef ${state.primarySummarySymbolName}(graph: RepoGraph, top_n: int = 10) -> GraphSummary:\n    module_summaries = []\n    ranked_modules = sorted(module_summaries)[:top_n]\n    return GraphSummary(repo_path=graph.root_path, module_count=len(ranked_modules))\n\n\ndef build_export_payload(graph: RepoGraph) -> dict[str, object]:\n    return {\"graph\": graph}\n\n${extraBlocks}`.trimEnd();
+  return `${state.uiApiImports.join("\n")}\n\n\n@dataclass(frozen=True)\nclass GraphSummary:\n    repo_path: str\n    module_count: int\n\n    def to_payload(self) -> dict[str, object]:\n        return {\n            "repo_path": self.repo_path,\n            "module_count": self.module_count,\n        }\n\n\ndef ${state.primarySummarySymbolName}(graph: RepoGraph, top_n: int = 10) -> GraphSummary:\n    module_summaries = []\n    ranked_modules = sorted(module_summaries)[:top_n]\n    return GraphSummary(repo_path=graph.root_path, module_count=len(ranked_modules))\n\n\ndef build_export_payload(graph: RepoGraph) -> dict[str, object]:\n    return {"graph": graph}\n\n${extraBlocks}`.trimEnd();
 }
 
 function defaultSymbolSource(
@@ -955,6 +1215,18 @@ function defaultSymbolSource(
 ): string {
   if (symbol.nodeId === symbolId("helm.ui.api", state.primarySummarySymbolName)) {
     return `def ${state.primarySummarySymbolName}(graph: RepoGraph, top_n: int = 10) -> GraphSummary:\n    module_summaries = []\n    ranked_modules = sorted(module_summaries)[:top_n]\n    return GraphSummary(repo_path=graph.root_path, module_count=len(ranked_modules))`;
+  }
+  if (symbol.nodeId === graphSummarySymbolId()) {
+    return "class GraphSummary:\n    repo_path: str\n    module_count: int\n\n    def to_payload(self) -> dict[str, object]:\n        return {\n            \"repo_path\": self.repo_path,\n            \"module_count\": self.module_count,\n        }";
+  }
+  if (symbol.nodeId === graphSummaryRepoPathSymbolId()) {
+    return "repo_path: str";
+  }
+  if (symbol.nodeId === graphSummaryModuleCountSymbolId()) {
+    return "module_count: int";
+  }
+  if (symbol.nodeId === graphSummaryToPayloadSymbolId()) {
+    return "def to_payload(self) -> dict[str, object]:\n    return {\n        \"repo_path\": self.repo_path,\n        \"module_count\": self.module_count,\n    }";
   }
   if (symbol.nodeId === symbolId("helm.ui.api", "build_export_payload")) {
     return "def build_export_payload(graph: RepoGraph) -> dict[str, object]:\n    return {\"graph\": graph}";
@@ -1036,6 +1308,24 @@ function moduleActions() {
   ];
 }
 
+function mockSymbolEditable(symbol?: SymbolDetails) {
+  return Boolean(symbol && symbol.kind === "function" && !symbol.qualname.includes("GraphSummary."));
+}
+
+function mockInlineEditableSymbol(symbol?: SymbolDetails) {
+  return Boolean(
+    symbol
+    && (
+      (symbol.kind === "function" && !symbol.qualname.includes("GraphSummary."))
+      || (symbol.kind === "variable" && !symbol.qualname.includes("GraphSummary."))
+    ),
+  );
+}
+
+function flowEnabledForSymbol(symbol?: SymbolDetails) {
+  return symbol?.kind === "function" || symbol?.kind === "class";
+}
+
 function symbolActions(editable: boolean, flowEnabled = true) {
   return [
     {
@@ -1063,7 +1353,7 @@ function symbolActions(editable: boolean, flowEnabled = true) {
       actionId: "open_flow",
       label: "Open flow",
       enabled: flowEnabled,
-      reason: flowEnabled ? null : "Flow only exists for functions and methods.",
+      reason: flowEnabled ? null : "Flow only exists for functions, methods, and classes.",
       payload: {},
     },
     {

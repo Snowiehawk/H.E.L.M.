@@ -40,10 +40,12 @@ import { RerouteNode, type RerouteNodeData } from "./RerouteNode";
 import {
   helpIdForGraphEdgeKind,
   helpTargetProps,
+  type HelpDescriptorId,
   useWorkspaceHelp,
 } from "../workspace/workspaceHelp";
 import { buildBlueprintPresentation } from "./blueprintPorts";
 import { declutterGraphLayout } from "./declutterLayout";
+import { layoutFlowGraph } from "./flowLayout";
 import {
   graphLayoutNodeKey,
   graphLayoutViewKey,
@@ -220,10 +222,13 @@ function buildSemanticCanvasNodes(
   graph: GraphView,
   selectedNodeId: string,
   savedPositions: StoredGraphNodeLayout,
+  pinnedNodeIds: Set<string>,
   highlightedEdgeIds: Set<string>,
   hoverActive: boolean,
   selectedRelatedNodeIds: Set<string>,
   selectionContextActive: boolean,
+  canPinNodes: boolean,
+  onTogglePinned: (nodeId: string) => void,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
   onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
   onPortHoverStart: (edgeIds: string[]) => void,
@@ -233,12 +238,14 @@ function buildSemanticCanvasNodes(
   return graph.nodes.map<SemanticCanvasNode>((node) => {
     const ports = blueprint.nodePorts.get(node.id) ?? { inputs: [], outputs: [] };
     const savedPosition = savedPositions[graphLayoutNodeKey(node.id, node.kind)];
+    const isPinned = pinnedNodeIds.has(node.id);
     const actions: BlueprintNodeData["actions"] = [];
 
     if (isEnterableGraphNodeKind(node.kind)) {
       actions.push({
         id: "enter",
         label: "Enter",
+        helpId: "graph.node.action.enter",
         onAction: () => onActivateNode(node.id, node.kind),
       });
     }
@@ -247,7 +254,17 @@ function buildSemanticCanvasNodes(
       actions.push({
         id: "inspect",
         label: "Inspect",
+        helpId: "graph.node.action.inspect",
         onAction: () => onInspectNode(node.id, node.kind),
+      });
+    }
+
+    if (canPinNodes) {
+      actions.push({
+        id: "pin",
+        label: isPinned ? "Unpin" : "Pin",
+        helpId: pinActionHelpId(isPinned),
+        onAction: () => onTogglePinned(node.id),
       });
     }
 
@@ -259,6 +276,7 @@ function buildSemanticCanvasNodes(
         kind: node.kind,
         label: moduleDisplayLabel(node),
         summary: nodeSummary(node),
+        isPinned,
         inputPorts: decorateNodePorts(
           ports.inputs,
           highlightedEdgeIds,
@@ -328,6 +346,8 @@ function buildCanvasNodes(
   selectedRelatedNodeIds: Set<string>,
   selectedConnectedEdgeIds: Set<string>,
   selectionContextActive: boolean,
+  canPinNodes: boolean,
+  onTogglePinned: (nodeId: string) => void,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
   onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
   onPortHoverStart: (edgeIds: string[]) => void,
@@ -335,15 +355,19 @@ function buildCanvasNodes(
 ): GraphCanvasNode[] {
   const savedNodePositions = layout.nodes ?? {};
   const savedReroutes = layout.reroutes ?? [];
+  const pinnedNodeIds = new Set(layout.pinnedNodeIds ?? []);
   return [
     ...buildSemanticCanvasNodes(
       graph,
       selectedNodeId,
       savedNodePositions,
+      pinnedNodeIds,
       highlightedEdgeIds,
       hoverActive,
       selectedRelatedNodeIds,
       selectionContextActive,
+      canPinNodes,
+      onTogglePinned,
       onActivateNode,
       onInspectNode,
       onPortHoverStart,
@@ -433,6 +457,10 @@ function persistGraphLayout(nodes: GraphCanvasNode[]): StoredGraphLayout {
           || left.order - right.order
           || left.id.localeCompare(right.id),
       ),
+    pinnedNodeIds: semanticNodes
+      .filter((node) => node.data.isPinned)
+      .map((node) => node.id)
+      .sort((left, right) => left.localeCompare(right)),
   };
 }
 
@@ -440,6 +468,7 @@ function applyStoredLayout(nodes: GraphCanvasNode[], layout: StoredGraphLayout) 
   const reroutesById = new Map(
     layout.reroutes.map((reroute) => [rerouteNodeId(reroute.id), reroute] as const),
   );
+  const pinnedNodeIds = new Set(layout.pinnedNodeIds ?? []);
 
   return nodes.map((node) => {
     if (isRerouteCanvasNode(node)) {
@@ -461,12 +490,22 @@ function applyStoredLayout(nodes: GraphCanvasNode[], layout: StoredGraphLayout) 
     }
 
     const nextPosition = layout.nodes[graphLayoutNodeKey(node.id, node.data.kind)];
-    if (!nextPosition) {
-      return node;
-    }
     return {
       ...node,
-      position: nextPosition,
+      position: nextPosition ?? node.position,
+      data: {
+        ...node.data,
+        isPinned: pinnedNodeIds.has(node.id),
+        actions: (node.data.actions ?? []).map((action) =>
+          action.id === "pin"
+                ? {
+                    ...action,
+                    label: pinnedNodeIds.has(node.id) ? "Unpin" : "Pin",
+                    helpId: pinActionHelpId(pinnedNodeIds.has(node.id)),
+                  }
+                : action,
+            ),
+      },
     };
   });
 }
@@ -504,6 +543,40 @@ function toDeclutterNodes(nodes: GraphCanvasNode[]) {
     width: readMeasuredDimension(node, "width"),
     height: readMeasuredDimension(node, "height"),
   }));
+}
+
+function toFlowLayoutNodes(nodes: GraphCanvasNode[], graph: GraphView) {
+  const metadataByNodeId = new Map(graph.nodes.map((node) => [node.id, node.metadata] as const));
+  return nodes
+    .filter(isSemanticCanvasNode)
+    .map((node) => ({
+      id: node.id,
+      kind: node.data.kind,
+      x: node.position.x,
+      y: node.position.y,
+      width: readMeasuredDimension(node, "width"),
+      height: readMeasuredDimension(node, "height"),
+      metadata: metadataByNodeId.get(node.id) ?? {},
+    }));
+}
+
+function semanticPinnedNodeIds(nodes: GraphCanvasNode[]) {
+  return nodes
+    .filter(isSemanticCanvasNode)
+    .filter((node) => node.data.isPinned)
+    .map((node) => node.id);
+}
+
+function storedLayoutIsEmpty(layout: StoredGraphLayout) {
+  return (
+    !Object.keys(layout.nodes).length
+    && !layout.reroutes.length
+    && !(layout.pinnedNodeIds?.length ?? 0)
+  );
+}
+
+function pinActionHelpId(pinned: boolean): HelpDescriptorId {
+  return pinned ? "graph.node.action.unpin" : "graph.node.action.pin";
 }
 
 function isEditableEventTarget(target: EventTarget | null): boolean {
@@ -549,6 +622,22 @@ function shouldHandleRerouteDeleteKey(event: {
     || event.ctrlKey
     || event.metaKey
     || event.shiftKey
+    || isEditableEventTarget(event.target)
+  );
+}
+
+function shouldHandlePinKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  target: EventTarget | null;
+}) {
+  return !(
+    event.key.toLowerCase() !== "p"
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
     || isEditableEventTarget(event.target)
   );
 }
@@ -982,6 +1071,7 @@ export function GraphCanvas({
     return related;
   }, [graph?.edges, selectedNodeId]);
   const selectionContextActive = Boolean(selectedNodeId);
+  const canPinNodes = graph?.level === "flow";
 
   const clearLocalSelection = () => {
     setNodes((current) =>
@@ -993,6 +1083,46 @@ export function GraphCanvas({
 
   const persistCurrentLayout = (nextNodes: GraphCanvasNode[]) => {
     void writeStoredGraphLayout(repoPath, viewKey, persistGraphLayout(nextNodes));
+  };
+
+  const togglePinnedNodes = (nodeIds: string[]) => {
+    if (!canPinNodes || !nodeIds.length) {
+      return;
+    }
+
+    hydrationGenerationRef.current += 1;
+    setDeclutterUndo(undefined);
+    setNodes((current) => {
+      const targetNodeIds = new Set(nodeIds);
+      const next = current.map((node) => {
+        if (!isSemanticCanvasNode(node) || !targetNodeIds.has(node.id)) {
+          return node;
+        }
+
+        const nextPinned = !node.data.isPinned;
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            isPinned: nextPinned,
+            actions: (node.data.actions ?? []).map((action) =>
+              action.id === "pin"
+                ? {
+                    ...action,
+                    label: nextPinned ? "Unpin" : "Pin",
+                    helpId: pinActionHelpId(nextPinned),
+                  }
+                : action,
+            ),
+          },
+        };
+      });
+      persistCurrentLayout(next);
+      return next;
+    });
+  };
+  const togglePinnedNode = (nodeId: string) => {
+    togglePinnedNodes([nodeId]);
   };
 
   const removeSelectedReroutes = () => {
@@ -1028,6 +1158,12 @@ export function GraphCanvas({
     if (selectedRerouteCount && shouldHandleRerouteDeleteKey(event)) {
       event.preventDefault();
       removeSelectedReroutes();
+      return;
+    }
+
+    if (selectedNodeId && shouldHandlePinKey(event) && canPinNodes) {
+      event.preventDefault();
+      togglePinnedNodes([selectedNodeId]);
       return;
     }
 
@@ -1068,7 +1204,9 @@ export function GraphCanvas({
 
       if (
         !(graphHotkeyActiveRef.current || panelContainsTarget || panelContainsFocus)
-        || (!shouldHandleNavigateOutKey(event) && !shouldHandleRerouteDeleteKey(event))
+        || (!shouldHandleNavigateOutKey(event)
+          && !shouldHandleRerouteDeleteKey(event)
+          && !shouldHandlePinKey(event))
       ) {
         return;
       }
@@ -1077,7 +1215,11 @@ export function GraphCanvas({
     };
 
     const handlePanelKeyDown = (event: KeyboardEvent) => {
-      if (!shouldHandleNavigateOutKey(event) && !shouldHandleRerouteDeleteKey(event)) {
+      if (
+        !shouldHandleNavigateOutKey(event)
+        && !shouldHandleRerouteDeleteKey(event)
+        && !shouldHandlePinKey(event)
+      ) {
         return;
       }
 
@@ -1094,7 +1236,7 @@ export function GraphCanvas({
       document.removeEventListener("keydown", handleWindowKeyDown, true);
       panel?.removeEventListener("keydown", handlePanelKeyDown);
     };
-  }, [onNavigateOut, selectedRerouteCount]);
+  }, [canPinNodes, onNavigateOut, selectedNodeId, selectedRerouteCount]);
 
   useEffect(() => {
     if (!selectedRerouteCount) {
@@ -1114,22 +1256,26 @@ export function GraphCanvas({
     const emptyLayout: StoredGraphLayout = {
       nodes: {},
       reroutes: [],
+      pinnedNodeIds: [],
     };
+    const initialNodes = buildCanvasNodes(
+      graph,
+      selectedNodeId,
+      emptyLayout,
+      new Set<string>(),
+      false,
+      selectedRelatedNodeIds,
+      selectedConnectedEdgeIds,
+      selectionContextActive,
+      canPinNodes,
+      togglePinnedNode,
+      onActivateNode,
+      onInspectNode,
+      setHoveredPortEdgeIds,
+      () => setHoveredPortEdgeIds([]),
+    );
     setNodes(
-      buildCanvasNodes(
-        graph,
-        selectedNodeId,
-        emptyLayout,
-        new Set<string>(),
-        false,
-        selectedRelatedNodeIds,
-        selectedConnectedEdgeIds,
-        selectionContextActive,
-        onActivateNode,
-        onInspectNode,
-        setHoveredPortEdgeIds,
-        () => setHoveredPortEdgeIds([]),
-      ),
+      initialNodes,
     );
 
     let cancelled = false;
@@ -1137,6 +1283,39 @@ export function GraphCanvas({
       if (cancelled || hydrationGenerationRef.current !== generation) {
         return;
       }
+
+      if (graph.level === "flow" && storedLayoutIsEmpty(savedLayout)) {
+        const initialLayoutResult = layoutFlowGraph(
+          toFlowLayoutNodes(initialNodes, graph),
+          graph.edges,
+        );
+        const initializedLayout: StoredGraphLayout = {
+          nodes: initialLayoutResult.positions,
+          reroutes: [],
+          pinnedNodeIds: [],
+        };
+        setNodes(
+          buildCanvasNodes(
+            graph,
+            selectedNodeId,
+            initializedLayout,
+            new Set<string>(),
+            false,
+            selectedRelatedNodeIds,
+            selectedConnectedEdgeIds,
+            selectionContextActive,
+            canPinNodes,
+            togglePinnedNode,
+            onActivateNode,
+            onInspectNode,
+            setHoveredPortEdgeIds,
+            () => setHoveredPortEdgeIds([]),
+          ),
+        );
+        void writeStoredGraphLayout(repoPath, viewKey, initializedLayout);
+        return;
+      }
+
       setNodes(
         buildCanvasNodes(
           graph,
@@ -1147,6 +1326,8 @@ export function GraphCanvas({
           selectedRelatedNodeIds,
           selectedConnectedEdgeIds,
           selectionContextActive,
+          canPinNodes,
+          togglePinnedNode,
           onActivateNode,
           onInspectNode,
           setHoveredPortEdgeIds,
@@ -1160,7 +1341,9 @@ export function GraphCanvas({
     };
   }, [
     graph,
+    canPinNodes,
     onActivateNode,
+    onInspectNode,
     repoPath,
     selectedConnectedEdgeIds,
     selectedNodeId,
@@ -1183,6 +1366,8 @@ export function GraphCanvas({
         selectedRelatedNodeIds,
         selectedConnectedEdgeIds,
         selectionContextActive,
+        canPinNodes,
+        togglePinnedNode,
         onActivateNode,
         onInspectNode,
         setHoveredPortEdgeIds,
@@ -1193,6 +1378,7 @@ export function GraphCanvas({
     graph,
     highlightedEdgeIds,
     hoverActive,
+    canPinNodes,
     onActivateNode,
     onInspectNode,
     selectedConnectedEdgeIds,
@@ -1256,8 +1442,12 @@ export function GraphCanvas({
     }
 
     const previousLayout = persistGraphLayout(nodes);
-    const declutterableNodes = nodes.filter(isSemanticCanvasNode);
-    const result = declutterGraphLayout(toDeclutterNodes(declutterableNodes), graph.edges);
+    const result = graph.level === "flow"
+      ? layoutFlowGraph(toFlowLayoutNodes(nodes, graph), graph.edges, semanticPinnedNodeIds(nodes))
+      : declutterGraphLayout(
+          toDeclutterNodes(nodes.filter(isSemanticCanvasNode)),
+          graph.edges,
+        );
     if (!result.changed) {
       return;
     }
@@ -1505,6 +1695,8 @@ function applyNodeDecorations(
   selectedRelatedNodeIds: Set<string>,
   selectedConnectedEdgeIds: Set<string>,
   selectionContextActive: boolean,
+  canPinNodes: boolean,
+  onTogglePinned: (nodeId: string) => void,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
   onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
   onPortHoverStart: (edgeIds: string[]) => void,
@@ -1545,6 +1737,7 @@ function applyNodeDecorations(
       actions.push({
         id: "enter",
         label: "Enter",
+        helpId: "graph.node.action.enter",
         onAction: () => onActivateNode(graphNode.id, graphNode.kind),
       });
     }
@@ -1553,7 +1746,17 @@ function applyNodeDecorations(
       actions.push({
         id: "inspect",
         label: "Inspect",
+        helpId: "graph.node.action.inspect",
         onAction: () => onInspectNode(graphNode.id, graphNode.kind),
+      });
+    }
+
+    if (canPinNodes) {
+      actions.push({
+        id: "pin",
+        label: node.data.isPinned ? "Unpin" : "Pin",
+        helpId: pinActionHelpId(Boolean(node.data.isPinned)),
+        onAction: () => onTogglePinned(graphNode.id),
       });
     }
 
@@ -1565,6 +1768,7 @@ function applyNodeDecorations(
         kind: graphNode.kind,
         label: moduleDisplayLabel(graphNode),
         summary: nodeSummary(graphNode),
+        isPinned: node.data.isPinned,
         inputPorts: decorateNodePorts(
           ports.inputs,
           highlightedEdgeIds,

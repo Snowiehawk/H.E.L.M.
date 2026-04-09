@@ -1262,6 +1262,23 @@ function buildFlowLevels(
   edges: RawGraphViewEdge[],
 ): Map<string, number> {
   const levels = new Map<string, number>();
+  const controlEdges = edges.filter((edge) => edge.kind === "controls");
+  const orderedFlowNodes = nodes
+    .map((node) => [node, rawFlowOrder(node)] as const)
+    .filter((entry): entry is readonly [RawGraphViewNode, number] => entry[1] !== undefined)
+    .sort((left, right) => left[1] - right[1] || left[0].label.localeCompare(right[0].label));
+
+  if (!controlEdges.length && orderedFlowNodes.length) {
+    orderedFlowNodes.forEach(([node, order]) => {
+      levels.set(node.node_id, order);
+    });
+    nodes.forEach((node) => {
+      if (!levels.has(node.node_id)) {
+        levels.set(node.node_id, node.kind === "entry" ? 0 : 1);
+      }
+    });
+    return levels;
+  }
 
   nodes.forEach((node) => {
     if (node.kind === "entry" || node.kind === "param") {
@@ -1272,10 +1289,7 @@ function buildFlowLevels(
   let changed = true;
   while (changed) {
     changed = false;
-    for (const edge of edges) {
-      if (edge.kind !== "controls") {
-        continue;
-      }
+    for (const edge of controlEdges) {
       const sourceLevel = levels.get(edge.source_id);
       if (sourceLevel === undefined) {
         continue;
@@ -1383,7 +1397,8 @@ function layoutRelaxedDirectedGraph(
 
   sortedLevels.forEach((level) => {
     const group = [...(buckets.get(level) ?? [])].sort((left, right) =>
-      `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
+      (options.flowView ? (rawFlowOrder(left) ?? Number.MAX_SAFE_INTEGER) - (rawFlowOrder(right) ?? Number.MAX_SAFE_INTEGER) : 0)
+      || `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
     );
     group.forEach((node, index) => {
       const centeredIndex = index - (group.length - 1) / 2;
@@ -1478,6 +1493,11 @@ function layoutRelaxedDirectedGraph(
   }
 
   return positions;
+}
+
+function rawFlowOrder(node: RawGraphViewNode): number | undefined {
+  const value = node.metadata.flow_order ?? node.metadata.flowOrder;
+  return typeof value === "number" ? value : undefined;
 }
 
 function stableLayoutOffset(nodeId: string, spread: number): number {
