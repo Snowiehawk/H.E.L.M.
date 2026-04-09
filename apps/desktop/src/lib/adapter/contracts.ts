@@ -219,8 +219,8 @@ export function isInspectableGraphNodeKind(
 
 export function isEnterableGraphNodeKind(
   kind: GraphNodeKind | string | null | undefined,
-): kind is "repo" | "module" | "symbol" {
-  return kind === "repo" || kind === "module" || kind === "symbol";
+): kind is "repo" | "module" | "symbol" | "class" {
+  return kind === "repo" || kind === "module" || kind === "symbol" || kind === "class";
 }
 
 export interface RevealedSource {

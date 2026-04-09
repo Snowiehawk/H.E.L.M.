@@ -506,6 +506,20 @@ export function WorkspaceScreen() {
     }
   }, [focusGraph, graphQuery.data, selectNode, setRevealedSource]);
 
+  const handleGraphInspectNode = useCallback((nodeId: string, kind: GraphNodeKind) => {
+    if (!isInspectableGraphNodeKind(kind)) {
+      return;
+    }
+
+    selectNode(nodeId);
+    const node = graphQuery.data?.nodes.find((candidate) => candidate.id === nodeId);
+    if (node) {
+      setInspectorSnapshot(node);
+    }
+    setInspectorTargetId(nodeId);
+    setInspectorOpen(true);
+  }, [graphQuery.data, selectNode]);
+
   const handleSelectBreadcrumb = (breadcrumb: GraphBreadcrumbDto) => {
     if (breadcrumb.level === "flow") {
       if (activeGraphSymbolId) {
@@ -921,6 +935,7 @@ export function WorkspaceScreen() {
                 inspectorOpen={inspectorOpen}
                 onSelectNode={handleGraphSelectNode}
                 onActivateNode={handleGraphActivateNode}
+                onInspectNode={handleGraphInspectNode}
                 onSelectBreadcrumb={handleSelectBreadcrumb}
                 onSelectLevel={handleSelectLevel}
                 onToggleGraphFilter={toggleGraphFilter}

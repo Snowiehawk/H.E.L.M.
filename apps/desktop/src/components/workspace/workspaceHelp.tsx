@@ -303,7 +303,7 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.node.class": ({ label }) => ({
     title: `${fallbackLabel(label, "Class")} class node`,
-    description: "Represents a top-level class. Inspect it to review code details and source location.",
+    description: "Represents a top-level class. Enter it to graph class internals, or inspect it to review code details and source location.",
   }),
   "graph.node.enum": ({ label }) => ({
     title: `${fallbackLabel(label, "Enum")} enum node`,

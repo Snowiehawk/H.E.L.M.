@@ -21,8 +21,12 @@ export interface BlueprintNodeData extends Record<string, unknown> {
   summary?: string;
   inputPorts: BlueprintNodePort[];
   outputPorts: BlueprintNodePort[];
-  primaryActionLabel?: string;
-  onPrimaryAction?: () => void;
+  actions?: Array<{
+    id: "enter" | "inspect";
+    label: string;
+    onAction: () => void;
+  }>;
+  onDefaultAction?: () => void;
 }
 
 function PortList({
@@ -107,6 +111,7 @@ export const BlueprintNode = memo(function BlueprintNode({
   data,
 }: NodeProps) {
   const blueprintData = data as unknown as BlueprintNodeData;
+  const actions = blueprintData.actions ?? [];
 
   return (
     <div
@@ -120,28 +125,31 @@ export const BlueprintNode = memo(function BlueprintNode({
       <div className="graph-node__body">
         <div className="graph-node__header">
           <span className="graph-node__kind">{blueprintData.kind}</span>
-          {blueprintData.primaryActionLabel && blueprintData.onPrimaryAction ? (
-            <button
-              {...helpTargetProps(
-                blueprintData.primaryActionLabel === "Enter"
-                  ? "graph.node.action.enter"
-                  : "graph.node.action.inspect",
-              )}
-              className="graph-node__action nodrag"
-              type="button"
-              onPointerDown={(event) => {
-                event.stopPropagation();
-              }}
-              onDoubleClick={(event) => {
-                event.stopPropagation();
-              }}
-              onClick={(event) => {
-                event.stopPropagation();
-                blueprintData.onPrimaryAction?.();
-              }}
-            >
-              {blueprintData.primaryActionLabel}
-            </button>
+          {actions.length ? (
+            <div className="graph-node__actions">
+              {actions.map((action) => (
+                <button
+                  key={action.id}
+                  {...helpTargetProps(
+                    action.id === "enter" ? "graph.node.action.enter" : "graph.node.action.inspect",
+                  )}
+                  className="graph-node__action nodrag"
+                  type="button"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onDoubleClick={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    action.onAction();
+                  }}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
           ) : null}
         </div>
         <strong className="graph-node__title" title={blueprintData.label}>

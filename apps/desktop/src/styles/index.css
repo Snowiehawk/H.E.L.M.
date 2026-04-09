@@ -789,7 +789,8 @@ button {
   background: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
-  transition: opacity 160ms ease, filter 160ms ease, transform 160ms ease;
+  will-change: transform, opacity, filter;
+  transition: opacity 160ms ease, filter 160ms ease;
 }
 
 .graph-reroute-node {
@@ -809,8 +810,7 @@ button {
   transition:
     opacity 140ms ease,
     border-color 140ms ease,
-    box-shadow 140ms ease,
-    transform 140ms ease;
+    box-shadow 140ms ease;
 }
 
 .graph-reroute-node__dot {
@@ -901,6 +901,14 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.graph-node__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .graph-node__action {

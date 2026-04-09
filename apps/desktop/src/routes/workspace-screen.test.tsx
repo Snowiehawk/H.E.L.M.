@@ -134,7 +134,8 @@ describe("WorkspaceScreen", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("treats class nodes as inspectable instead of enterable", async () => {
+  it("treats class nodes as both inspectable and enterable", async () => {
+    const user = userEvent.setup();
     const router = createMemoryRouter(
       [{ path: "/workspace", element: <WorkspaceScreen /> }],
       { initialEntries: ["/workspace"] },
@@ -155,13 +156,18 @@ describe("WorkspaceScreen", () => {
     const classNode = (await graph.findByText("GraphSummary")).closest(".graph-node");
     expect(classNode).not.toBeNull();
     expect(within(classNode as HTMLElement).getByText("Inspect")).toBeInTheDocument();
-    expect(within(classNode as HTMLElement).queryByText("Enter")).not.toBeInTheDocument();
+    expect(within(classNode as HTMLElement).getByText("Enter")).toBeInTheDocument();
 
     fireEvent.click(within(classNode as HTMLElement).getByText("Inspect"));
 
     expect(await screen.findByRole("button", { name: /Open File In Default Editor/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Open flow/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Open blueprint/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Close/i }));
+    fireEvent.click(within(classNode as HTMLElement).getByText("Enter"));
+
+    expect(await screen.findByText(/Symbol blueprint/i)).toBeInTheDocument();
   });
 
   it("reveals the current graph file from the graph path", async () => {

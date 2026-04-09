@@ -225,6 +225,7 @@ function buildSemanticCanvasNodes(
   selectedRelatedNodeIds: Set<string>,
   selectionContextActive: boolean,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
+  onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
   onPortHoverStart: (edgeIds: string[]) => void,
   onPortHoverEnd: () => void,
 ): SemanticCanvasNode[] {
@@ -232,6 +233,24 @@ function buildSemanticCanvasNodes(
   return graph.nodes.map<SemanticCanvasNode>((node) => {
     const ports = blueprint.nodePorts.get(node.id) ?? { inputs: [], outputs: [] };
     const savedPosition = savedPositions[graphLayoutNodeKey(node.id, node.kind)];
+    const actions: BlueprintNodeData["actions"] = [];
+
+    if (isEnterableGraphNodeKind(node.kind)) {
+      actions.push({
+        id: "enter",
+        label: "Enter",
+        onAction: () => onActivateNode(node.id, node.kind),
+      });
+    }
+
+    if (isInspectableGraphNodeKind(node.kind)) {
+      actions.push({
+        id: "inspect",
+        label: "Inspect",
+        onAction: () => onInspectNode(node.id, node.kind),
+      });
+    }
+
     return {
       id: node.id,
       position: savedPosition ?? { x: node.x, y: node.y },
@@ -254,15 +273,8 @@ function buildSemanticCanvasNodes(
           onPortHoverStart,
           onPortHoverEnd,
         ),
-        primaryActionLabel: isEnterableGraphNodeKind(node.kind)
-          ? "Enter"
-          : isInspectableGraphNodeKind(node.kind)
-            ? "Inspect"
-            : undefined,
-        onPrimaryAction:
-          isEnterableGraphNodeKind(node.kind) || isInspectableGraphNodeKind(node.kind)
-            ? () => onActivateNode(node.id, node.kind)
-            : undefined,
+        actions,
+        onDefaultAction: actions[0]?.onAction,
       },
       draggable: true,
       selectable: true,
@@ -317,6 +329,7 @@ function buildCanvasNodes(
   selectedConnectedEdgeIds: Set<string>,
   selectionContextActive: boolean,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
+  onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
   onPortHoverStart: (edgeIds: string[]) => void,
   onPortHoverEnd: () => void,
 ): GraphCanvasNode[] {
@@ -332,6 +345,7 @@ function buildCanvasNodes(
       selectedRelatedNodeIds,
       selectionContextActive,
       onActivateNode,
+      onInspectNode,
       onPortHoverStart,
       onPortHoverEnd,
     ),
@@ -740,6 +754,7 @@ export function GraphCanvas({
   inspectorOpen,
   onSelectNode,
   onActivateNode,
+  onInspectNode,
   onSelectBreadcrumb,
   onSelectLevel,
   onToggleGraphFilter,
@@ -760,6 +775,7 @@ export function GraphCanvas({
   inspectorOpen: boolean;
   onSelectNode: (nodeId: string, kind: GraphNodeKind) => void;
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void;
+  onInspectNode: (nodeId: string, kind: GraphNodeKind) => void;
   onSelectBreadcrumb: (breadcrumb: GraphBreadcrumbDto) => void;
   onSelectLevel: (level: GraphAbstractionLevel) => void;
   onToggleGraphFilter: (key: keyof GraphFilters) => void;
@@ -994,6 +1010,7 @@ export function GraphCanvas({
         selectedConnectedEdgeIds,
         selectionContextActive,
         onActivateNode,
+        onInspectNode,
         setHoveredPortEdgeIds,
         () => setHoveredPortEdgeIds([]),
       ),
@@ -1015,6 +1032,7 @@ export function GraphCanvas({
           selectedConnectedEdgeIds,
           selectionContextActive,
           onActivateNode,
+          onInspectNode,
           setHoveredPortEdgeIds,
           () => setHoveredPortEdgeIds([]),
         ),
@@ -1050,6 +1068,7 @@ export function GraphCanvas({
         selectedConnectedEdgeIds,
         selectionContextActive,
         onActivateNode,
+        onInspectNode,
         setHoveredPortEdgeIds,
         () => setHoveredPortEdgeIds([]),
       ),
@@ -1059,6 +1078,7 @@ export function GraphCanvas({
     highlightedEdgeIds,
     hoverActive,
     onActivateNode,
+    onInspectNode,
     selectedConnectedEdgeIds,
     selectedNodeId,
     selectedRelatedNodeIds,
@@ -1327,7 +1347,7 @@ export function GraphCanvas({
           if (isRerouteCanvasNode(node)) {
             return;
           }
-          onActivateNode(node.id, node.data.kind);
+          node.data.onDefaultAction?.();
         }}
         onPaneClick={() => {
           clearLocalSelection();
@@ -1370,6 +1390,7 @@ function applyNodeDecorations(
   selectedConnectedEdgeIds: Set<string>,
   selectionContextActive: boolean,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
+  onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
   onPortHoverStart: (edgeIds: string[]) => void,
   onPortHoverEnd: () => void,
 ) {
@@ -1402,6 +1423,23 @@ function applyNodeDecorations(
       selectionContextActive,
     );
     const ports = blueprint.nodePorts.get(node.id) ?? { inputs: [], outputs: [] };
+    const actions: BlueprintNodeData["actions"] = [];
+
+    if (isEnterableGraphNodeKind(graphNode.kind)) {
+      actions.push({
+        id: "enter",
+        label: "Enter",
+        onAction: () => onActivateNode(graphNode.id, graphNode.kind),
+      });
+    }
+
+    if (isInspectableGraphNodeKind(graphNode.kind)) {
+      actions.push({
+        id: "inspect",
+        label: "Inspect",
+        onAction: () => onInspectNode(graphNode.id, graphNode.kind),
+      });
+    }
 
     return {
       ...node,
@@ -1425,15 +1463,8 @@ function applyNodeDecorations(
           onPortHoverStart,
           onPortHoverEnd,
         ),
-        primaryActionLabel: isEnterableGraphNodeKind(graphNode.kind)
-          ? "Enter"
-          : isInspectableGraphNodeKind(graphNode.kind)
-            ? "Inspect"
-            : undefined,
-        onPrimaryAction:
-          isEnterableGraphNodeKind(graphNode.kind) || isInspectableGraphNodeKind(graphNode.kind)
-            ? () => onActivateNode(graphNode.id, graphNode.kind)
-            : undefined,
+        actions,
+        onDefaultAction: actions[0]?.onAction,
       },
     };
   });

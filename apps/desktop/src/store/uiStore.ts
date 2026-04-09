@@ -11,8 +11,47 @@ import type {
   WorkspaceTab,
 } from "../lib/adapter";
 
+const UI_SCALE_STORAGE_KEY = "helm.ui-scale";
+export const DEFAULT_UI_SCALE = 1;
+export const UI_SCALE_STEP = 0.1;
+export const MIN_UI_SCALE = 0.7;
+export const MAX_UI_SCALE = 1.5;
+
+function normalizeUiScale(value: number) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_UI_SCALE;
+  }
+
+  const snapped = Math.round(value / UI_SCALE_STEP) * UI_SCALE_STEP;
+  const bounded = Math.min(MAX_UI_SCALE, Math.max(MIN_UI_SCALE, snapped));
+  return Number(bounded.toFixed(2));
+}
+
+function readStoredUiScale() {
+  if (typeof window === "undefined") {
+    return DEFAULT_UI_SCALE;
+  }
+
+  const rawValue = window.localStorage.getItem(UI_SCALE_STORAGE_KEY);
+  if (!rawValue) {
+    return DEFAULT_UI_SCALE;
+  }
+
+  const parsed = Number(rawValue);
+  return normalizeUiScale(parsed);
+}
+
+function persistUiScale(scale: number) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(UI_SCALE_STORAGE_KEY, String(scale));
+}
+
 interface UiState {
   theme: ThemeMode;
+  uiScale: number;
   paletteOpen: boolean;
   sidebarQuery: string;
   activeTab: WorkspaceTab;
@@ -30,6 +69,10 @@ interface UiState {
   revealedSource?: RevealedSource;
   lastEdit?: StructuralEditResult;
   setTheme: (theme: ThemeMode) => void;
+  setUiScale: (scale: number) => void;
+  increaseUiScale: () => void;
+  decreaseUiScale: () => void;
+  resetUiScale: () => void;
   setPaletteOpen: (isOpen: boolean) => void;
   setSidebarQuery: (query: string) => void;
   setSession: (session: RepoSession) => void;
@@ -64,6 +107,7 @@ const defaultGraphSettings: GraphSettings = {
 
 export const useUiStore = create<UiState>((set) => ({
   theme: "system",
+  uiScale: readStoredUiScale(),
   paletteOpen: false,
   sidebarQuery: "",
   activeTab: "graph",
@@ -74,6 +118,27 @@ export const useUiStore = create<UiState>((set) => ({
   highlightGraphPath: true,
   showEdgeLabels: true,
   setTheme: (theme) => set({ theme }),
+  setUiScale: (scale) => {
+    const nextScale = normalizeUiScale(scale);
+    persistUiScale(nextScale);
+    set({ uiScale: nextScale });
+  },
+  increaseUiScale: () =>
+    set((state) => {
+      const nextScale = normalizeUiScale(state.uiScale + UI_SCALE_STEP);
+      persistUiScale(nextScale);
+      return { uiScale: nextScale };
+    }),
+  decreaseUiScale: () =>
+    set((state) => {
+      const nextScale = normalizeUiScale(state.uiScale - UI_SCALE_STEP);
+      persistUiScale(nextScale);
+      return { uiScale: nextScale };
+    }),
+  resetUiScale: () => {
+    persistUiScale(DEFAULT_UI_SCALE);
+    set({ uiScale: DEFAULT_UI_SCALE });
+  },
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
   setSidebarQuery: (sidebarQuery) => set({ sidebarQuery }),
   setSession: (repoSession) =>
