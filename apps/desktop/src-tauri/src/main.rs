@@ -627,18 +627,14 @@ fn build_macos_app_menu(
 }
 
 fn main() {
-    tauri::Builder::default()
-        .manage(GraphViewMenuState::default())
-        .setup(|app| {
-            #[cfg(target_os = "macos")]
-            {
-                let menu_state = app.state::<GraphViewMenuState>();
-                let menu = build_macos_app_menu(app.handle(), menu_state.inner())?;
-                app.handle().set_menu(menu)?;
-            }
+    let builder = tauri::Builder::default().manage(GraphViewMenuState::default());
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(|app| {
+        let menu_state = app.state::<GraphViewMenuState>();
+        build_macos_app_menu(app, menu_state.inner())
+    });
 
-            Ok(())
-        })
+    builder
         .on_menu_event(|app, event| {
             let action = match event.id().as_ref() {
                 MENU_ID_SHOW_CALLS => Some("toggle-calls"),

@@ -14,6 +14,8 @@ export interface BlueprintEdgeData extends Record<string, unknown> {
   logicalEdgeKind: GraphEdgeKind;
   logicalEdgeLabel?: string;
   segmentIndex: number;
+  labelOffsetX?: number;
+  labelOffsetY?: number;
   onHoverStart?: (
     logicalEdgeId: string,
     logicalEdgeKind: GraphEdgeKind,
@@ -31,13 +33,15 @@ function labelStyles(
   x: number,
   y: number,
   dimmed: boolean,
+  offsetX: number,
+  offsetY: number,
   labelStyle?: CSSProperties,
   labelBgStyle?: CSSProperties,
 ) {
   return {
     wrapper: {
       position: "absolute",
-      transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`,
+      transform: `translate(-50%, -50%) translate(${x + offsetX}px, ${y + offsetY}px)`,
       pointerEvents: "none",
       opacity: dimmed ? 0.24 : 1,
     } satisfies CSSProperties,
@@ -111,6 +115,8 @@ export const BlueprintEdge = memo(function BlueprintEdge({
         labelX,
         labelY,
         edgeOpacity < 0.3,
+        edgeData?.labelOffsetX ?? 0,
+        edgeData?.labelOffsetY ?? 0,
         labelStyle as CSSProperties,
         labelBgStyle as CSSProperties,
       )

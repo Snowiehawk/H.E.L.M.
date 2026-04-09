@@ -617,6 +617,89 @@ function buildEdgeStroke(kind: GraphEdgeKind, highlighted: boolean) {
   return highlighted ? "var(--accent-strong)" : "var(--line-strong)";
 }
 
+function estimateEdgeLabelWidth(label: string) {
+  return Math.max(48, Math.round(label.trim().length * 7.2) + 22);
+}
+
+function inferLabelOffsetAxis(
+  sourceHandle: string | null | undefined,
+  targetHandle: string | null | undefined,
+) {
+  const handleSignature = `${sourceHandle ?? ""}|${targetHandle ?? ""}`;
+  if (handleSignature.includes("top") || handleSignature.includes("bottom")) {
+    return "y" as const;
+  }
+  return "x" as const;
+}
+
+function buildLabelLaneKey(
+  source: string,
+  target: string,
+  sourceHandle: string | null | undefined,
+  targetHandle: string | null | undefined,
+) {
+  return `${source}->${target}|${sourceHandle ?? ""}|${targetHandle ?? ""}`;
+}
+
+export function buildEdgeLabelOffsets(
+  labelSegments: Array<{
+    id: string;
+    label: string;
+    source: string;
+    target: string;
+    sourceHandle: string | null | undefined;
+    targetHandle: string | null | undefined;
+  }>,
+) {
+  const offsets = new Map<string, { x: number; y: number }>();
+  const groups = new Map<string, typeof labelSegments>();
+
+  labelSegments.forEach((segment) => {
+    const key = buildLabelLaneKey(
+      segment.source,
+      segment.target,
+      segment.sourceHandle,
+      segment.targetHandle,
+    );
+    const current = groups.get(key) ?? [];
+    current.push(segment);
+    groups.set(key, current);
+  });
+
+  groups.forEach((group) => {
+    if (group.length <= 1) {
+      return;
+    }
+
+    const axis = inferLabelOffsetAxis(group[0]?.sourceHandle, group[0]?.targetHandle);
+    const ordered = group
+      .slice()
+      .sort(
+        (left, right) =>
+          left.label.localeCompare(right.label)
+          || left.id.localeCompare(right.id),
+      );
+    const gap = 12;
+    const widths = ordered.map((segment) => estimateEdgeLabelWidth(segment.label));
+    const totalWidth = widths.reduce((sum, width) => sum + width, 0) + gap * (ordered.length - 1);
+    let cursor = -totalWidth / 2;
+
+    ordered.forEach((segment, index) => {
+      const width = widths[index] ?? 0;
+      const centerOffset = cursor + width / 2;
+      offsets.set(
+        segment.id,
+        axis === "x"
+          ? { x: centerOffset, y: -10 }
+          : { x: 14, y: centerOffset },
+      );
+      cursor += width + gap;
+    });
+  });
+
+  return offsets;
+}
+
 function buildCanvasEdges({
   blueprint,
   graph,
@@ -653,8 +736,7 @@ function buildCanvasEdges({
   highlightGraphPath: boolean;
 }): GraphCanvasEdge[] {
   const { nodeLookup, reroutesByEdge } = buildLogicalEdgeGroups(nodes);
-
-  return graph.edges.flatMap<GraphCanvasEdge>((edge) => {
+  const segmentDrafts = graph.edges.flatMap<GraphCanvasEdge>((edge) => {
     const reroutes = reroutesByEdge.get(edge.id) ?? [];
     const handles = blueprint.edgeHandles.get(edge.id);
     const connected = selectedConnectedEdgeIds.has(edge.id);
@@ -684,6 +766,12 @@ function buildCanvasEdges({
       const sourceCenter = sourceNode ? nodeCenter(sourceNode) : { x: 0, y: 0 };
       const targetCenter = targetNode ? nodeCenter(targetNode) : { x: 0, y: 0 };
       const isLastSegment = segmentIndex === segmentCount - 1;
+      const sourceHandle = previousReroute
+        ? rerouteHandleId("source", sourceCenter, targetCenter)
+        : handles?.sourceHandle;
+      const targetHandle = nextReroute
+        ? rerouteHandleId("target", targetCenter, sourceCenter)
+        : handles?.targetHandle;
       const label =
         showEdgeLabels && segmentIndex === labelSegmentIndex && (!dimmed || highlighted)
           ? edge.label
@@ -691,15 +779,11 @@ function buildCanvasEdges({
 
       return {
         id: `${edge.id}::segment:${segmentIndex}`,
-        type: "blueprint",
+        type: "blueprint" as const,
         source: sourceNodeId,
         target: targetNodeId,
-        sourceHandle: previousReroute
-          ? rerouteHandleId("source", sourceCenter, targetCenter)
-          : handles?.sourceHandle,
-        targetHandle: nextReroute
-          ? rerouteHandleId("target", targetCenter, sourceCenter)
-          : handles?.targetHandle,
+        sourceHandle,
+        targetHandle,
         data: {
           logicalEdgeId: edge.id,
           logicalEdgeKind: edge.kind,
@@ -740,6 +824,38 @@ function buildCanvasEdges({
           : undefined,
       };
     });
+  });
+
+  const labelOffsets = buildEdgeLabelOffsets(
+    segmentDrafts
+      .filter((edge) => typeof edge.label === "string" && edge.label.trim().length > 0)
+      .map((edge) => ({
+        id: edge.id,
+        label: edge.label as string,
+        source: edge.source,
+        target: edge.target,
+        sourceHandle: edge.sourceHandle,
+        targetHandle: edge.targetHandle,
+      })),
+  );
+
+  return segmentDrafts.map<GraphCanvasEdge>((edge) => {
+    const offset = labelOffsets.get(edge.id);
+    const edgeData = edge.data as BlueprintEdgeData;
+    return {
+      ...edge,
+      data: {
+        logicalEdgeId: edgeData.logicalEdgeId,
+        logicalEdgeKind: edgeData.logicalEdgeKind,
+        logicalEdgeLabel: edgeData.logicalEdgeLabel,
+        segmentIndex: edgeData.segmentIndex,
+        onHoverStart: edgeData.onHoverStart,
+        onHoverEnd: edgeData.onHoverEnd,
+        onInsertReroute: edgeData.onInsertReroute,
+        labelOffsetX: offset?.x ?? 0,
+        labelOffsetY: offset?.y ?? 0,
+      },
+    };
   });
 }
 

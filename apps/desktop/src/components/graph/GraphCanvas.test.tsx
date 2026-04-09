@@ -7,7 +7,7 @@ import {
   WorkspaceHelpProvider,
   WorkspaceHelpScope,
 } from "../workspace/workspaceHelp";
-import { GraphCanvas } from "./GraphCanvas";
+import { GraphCanvas, buildEdgeLabelOffsets } from "./GraphCanvas";
 
 const { readStoredGraphLayoutMock, writeStoredGraphLayoutMock } = vi.hoisted(() => ({
   readStoredGraphLayoutMock: vi.fn(),
@@ -379,6 +379,49 @@ describe("GraphCanvas", () => {
       expect(liveCallsPort).not.toHaveClass("is-highlighted");
       expect(liveImportsPort).not.toHaveClass("is-dimmed");
     });
+  });
+
+  it("fans out labels that share the same visual edge lane", () => {
+    const offsets = buildEdgeLabelOffsets([
+      {
+        id: "calls:alpha::segment:0",
+        label: "alpha",
+        source: "module:source",
+        target: "module:target",
+        sourceHandle: "out:graph:calls",
+        targetHandle: "in:graph:calls",
+      },
+      {
+        id: "calls:beta::segment:0",
+        label: "beta",
+        source: "module:source",
+        target: "module:target",
+        sourceHandle: "out:graph:calls",
+        targetHandle: "in:graph:calls",
+      },
+      {
+        id: "calls:gamma::segment:0",
+        label: "gamma",
+        source: "module:source",
+        target: "module:target",
+        sourceHandle: "out:graph:calls",
+        targetHandle: "in:graph:calls",
+      },
+    ]);
+
+    const alphaOffset = offsets.get("calls:alpha::segment:0");
+    const betaOffset = offsets.get("calls:beta::segment:0");
+    const gammaOffset = offsets.get("calls:gamma::segment:0");
+
+    expect(alphaOffset).toBeDefined();
+    expect(betaOffset).toBeDefined();
+    expect(gammaOffset).toBeDefined();
+    expect(alphaOffset?.x).not.toBe(betaOffset?.x);
+    expect(betaOffset?.x).not.toBe(gammaOffset?.x);
+    expect(alphaOffset?.x).not.toBe(gammaOffset?.x);
+    expect(alphaOffset?.y).toBe(-10);
+    expect(betaOffset?.y).toBe(-10);
+    expect(gammaOffset?.y).toBe(-10);
   });
 
   it("reports graph port help through the workspace help box", async () => {

@@ -2,6 +2,7 @@ import { PropsWithChildren, useEffect, useState, type CSSProperties } from "reac
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   AdapterProvider,
   createDesktopAdapter,
@@ -40,6 +41,7 @@ function ThemeBridge() {
 }
 
 function UiScaleBridge() {
+  const uiScale = useUiStore((state) => state.uiScale);
   const increaseUiScale = useUiStore((state) => state.increaseUiScale);
   const decreaseUiScale = useUiStore((state) => state.decreaseUiScale);
   const resetUiScale = useUiStore((state) => state.resetUiScale);
@@ -84,6 +86,18 @@ function UiScaleBridge() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [decreaseUiScale, increaseUiScale, resetUiScale]);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--app-ui-scale", String(uiScale));
+
+    if (!isNativeMacApp() && !("__TAURI_INTERNALS__" in window)) {
+      return;
+    }
+
+    void getCurrentWebview().setZoom(uiScale).catch(() => {
+      // Keep the shell usable even if native zoom is unavailable on a given host.
+    });
+  }, [uiScale]);
 
   return null;
 }
