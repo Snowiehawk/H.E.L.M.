@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useUiStore } from "./uiStore";
 
+function clearLocalStorage() {
+  if (typeof window.localStorage?.clear === "function") {
+    window.localStorage.clear();
+  }
+}
+
 function resetStore() {
   const current = useUiStore.getState();
+  clearLocalStorage();
   useUiStore.setState({
     ...current,
     theme: "system",
+    uiScale: 1,
     paletteOpen: false,
     sidebarQuery: "",
     activeTab: "graph",
@@ -72,5 +80,21 @@ describe("uiStore", () => {
     useUiStore.getState().resetWorkspace();
 
     expect(useUiStore.getState().graphSettings.includeExternalDependencies).toBe(false);
+  });
+
+  it("adjusts UI scale within bounds and can reset it", () => {
+    useUiStore.getState().decreaseUiScale();
+    useUiStore.getState().decreaseUiScale();
+
+    expect(useUiStore.getState().uiScale).toBe(0.8);
+
+    useUiStore.getState().increaseUiScale();
+    expect(useUiStore.getState().uiScale).toBe(0.9);
+
+    useUiStore.getState().setUiScale(4);
+    expect(useUiStore.getState().uiScale).toBe(1.5);
+
+    useUiStore.getState().resetUiScale();
+    expect(useUiStore.getState().uiScale).toBe(1);
   });
 });

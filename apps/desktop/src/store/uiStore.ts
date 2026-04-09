@@ -27,12 +27,30 @@ function normalizeUiScale(value: number) {
   return Number(bounded.toFixed(2));
 }
 
-function readStoredUiScale() {
+function uiScaleStorage(): Pick<Storage, "getItem" | "setItem"> | null {
   if (typeof window === "undefined") {
+    return null;
+  }
+
+  const storage = window.localStorage;
+  if (
+    !storage
+    || typeof storage.getItem !== "function"
+    || typeof storage.setItem !== "function"
+  ) {
+    return null;
+  }
+
+  return storage;
+}
+
+function readStoredUiScale() {
+  const storage = uiScaleStorage();
+  if (!storage) {
     return DEFAULT_UI_SCALE;
   }
 
-  const rawValue = window.localStorage.getItem(UI_SCALE_STORAGE_KEY);
+  const rawValue = storage.getItem(UI_SCALE_STORAGE_KEY);
   if (!rawValue) {
     return DEFAULT_UI_SCALE;
   }
@@ -42,11 +60,12 @@ function readStoredUiScale() {
 }
 
 function persistUiScale(scale: number) {
-  if (typeof window === "undefined") {
+  const storage = uiScaleStorage();
+  if (!storage) {
     return;
   }
 
-  window.localStorage.setItem(UI_SCALE_STORAGE_KEY, String(scale));
+  storage.setItem(UI_SCALE_STORAGE_KEY, String(scale));
 }
 
 interface UiState {

@@ -6,10 +6,18 @@ import { MockDesktopAdapter } from "../lib/adapter/mockDesktopAdapter";
 import { useUiStore } from "../store/uiStore";
 import { CommandPalette } from "./CommandPalette";
 
+function clearLocalStorage() {
+  if (typeof window.localStorage?.clear === "function") {
+    window.localStorage.clear();
+  }
+}
+
 function resetStore() {
   const current = useUiStore.getState();
+  clearLocalStorage();
   useUiStore.setState({
     ...current,
+    uiScale: 1,
     paletteOpen: true,
     sidebarQuery: "",
     activeTab: "graph",

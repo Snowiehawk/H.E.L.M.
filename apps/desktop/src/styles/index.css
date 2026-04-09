@@ -1,6 +1,7 @@
 :root {
   color-scheme: light;
   font-family: "SF Pro Display", "SF Pro Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --app-ui-scale: 1;
   --bg: #f3f5f8;
   --bg-accent: rgba(126, 140, 165, 0.16);
   --surface: rgba(255, 255, 255, 0.76);
@@ -47,6 +48,13 @@ body,
 #root {
   margin: 0;
   height: 100%;
+}
+
+.app-scale-shell {
+  width: calc(100% / var(--app-ui-scale));
+  height: calc(100% / var(--app-ui-scale));
+  overflow: hidden;
+  zoom: var(--app-ui-scale);
 }
 
 body {

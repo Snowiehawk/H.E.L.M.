@@ -8,12 +8,20 @@ import { MockDesktopAdapter } from "../lib/adapter/mockDesktopAdapter";
 import { useUiStore } from "../store/uiStore";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 
+function clearLocalStorage() {
+  if (typeof window.localStorage?.clear === "function") {
+    window.localStorage.clear();
+  }
+}
+
 function resetStore() {
   const current = useUiStore.getState();
   const repoSession = buildRepoSession();
+  clearLocalStorage();
   useUiStore.setState({
     ...current,
     theme: "system",
+    uiScale: 1,
     paletteOpen: false,
     sidebarQuery: "",
     activeTab: "graph",
