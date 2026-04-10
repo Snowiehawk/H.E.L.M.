@@ -51,7 +51,9 @@
           "y": 167.40544774785815
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "flow|symbol:tests.helpers:write_repo_files": {
       "nodes": {
@@ -84,7 +86,28 @@
           "y": -9.072243272169109
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "flow|symbol:tests.test_graph_builder:GraphBuilderTests.test_tracks_unresolved_external_calls": {
+      "nodes": {
+        "flow:symbol:tests.test_graph_builder:GraphBuilderTests.test_tracks_unresolved_external_calls:entry": {
+          "x": 0.0,
+          "y": -48.0
+        },
+        "flow:symbol:tests.test_graph_builder:GraphBuilderTests.test_tracks_unresolved_external_calls:param:self": {
+          "x": 137.35757575757572,
+          "y": 90.9018181818182
+        },
+        "flow:symbol:tests.test_graph_builder:GraphBuilderTests.test_tracks_unresolved_external_calls:statement:0": {
+          "x": 588.0,
+          "y": -48.0
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "module|module:src.helm.editor.patcher": {
       "nodes": {
@@ -181,7 +204,9 @@
           "y": 563.3058275946973
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "module|module:src.helm.editor.serializer": {
       "nodes": {
@@ -202,7 +227,9 @@
           "y": 199.0
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "module|module:src.helm.parser.python_parser": {
       "nodes": {
@@ -263,7 +290,9 @@
           "y": 487.37419471227537
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "module|module:src.helm.parser.repo_loader": {
       "nodes": {
@@ -296,7 +325,9 @@
           "y": 170.5693539238418
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "module|module:src.helm.parser.symbols": {
       "nodes": {
@@ -357,7 +388,9 @@
           "y": 544.0
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "module|module:src.helm.utils.logging": {
       "nodes": {
@@ -374,7 +407,9 @@
           "y": 162.678665459798
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "module|module:tests.helpers": {
       "nodes": {
@@ -415,7 +450,9 @@
           "y": 65.75424099968801
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "module|module:tests.test_cli": {
       "nodes": {
@@ -432,7 +469,9 @@
           "y": -114.0
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "module|module:tests.test_graph_builder": {
       "nodes": {
@@ -449,7 +488,9 @@
           "y": -162.3597799716906
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "module|module:tests.test_patcher": {
       "nodes": {
@@ -470,7 +511,9 @@
           "y": 254.4138812586266
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "module|module:tests.test_python_adapter": {
       "nodes": {
@@ -487,7 +530,9 @@
           "y": 33.97003873096352
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "module|repo:/Users/noahphillips/Documents/git-repos/H.E.L.M.": {
       "nodes": {
@@ -624,7 +669,9 @@
           "y": 0.0
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     },
     "repo|repo-root": {
       "nodes": {
@@ -761,7 +808,44 @@
           "y": 0.0
         }
       },
-      "reroutes": []
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "symbol|symbol:tests.test_graph_builder:GraphBuilderTests": {
+      "nodes": {
+        "module:tests.helpers": {
+          "x": 428.85873441997546,
+          "y": 311.0068992770298
+        },
+        "module:tests.test_graph_builder": {
+          "x": -97.0,
+          "y": 160.0
+        },
+        "symbol:tests.test_graph_builder:GraphBuilderTests": {
+          "x": 121.0,
+          "y": -76.0
+        },
+        "symbol:tests.test_graph_builder:GraphBuilderTests.test_builds_import_and_call_edges_for_internal_symbols": {
+          "x": 673.2582140913587,
+          "y": -217.480291777854
+        },
+        "symbol:tests.test_graph_builder:GraphBuilderTests.test_promotes_top_level_enums_and_variables_into_graph_symbols": {
+          "x": 672.2874512191921,
+          "y": -115.69711020703387
+        },
+        "symbol:tests.test_graph_builder:GraphBuilderTests.test_tracks_direct_class_attributes_as_nested_symbols": {
+          "x": 671.9415257443329,
+          "y": -16.6333766940514
+        },
+        "symbol:tests.test_graph_builder:GraphBuilderTests.test_tracks_unresolved_external_calls": {
+          "x": 674.1291070456793,
+          "y": 89.19973983569159
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
     }
   }
 }

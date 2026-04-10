@@ -1,6 +1,7 @@
 import Editor from "@monaco-editor/react";
 import type { Monaco } from "@monaco-editor/react";
-import { memo, useMemo } from "react";
+import type { editor as MonacoEditor } from "monaco-editor";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { useUiStore } from "../../store/uiStore";
 import type { InspectorCodeSurfaceProps } from "./InspectorCodeSurface";
 import {
@@ -23,6 +24,8 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
   startLine,
   value,
 }: InspectorCodeSurfaceProps) {
+  const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<Monaco | null>(null);
   const theme = useResolvedMonacoTheme();
   const modelPath = useMemo(
     () => buildModelPath(path, language, readOnly, startLine),
@@ -35,7 +38,7 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
       automaticLayout: true,
       readOnly,
       minimap: { enabled: false },
-      lineNumbers: (lineNumber) => String(lineNumber + lineOffset),
+      lineNumbers: (lineNumber: number) => String(lineNumber + lineOffset),
       lineNumbersMinChars: 3,
       glyphMargin: false,
       folding: false,
@@ -70,9 +73,29 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
       domReadOnly: readOnly,
     };
   }, [readOnly, startLine]);
+  const handleMount = useCallback((
+    editorInstance: MonacoEditor.IStandaloneCodeEditor,
+    monacoInstance: Monaco,
+  ) => {
+    editorRef.current = editorInstance;
+    monacoRef.current = monacoInstance;
+    const model = editorInstance.getModel();
+    if (model) {
+      monacoInstance.editor.setModelLanguage(model, language);
+    }
+  }, [language]);
+
+  useEffect(() => {
+    const model = editorRef.current?.getModel();
+    if (!model || !monacoRef.current) {
+      return;
+    }
+    monacoRef.current.editor.setModelLanguage(model, language);
+  }, [language, modelPath]);
 
   return (
     <div
+      aria-label={ariaLabel}
       className={[
         "inspector-code-surface",
         readOnly ? "inspector-code-surface--readonly" : "inspector-code-surface--editable",
@@ -81,6 +104,7 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
         .filter(Boolean)
         .join(" ")}
       data-testid={dataTestId}
+      role="group"
       style={height === undefined ? undefined : { height }}
     >
       <Editor
@@ -95,7 +119,7 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
         value={value}
         width="100%"
         onChange={(nextValue) => onChange?.(nextValue ?? "")}
-        aria-label={ariaLabel}
+        onMount={handleMount}
       />
     </div>
   );

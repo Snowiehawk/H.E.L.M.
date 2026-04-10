@@ -888,8 +888,15 @@ button {
   pointer-events: auto;
 }
 
+.graph-group__title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .graph-group__title,
-.graph-group__title-input {
+.graph-group__title-input,
+.graph-group__action {
   min-width: 132px;
   padding: 7px 14px;
   border-radius: 999px;
@@ -910,6 +917,15 @@ button {
   user-select: none;
 }
 
+.graph-group__action {
+  min-width: auto;
+  appearance: none;
+  cursor: pointer;
+  color: var(--text);
+  font: inherit;
+  line-height: 1;
+}
+
 .graph-group__title-input {
   outline: none;
 }
@@ -924,8 +940,10 @@ button {
 }
 
 .graph-group.is-selected .graph-group__title,
+.graph-group.is-selected .graph-group__action,
 .graph-group.is-editing .graph-group__title-input,
-.graph-group:hover .graph-group__title {
+.graph-group:hover .graph-group__title,
+.graph-group:hover .graph-group__action {
   border-color: color-mix(in srgb, var(--accent-strong) 56%, white 18%);
   box-shadow:
     0 12px 28px color-mix(in srgb, #020611 22%, transparent),

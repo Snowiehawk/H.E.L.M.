@@ -16,6 +16,7 @@ import {
   type NodeChange,
   type NodeTypes,
 } from "@xyflow/react";
+import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import type {
   GraphAbstractionLevel,
   GraphBreadcrumbDto,
@@ -1454,6 +1455,7 @@ function GraphGroupLayer({
   onPreviewGroupMove,
   onSelectGroup,
   onStartEditingGroup,
+  onUngroupGroup,
 }: {
   groupBounds: GraphGroupBounds[];
   nodes: GraphCanvasNode[];
@@ -1470,6 +1472,7 @@ function GraphGroupLayer({
   ) => void;
   onSelectGroup: (groupId: string) => void;
   onStartEditingGroup: (groupId: string) => void;
+  onUngroupGroup: (groupId: string, title: string) => void;
 }) {
   const { screenToFlowPosition } = useReactFlow<GraphCanvasNode, GraphCanvasEdge>();
 
@@ -1571,15 +1574,39 @@ function GraphGroupLayer({
                 }}
               />
             ) : (
-              <div
-                className="graph-group__title"
-                onDoubleClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onStartEditingGroup(group.id);
-                }}
-              >
-                {group.title}
+              <div className="graph-group__title-row">
+                <div
+                  className="graph-group__title"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onStartEditingGroup(group.id);
+                  }}
+                  onDoubleClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onStartEditingGroup(group.id);
+                  }}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                >
+                  {group.title}
+                </div>
+                <button
+                  className="graph-group__action graph-group__action--ungroup"
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onUngroupGroup(group.id, group.title);
+                  }}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                >
+                  Ungroup
+                </button>
               </div>
             )}
           </div>
@@ -1920,6 +1947,38 @@ export function GraphCanvas({
       effectiveSemanticSelection,
       selectedGroupId,
     );
+    if (!changed) {
+      return;
+    }
+
+    hydrationGenerationRef.current += 1;
+    setDeclutterUndo(undefined);
+    setGroups(nextGroups);
+    if (selectedGroupId && removedGroupIds.includes(selectedGroupId)) {
+      setSelectedGroupId(undefined);
+    }
+    if (editingGroupId && removedGroupIds.includes(editingGroupId)) {
+      setEditingGroupId(undefined);
+      setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+    }
+    persistCurrentLayout(nodes, nextGroups);
+  };
+
+  const ungroupGroup = async (groupId: string, title: string) => {
+    const confirmed = await confirmDialog(
+      `Ungroup "${title}"?`,
+      {
+        title: "Ungroup nodes",
+        kind: "warning",
+        okLabel: "Ungroup",
+        cancelLabel: "Cancel",
+      },
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const { changed, nextGroups, removedGroupIds } = ungroupGroupsForSelection(groups, [], groupId);
     if (!changed) {
       return;
     }
@@ -2623,6 +2682,7 @@ export function GraphCanvas({
           onPreviewGroupMove={handlePreviewGroupMove}
           onSelectGroup={selectGroup}
           onStartEditingGroup={beginGroupTitleEditing}
+          onUngroupGroup={ungroupGroup}
         />
         <Controls showInteractive={false} />
         <Background gap={32} size={1} color="var(--line-strong)" />

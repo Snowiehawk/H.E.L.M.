@@ -300,7 +300,7 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.group.box": ({ label }) => ({
     title: `${fallbackLabel(label, "Node group")} group`,
-    description: "Canvas boundary that keeps grouped nodes moving together. Double-click the title to rename it.",
+    description: "Canvas boundary that keeps grouped nodes moving together. Click the title to rename it or use the Ungroup chip to break the group apart.",
     shortcut: "Cmd/Ctrl + G groups selected nodes · Cmd/Ctrl + Shift + G ungroups",
   }),
   "graph.node.repo": ({ label }) => ({

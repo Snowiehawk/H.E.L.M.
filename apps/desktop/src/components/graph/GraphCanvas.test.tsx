@@ -19,9 +19,10 @@ import {
 } from "./GraphCanvas";
 import type { StoredGraphLayout } from "./graphLayoutPersistence";
 
-const { readStoredGraphLayoutMock, writeStoredGraphLayoutMock } = vi.hoisted(() => ({
+const { readStoredGraphLayoutMock, writeStoredGraphLayoutMock, confirmDialogMock } = vi.hoisted(() => ({
   readStoredGraphLayoutMock: vi.fn(),
   writeStoredGraphLayoutMock: vi.fn(),
+  confirmDialogMock: vi.fn(),
 }));
 
 vi.mock("./graphLayoutPersistence", async () => {
@@ -32,6 +33,10 @@ vi.mock("./graphLayoutPersistence", async () => {
     writeStoredGraphLayout: writeStoredGraphLayoutMock,
   };
 });
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  confirm: confirmDialogMock,
+}));
 
 const baseGraph: GraphView = {
   rootNodeId: "symbol:calculator:calculate",
@@ -297,8 +302,10 @@ describe("GraphCanvas", () => {
   beforeEach(() => {
     readStoredGraphLayoutMock.mockReset();
     writeStoredGraphLayoutMock.mockReset();
+    confirmDialogMock.mockReset();
     readStoredGraphLayoutMock.mockResolvedValue(originalLayout);
     writeStoredGraphLayoutMock.mockResolvedValue(undefined);
+    confirmDialogMock.mockResolvedValue(true);
   });
 
   it("initializes and persists a structured flow layout on first open when no layout is saved", async () => {
@@ -1022,7 +1029,7 @@ describe("GraphCanvas", () => {
     });
   });
 
-  it("renders persisted flow groups, keeps grouped member selection working, and renames groups through the pure title helper", async () => {
+  it("renders persisted flow groups, keeps grouped member selection working, and normalizes renamed titles", async () => {
     const onSelectNode = vi.fn();
     readStoredGraphLayoutMock.mockResolvedValueOnce(buildStoredLayout({
       groups: [flowGroup],
@@ -1043,12 +1050,13 @@ describe("GraphCanvas", () => {
         title: "Control path",
       },
     ]);
+
     expect(renameGraphGroup([flowGroup], flowGroup.id, "   ")).toEqual([
       flowGroup,
     ]);
   });
 
-  it("fans out flow pinning to every grouped member and ungroups with the hotkey", async () => {
+  it("fans out flow pinning to every grouped member and ungroups from the group chip", async () => {
     readStoredGraphLayoutMock.mockResolvedValueOnce(buildStoredLayout({
       groups: [flowGroup],
       pinnedNodeIds: ["entry:calculate"],
@@ -1073,9 +1081,49 @@ describe("GraphCanvas", () => {
       expect(latestPersistedLayout()?.pinnedNodeIds).toEqual([]),
     );
 
-    fireEvent.keyDown(graphPanel, { key: "g", metaKey: true, shiftKey: true });
+    fireEvent.click(
+      within(await screen.findByTestId(`graph-group-${flowGroup.id}`)).getByRole("button", { name: "Ungroup" }),
+    );
 
+    await waitFor(() =>
+      expect(confirmDialogMock).toHaveBeenCalledWith(
+        'Ungroup "Group"?',
+        {
+          title: "Ungroup nodes",
+          kind: "warning",
+          okLabel: "Ungroup",
+          cancelLabel: "Cancel",
+        },
+      ),
+    );
     await waitFor(() => expect(latestPersistedLayout()?.groups).toEqual([]));
+  });
+
+  it("keeps the group when ungroup confirmation is cancelled", async () => {
+    confirmDialogMock.mockResolvedValue(false);
+    readStoredGraphLayoutMock.mockResolvedValueOnce(buildStoredLayout({
+      groups: [flowGroup],
+    }));
+
+    renderGraphCanvas();
+
+    fireEvent.click(
+      within(await screen.findByTestId(`graph-group-${flowGroup.id}`)).getByRole("button", { name: "Ungroup" }),
+    );
+
+    await waitFor(() =>
+      expect(confirmDialogMock).toHaveBeenCalledWith(
+        'Ungroup "Group"?',
+        {
+          title: "Ungroup nodes",
+          kind: "warning",
+          okLabel: "Ungroup",
+          cancelLabel: "Cancel",
+        },
+      ),
+    );
+    expect(writeStoredGraphLayoutMock).not.toHaveBeenCalled();
+    expect(await screen.findByTestId(`graph-group-${flowGroup.id}`)).toBeInTheDocument();
   });
 
   it("applies group-box style movement deltas rigidly to every grouped member", () => {
