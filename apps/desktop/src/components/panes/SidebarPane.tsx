@@ -262,6 +262,19 @@ function outlineKindBadge(kind: OverviewOutlineItem["kind"]): string {
   }
 }
 
+function explorerKindBadge(row: ExplorerTreeNode): string | null {
+  switch (row.kind) {
+    case "directory":
+      return "dir";
+    case "file":
+      return "file";
+    case "outline":
+      return row.outlineItem ? outlineKindBadge(row.outlineItem.kind) : null;
+    default:
+      return null;
+  }
+}
+
 export function SidebarPane({
   backendStatus,
   overview,
@@ -314,6 +327,7 @@ export function SidebarPane({
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const previousRepoPathRef = useRef<string | undefined>(undefined);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const pendingSelectedRowScrollIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const repoPath = overview?.repo.path;
@@ -367,6 +381,28 @@ export function SidebarPane({
 
       return explorerRows[0]?.id ?? null;
     });
+  }, [explorerRows, selectedRowId]);
+
+  useEffect(() => {
+    pendingSelectedRowScrollIdRef.current = selectedRowId ?? null;
+  }, [selectedRowId]);
+
+  useEffect(() => {
+    if (!selectedRowId || pendingSelectedRowScrollIdRef.current !== selectedRowId) {
+      return;
+    }
+
+    if (!explorerRows.some((row) => row.id === selectedRowId)) {
+      return;
+    }
+
+    const selectedRowElement = rowRefs.current.get(selectedRowId);
+    if (!selectedRowElement) {
+      return;
+    }
+
+    selectedRowElement.scrollIntoView({ block: "nearest" });
+    pendingSelectedRowScrollIdRef.current = null;
   }, [explorerRows, selectedRowId]);
 
   const focusRow = (rowId: string | null | undefined) => {
@@ -507,6 +543,7 @@ export function SidebarPane({
                 const isExpandable = isExpandableNode(row);
                 const isExpanded = isExpandable && expandedIds.has(row.id);
                 const isSelected = isSelectedRow(row, selectedFilePath, selectedNodeId);
+                const kindBadge = explorerKindBadge(row);
 
                 return (
                   <div
@@ -610,12 +647,14 @@ export function SidebarPane({
                       {isExpandable ? (isExpanded ? "▾" : "▸") : ""}
                     </button>
 
-                    {row.kind === "outline" && row.outlineItem ? (
+                    {kindBadge ? (
                       <span
-                        className="explorer-row__kind"
-                        title={row.outlineItem.kind.replaceAll("_", " ")}
+                        className={`explorer-row__kind explorer-row__kind--${row.kind}`}
+                        title={row.kind === "outline"
+                          ? row.outlineItem?.kind.replaceAll("_", " ")
+                          : row.kind}
                       >
-                        {outlineKindBadge(row.outlineItem.kind)}
+                        {kindBadge}
                       </span>
                     ) : (
                       <span aria-hidden="true" className="explorer-row__kind explorer-row__kind--empty" />

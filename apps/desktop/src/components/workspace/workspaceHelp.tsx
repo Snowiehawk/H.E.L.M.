@@ -41,8 +41,8 @@ export type HelpDescriptorId =
   | "graph.canvas"
   | "graph.toolbar.drag"
   | "graph.toolbar.focus"
-  | "graph.toolbar.inspector"
   | "graph.toolbar.controls"
+  | "graph.toolbar.fit-view"
   | "graph.toolbar.settings"
   | "graph.toolbar.breadcrumb"
   | "graph.level.repo"
@@ -94,6 +94,8 @@ export type HelpDescriptorId =
   | "inspector.reveal-source"
   | "inspector.open-flow"
   | "inspector.open-blueprint"
+  | "inspector.toggle"
+  | "inspector.resize"
   | "inspector.editor"
   | "inspector.save"
   | "inspector.cancel";
@@ -206,7 +208,7 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   "graph.canvas": () => ({
     title: "Graph canvas",
     description: "Main blueprint workspace. Click empty space to clear selection, drag to marquee-select, move nodes directly on the canvas, and group selected nodes together.",
-    shortcut: "Cmd/Ctrl + G groups · Cmd/Ctrl + Shift + G ungroups · Hold Space to pan · Alt/Option + scroll to zoom · Backspace to go out",
+    shortcut: "F fits view · Cmd/Ctrl + G groups · Cmd/Ctrl + Shift + G ungroups · Tap Space toggles inspector · Hold Space to pan · Alt/Option + scroll to zoom · Backspace to go out",
   }),
   "graph.toolbar.drag": () => ({
     title: "Move graph controls",
@@ -214,15 +216,16 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.toolbar.focus": ({ label, kind }) => ({
     title: fallbackLabel(label, "Current graph focus"),
-    description: `Current graph focus${kind ? ` at the ${kind} level` : ""}. Click to expand or collapse the floating controls.`,
-  }),
-  "graph.toolbar.inspector": () => ({
-    title: "Inspector toggle",
-    description: "Show or hide the docked inspector for the currently selected graph node.",
+    description: `Current graph focus${kind ? ` at the ${kind} level` : ""}. Click to open or hide the floating graph controls.`,
   }),
   "graph.toolbar.controls": () => ({
     title: "Graph controls",
     description: "Expand or collapse the floating graph control palette.",
+  }),
+  "graph.toolbar.fit-view": () => ({
+    title: "Fit graph to view",
+    description: "Recenter the current graph so every visible node fits back into the canvas viewport.",
+    shortcut: "F",
   }),
   "graph.toolbar.settings": () => ({
     title: "Graph settings",
@@ -286,7 +289,7 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.node.action.inspect": () => ({
     title: "Inspect node",
-    description: "Open the docked inspector for this code node. Double-clicking the node does the same thing.",
+    description: "Open the bottom inspector drawer for this code node. Double-clicking the node does the same thing.",
   }),
   "graph.node.action.pin": () => ({
     title: "Pin node",
@@ -413,8 +416,8 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
     description: "Value-flow path showing data moving between nodes inside a function flow.",
   }),
   "inspector.close": () => ({
-    title: "Close inspector",
-    description: "Hide the docked inspector. If you have unsaved changes, HELM asks whether to save first.",
+    title: "Dismiss inspector target",
+    description: "Dismiss the current inspector target and fall back to the current graph rail. If you have unsaved changes, HELM asks whether to save first.",
   }),
   "inspector.open-default-editor": () => ({
     title: "Open file in default editor",
@@ -431,6 +434,14 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   "inspector.open-blueprint": () => ({
     title: "Open blueprint",
     description: "Open the symbol-level blueprint centered on this function.",
+  }),
+  "inspector.toggle": ({ label }) => ({
+    title: `${fallbackLabel(label, "Inspector")} drawer`,
+    description: "Expand or collapse the bottom inspector drawer without discarding its current draft state.",
+  }),
+  "inspector.resize": ({ label }) => ({
+    title: `${fallbackLabel(label, "Inspector")} resize rail`,
+    description: "Drag this rail to resize the bottom inspector drawer, or click it to collapse the panel.",
   }),
   "inspector.editor": () => ({
     title: "Declaration editor",

@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildOverview,
   buildRepoSession,
@@ -39,6 +39,10 @@ function renderSidebarPane() {
 }
 
 describe("SidebarPane", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("keeps nested folders collapsed until you open them", async () => {
     const user = userEvent.setup();
 
@@ -132,5 +136,74 @@ describe("SidebarPane", () => {
     expect(screen.getByRole("treeitem", { name: "GraphSummary" })).toBeInTheDocument();
     expect(screen.getByRole("treeitem", { name: "build_graph_summary" })).toBeInTheDocument();
     expect(screen.getByRole("treeitem", { name: "build_export_payload" })).toBeInTheDocument();
+  });
+
+  it("shows kind badges for folders, files, and outline symbols", async () => {
+    const user = userEvent.setup();
+
+    renderSidebarPane();
+
+    const src = screen.getByRole("treeitem", { name: "src" });
+    expect(within(src).getByText("dir")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("treeitem", { name: "helm" }));
+
+    const cli = screen.getByRole("treeitem", { name: "cli.py" });
+    expect(within(cli).getByText("file")).toBeInTheDocument();
+
+    await user.click(cli);
+    await user.keyboard("{ArrowRight}");
+
+    const main = screen.getByRole("treeitem", { name: "main" });
+    expect(within(main).getByText("fn")).toBeInTheDocument();
+  });
+
+  it("scrolls the selected row into view when selection changes externally", async () => {
+    const scrollIntoView = vi
+      .spyOn(HTMLElement.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    const state = createMockWorkspaceState();
+    const overview = buildOverview(buildRepoSession(), state);
+    const onSelectModule = vi.fn();
+    const onSelectSymbol = vi.fn();
+    const sharedProps = {
+      backendStatus: mockBackendStatus,
+      overview,
+      sidebarQuery: "",
+      searchResults: [],
+      isSearching: false,
+      onSidebarQueryChange: vi.fn(),
+      onSelectResult: vi.fn(),
+      onSelectModule,
+      onSelectSymbol,
+      onFocusRepoGraph: vi.fn(),
+      onReindexRepo: vi.fn(),
+      onOpenRepo: vi.fn(),
+    };
+
+    const { rerender } = render(
+      <SidebarPane
+        {...sharedProps}
+        selectedFilePath={undefined}
+        selectedNodeId={undefined}
+      />,
+    );
+
+    rerender(
+      <SidebarPane
+        {...sharedProps}
+        selectedFilePath={undefined}
+        selectedNodeId="symbol:helm.ui.api:build_graph_summary"
+      />,
+    );
+
+    const symbolRow = await screen.findByRole("treeitem", { name: "build_graph_summary" });
+
+    await waitFor(() => {
+      const lastScrolledElement =
+        scrollIntoView.mock.instances[scrollIntoView.mock.instances.length - 1];
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+      expect(lastScrolledElement).toBe(symbolRow);
+    });
   });
 });

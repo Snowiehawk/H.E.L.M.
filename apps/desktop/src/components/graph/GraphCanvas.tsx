@@ -68,6 +68,7 @@ const GROUP_TITLE_OFFSET = 12;
 const DEFAULT_GROUP_TITLE = "Group";
 const FALLBACK_GROUP_NODE_WIDTH = 252;
 const FALLBACK_GROUP_NODE_HEIGHT = 96;
+const EMPTY_STRING_SET = new Set<string>();
 
 const nodeTypes: NodeTypes = {
   blueprint: BlueprintNode,
@@ -85,6 +86,19 @@ type SemanticCanvasNode = Node<BlueprintNodeData, "blueprint">;
 type RerouteCanvasNode = Node<RerouteNodeData, "reroute">;
 type GraphCanvasNode = SemanticCanvasNode | RerouteCanvasNode;
 type GraphCanvasEdge = Edge<BlueprintEdgeData, "blueprint">;
+type EdgeLabelSegment = {
+  id: string;
+  label: string;
+  source: string;
+  target: string;
+  sourceHandle: string | null | undefined;
+  targetHandle: string | null | undefined;
+};
+
+interface CollapsedEdgeLabel {
+  label?: string;
+  count?: number;
+}
 
 interface GroupMembership {
   groupByNodeId: Map<string, string>;
@@ -219,6 +233,34 @@ function sameNodeIds(left: string[], right: string[]) {
   }
 
   return left.every((nodeId, index) => nodeId === right[index]);
+}
+
+export function resolveSelectionPreviewNodeId({
+  activeNodeId,
+  effectiveSemanticSelection,
+  graphNodeIds,
+  marqueeSelectionActive,
+  selectedGroupId,
+  selectedRerouteCount,
+}: {
+  activeNodeId?: string;
+  effectiveSemanticSelection: string[];
+  graphNodeIds: Set<string>;
+  marqueeSelectionActive: boolean;
+  selectedGroupId?: string;
+  selectedRerouteCount: number;
+}) {
+  if (
+    marqueeSelectionActive
+    || selectedRerouteCount
+    || selectedGroupId
+    || effectiveSemanticSelection.length > 1
+  ) {
+    return "";
+  }
+
+  return effectiveSemanticSelection[0]
+    ?? (graphNodeIds.has(activeNodeId ?? "") ? activeNodeId ?? "" : "");
 }
 
 export function normalizeStoredGroups(
@@ -1103,6 +1145,24 @@ function shouldHandlePinKey(event: {
   );
 }
 
+function shouldHandleFitViewKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  target: EventTarget | null;
+}) {
+  return !(
+    event.key.toLowerCase() !== "f"
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || event.shiftKey
+    || isEditableEventTarget(event.target)
+  );
+}
+
 function shouldHandleGroupKey(event: {
   key: string;
   altKey: boolean;
@@ -1226,17 +1286,10 @@ function buildLabelLaneKey(
 }
 
 export function buildEdgeLabelOffsets(
-  labelSegments: Array<{
-    id: string;
-    label: string;
-    source: string;
-    target: string;
-    sourceHandle: string | null | undefined;
-    targetHandle: string | null | undefined;
-  }>,
+  labelSegments: EdgeLabelSegment[],
 ) {
   const offsets = new Map<string, { x: number; y: number }>();
-  const groups = new Map<string, typeof labelSegments>();
+  const groups = new Map<string, EdgeLabelSegment[]>();
 
   labelSegments.forEach((segment) => {
     const key = buildLabelLaneKey(
@@ -1282,6 +1335,64 @@ export function buildEdgeLabelOffsets(
   });
 
   return offsets;
+}
+
+export function collapseDuplicateEdgeLabels(labelSegments: EdgeLabelSegment[]) {
+  const collapsedLabels = new Map<string, CollapsedEdgeLabel>();
+  const visibleSegments: EdgeLabelSegment[] = [];
+  const groups = new Map<string, EdgeLabelSegment[]>();
+
+  labelSegments.forEach((segment) => {
+    const normalizedLabel = segment.label.trim();
+    const key = buildLabelLaneKey(
+      segment.source,
+      segment.target,
+      segment.sourceHandle,
+      segment.targetHandle,
+    );
+    const current = groups.get(key) ?? [];
+    current.push({
+      ...segment,
+      label: normalizedLabel,
+    });
+    groups.set(key, current);
+  });
+
+  groups.forEach((group) => {
+    const labelsByText = new Map<string, EdgeLabelSegment[]>();
+
+    group.forEach((segment) => {
+      const current = labelsByText.get(segment.label) ?? [];
+      current.push(segment);
+      labelsByText.set(segment.label, current);
+    });
+
+    labelsByText.forEach((matchingSegments) => {
+      const ordered = matchingSegments
+        .slice()
+        .sort((left, right) => left.id.localeCompare(right.id));
+      const anchor = ordered[0];
+
+      if (!anchor) {
+        return;
+      }
+
+      visibleSegments.push(anchor);
+      collapsedLabels.set(anchor.id, {
+        label: anchor.label,
+        count: ordered.length > 1 ? ordered.length : undefined,
+      });
+
+      ordered.slice(1).forEach((segment) => {
+        collapsedLabels.set(segment.id, {});
+      });
+    });
+  });
+
+  return {
+    collapsedLabels,
+    visibleSegments,
+  };
 }
 
 function buildCanvasEdges({
@@ -1410,28 +1521,31 @@ function buildCanvasEdges({
     });
   });
 
-  const labelOffsets = buildEdgeLabelOffsets(
-    segmentDrafts
-      .filter((edge) => typeof edge.label === "string" && edge.label.trim().length > 0)
-      .map((edge) => ({
-        id: edge.id,
-        label: edge.label as string,
-        source: edge.source,
-        target: edge.target,
-        sourceHandle: edge.sourceHandle,
-        targetHandle: edge.targetHandle,
-      })),
-  );
+  const rawLabelSegments = segmentDrafts
+    .filter((edge) => typeof edge.label === "string" && edge.label.trim().length > 0)
+    .map((edge) => ({
+      id: edge.id,
+      label: edge.label as string,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourceHandle,
+      targetHandle: edge.targetHandle,
+    }));
+  const { collapsedLabels, visibleSegments } = collapseDuplicateEdgeLabels(rawLabelSegments);
+  const labelOffsets = buildEdgeLabelOffsets(visibleSegments);
 
   return segmentDrafts.map<GraphCanvasEdge>((edge) => {
     const offset = labelOffsets.get(edge.id);
     const edgeData = edge.data as BlueprintEdgeData;
+    const collapsedLabel = collapsedLabels.get(edge.id);
     return {
       ...edge,
+      label: collapsedLabel ? collapsedLabel.label : edge.label,
       data: {
         logicalEdgeId: edgeData.logicalEdgeId,
         logicalEdgeKind: edgeData.logicalEdgeKind,
         logicalEdgeLabel: edgeData.logicalEdgeLabel,
+        labelCount: collapsedLabel?.count,
         segmentIndex: edgeData.segmentIndex,
         onHoverStart: edgeData.onHoverStart,
         onHoverEnd: edgeData.onHoverEnd,
@@ -1626,7 +1740,6 @@ export function GraphCanvas({
   graphSettings,
   highlightGraphPath,
   showEdgeLabels,
-  inspectorOpen,
   onSelectNode,
   onActivateNode,
   onInspectNode,
@@ -1636,7 +1749,6 @@ export function GraphCanvas({
   onToggleGraphSetting,
   onToggleGraphPathHighlight,
   onToggleEdgeLabels,
-  onToggleInspector,
   onNavigateOut,
   onClearSelection,
 }: {
@@ -1649,7 +1761,6 @@ export function GraphCanvas({
   graphSettings: GraphSettings;
   highlightGraphPath: boolean;
   showEdgeLabels: boolean;
-  inspectorOpen: boolean;
   onSelectNode: (nodeId: string, kind: GraphNodeKind) => void;
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void;
   onInspectNode: (nodeId: string, kind: GraphNodeKind) => void;
@@ -1659,7 +1770,6 @@ export function GraphCanvas({
   onToggleGraphSetting: (key: keyof GraphSettings) => void;
   onToggleGraphPathHighlight: () => void;
   onToggleEdgeLabels: () => void;
-  onToggleInspector: () => void;
   onNavigateOut: () => void;
   onClearSelection: () => void;
 }) {
@@ -1669,13 +1779,16 @@ export function GraphCanvas({
     [graph],
   );
   const denseGraph = (graph?.nodes.length ?? 0) > 12;
-  const fitViewOptions = !graph
-    ? undefined
-    : graph.level === "flow"
-      ? { padding: 0.1, minZoom: 0.4, maxZoom: 1.08 }
-      : graph.level === "symbol"
-        ? { padding: 0.08, minZoom: denseGraph ? 0.34 : 0.44, maxZoom: 1.2 }
-        : { padding: 0.08, minZoom: denseGraph ? 0.3 : 0.4, maxZoom: 1.14 };
+  const fitViewOptions = useMemo(
+    () => !graph
+      ? undefined
+      : graph.level === "flow"
+        ? { padding: 0.1, minZoom: 0.4, maxZoom: 1.08 }
+        : graph.level === "symbol"
+          ? { padding: 0.08, minZoom: denseGraph ? 0.34 : 0.44, maxZoom: 1.2 }
+          : { padding: 0.08, minZoom: denseGraph ? 0.3 : 0.4, maxZoom: 1.14 },
+    [denseGraph, graph],
+  );
   const graphNodeIds = useMemo(
     () => new Set(graph?.nodes.map((node) => node.id) ?? []),
     [graph],
@@ -1690,6 +1803,7 @@ export function GraphCanvas({
   const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>(undefined);
   const [editingGroupId, setEditingGroupId] = useState<string | undefined>(undefined);
   const [editingGroupTitle, setEditingGroupTitle] = useState(DEFAULT_GROUP_TITLE);
+  const [marqueeSelectionActive, setMarqueeSelectionActive] = useState(false);
   const [declutterUndo, setDeclutterUndo] = useState<
     | {
         viewKey: string;
@@ -1700,6 +1814,8 @@ export function GraphCanvas({
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | undefined>(undefined);
   const [hoveredPortEdgeIds, setHoveredPortEdgeIds] = useState<string[]>([]);
   const panModeActive = useKeyPress("Space");
+  const [pointerInsidePanel, setPointerInsidePanel] = useState(false);
+  const [panPointerDragging, setPanPointerDragging] = useState(false);
   const selectedRerouteNodes = useMemo(
     () => nodes.filter((node) => isRerouteCanvasNode(node) && Boolean(node.selected)),
     [nodes],
@@ -1734,10 +1850,14 @@ export function GraphCanvas({
   );
   const selectedNodeId = !graph
     ? ""
-    : selectedRerouteCount || selectedGroupId || effectiveSemanticSelection.length > 1
-      ? ""
-      : effectiveSemanticSelection[0]
-        ?? (graphNodeIds.has(activeNodeId ?? "") ? activeNodeId ?? "" : "");
+    : resolveSelectionPreviewNodeId({
+        activeNodeId,
+        effectiveSemanticSelection,
+        graphNodeIds,
+        marqueeSelectionActive,
+        selectedGroupId,
+        selectedRerouteCount,
+      });
   const highlightedEdgeIds = useMemo(
     () => new Set(
       hoveredPortEdgeIds.length
@@ -2017,15 +2137,41 @@ export function GraphCanvas({
     });
   };
 
-  const handleNavigateOutKey = (event: {
+  const handleFitView = () => {
+    const fitViewButton = panelRef.current?.querySelector<HTMLButtonElement>(
+      ".react-flow__controls-fitview",
+    );
+    if (!fitViewButton) {
+      return false;
+    }
+
+    fitViewButton.click();
+    return true;
+  };
+
+  const handleGraphShortcutKey = (event: {
     key: string;
     altKey: boolean;
     ctrlKey: boolean;
+    defaultPrevented: boolean;
     metaKey: boolean;
     shiftKey: boolean;
     target: EventTarget | null;
     preventDefault: () => void;
   }) => {
+    if (event.defaultPrevented) {
+      return;
+    }
+
+    if (shouldHandleFitViewKey(event)) {
+      if (!handleFitView()) {
+        return;
+      }
+
+      event.preventDefault();
+      return;
+    }
+
     if (selectedRerouteCount && shouldHandleRerouteDeleteKey(event)) {
       event.preventDefault();
       removeSelectedReroutes();
@@ -2093,7 +2239,8 @@ export function GraphCanvas({
 
       if (
         !(graphHotkeyActiveRef.current || panelContainsTarget || panelContainsFocus)
-        || (!shouldHandleNavigateOutKey(event)
+        || (!shouldHandleFitViewKey(event)
+          && !shouldHandleNavigateOutKey(event)
           && !shouldHandleRerouteDeleteKey(event)
           && !shouldHandlePinKey(event)
           && !shouldHandleGroupKey(event)
@@ -2102,12 +2249,13 @@ export function GraphCanvas({
         return;
       }
 
-      handleNavigateOutKey(event);
+      handleGraphShortcutKey(event);
     };
 
     const handlePanelKeyDown = (event: KeyboardEvent) => {
       if (
-        !shouldHandleNavigateOutKey(event)
+        !shouldHandleFitViewKey(event)
+        && !shouldHandleNavigateOutKey(event)
         && !shouldHandleRerouteDeleteKey(event)
         && !shouldHandlePinKey(event)
         && !shouldHandleGroupKey(event)
@@ -2116,7 +2264,7 @@ export function GraphCanvas({
         return;
       }
 
-      handleNavigateOutKey(event);
+      handleGraphShortcutKey(event);
     };
 
     window.addEventListener("focusin", handleFocusIn);
@@ -2139,7 +2287,32 @@ export function GraphCanvas({
     selectedRerouteCount,
     togglePinnedNodes,
     ungroupSelection,
+    fitViewOptions,
   ]);
+
+  useEffect(() => {
+    const handlePointerUp = () => {
+      setPanPointerDragging(false);
+    };
+
+    window.addEventListener("pointerup", handlePointerUp, true);
+    return () => window.removeEventListener("pointerup", handlePointerUp, true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const showPanCursor = panModeActive && (pointerInsidePanel || panPointerDragging);
+    document.body.classList.toggle("graph-pan-cursor-active", showPanCursor && !panPointerDragging);
+    document.body.classList.toggle("graph-pan-cursor-dragging", showPanCursor && panPointerDragging);
+
+    return () => {
+      document.body.classList.remove("graph-pan-cursor-active");
+      document.body.classList.remove("graph-pan-cursor-dragging");
+    };
+  }, [panModeActive, panPointerDragging, pointerInsidePanel]);
 
   useEffect(() => {
     if (!selectedRerouteCount) {
@@ -2156,6 +2329,7 @@ export function GraphCanvas({
       setSelectedGroupId(undefined);
       setEditingGroupId(undefined);
       setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+      setMarqueeSelectionActive(false);
       return;
     }
 
@@ -2169,15 +2343,15 @@ export function GraphCanvas({
     };
     const initialNodes = buildCanvasNodes(
       graph,
-      selectedNodeId,
+      "",
       emptyLayout,
-      new Set<string>(),
+      EMPTY_STRING_SET,
       false,
-      selectedRelatedNodeIds,
-      selectedConnectedEdgeIds,
-      selectionContextActive,
-      new Set<string>(),
-      new Set<string>(),
+      EMPTY_STRING_SET,
+      EMPTY_STRING_SET,
+      false,
+      EMPTY_STRING_SET,
+      EMPTY_STRING_SET,
       canPinNodes,
       togglePinnedNode,
       onActivateNode,
@@ -2212,15 +2386,15 @@ export function GraphCanvas({
         setNodes(
           buildCanvasNodes(
             graph,
-            selectedNodeId,
+            "",
             initializedLayout,
-            new Set<string>(),
+            EMPTY_STRING_SET,
             false,
-            selectedRelatedNodeIds,
-            selectedConnectedEdgeIds,
-            selectionContextActive,
-            new Set<string>(),
-            new Set<string>(),
+            EMPTY_STRING_SET,
+            EMPTY_STRING_SET,
+            false,
+            EMPTY_STRING_SET,
+            EMPTY_STRING_SET,
             canPinNodes,
             togglePinnedNode,
             onActivateNode,
@@ -2243,15 +2417,15 @@ export function GraphCanvas({
       setNodes(
         buildCanvasNodes(
           graph,
-          selectedNodeId,
+          "",
           normalizedLayout,
-          new Set<string>(),
+          EMPTY_STRING_SET,
           false,
-          selectedRelatedNodeIds,
-          selectedConnectedEdgeIds,
-          selectionContextActive,
+          EMPTY_STRING_SET,
+          EMPTY_STRING_SET,
+          false,
           new Set(normalizedGroups.flatMap((group) => group.memberNodeIds)),
-          new Set<string>(),
+          EMPTY_STRING_SET,
           canPinNodes,
           togglePinnedNode,
           onActivateNode,
@@ -2273,10 +2447,6 @@ export function GraphCanvas({
     onInspectNode,
     repoPath,
     graphNodeIds,
-    selectedConnectedEdgeIds,
-    selectedNodeId,
-    selectedRelatedNodeIds,
-    selectionContextActive,
     viewKey,
   ]);
 
@@ -2553,13 +2723,26 @@ export function GraphCanvas({
       onFocusCapture={() => {
         graphHotkeyActiveRef.current = true;
       }}
+      onPointerOverCapture={() => {
+        setPointerInsidePanel(true);
+      }}
+      onPointerOutCapture={(event) => {
+        const nextTarget = event.relatedTarget;
+        if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+          setPointerInsidePanel(false);
+        }
+      }}
       onPointerDownCapture={(event) => {
+        setPointerInsidePanel(true);
         if (!isEditableEventTarget(event.target)) {
           panelRef.current?.focus();
         }
+        if (panModeActive && event.button === 0) {
+          setPanPointerDragging(true);
+        }
       }}
       onKeyDown={(event) => {
-        handleNavigateOutKey(event);
+        handleGraphShortcutKey(event);
       }}
     >
       <ReactFlow<GraphCanvasNode, GraphCanvasEdge>
@@ -2574,6 +2757,12 @@ export function GraphCanvas({
         onNodesChange={handleNodesChange}
         onNodeDragStop={handleNodeDragStop}
         onSelectionDragStop={handleSelectionDragStop}
+        onSelectionStart={() => {
+          setMarqueeSelectionActive(true);
+        }}
+        onSelectionEnd={() => {
+          setMarqueeSelectionActive(false);
+        }}
         onSelectionChange={({ nodes: selectedNodes }) => {
           const nextSelectedSemanticNodeIds = sortNodeIds(
             selectedNodes
@@ -2694,16 +2883,14 @@ export function GraphCanvas({
         graphSettings={graphSettings}
         highlightGraphPath={highlightGraphPath}
         showEdgeLabels={showEdgeLabels}
-        inspectorOpen={inspectorOpen}
         canUndoDeclutter={Boolean(declutterUndo && declutterUndo.viewKey === viewKey)}
-        onSelectBreadcrumb={onSelectBreadcrumb}
         onSelectLevel={onSelectLevel}
         onDeclutter={handleDeclutter}
+        onFitView={handleFitView}
         onToggleGraphFilter={onToggleGraphFilter}
         onToggleGraphSetting={onToggleGraphSetting}
         onToggleGraphPathHighlight={onToggleGraphPathHighlight}
         onToggleEdgeLabels={onToggleEdgeLabels}
-        onToggleInspector={onToggleInspector}
         onUndoDeclutter={handleUndoDeclutter}
       />
     </section>

@@ -1772,6 +1772,41 @@ button {
   grid-template-columns: 260px minmax(0, 1fr);
 }
 
+.workspace-layout__resize-rail {
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.workspace-layout__resize-rail-handle {
+  display: block;
+  width: 4px;
+  height: min(88px, 24%);
+  min-height: 52px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line-strong) 72%, transparent);
+  transition:
+    background 140ms ease,
+    transform 140ms ease;
+}
+
+.workspace-layout__resize-rail:hover .workspace-layout__resize-rail-handle,
+.workspace-layout__resize-rail:focus-visible .workspace-layout__resize-rail-handle {
+  background: color-mix(in srgb, var(--accent-strong) 68%, var(--line-strong) 32%);
+  transform: scaleX(1.25);
+}
+
+.workspace-layout__resize-rail:focus-visible {
+  outline: none;
+}
+
 .app-frame--macos .window-bar {
   padding-left: 92px;
   padding-right: 16px;
@@ -1956,6 +1991,16 @@ button {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.explorer-row__kind--directory {
+  background: color-mix(in srgb, var(--accent) 42%, transparent);
+  color: color-mix(in srgb, var(--accent-strong) 78%, var(--text) 22%);
+}
+
+.explorer-row__kind--file {
+  background: color-mix(in srgb, var(--line-strong) 42%, transparent);
+  color: color-mix(in srgb, var(--text) 74%, var(--text-muted) 26%);
 }
 
 .explorer-row__kind--empty {
@@ -2180,13 +2225,38 @@ button {
   cursor: crosshair;
 }
 
+.graph-panel.is-pan-active .react-flow__renderer,
+.graph-panel.is-pan-active .react-flow__viewport,
 .graph-panel.is-pan-active .react-flow__pane,
-.graph-panel.is-pan-active .react-flow__pane.draggable {
-  cursor: grab;
+.graph-panel.is-pan-active .react-flow__pane.draggable,
+.graph-panel.is-pan-active .react-flow__node,
+.graph-panel.is-pan-active .react-flow__node *,
+.graph-panel.is-pan-active .react-flow__edge,
+.graph-panel.is-pan-active .react-flow__edge *,
+.graph-panel.is-pan-active .graph-group,
+.graph-panel.is-pan-active .graph-group *,
+.graph-panel.is-pan-active .graph-node,
+.graph-panel.is-pan-active .graph-node * {
+  cursor: grab !important;
 }
 
-.graph-panel.is-pan-active .react-flow__pane.dragging {
-  cursor: grabbing;
+.graph-panel.is-pan-active .react-flow__pane.dragging,
+.graph-panel.is-pan-active .react-flow__pane.dragging *,
+.graph-panel.is-pan-active .react-flow__node.dragging,
+.graph-panel.is-pan-active .react-flow__node.dragging *,
+.graph-panel.is-pan-active .react-flow__selection.dragging,
+.graph-panel.is-pan-active .react-flow__selection.dragging * {
+  cursor: grabbing !important;
+}
+
+body.graph-pan-cursor-active,
+body.graph-pan-cursor-active * {
+  cursor: grab !important;
+}
+
+body.graph-pan-cursor-dragging,
+body.graph-pan-cursor-dragging * {
+  cursor: grabbing !important;
 }
 
 .graph-panel .react-flow__attribution {
@@ -2249,9 +2319,12 @@ button {
 
 .graph-toolbar__focus {
   min-width: 0;
-  max-width: 132px;
-  display: grid;
-  gap: 1px;
+  flex: 1 1 132px;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 5px 8px;
   text-align: left;
   border: 1px solid var(--line);
@@ -2260,8 +2333,15 @@ button {
   color: var(--text);
 }
 
+.graph-toolbar__focus-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
 .graph-toolbar__focus-label,
-.graph-toolbar__focus-meta {
+.graph-toolbar__focus-meta,
+.graph-toolbar__focus-state {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2275,6 +2355,15 @@ button {
 .graph-toolbar__focus-meta {
   color: var(--text-muted);
   font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.graph-toolbar__focus-state {
+  flex-shrink: 0;
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -2301,89 +2390,43 @@ button {
   gap: 8px;
 }
 
-.graph-breadcrumbs--toolbar {
-  grid-template-columns: repeat(auto-fit, minmax(110px, max-content));
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.graph-toolbar__settings-row {
-  justify-content: flex-end;
-}
-
-.graph-settings-drawer {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  z-index: 15;
-  width: min(320px, calc(100vw - 40px));
+.graph-toolbar__section {
   display: grid;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--surface-strong) 94%, transparent);
-  box-shadow: var(--shadow-card);
-  backdrop-filter: blur(22px);
+  gap: 6px;
 }
 
-.graph-settings-drawer__header {
+.graph-toolbar__section-label {
+  padding-inline: 2px;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.graph-toolbar__layout-row {
+  justify-content: flex-start;
+}
+
+.graph-toolbar__status {
   display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.graph-settings-drawer__copy {
-  display: grid;
-  gap: 4px;
-}
-
-.graph-settings-drawer__copy h3 {
-  margin: 0;
-  font-size: 0.92rem;
-}
-
-.graph-settings-drawer__copy p {
-  margin: 0;
+.graph-toolbar__status-pill {
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-solid) 90%, transparent);
   color: var(--text-muted);
   font-size: 0.82rem;
-  line-height: 1.4;
+  line-height: 1;
 }
 
-.graph-settings-drawer__close {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
-  color: var(--text-muted);
-  padding: 6px 10px;
-  font: inherit;
-}
-
-.graph-settings-toggle {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--line) 64%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
-}
-
-.graph-settings-toggle__copy {
-  display: grid;
-  gap: 3px;
-}
-
-.graph-settings-toggle__copy strong {
-  font-size: 0.9rem;
-}
-
-.graph-settings-toggle__copy span {
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  line-height: 1.35;
+.graph-toolbar__status-pill--warning {
+  border-color: color-mix(in srgb, var(--accent-strong) 54%, var(--line) 46%);
+  color: var(--accent-strong);
 }
 
 .blueprint-main {
@@ -2401,28 +2444,163 @@ button {
 
 .blueprint-main__body {
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: block;
+}
+
+.blueprint-graph-shell {
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
-.blueprint-main__body:has(> .blueprint-inspector) {
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+.blueprint-graph-shell__canvas {
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
-.blueprint-main__body > .graph-panel {
+.blueprint-graph-shell__canvas > .graph-panel {
+  height: 100%;
   min-height: 0;
   border: 1px solid var(--line);
   border-radius: 20px;
   background: color-mix(in srgb, var(--surface) 32%, transparent);
 }
 
-.blueprint-main__body > .blueprint-inspector {
+.blueprint-inspector-drawer {
+  min-height: 0;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-strong) 94%, transparent), color-mix(in srgb, var(--surface-subtle) 88%, transparent));
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(18px);
+}
+
+.blueprint-inspector-drawer__peek {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.blueprint-inspector-drawer__peek-main,
+.blueprint-inspector-drawer__rail-button {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.blueprint-inspector-drawer__peek-main {
+  flex: 1 1 320px;
+}
+
+.blueprint-inspector-drawer__peek-close {
+  flex-shrink: 0;
+}
+
+.blueprint-inspector-drawer__rail {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 14px 0;
+}
+
+.blueprint-inspector-drawer__rail-button {
+  flex: 1 1 320px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  cursor: ns-resize;
+}
+
+.blueprint-inspector-drawer__grip {
+  width: 34px;
+  flex-shrink: 0;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+}
+
+.blueprint-inspector-drawer__grip span {
+  width: 26px;
+  height: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 70%, transparent);
+}
+
+.blueprint-inspector-drawer__summary {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 2px;
+}
+
+.blueprint-inspector-drawer__summary strong,
+.blueprint-inspector-drawer__summary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blueprint-inspector-drawer__summary span {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.blueprint-inspector-drawer__peek-main .status-pill,
+.blueprint-inspector-drawer__rail-button .status-pill {
+  margin-left: auto;
+}
+
+.blueprint-inspector-drawer__actions {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.blueprint-inspector-drawer__actions--expanded {
+  padding-bottom: 10px;
+}
+
+.blueprint-inspector-drawer__action {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.blueprint-inspector-drawer__error {
+  margin: 0 14px 8px;
+}
+
+.blueprint-inspector-drawer__body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.blueprint-inspector-drawer__body > .blueprint-inspector {
   min-height: 0;
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  align-content: start;
   gap: 16px;
-  padding: 0 12px 0 0;
+  height: 100%;
+  padding: 0 14px 14px;
   background: transparent;
   overflow-y: auto;
   overflow-x: hidden;
@@ -2430,8 +2608,8 @@ button {
   scrollbar-gutter: stable;
 }
 
-.blueprint-main__body > .blueprint-inspector > .blueprint-inspector__card,
-.blueprint-main__body > .blueprint-inspector > .blueprint-inspector__section {
+.blueprint-inspector-drawer__body > .blueprint-inspector .blueprint-inspector__card,
+.blueprint-inspector-drawer__body > .blueprint-inspector .blueprint-inspector__section {
   min-width: 0;
   padding: 16px;
   border: 1px solid var(--line);
@@ -2441,10 +2619,27 @@ button {
   backdrop-filter: blur(18px);
 }
 
-.blueprint-main .blueprint-inspector__card {
+.blueprint-inspector-drawer__body > .blueprint-inspector .blueprint-inspector__card {
+  grid-column: 1;
   position: static;
   top: auto;
   z-index: auto;
+  align-self: start;
+}
+
+.blueprint-inspector__section--selection,
+.blueprint-inspector__section--last-edit {
+  grid-column: 1;
+}
+
+.blueprint-inspector__section--editor {
+  grid-column: 2;
+  grid-row: span 2;
+  align-self: start;
+}
+
+.blueprint-inspector__section--revealed {
+  grid-column: 1 / -1;
 }
 
 .blueprint-main .blueprint-source-panel {
@@ -2454,10 +2649,14 @@ button {
 .blueprint-inspector__meta {
   min-width: 0;
   display: grid;
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
-.blueprint-inspector__header-actions,
+.blueprint-inspector__meta > .error-copy {
+  grid-column: 1 / -1;
+}
+
 .blueprint-inspector__editor-actions {
   min-width: 0;
   display: flex;
@@ -2710,13 +2909,16 @@ button {
 }
 
 @media (max-width: 1220px) {
-  .blueprint-main__body:has(> .blueprint-inspector) {
-    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  .blueprint-inspector-drawer__peek {
+    gap: 10px;
   }
 
-  .blueprint-main > .pane--inspector,
-  .blueprint-main__body > .pane--inspector {
-    display: grid;
+  .blueprint-inspector-drawer__body > .blueprint-inspector {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  }
+
+  .blueprint-inspector__section--editor {
+    grid-row: auto;
   }
 }
 
@@ -2753,16 +2955,33 @@ button {
   }
 
   .graph-toolbar__focus {
-    max-width: 132px;
+    flex-basis: 132px;
   }
 
-  .blueprint-main__body,
-  .blueprint-main__body:has(> .blueprint-inspector) {
+  .blueprint-graph-shell {
+    gap: 10px;
+  }
+
+  .blueprint-inspector-drawer__body > .blueprint-inspector {
     grid-template-columns: 1fr;
+    padding: 0 10px 10px;
   }
 
-  .blueprint-main__body > .blueprint-inspector {
-    max-height: min(52vh, 420px);
+  .blueprint-inspector__section--selection,
+  .blueprint-inspector__section--last-edit,
+  .blueprint-inspector__section--editor,
+  .blueprint-inspector__section--revealed {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .blueprint-inspector-drawer__peek {
+    align-items: flex-start;
+  }
+
+  .blueprint-inspector-drawer__peek-main,
+  .blueprint-inspector-drawer__rail-button {
+    align-items: flex-start;
   }
 
   .graph-hud,
@@ -2770,6 +2989,28 @@ button {
   .graph-detail--compact {
     width: min(calc(100% - 24px), 100%);
     max-width: none;
+  }
+}
+
+@media (min-width: 1480px) {
+  .blueprint-inspector-drawer__body > .blueprint-inspector {
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .blueprint-inspector__section--selection,
+  .blueprint-inspector__section--last-edit {
+    grid-column: 1;
+  }
+
+  .blueprint-inspector__section--editor {
+    grid-column: 2;
+    grid-row: 2 / span 2;
+  }
+
+  .blueprint-inspector__section--revealed {
+    grid-column: 3;
+    grid-row: 2 / span 2;
+    align-self: start;
   }
 }
 

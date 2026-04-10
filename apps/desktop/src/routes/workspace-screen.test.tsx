@@ -87,6 +87,49 @@ describe("WorkspaceScreen", () => {
     resetStore();
   });
 
+  it("resizes the explorer panel and restores the saved width", async () => {
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    const firstRender = render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const layout = await screen.findByTestId("workspace-layout");
+    expect(layout.style.gridTemplateColumns).toContain("260px");
+
+    const resizeHandle = screen.getByTestId("workspace-sidebar-resize");
+    fireEvent.pointerDown(resizeHandle, { clientX: 260 });
+    fireEvent.mouseMove(window, { clientX: 348 });
+    fireEvent.mouseUp(window);
+
+    await waitFor(() => {
+      expect(layout.style.gridTemplateColumns).toContain("348px");
+    });
+
+    firstRender.unmount();
+
+    const rerenderedRouter = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={rerenderedRouter} />
+      </AppProviders>,
+    );
+
+    const restoredLayout = await screen.findByTestId("workspace-layout");
+    await waitFor(() => {
+      expect(restoredLayout.style.gridTemplateColumns).toContain("348px");
+    });
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
   it("keeps single click selection-only and uses explicit enter/inspect actions", async () => {
     const user = userEvent.setup();
     const router = createMemoryRouter(
@@ -118,6 +161,11 @@ describe("WorkspaceScreen", () => {
 
     fireEvent.doubleClick(await graph.findByText("api.py"));
 
+    const graphContextDrawer = await screen.findByTestId("blueprint-inspector-drawer");
+    expect(graphContextDrawer).toHaveAttribute("data-mode", "collapsed");
+    expect(within(graphContextDrawer).getByText("api.py")).toBeInTheDocument();
+    expect(within(graphContextDrawer).getByText("module")).toBeInTheDocument();
+
     await waitFor(() =>
       expect(within(screen.getByRole("navigation", { name: /Graph path/i })).getByText("api.py")).toBeInTheDocument(),
     );
@@ -126,6 +174,7 @@ describe("WorkspaceScreen", () => {
     expect(functionNode).not.toBeNull();
     fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
 
+    expect(await screen.findByTestId("blueprint-inspector-drawer")).toHaveAttribute("data-mode", "expanded");
     expect(await screen.findByText(/Declaration editor/i)).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /Open File In Default Editor/i })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /Open flow/i })).toBeInTheDocument();
@@ -138,10 +187,75 @@ describe("WorkspaceScreen", () => {
     expect(graphPane).not.toBeNull();
     await user.click(graphPane as HTMLElement);
 
-    await waitFor(() =>
-      expect(screen.queryByText(/Declaration editor/i)).not.toBeInTheDocument(),
-    );
+    const collapsedDrawer = await screen.findByTestId("blueprint-inspector-drawer");
+    expect(collapsedDrawer).toHaveAttribute("data-mode", "collapsed");
+    expect(within(collapsedDrawer).getByText("helm.ui.api")).toBeInTheDocument();
+    expect(within(collapsedDrawer).queryByTestId("blueprint-inspector-drawer-close")).not.toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("updates the active inspector target when another inspectable node is selected while visible", async () => {
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+
+    const drawer = await screen.findByTestId("blueprint-inspector-drawer");
+    expect(within(drawer).getByRole("heading", { name: "build_graph_summary" })).toBeInTheDocument();
+
+    fireEvent.click(await graph.findByText("GraphSummary"));
+
+    await waitFor(() =>
+      expect(within(screen.getByTestId("blueprint-inspector-drawer")).getByRole("heading", { name: "GraphSummary" })).toBeInTheDocument(),
+    );
+  });
+
+  it("shows a collapsed peek rail for the current inspectable selection before full inspect", async () => {
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    fireEvent.click(await graph.findByText("build_graph_summary"));
+
+    const drawer = await screen.findByTestId("blueprint-inspector-drawer");
+    expect(drawer).toHaveAttribute("data-mode", "collapsed");
+    expect(within(drawer).getByText("build_graph_summary")).toBeInTheDocument();
+    expect(within(drawer).getByText("function")).toBeInTheDocument();
+    expect(within(drawer).getByRole("button", { name: /Open File In Default Editor/i })).toBeInTheDocument();
+    expect(within(drawer).getByRole("button", { name: /Open flow/i })).toBeInTheDocument();
+    expect(within(drawer).getByRole("button", { name: /Open blueprint/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("blueprint-inspector-drawer-toggle"));
+    expect(await screen.findByTestId("blueprint-inspector-drawer")).toHaveAttribute("data-mode", "expanded");
+    expect(await screen.findByText(/Declaration editor/i)).toBeInTheDocument();
+  });
 
   it("navigates one layer out with Backspace from flow to symbol", async () => {
     const user = userEvent.setup();
@@ -209,7 +323,8 @@ describe("WorkspaceScreen", () => {
     expect(await screen.findByRole("button", { name: /Open flow/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Open blueprint/i })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Close/i }));
+    await user.click(screen.getByTestId("blueprint-inspector-panel-collapse"));
+    expect(await screen.findByTestId("blueprint-inspector-drawer")).toHaveAttribute("data-mode", "collapsed");
     fireEvent.click(within(classNode as HTMLElement).getByText("Enter"));
 
     expect(await screen.findByText(/Symbol blueprint/i)).toBeInTheDocument();
@@ -349,12 +464,21 @@ describe("WorkspaceScreen", () => {
 
     fireEvent.change(editor, { target: { value: unsavedValue } });
 
-    expect(await screen.findByText("Unsaved")).toBeInTheDocument();
+    expect((await screen.findAllByText("Unsaved")).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Save/i })).toBeEnabled();
+
+    fireEvent.click(screen.getByTestId("blueprint-inspector-drawer-toggle"));
+    expect(await screen.findByTestId("blueprint-inspector-drawer")).toHaveAttribute("data-mode", "collapsed");
+    expect(screen.queryByRole("textbox", { name: /Function source editor/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("blueprint-inspector-drawer-toggle"));
+    expect(await screen.findByTestId("blueprint-inspector-drawer")).toHaveAttribute("data-mode", "expanded");
+    expect(await screen.findByRole("textbox", { name: /Function source editor/i })).toHaveValue(unsavedValue);
+    expect(screen.getAllByText("Unsaved").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
 
-    expect(await screen.findByText("Synced")).toBeInTheDocument();
+    expect((await screen.findAllByText("Synced")).length).toBeGreaterThan(0);
     expect(await screen.findByRole("textbox", { name: /Function source editor/i })).toHaveValue(originalValue);
 
     fireEvent.change(await screen.findByRole("textbox", { name: /Function source editor/i }), {
@@ -364,7 +488,74 @@ describe("WorkspaceScreen", () => {
 
     await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1));
     expect(saveSpy.mock.calls[0]?.[1]).toContain("# saved note");
-    await waitFor(() => expect(screen.getByText("Synced")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("Synced").length).toBeGreaterThan(0));
+  });
+
+  it("toggles the inspector drawer with a Space tap outside text editing surfaces", async () => {
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const workspace = document.querySelector(".workspace-layout--blueprint");
+    expect(workspace).not.toBeNull();
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+
+    expect(await screen.findByTestId("blueprint-inspector-drawer")).toHaveAttribute("data-mode", "expanded");
+
+    fireEvent.keyDown(workspace as HTMLElement, { code: "Space", key: " " });
+    fireEvent.keyUp(workspace as HTMLElement, { code: "Space", key: " " });
+    expect(await screen.findByTestId("blueprint-inspector-drawer")).toHaveAttribute("data-mode", "collapsed");
+
+    fireEvent.keyDown(workspace as HTMLElement, { code: "Space", key: " " });
+    fireEvent.keyUp(workspace as HTMLElement, { code: "Space", key: " " });
+    expect(await screen.findByTestId("blueprint-inspector-drawer")).toHaveAttribute("data-mode", "expanded");
+  });
+
+  it("does not toggle the inspector drawer while typing in the editor", async () => {
+    const user = userEvent.setup();
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+
+    const editor = await screen.findByRole("textbox", { name: /Function source editor/i });
+    const originalValue = (editor as HTMLTextAreaElement).value;
+
+    await user.type(editor, " ");
+
+    expect(await screen.findByTestId("blueprint-inspector-drawer")).toHaveAttribute("data-mode", "expanded");
+    expect(await screen.findByRole("textbox", { name: /Function source editor/i })).toHaveValue(`${originalValue} `);
   });
 
   it("keeps non-editable nodes read-only and renders revealed source in a read-only surface", async () => {
@@ -431,11 +622,19 @@ describe("WorkspaceScreen", () => {
       target: { value: `${(editor as HTMLTextAreaElement).value}\n# close save` },
     });
 
-    await user.click(screen.getByRole("button", { name: /Close/i }));
+    await user.click(screen.getByTestId("blueprint-inspector-drawer-toggle"));
+    expect(await screen.findByTestId("blueprint-inspector-drawer")).toHaveAttribute("data-mode", "collapsed");
+
+    await user.click(screen.getByTestId("blueprint-inspector-drawer-close"));
 
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByText(/Declaration editor/i)).not.toBeInTheDocument());
+    await waitFor(() => {
+      const drawer = screen.getByTestId("blueprint-inspector-drawer");
+      expect(drawer).toHaveAttribute("data-mode", "collapsed");
+      expect(within(drawer).getByText("helm.ui.api")).toBeInTheDocument();
+      expect(within(drawer).queryByTestId("blueprint-inspector-drawer-close")).not.toBeInTheDocument();
+    });
   });
 
   it("prompts on unsaved close and discards when not confirmed", async () => {
@@ -469,11 +668,21 @@ describe("WorkspaceScreen", () => {
       target: { value: `${(editor as HTMLTextAreaElement).value}\n# discard me` },
     });
 
-    await user.click(screen.getByRole("button", { name: /Close/i }));
+    await user.click(screen.getByTestId("blueprint-inspector-panel-collapse"));
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("blueprint-inspector-drawer")).toHaveAttribute("data-mode", "collapsed");
+
+    await user.click(screen.getByTestId("blueprint-inspector-drawer-close"));
 
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(saveSpy).not.toHaveBeenCalled();
-    await waitFor(() => expect(screen.queryByText(/Declaration editor/i)).not.toBeInTheDocument());
+    await waitFor(() => {
+      const drawer = screen.getByTestId("blueprint-inspector-drawer");
+      expect(drawer).toHaveAttribute("data-mode", "collapsed");
+      expect(within(drawer).getByText("helm.ui.api")).toBeInTheDocument();
+      expect(within(drawer).queryByTestId("blueprint-inspector-drawer-close")).not.toBeInTheDocument();
+    });
   });
 
   it("updates the footer help box across explorer, graph path, graph nodes, and inspector actions", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   EditableNodeSource,
   GraphNodeDto,
@@ -6,49 +6,16 @@ import type {
   StructuralEditResult,
   SymbolDetails,
 } from "../../lib/adapter";
-import {
-  isGraphSymbolNodeKind,
-  isInspectableGraphNodeKind,
-} from "../../lib/adapter";
+import { isInspectableGraphNodeKind } from "../../lib/adapter";
 import { InspectorCodeSurface } from "../editor/InspectorCodeSurface";
 import { inferInspectorLanguage } from "../editor/inspectorLanguage";
 import { StatusPill } from "../shared/StatusPill";
+import {
+  metadataBoolean,
+  relativePathForNode,
+  selectionSummary,
+} from "./blueprintInspectorUtils";
 import { helpTargetProps } from "./workspaceHelp";
-
-function metadataString(node: GraphNodeDto | undefined, key: string): string | undefined {
-  const camelKey = key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
-  const value = node?.metadata[key] ?? node?.metadata[camelKey];
-  return typeof value === "string" ? value : undefined;
-}
-
-function metadataBoolean(node: GraphNodeDto | undefined, key: string): boolean | undefined {
-  const camelKey = key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
-  const value = node?.metadata[key] ?? node?.metadata[camelKey];
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function relativePathForNode(node: GraphNodeDto | undefined): string | undefined {
-  return metadataString(node, "relative_path")
-    ?? (node?.kind === "module" && node.subtitle?.endsWith(".py") ? node.subtitle : undefined);
-}
-
-function selectionSummary(node: GraphNodeDto | undefined): string | undefined {
-  if (!node) {
-    return undefined;
-  }
-  const relativePath = relativePathForNode(node);
-  if (node.kind === "module" && relativePath) {
-    return relativePath;
-  }
-  if (isGraphSymbolNodeKind(node.kind)) {
-    return metadataString(node, "qualname") ?? node.subtitle ?? undefined;
-  }
-  return node.subtitle ?? undefined;
-}
-
-function revealActionEnabled(node?: GraphNodeDto): boolean {
-  return Boolean(node?.availableActions.find((action) => action.actionId === "reveal_source")?.enabled);
-}
 
 export function BlueprintInspector({
   selectedNode,
@@ -61,10 +28,6 @@ export function BlueprintInspector({
   isSavingSource,
   onSaveSource,
   onEditorStateChange,
-  onOpenFlow,
-  onOpenBlueprint,
-  onRevealSource,
-  onOpenInDefaultEditor,
   onDismissSource,
   onClose,
 }: {
@@ -78,16 +41,11 @@ export function BlueprintInspector({
   isSavingSource: boolean;
   onSaveSource: (targetId: string, content: string) => Promise<void>;
   onEditorStateChange: (content?: string, dirty?: boolean) => void;
-  onOpenFlow: (symbolId: string) => void;
-  onOpenBlueprint: (symbolId: string) => void;
-  onRevealSource: (nodeId: string) => void;
-  onOpenInDefaultEditor: (targetId: string) => Promise<void>;
   onDismissSource: () => void;
   onClose: () => void;
 }) {
   const [draftSource, setDraftSource] = useState("");
   const [sourceError, setSourceError] = useState<string | null>(null);
-  const [openInEditorError, setOpenInEditorError] = useState<string | null>(null);
   const selectedRelativePath = relativePathForNode(selectedNode);
   const selectedSummary = selectionSummary(selectedNode);
   const nodePath = editableSource?.path ?? selectedRelativePath ?? symbol?.filePath;
@@ -119,48 +77,6 @@ export function BlueprintInspector({
     onEditorStateChange(undefined, false);
   }, [canEditInline, dirty, draftSource, onEditorStateChange]);
 
-  useEffect(() => {
-    setOpenInEditorError(null);
-  }, [selectedNode?.id]);
-
-  const quickActions = useMemo(() => {
-    if (!selectedNode) {
-      return [];
-    }
-
-    const actions: Array<{
-      id: string;
-      label: string;
-      onClick: () => void;
-    }> = [];
-
-    if (selectedNode.kind === "function") {
-      actions.push({
-        id: "open-blueprint",
-        label: "Open blueprint",
-        onClick: () => onOpenBlueprint(selectedNode.id),
-      });
-    }
-
-    if (selectedNode.kind === "function" || selectedNode.kind === "class") {
-      actions.push({
-        id: "open-flow",
-        label: "Open flow",
-        onClick: () => onOpenFlow(selectedNode.id),
-      });
-    }
-
-    if (revealActionEnabled(selectedNode)) {
-      actions.push({
-        id: "reveal-source",
-        label: revealedSource?.targetId === selectedNode.id ? "Refresh source" : "Reveal source",
-        onClick: () => onRevealSource(selectedNode.id),
-      });
-    }
-
-    return actions;
-  }, [onOpenBlueprint, onOpenFlow, onRevealSource, revealedSource?.targetId, selectedNode]);
-
   const handleSave = async () => {
     if (!selectedNode || !canEditInline) {
       return;
@@ -179,21 +95,6 @@ export function BlueprintInspector({
     setSourceError(null);
   };
 
-  const handleOpenInEditor = async () => {
-    if (!selectedNode) {
-      return;
-    }
-
-    setOpenInEditorError(null);
-    try {
-      await onOpenInDefaultEditor(selectedNode.id);
-    } catch (reason) {
-      setOpenInEditorError(
-        reason instanceof Error ? reason.message : "Unable to open the file in the default editor.",
-      );
-    }
-  };
-
   if (!selectedNode) {
     return (
       <aside className="pane pane--inspector blueprint-inspector">
@@ -204,12 +105,12 @@ export function BlueprintInspector({
               <h2>Nothing selected</h2>
             </div>
             <button
-              {...helpTargetProps("inspector.close")}
+              {...helpTargetProps("inspector.toggle")}
               className="ghost-button"
               type="button"
               onClick={onClose}
             >
-              Close
+              Collapse
             </button>
           </div>
           <p>Select a graph node, then inspect or enter it explicitly from the canvas.</p>
@@ -229,12 +130,13 @@ export function BlueprintInspector({
           <div className="blueprint-inspector__chrome">
             <StatusPill tone="default">{selectedNode.kind}</StatusPill>
             <button
-              {...helpTargetProps("inspector.close")}
+              {...helpTargetProps("inspector.toggle", { label: selectedNode.label })}
               className="ghost-button"
+              data-testid="blueprint-inspector-panel-collapse"
               type="button"
               onClick={onClose}
             >
-              Close
+              Collapse
             </button>
           </div>
         </div>
@@ -245,42 +147,10 @@ export function BlueprintInspector({
             <strong>{nodePath ?? "No file path"}</strong>
             {selectedSummary && selectedSummary !== nodePath ? <p>{selectedSummary}</p> : null}
           </div>
-
-          <div className="blueprint-inspector__header-actions">
-            {nodePath ? (
-              <button
-                {...helpTargetProps("inspector.open-default-editor")}
-                className="secondary-button"
-                type="button"
-                onClick={() => void handleOpenInEditor()}
-              >
-                Open File In Default Editor
-              </button>
-            ) : null}
-            {quickActions.map((action) => (
-              <button
-                key={action.id}
-                {...helpTargetProps(
-                  action.id === "open-flow"
-                    ? "inspector.open-flow"
-                    : action.id === "open-blueprint"
-                      ? "inspector.open-blueprint"
-                      : "inspector.reveal-source",
-                )}
-                className="ghost-button"
-                type="button"
-                onClick={action.onClick}
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
-
-          {openInEditorError ? <p className="error-copy">{openInEditorError}</p> : null}
         </div>
       </section>
 
-      <section className="sidebar-section blueprint-inspector__section">
+      <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--selection">
         <div className="section-header">
           <h3>Selection</h3>
           <span>{selectedNode.kind}</span>
@@ -301,7 +171,7 @@ export function BlueprintInspector({
       </section>
 
       {isInspectableGraphNodeKind(selectedNode.kind) ? (
-        <section className="sidebar-section blueprint-inspector__section">
+        <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--editor">
           <div className="section-header">
             <h3>{canEditInline ? "Declaration editor" : "Code details"}</h3>
             <span>
@@ -393,7 +263,7 @@ export function BlueprintInspector({
       ) : null}
 
       {lastEdit ? (
-        <section className="sidebar-section blueprint-inspector__section">
+        <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--last-edit">
           <div className="section-header">
             <h3>Last Edit</h3>
             <span>{lastEdit.touchedRelativePaths.length} files</span>
@@ -409,7 +279,7 @@ export function BlueprintInspector({
       ) : null}
 
       {revealedSource ? (
-        <section className="sidebar-section blueprint-inspector__section">
+        <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--revealed">
           <div className="section-header">
             <h3>Revealed Source</h3>
             <button

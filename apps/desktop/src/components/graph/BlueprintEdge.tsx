@@ -13,6 +13,7 @@ export interface BlueprintEdgeData extends Record<string, unknown> {
   logicalEdgeId: string;
   logicalEdgeKind: GraphEdgeKind;
   logicalEdgeLabel?: string;
+  labelCount?: number;
   segmentIndex: number;
   labelOffsetX?: number;
   labelOffsetY?: number;
@@ -48,6 +49,9 @@ function labelStyles(
     bubble: {
       padding: "5px 9px",
       borderRadius: 999,
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
       background: labelBgStyle?.fill ?? "var(--surface-solid)",
       border: `${labelBgStyle?.strokeWidth ?? 1}px solid ${labelBgStyle?.stroke ?? "var(--line-strong)"}`,
       color: labelStyle?.fill ?? "var(--text-muted)",
@@ -55,6 +59,18 @@ function labelStyles(
       fontWeight: labelStyle?.fontWeight ?? 600,
       lineHeight: 1,
       whiteSpace: "nowrap",
+      boxSizing: "border-box",
+    } satisfies CSSProperties,
+    count: {
+      minWidth: 18,
+      padding: "2px 6px",
+      borderRadius: 999,
+      background: labelStyle?.fill ?? "var(--text-muted)",
+      color: labelBgStyle?.fill ?? "var(--surface-solid)",
+      fontSize: 10,
+      fontWeight: 700,
+      lineHeight: 1.1,
+      textAlign: "center",
       boxSizing: "border-box",
     } satisfies CSSProperties,
   };
@@ -109,6 +125,9 @@ export const BlueprintEdge = memo(function BlueprintEdge({
   };
 
   const labelText = typeof label === "string" ? label : undefined;
+  const labelCount = typeof edgeData?.labelCount === "number" && edgeData.labelCount > 1
+    ? edgeData.labelCount
+    : undefined;
   const edgeOpacity = typeof style?.opacity === "number" ? style.opacity : 1;
   const styles = labelText
     ? labelStyles(
@@ -139,7 +158,10 @@ export const BlueprintEdge = memo(function BlueprintEdge({
       {labelText && styles ? (
         <EdgeLabelRenderer>
           <div style={styles.wrapper}>
-            <div style={styles.bubble}>{labelText}</div>
+            <div style={styles.bubble}>
+              <span>{labelText}</span>
+              {labelCount ? <span style={styles.count}>{labelCount}</span> : null}
+            </div>
           </div>
         </EdgeLabelRenderer>
       ) : null}

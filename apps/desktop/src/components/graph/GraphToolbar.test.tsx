@@ -27,11 +27,13 @@ const baseGraph: GraphView = {
 };
 
 describe("GraphToolbar", () => {
-  it("renders settings controls and forwards clicks", async () => {
+  it("renders useful graph controls inline and forwards clicks", async () => {
     const user = userEvent.setup();
+    const onToggleGraphFilter = vi.fn();
     const onToggleGraphSetting = vi.fn();
     const onDeclutter = vi.fn();
     const onUndoDeclutter = vi.fn();
+    const onFitView = vi.fn();
 
     render(
       <div>
@@ -47,31 +49,32 @@ describe("GraphToolbar", () => {
           }}
           highlightGraphPath={false}
           showEdgeLabels={false}
-          inspectorOpen={false}
           canUndoDeclutter
-          onSelectBreadcrumb={vi.fn()}
           onSelectLevel={vi.fn()}
           onDeclutter={onDeclutter}
-          onToggleGraphFilter={vi.fn()}
+          onFitView={onFitView}
+          onToggleGraphFilter={onToggleGraphFilter}
           onToggleGraphSetting={onToggleGraphSetting}
           onToggleGraphPathHighlight={vi.fn()}
           onToggleEdgeLabels={vi.fn()}
-          onToggleInspector={vi.fn()}
           onUndoDeclutter={onUndoDeclutter}
         />
       </div>,
     );
 
-    await user.click(screen.getByRole("button", { name: "Controls" }));
+    await user.click(screen.getByRole("button", { name: "Fit view" }));
+    await user.click(screen.getByRole("button", { name: /helm\.ui\.graph/i }));
+    await user.click(screen.getByRole("button", { name: "Calls" }));
     await user.click(screen.getByRole("button", { name: "Declutter" }));
     await user.click(screen.getByRole("button", { name: "Undo declutter" }));
-    await user.click(screen.getByRole("button", { name: "Settings" }));
-    await user.click(
-      screen.getByRole("button", { name: /Show external dependencies/i }),
-    );
+    await user.click(screen.getByRole("button", { name: "External" }));
 
+    expect(onFitView).toHaveBeenCalledTimes(1);
+    expect(onToggleGraphFilter).toHaveBeenCalledWith("includeCalls");
     expect(onDeclutter).toHaveBeenCalledTimes(1);
     expect(onUndoDeclutter).toHaveBeenCalledTimes(1);
     expect(onToggleGraphSetting).toHaveBeenCalledWith("includeExternalDependencies");
+    expect(screen.getByText("0 nodes")).toBeInTheDocument();
+    expect(screen.getByText("0 edges")).toBeInTheDocument();
   });
 });

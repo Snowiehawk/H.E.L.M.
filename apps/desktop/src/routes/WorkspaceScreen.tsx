@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { CommandPalette } from "../components/CommandPalette";
@@ -8,6 +11,16 @@ import { DesktopWindow } from "../components/layout/DesktopWindow";
 import { SidebarPane } from "../components/panes/SidebarPane";
 import { ThemeCycleButton } from "../components/shared/ThemeCycleButton";
 import { BlueprintInspector } from "../components/workspace/BlueprintInspector";
+import {
+  BlueprintInspectorDrawer,
+  type BlueprintInspectorDrawerAction,
+  DEFAULT_BLUEPRINT_INSPECTOR_DRAWER_HEIGHT,
+} from "../components/workspace/BlueprintInspectorDrawer";
+import {
+  relativePathForNode,
+  revealActionEnabled,
+  selectionSummary,
+} from "../components/workspace/blueprintInspectorUtils";
 import {
   WorkspaceHelpProvider,
   WorkspaceHelpScope,
@@ -44,6 +57,32 @@ function graphNodeRelativePath(
   return undefined;
 }
 
+function isTextEditingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (target.closest(".monaco-editor, .monaco-diff-editor")) {
+    return true;
+  }
+
+  const editableHost = target.closest(
+    'input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"]',
+  );
+  return editableHost instanceof HTMLElement;
+}
+
+function isShortcutBypassTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const interactiveHost = target.closest(
+    'button, a[href], summary, [role="button"], [role="link"], [role="menuitem"], [role="switch"], [role="tab"]',
+  );
+  return interactiveHost instanceof HTMLElement;
+}
+
 function shouldNavigateGraphOutFromKeyEvent(
   event: Pick<
     KeyboardEvent,
@@ -64,18 +103,33 @@ function shouldNavigateGraphOutFromKeyEvent(
     return false;
   }
 
-  if (event.target.closest(".monaco-editor, .monaco-diff-editor")) {
-    return false;
-  }
-
-  const editableHost = event.target.closest(
-    'input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"]',
-  );
-  if (editableHost instanceof HTMLElement) {
+  if (isTextEditingTarget(event.target)) {
     return false;
   }
 
   return event.target.closest(".graph-panel") instanceof HTMLElement;
+}
+
+function shouldTrackInspectorSpaceTap(
+  event: Pick<
+    KeyboardEvent,
+    "key" | "code" | "repeat" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey" | "target"
+  >,
+) {
+  const pressedSpace = event.code === "Space" || event.key === " " || event.key === "Spacebar";
+  if (
+    !pressedSpace
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || event.shiftKey
+    || isTextEditingTarget(event.target)
+    || isShortcutBypassTarget(event.target)
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 interface GraphPathItem {
@@ -83,6 +137,64 @@ interface GraphPathItem {
   label: string;
   breadcrumb?: GraphBreadcrumbDto;
   revealTargetId?: string;
+}
+
+type InspectorPanelMode = "hidden" | "collapsed" | "expanded";
+
+const INSPECTOR_DRAWER_HEIGHT_STORAGE_KEY = "helm.blueprint.inspectorDrawerHeight";
+const EXPLORER_SIDEBAR_WIDTH_STORAGE_KEY = "helm.blueprint.explorerSidebarWidth";
+const INSPECTOR_SPACE_TAP_THRESHOLD_MS = 220;
+const DEFAULT_EXPLORER_SIDEBAR_WIDTH = 260;
+const MIN_EXPLORER_SIDEBAR_WIDTH = 220;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function readStoredInspectorDrawerHeight() {
+  if (
+    typeof window === "undefined"
+    || typeof window.localStorage?.getItem !== "function"
+  ) {
+    return DEFAULT_BLUEPRINT_INSPECTOR_DRAWER_HEIGHT;
+  }
+
+  const storedValue = window.localStorage.getItem(INSPECTOR_DRAWER_HEIGHT_STORAGE_KEY);
+  const parsedHeight = Number(storedValue);
+  return Number.isFinite(parsedHeight) && parsedHeight > 0
+    ? parsedHeight
+    : DEFAULT_BLUEPRINT_INSPECTOR_DRAWER_HEIGHT;
+}
+
+function readStoredExplorerSidebarWidth() {
+  if (
+    typeof window === "undefined"
+    || typeof window.localStorage?.getItem !== "function"
+  ) {
+    return DEFAULT_EXPLORER_SIDEBAR_WIDTH;
+  }
+
+  const storedValue = window.localStorage.getItem(EXPLORER_SIDEBAR_WIDTH_STORAGE_KEY);
+  const parsedWidth = Number(storedValue);
+  return Number.isFinite(parsedWidth) && parsedWidth > 0
+    ? parsedWidth
+    : DEFAULT_EXPLORER_SIDEBAR_WIDTH;
+}
+
+function clampExplorerSidebarWidth(nextWidth: number, containerWidth: number) {
+  const safeContainerWidth = Math.max(
+    containerWidth || 0,
+    typeof window !== "undefined" ? window.innerWidth : 960,
+    960,
+  );
+  const maxWidth = Math.max(
+    MIN_EXPLORER_SIDEBAR_WIDTH,
+    Math.min(
+      Math.floor(safeContainerWidth * 0.42),
+      safeContainerWidth - 360,
+    ),
+  );
+  return clamp(nextWidth, MIN_EXPLORER_SIDEBAR_WIDTH, maxWidth);
 }
 
 function breadcrumbRelativePath(breadcrumb: GraphBreadcrumbDto): string | undefined {
@@ -288,11 +400,20 @@ export function WorkspaceScreen() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [repoOpenError, setRepoOpenError] = useState<string | null>(null);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorPanelMode, setInspectorPanelMode] = useState<InspectorPanelMode>("hidden");
   const [inspectorTargetId, setInspectorTargetId] = useState<string | undefined>(undefined);
   const [inspectorSnapshot, setInspectorSnapshot] = useState<GraphView["nodes"][number]>();
+  const [inspectorDrawerHeight, setInspectorDrawerHeight] = useState(readStoredInspectorDrawerHeight);
+  const [explorerSidebarWidth, setExplorerSidebarWidth] = useState(readStoredExplorerSidebarWidth);
   const [isSavingSource, setIsSavingSource] = useState(false);
   const [inspectorDirty, setInspectorDirty] = useState(false);
+  const [inspectorActionError, setInspectorActionError] = useState<string | null>(null);
+  const inspectorSpaceTapRef = useRef<{ startedAt: number; cancelled: boolean } | null>(null);
+  const workspaceLayoutRef = useRef<HTMLDivElement>(null);
+  const [workspaceLayoutWidth, setWorkspaceLayoutWidth] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth : 1280,
+  );
+  const [dismissedPeekNodeId, setDismissedPeekNodeId] = useState<string | undefined>(undefined);
   const inspectorDraftContentRef = useRef<string | undefined>(undefined);
   const [graphPathRevealError, setGraphPathRevealError] = useState<string | null>(null);
   const repoSession = useUiStore((state) => state.repoSession);
@@ -329,13 +450,66 @@ export function WorkspaceScreen() {
 
   useEffect(() => {
     if (!repoSession) {
-      setInspectorOpen(false);
+      setInspectorPanelMode("hidden");
       setInspectorTargetId(undefined);
       setInspectorSnapshot(undefined);
       inspectorDraftContentRef.current = undefined;
       setInspectorDirty(false);
+      setDismissedPeekNodeId(undefined);
     }
   }, [repoSession]);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined"
+      || typeof window.localStorage?.setItem !== "function"
+    ) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      INSPECTOR_DRAWER_HEIGHT_STORAGE_KEY,
+      String(Math.round(inspectorDrawerHeight)),
+    );
+  }, [inspectorDrawerHeight]);
+
+  useEffect(() => {
+    const layout = workspaceLayoutRef.current;
+    if (!(layout instanceof HTMLElement)) {
+      return;
+    }
+
+    const updateWidth = () => {
+      setWorkspaceLayoutWidth(layout.clientWidth || window.innerWidth || 1280);
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === "function") {
+      const observer = new ResizeObserver(() => {
+        updateWidth();
+      });
+      observer.observe(layout);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener("resize", updateWidth);
+    return () => window.removeEventListener("resize", updateWidth);
+  }, []);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined"
+      || typeof window.localStorage?.setItem !== "function"
+    ) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      EXPLORER_SIDEBAR_WIDTH_STORAGE_KEY,
+      String(Math.round(explorerSidebarWidth)),
+    );
+  }, [explorerSidebarWidth]);
 
   const overviewQuery = useQuery({
     queryKey: ["overview", repoSession?.id],
@@ -384,6 +558,14 @@ export function WorkspaceScreen() {
   });
 
   const selectedGraphNode = graphQuery.data?.nodes.find((node) => node.id === activeNodeId);
+  const selectedInspectableNode =
+    selectedGraphNode && isInspectableGraphNodeKind(selectedGraphNode.kind)
+      ? selectedGraphNode
+      : undefined;
+  const previewInspectorNode =
+    inspectorPanelMode === "hidden" && selectedInspectableNode?.id !== dismissedPeekNodeId
+      ? selectedInspectableNode
+      : undefined;
   const activeGraphSymbolId =
     selectedGraphNode && isGraphSymbolNodeKind(selectedGraphNode.kind)
       ? selectedGraphNode.id
@@ -394,11 +576,24 @@ export function WorkspaceScreen() {
     }
     return undefined;
   }, [selectedGraphNode]);
+  const narrowWorkspaceLayout = workspaceLayoutWidth <= 920;
+  const clampedExplorerSidebarWidth = useMemo(
+    () => clampExplorerSidebarWidth(explorerSidebarWidth, workspaceLayoutWidth),
+    [explorerSidebarWidth, workspaceLayoutWidth],
+  );
   const symbolQuery = useQuery({
     queryKey: ["symbol", inspectorTargetId],
     queryFn: () => adapter.getSymbol(inspectorTargetId as string),
     enabled: Boolean(inspectorTargetId && inspectorTargetId.startsWith("symbol:")),
   });
+
+  useEffect(() => {
+    if (narrowWorkspaceLayout || clampedExplorerSidebarWidth === explorerSidebarWidth) {
+      return;
+    }
+
+    setExplorerSidebarWidth(clampedExplorerSidebarWidth);
+  }, [clampedExplorerSidebarWidth, explorerSidebarWidth, narrowWorkspaceLayout]);
 
   useEffect(() => {
     if (!inspectorTargetId || !graphQuery.data) {
@@ -411,20 +606,47 @@ export function WorkspaceScreen() {
     }
   }, [graphQuery.data, inspectorTargetId]);
 
+  useEffect(() => {
+    if (!dismissedPeekNodeId) {
+      return;
+    }
+
+    if (!selectedGraphNode || selectedGraphNode.id !== dismissedPeekNodeId) {
+      setDismissedPeekNodeId(undefined);
+    }
+  }, [dismissedPeekNodeId, selectedGraphNode]);
+
+  useEffect(() => {
+    setInspectorActionError(null);
+  }, [activeLevel, graphTargetId, inspectorTargetId, selectedGraphNode?.id]);
+
   const inspectorNode = useMemo(() => {
     if (inspectorTargetId) {
       return graphQuery.data?.nodes.find((node) => node.id === inspectorTargetId) ?? inspectorSnapshot;
     }
-    if (inspectorOpen && selectedGraphNode) {
+    if (inspectorPanelMode !== "hidden" && selectedGraphNode) {
       return selectedGraphNode;
     }
     return undefined;
-  }, [graphQuery.data, inspectorOpen, inspectorSnapshot, inspectorTargetId, selectedGraphNode]);
+  }, [graphQuery.data, inspectorPanelMode, inspectorSnapshot, inspectorTargetId, selectedGraphNode]);
+  const shouldShowInspectorDrawer = Boolean(repoSession && (graphTargetId || graphQuery.data));
+  const effectiveInspectorDrawerMode =
+    inspectorPanelMode === "expanded"
+      ? "expanded"
+      : shouldShowInspectorDrawer
+        ? "collapsed"
+        : "hidden";
+  const effectiveInspectorNode =
+    inspectorPanelMode === "hidden" ? previewInspectorNode : inspectorNode;
 
   const editableSourceQuery = useQuery({
     queryKey: ["editable-node-source", repoSession?.id, inspectorNode?.id],
     queryFn: () => adapter.getEditableNodeSource(inspectorNode?.id as string),
-    enabled: Boolean(inspectorOpen && inspectorNode && isInspectableGraphNodeKind(inspectorNode.kind)),
+    enabled: Boolean(
+      inspectorPanelMode !== "hidden"
+      && inspectorNode
+      && isInspectableGraphNodeKind(inspectorNode.kind),
+    ),
   });
 
   const effectiveBackendStatus = overviewQuery.data?.backend ?? backendStatusQuery.data;
@@ -470,9 +692,12 @@ export function WorkspaceScreen() {
 
   const handleGraphSelectNode = (nodeId: string, kind: GraphNodeKind) => {
     selectNode(nodeId);
+    if (dismissedPeekNodeId === nodeId) {
+      setDismissedPeekNodeId(undefined);
+    }
 
     if (
-      inspectorOpen
+      inspectorPanelMode !== "hidden"
       && (isEnterableGraphNodeKind(kind) || isInspectableGraphNodeKind(kind))
     ) {
       const node = graphQuery.data?.nodes.find((candidate) => candidate.id === nodeId);
@@ -505,8 +730,9 @@ export function WorkspaceScreen() {
       if (node) {
         setInspectorSnapshot(node);
       }
+      setDismissedPeekNodeId(undefined);
       setInspectorTargetId(nodeId);
-      setInspectorOpen(true);
+      setInspectorPanelMode("expanded");
     }
   }, [focusGraph, graphQuery.data, selectNode, setRevealedSource]);
 
@@ -520,9 +746,10 @@ export function WorkspaceScreen() {
     if (node) {
       setInspectorSnapshot(node);
     }
+    setDismissedPeekNodeId(undefined);
     setInspectorTargetId(nodeId);
-    setInspectorOpen(true);
-  }, [graphQuery.data, selectNode]);
+    setInspectorPanelMode("expanded");
+  }, [dismissedPeekNodeId, graphQuery.data, selectNode]);
 
   const handleSelectBreadcrumb = (breadcrumb: GraphBreadcrumbDto) => {
     if (breadcrumb.level === "flow") {
@@ -603,14 +830,16 @@ export function WorkspaceScreen() {
   };
 
   const handleRevealSource = async (nodeId: string) => {
+    setInspectorActionError(null);
     const source = await adapter.revealSource(nodeId);
-    setInspectorOpen(true);
+    setDismissedPeekNodeId(undefined);
+    setInspectorPanelMode("expanded");
     setRevealedSource(source);
   };
 
   const handleApplyEdit = async (request: StructuralEditRequest) => {
     const result = await adapter.applyStructuralEdit(request);
-    setInspectorOpen(true);
+    setInspectorPanelMode("expanded");
     setLastEdit(result);
     setRevealedSource(undefined);
     await Promise.all([
@@ -639,7 +868,8 @@ export function WorkspaceScreen() {
     setIsSavingSource(true);
     try {
       const result = await adapter.saveNodeSource(targetId, content);
-      setInspectorOpen(true);
+      setDismissedPeekNodeId(undefined);
+      setInspectorPanelMode("expanded");
       setLastEdit(result);
       setRevealedSource(undefined);
       selectNode(targetId);
@@ -667,9 +897,21 @@ export function WorkspaceScreen() {
   }, []);
 
   const handleOpenBlueprint = (symbolId: string) => {
+    setInspectorActionError(null);
     setInspectorTargetId(symbolId);
     focusGraph(symbolId, "symbol");
   };
+
+  const handleOpenInDefaultEditor = useCallback(async (targetId: string) => {
+    setInspectorActionError(null);
+    try {
+      await adapter.openNodeInDefaultEditor(targetId);
+    } catch (reason) {
+      setInspectorActionError(
+        reason instanceof Error ? reason.message : "Unable to open the file in the default editor.",
+      );
+    }
+  }, [adapter]);
 
   const requestInspectorClose = useCallback(async () => {
     const draftContent = inspectorDraftContentRef.current;
@@ -686,36 +928,38 @@ export function WorkspaceScreen() {
       }
     }
 
-    setInspectorOpen(false);
+    setInspectorPanelMode("hidden");
     setInspectorTargetId(undefined);
     setInspectorSnapshot(undefined);
     inspectorDraftContentRef.current = undefined;
     setInspectorDirty(false);
     setRevealedSource(undefined);
+    setDismissedPeekNodeId(selectedGraphNode?.id ?? inspectorTargetId);
     return true;
   }, [
     handleSaveNodeSource,
     inspectorDirty,
     inspectorTargetId,
+    selectedGraphNode?.id,
     setRevealedSource,
   ]);
 
-  const handleToggleInspector = async () => {
-    if (inspectorOpen) {
-      await requestInspectorClose();
-      return;
-    }
+  const handleCollapseInspector = useCallback(() => {
+    setInspectorPanelMode((current) => (current === "expanded" ? "collapsed" : current));
+  }, []);
 
-    const nextNode = selectedGraphNode ?? inspectorSnapshot;
+  const handleExpandInspector = useCallback(() => {
+    const nextNode = previewInspectorNode ?? selectedGraphNode ?? inspectorSnapshot;
     if (nextNode) {
       setInspectorTargetId(nextNode.id);
       setInspectorSnapshot(nextNode);
     }
-    setInspectorOpen(true);
-  };
+    setDismissedPeekNodeId(undefined);
+    setInspectorPanelMode("expanded");
+  }, [inspectorSnapshot, previewInspectorNode, selectedGraphNode]);
 
   const handleClearGraphSelection = async () => {
-    if (inspectorOpen) {
+    if (inspectorPanelMode !== "hidden") {
       const closed = await requestInspectorClose();
       if (!closed) {
         return;
@@ -723,6 +967,90 @@ export function WorkspaceScreen() {
     }
     selectNode(undefined);
   };
+
+  const handleExplorerSidebarResize = useCallback((nextWidth: number) => {
+    setExplorerSidebarWidth(clampExplorerSidebarWidth(nextWidth, workspaceLayoutWidth));
+  }, [workspaceLayoutWidth]);
+
+  const handleExplorerResizePointerDown = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (narrowWorkspaceLayout) {
+      return;
+    }
+
+    const layoutLeft = workspaceLayoutRef.current?.getBoundingClientRect().left ?? 0;
+
+    event.preventDefault();
+
+    const resizeFromClientX = (clientX: number) => {
+      if (!Number.isFinite(clientX)) {
+        return;
+      }
+
+      handleExplorerSidebarResize(clientX - layoutLeft);
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      resizeFromClientX(moveEvent.clientX);
+    };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      resizeFromClientX(moveEvent.clientX);
+    };
+
+    const stopResize = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", stopResize);
+    };
+
+    resizeFromClientX(event.clientX);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", stopResize);
+  }, [
+    handleExplorerSidebarResize,
+    narrowWorkspaceLayout,
+  ]);
+
+  const handleExplorerResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (narrowWorkspaceLayout) {
+      return;
+    }
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      handleExplorerSidebarResize(clampedExplorerSidebarWidth - 24);
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      handleExplorerSidebarResize(clampedExplorerSidebarWidth + 24);
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      handleExplorerSidebarResize(DEFAULT_EXPLORER_SIDEBAR_WIDTH);
+    }
+  }, [
+    clampedExplorerSidebarWidth,
+    handleExplorerSidebarResize,
+    narrowWorkspaceLayout,
+  ]);
+
+  const workspaceLayoutStyle = useMemo(
+    () => (narrowWorkspaceLayout
+      ? undefined
+      : {
+          gridTemplateColumns: `${Math.round(clampedExplorerSidebarWidth)}px 12px minmax(0, 1fr)`,
+        }),
+    [clampedExplorerSidebarWidth, narrowWorkspaceLayout],
+  );
 
   const titleCopy = useMemo(() => {
     if (activeLevel === "flow") {
@@ -759,14 +1087,139 @@ export function WorkspaceScreen() {
     overviewQuery.data?.modules,
     repoSession,
   ]);
+  const currentModulePath = useMemo(
+    () => [...(graphQuery.data?.breadcrumbs ?? [])]
+      .reverse()
+      .find((breadcrumb) => breadcrumb.level === "module")?.subtitle ?? undefined,
+    [graphQuery.data?.breadcrumbs],
+  );
+  const inspectorDrawerStatus = isSavingSource
+    ? { label: "Saving", tone: "warning" as const }
+    : inspectorDirty
+      ? { label: "Unsaved", tone: "accent" as const }
+      : { label: effectiveInspectorNode?.kind ?? activeLevel, tone: "default" as const };
+  const graphContextPath = graphPathItems.map((item) => item.label).join(" / ");
+  const graphContextTitle =
+    graphQuery.data?.focus?.label
+    ?? graphPathItems[graphPathItems.length - 1]?.label
+    ?? repoSession?.name
+    ?? "Inspector";
+  const graphContextSubtitle =
+    graphQuery.data?.focus?.subtitle
+    ?? (graphContextPath || titleCopy);
+  const inspectorSummaryText = selectionSummary(effectiveInspectorNode);
+  const drawerTitle = effectiveInspectorNode?.label ?? graphContextTitle;
+  const drawerSubtitle = effectiveInspectorNode
+    ? inspectorSummaryText && inspectorSummaryText !== effectiveInspectorNode.label
+      ? inspectorSummaryText
+      : graphContextSubtitle
+    : graphContextSubtitle;
+  const drawerActionNode = effectiveInspectorNode;
+  const drawerNodePath =
+    relativePathForNode(drawerActionNode)
+    ?? (drawerActionNode?.subtitle?.endsWith(".py") ? drawerActionNode.subtitle : undefined);
+  const effectiveDrawerNodePath = drawerNodePath ?? currentModulePath;
+  const drawerActions: BlueprintInspectorDrawerAction[] = [];
+  if (drawerActionNode) {
+    if (effectiveDrawerNodePath) {
+      drawerActions.push({
+        id: "open-default-editor",
+        label: "Open File In Default Editor",
+        helpId: "inspector.open-default-editor",
+        tone: "secondary",
+        onClick: () => {
+          void handleOpenInDefaultEditor(drawerActionNode.id);
+        },
+      });
+    }
+
+    if (drawerActionNode.kind === "function") {
+      drawerActions.push({
+        id: "open-blueprint",
+        label: "Open blueprint",
+        helpId: "inspector.open-blueprint",
+        onClick: () => handleOpenBlueprint(drawerActionNode.id),
+      });
+    }
+
+    if (drawerActionNode.kind === "function" || drawerActionNode.kind === "class") {
+      drawerActions.push({
+        id: "open-flow",
+        label: "Open flow",
+        helpId: "inspector.open-flow",
+        onClick: () => {
+          setDismissedPeekNodeId(undefined);
+          setInspectorTargetId(drawerActionNode.id);
+          focusGraph(drawerActionNode.id, "flow");
+        },
+      });
+    }
+
+    if (revealActionEnabled(drawerActionNode)) {
+      drawerActions.push({
+        id: "reveal-source",
+        label: revealedSource?.targetId === drawerActionNode.id ? "Refresh source" : "Reveal source",
+        helpId: "inspector.reveal-source",
+        onClick: () => {
+          void handleRevealSource(drawerActionNode.id);
+        },
+      });
+    }
+  }
 
   const handleWorkspaceKeyDownCapture = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (!shouldNavigateGraphOutFromKeyEvent(event.nativeEvent)) {
+    if (shouldNavigateGraphOutFromKeyEvent(event.nativeEvent)) {
+      event.preventDefault();
+      handleNavigateGraphOut();
+      return;
+    }
+
+    if (!shouldTrackInspectorSpaceTap(event.nativeEvent)) {
+      return;
+    }
+
+    if (event.nativeEvent.repeat) {
+      if (inspectorSpaceTapRef.current) {
+        inspectorSpaceTapRef.current.cancelled = true;
+      }
+      return;
+    }
+
+    inspectorSpaceTapRef.current = {
+      startedAt: Date.now(),
+      cancelled: false,
+    };
+    event.preventDefault();
+  };
+
+  const handleWorkspaceKeyUpCapture = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (!shouldTrackInspectorSpaceTap(event.nativeEvent)) {
+      return;
+    }
+
+    const trackedTap = inspectorSpaceTapRef.current;
+    inspectorSpaceTapRef.current = null;
+    if (!trackedTap || trackedTap.cancelled) {
+      return;
+    }
+
+    if (Date.now() - trackedTap.startedAt > INSPECTOR_SPACE_TAP_THRESHOLD_MS) {
       return;
     }
 
     event.preventDefault();
-    handleNavigateGraphOut();
+    if (effectiveInspectorDrawerMode === "expanded") {
+      handleCollapseInspector();
+      return;
+    }
+
+    handleExpandInspector();
+  };
+
+  const handleWorkspacePointerDownCapture = () => {
+    if (inspectorSpaceTapRef.current) {
+      inspectorSpaceTapRef.current.cancelled = true;
+    }
   };
 
   const handleRevealGraphPath = useCallback(async (targetId: string) => {
@@ -800,30 +1253,51 @@ export function WorkspaceScreen() {
     >
       <WorkspaceHelpProvider>
         <WorkspaceHelpScope
-          className="workspace-layout workspace-layout--blueprint"
+          onKeyUpCapture={handleWorkspaceKeyUpCapture}
           onKeyDownCapture={handleWorkspaceKeyDownCapture}
+          onPointerDownCapture={handleWorkspacePointerDownCapture}
         >
-          <SidebarPane
-            backendStatus={effectiveBackendStatus}
-            overview={overviewQuery.data}
-            sidebarQuery={sidebarQuery}
-            searchResults={sidebarSearchQuery.data ?? []}
-            isSearching={sidebarSearchQuery.isFetching}
-            selectedFilePath={
-              selectedFilePath
-              ?? graphNodeRelativePath(inspectorNode?.metadata, inspectorNode?.subtitle)
-            }
-            selectedNodeId={activeNodeId}
-            onSidebarQueryChange={setSidebarQuery}
-            onSelectResult={selectSidebarResult}
-            onSelectModule={selectOverviewModule}
-            onSelectSymbol={selectOverviewSymbol}
-            onFocusRepoGraph={() => repoSession && focusGraph(repoSession.id, "repo")}
-            onReindexRepo={reindexCurrentRepo}
-            onOpenRepo={openAndIndexRepo}
-          />
+          <div
+            ref={workspaceLayoutRef}
+            className="workspace-layout workspace-layout--blueprint"
+            data-testid="workspace-layout"
+            style={workspaceLayoutStyle}
+          >
+            <SidebarPane
+              backendStatus={effectiveBackendStatus}
+              overview={overviewQuery.data}
+              sidebarQuery={sidebarQuery}
+              searchResults={sidebarSearchQuery.data ?? []}
+              isSearching={sidebarSearchQuery.isFetching}
+              selectedFilePath={
+                selectedFilePath
+                ?? graphNodeRelativePath(inspectorNode?.metadata, inspectorNode?.subtitle)
+              }
+              selectedNodeId={activeNodeId}
+              onSidebarQueryChange={setSidebarQuery}
+              onSelectResult={selectSidebarResult}
+              onSelectModule={selectOverviewModule}
+              onSelectSymbol={selectOverviewSymbol}
+              onFocusRepoGraph={() => repoSession && focusGraph(repoSession.id, "repo")}
+              onReindexRepo={reindexCurrentRepo}
+              onOpenRepo={openAndIndexRepo}
+            />
 
-          <section className="pane pane--main blueprint-main">
+            {!narrowWorkspaceLayout ? (
+              <button
+                aria-label="Resize explorer panel"
+                className="workspace-layout__resize-rail"
+                data-testid="workspace-sidebar-resize"
+                type="button"
+                onDoubleClick={() => handleExplorerSidebarResize(DEFAULT_EXPLORER_SIDEBAR_WIDTH)}
+                onKeyDown={handleExplorerResizeKeyDown}
+                onPointerDown={handleExplorerResizePointerDown}
+              >
+                <span aria-hidden="true" className="workspace-layout__resize-rail-handle" />
+              </button>
+            ) : null}
+
+            <section className="pane pane--main blueprint-main">
             {repoOpenError ? <p className="error-copy graph-stage__error">{repoOpenError}</p> : null}
             <div className="blueprint-stage__header">
               <div className="blueprint-stage__header-copy">
@@ -903,70 +1377,95 @@ export function WorkspaceScreen() {
             </div>
 
             <div className="blueprint-main__body">
-              {inspectorOpen ? (
-                <BlueprintInspector
-                  selectedNode={inspectorNode}
-                  symbol={symbolQuery.data}
-                  editableSource={editableSourceQuery.data}
-                  editableSourceLoading={editableSourceQuery.isFetching}
-                  editableSourceError={
-                    editableSourceQuery.error instanceof Error
-                      ? editableSourceQuery.error.message
-                      : editableSourceQuery.error
-                        ? "Unable to load editable source."
+              <div
+                className={`blueprint-graph-shell blueprint-graph-shell--${effectiveInspectorDrawerMode}`}
+                data-inspector-mode={effectiveInspectorDrawerMode}
+              >
+                <div className="blueprint-graph-shell__canvas">
+                  <GraphCanvas
+                    repoPath={repoSession?.path}
+                    graph={graphQuery.data}
+                    isLoading={!graphQuery.data && graphQuery.isFetching}
+                    errorMessage={
+                      !graphQuery.data
+                        ? graphQuery.error instanceof Error
+                          ? graphQuery.error.message
+                          : graphQuery.error
+                            ? "Unable to load the current graph."
+                            : null
                         : null
-                  }
-                  revealedSource={revealedSource}
-                  lastEdit={lastEdit}
-                  isSavingSource={isSavingSource}
-                  onSaveSource={handleSaveNodeSource}
-                  onEditorStateChange={handleInspectorEditorStateChange}
-                  onOpenFlow={(symbolId) => {
-                    setInspectorTargetId(symbolId);
-                    focusGraph(symbolId, "flow");
-                  }}
-                  onOpenBlueprint={handleOpenBlueprint}
-                  onRevealSource={handleRevealSource}
-                  onOpenInDefaultEditor={(targetId) => adapter.openNodeInDefaultEditor(targetId)}
-                  onDismissSource={() => setRevealedSource(undefined)}
-                  onClose={() => void requestInspectorClose()}
-                />
-              ) : null}
+                    }
+                    activeNodeId={activeNodeId}
+                    graphFilters={graphFilters}
+                    graphSettings={graphSettings}
+                    highlightGraphPath={highlightGraphPath}
+                    showEdgeLabels={showEdgeLabels}
+                    onSelectNode={handleGraphSelectNode}
+                    onActivateNode={handleGraphActivateNode}
+                    onInspectNode={handleGraphInspectNode}
+                    onSelectBreadcrumb={handleSelectBreadcrumb}
+                    onSelectLevel={handleSelectLevel}
+                    onToggleGraphFilter={toggleGraphFilter}
+                    onToggleGraphSetting={toggleGraphSetting}
+                    onToggleGraphPathHighlight={toggleGraphPathHighlight}
+                    onToggleEdgeLabels={toggleEdgeLabels}
+                    onNavigateOut={handleNavigateGraphOut}
+                    onClearSelection={() => void handleClearGraphSelection()}
+                  />
+                </div>
 
-              <GraphCanvas
-                repoPath={repoSession?.path}
-                graph={graphQuery.data}
-                isLoading={!graphQuery.data && graphQuery.isFetching}
-                errorMessage={
-                  !graphQuery.data
-                    ? graphQuery.error instanceof Error
-                      ? graphQuery.error.message
-                      : graphQuery.error
-                        ? "Unable to load the current graph."
-                        : null
-                    : null
-                }
-                activeNodeId={activeNodeId}
-                graphFilters={graphFilters}
-                graphSettings={graphSettings}
-                highlightGraphPath={highlightGraphPath}
-                showEdgeLabels={showEdgeLabels}
-                inspectorOpen={inspectorOpen}
-                onSelectNode={handleGraphSelectNode}
-                onActivateNode={handleGraphActivateNode}
-                onInspectNode={handleGraphInspectNode}
-                onSelectBreadcrumb={handleSelectBreadcrumb}
-                onSelectLevel={handleSelectLevel}
-                onToggleGraphFilter={toggleGraphFilter}
-                onToggleGraphSetting={toggleGraphSetting}
-                onToggleGraphPathHighlight={toggleGraphPathHighlight}
-                onToggleEdgeLabels={toggleEdgeLabels}
-                onToggleInspector={handleToggleInspector}
-                onNavigateOut={handleNavigateGraphOut}
-                onClearSelection={() => void handleClearGraphSelection()}
-              />
+                {effectiveInspectorDrawerMode !== "hidden" ? (
+                  <BlueprintInspectorDrawer
+                    actionError={inspectorActionError}
+                    actions={drawerActions}
+                    drawerHeight={inspectorDrawerHeight}
+                    mode={effectiveInspectorDrawerMode}
+                    showDismiss={Boolean(effectiveInspectorNode)}
+                    statusLabel={inspectorDrawerStatus.label}
+                    statusTone={inspectorDrawerStatus.tone}
+                    subtitle={drawerSubtitle}
+                    title={drawerTitle}
+                    onClose={() => {
+                      if (inspectorPanelMode === "hidden" && effectiveInspectorNode) {
+                        setDismissedPeekNodeId(effectiveInspectorNode.id);
+                        return;
+                      }
+                      if (inspectorPanelMode !== "hidden") {
+                        void requestInspectorClose();
+                      }
+                    }}
+                    onCollapse={handleCollapseInspector}
+                    onExpand={handleExpandInspector}
+                    onHeightChange={setInspectorDrawerHeight}
+                  >
+                    {inspectorPanelMode !== "hidden" ? (
+                      <BlueprintInspector
+                        selectedNode={inspectorNode}
+                        symbol={symbolQuery.data}
+                        editableSource={editableSourceQuery.data}
+                        editableSourceLoading={editableSourceQuery.isFetching}
+                        editableSourceError={
+                          editableSourceQuery.error instanceof Error
+                            ? editableSourceQuery.error.message
+                            : editableSourceQuery.error
+                              ? "Unable to load editable source."
+                              : null
+                        }
+                        revealedSource={revealedSource}
+                        lastEdit={lastEdit}
+                        isSavingSource={isSavingSource}
+                        onSaveSource={handleSaveNodeSource}
+                        onEditorStateChange={handleInspectorEditorStateChange}
+                        onDismissSource={() => setRevealedSource(undefined)}
+                        onClose={handleCollapseInspector}
+                      />
+                    ) : null}
+                  </BlueprintInspectorDrawer>
+                ) : null}
+              </div>
             </div>
           </section>
+          </div>
         </WorkspaceHelpScope>
       </WorkspaceHelpProvider>
       <CommandPalette />

@@ -12,9 +12,11 @@ import {
   applyMemberNodeDelta,
   applyGroupedLayoutPositions,
   buildEdgeLabelOffsets,
+  collapseDuplicateEdgeLabels,
   mergeGroupsForSelection,
   normalizeStoredGroups,
   renameGraphGroup,
+  resolveSelectionPreviewNodeId,
   ungroupGroupsForSelection,
 } from "./GraphCanvas";
 import type { StoredGraphLayout } from "./graphLayoutPersistence";
@@ -280,7 +282,6 @@ function renderGraphCanvas(overrides: Partial<Parameters<typeof GraphCanvas>[0]>
       }}
       highlightGraphPath={false}
       showEdgeLabels={false}
-      inspectorOpen={false}
       onSelectNode={vi.fn()}
       onActivateNode={vi.fn()}
       onInspectNode={vi.fn()}
@@ -290,7 +291,6 @@ function renderGraphCanvas(overrides: Partial<Parameters<typeof GraphCanvas>[0]>
       onToggleGraphSetting={vi.fn()}
       onToggleGraphPathHighlight={vi.fn()}
       onToggleEdgeLabels={vi.fn()}
-      onToggleInspector={vi.fn()}
       onNavigateOut={vi.fn()}
       onClearSelection={vi.fn()}
       {...overrides}
@@ -331,7 +331,6 @@ describe("GraphCanvas", () => {
         }}
         highlightGraphPath={false}
         showEdgeLabels={false}
-        inspectorOpen={false}
         onSelectNode={vi.fn()}
         onActivateNode={vi.fn()}
         onInspectNode={vi.fn()}
@@ -341,7 +340,6 @@ describe("GraphCanvas", () => {
         onToggleGraphSetting={vi.fn()}
         onToggleGraphPathHighlight={vi.fn()}
         onToggleEdgeLabels={vi.fn()}
-        onToggleInspector={vi.fn()}
         onNavigateOut={vi.fn()}
         onClearSelection={vi.fn()}
       />,
@@ -374,7 +372,6 @@ describe("GraphCanvas", () => {
         }}
         highlightGraphPath={false}
         showEdgeLabels={false}
-        inspectorOpen={false}
         onSelectNode={vi.fn()}
         onActivateNode={vi.fn()}
         onInspectNode={vi.fn()}
@@ -384,7 +381,6 @@ describe("GraphCanvas", () => {
         onToggleGraphSetting={vi.fn()}
         onToggleGraphPathHighlight={vi.fn()}
         onToggleEdgeLabels={vi.fn()}
-        onToggleInspector={vi.fn()}
         onNavigateOut={vi.fn()}
         onClearSelection={vi.fn()}
       />,
@@ -412,7 +408,6 @@ describe("GraphCanvas", () => {
         }}
         highlightGraphPath={false}
         showEdgeLabels={false}
-        inspectorOpen={false}
         onSelectNode={vi.fn()}
         onActivateNode={vi.fn()}
         onInspectNode={vi.fn()}
@@ -422,7 +417,6 @@ describe("GraphCanvas", () => {
         onToggleGraphSetting={vi.fn()}
         onToggleGraphPathHighlight={vi.fn()}
         onToggleEdgeLabels={vi.fn()}
-        onToggleInspector={vi.fn()}
         onNavigateOut={vi.fn()}
         onClearSelection={vi.fn()}
       />,
@@ -430,7 +424,7 @@ describe("GraphCanvas", () => {
 
     expect(await screen.findByRole("region", { name: /Graph canvas/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Controls" }));
+    await user.click(screen.getByRole("button", { name: /calculate/i }));
     await user.click(screen.getByRole("button", { name: "Declutter" }));
 
     await waitFor(() => expect(writeStoredGraphLayoutMock).toHaveBeenCalledTimes(1));
@@ -466,7 +460,6 @@ describe("GraphCanvas", () => {
         }}
         highlightGraphPath={false}
         showEdgeLabels={false}
-        inspectorOpen={false}
         onSelectNode={vi.fn()}
         onActivateNode={vi.fn()}
         onInspectNode={vi.fn()}
@@ -476,7 +469,6 @@ describe("GraphCanvas", () => {
         onToggleGraphSetting={vi.fn()}
         onToggleGraphPathHighlight={vi.fn()}
         onToggleEdgeLabels={vi.fn()}
-        onToggleInspector={vi.fn()}
         onNavigateOut={vi.fn()}
         onClearSelection={vi.fn()}
       />,
@@ -490,6 +482,45 @@ describe("GraphCanvas", () => {
     expect(connectedHost).toHaveClass("is-related");
     expect(connectedHost).not.toHaveClass("is-dimmed");
     expect(dimmedHost).toHaveClass("is-dimmed");
+  });
+
+  it("does not reload the saved layout when local selection changes", async () => {
+    renderGraphCanvas();
+
+    expect(await screen.findByTestId("rf__node-branch:left")).toBeInTheDocument();
+    expect(readStoredGraphLayoutMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(within(await screen.findByTestId("rf__node-branch:left")).getByText("branch left"));
+
+    await waitFor(() => expect(readStoredGraphLayoutMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("suppresses single-node emphasis while a marquee selection is active", () => {
+    const graphNodeIds = new Set(baseGraph.nodes.map((node) => node.id));
+
+    expect(resolveSelectionPreviewNodeId({
+      activeNodeId: "entry:calculate",
+      effectiveSemanticSelection: ["branch:left"],
+      graphNodeIds,
+      marqueeSelectionActive: true,
+      selectedRerouteCount: 0,
+    })).toBe("");
+
+    expect(resolveSelectionPreviewNodeId({
+      activeNodeId: "entry:calculate",
+      effectiveSemanticSelection: [],
+      graphNodeIds,
+      marqueeSelectionActive: true,
+      selectedRerouteCount: 0,
+    })).toBe("");
+
+    expect(resolveSelectionPreviewNodeId({
+      activeNodeId: "entry:calculate",
+      effectiveSemanticSelection: ["branch:left"],
+      graphNodeIds,
+      marqueeSelectionActive: false,
+      selectedRerouteCount: 0,
+    })).toBe("branch:left");
   });
 
   it("highlights a whole handle group when you hover a grouped port", async () => {
@@ -593,7 +624,6 @@ describe("GraphCanvas", () => {
         }}
         highlightGraphPath={false}
         showEdgeLabels
-        inspectorOpen={false}
         onSelectNode={vi.fn()}
         onActivateNode={vi.fn()}
         onInspectNode={vi.fn()}
@@ -603,7 +633,6 @@ describe("GraphCanvas", () => {
         onToggleGraphSetting={vi.fn()}
         onToggleGraphPathHighlight={vi.fn()}
         onToggleEdgeLabels={vi.fn()}
-        onToggleInspector={vi.fn()}
         onNavigateOut={vi.fn()}
         onClearSelection={vi.fn()}
       />,
@@ -680,6 +709,65 @@ describe("GraphCanvas", () => {
     expect(gammaOffset?.y).toBe(-10);
   });
 
+  it("collapses duplicate labels on the same visual edge lane into one counted label", () => {
+    const { collapsedLabels, visibleSegments } = collapseDuplicateEdgeLabels([
+      {
+        id: "calls:error-a::segment:0",
+        label: "CalculatorError",
+        source: "module:source",
+        target: "module:target",
+        sourceHandle: "out:graph:calls",
+        targetHandle: "in:graph:calls",
+      },
+      {
+        id: "calls:error-b::segment:0",
+        label: "CalculatorError",
+        source: "module:source",
+        target: "module:target",
+        sourceHandle: "out:graph:calls",
+        targetHandle: "in:graph:calls",
+      },
+      {
+        id: "calls:error-c::segment:0",
+        label: "CalculatorError",
+        source: "module:source",
+        target: "module:target",
+        sourceHandle: "out:graph:calls",
+        targetHandle: "in:graph:calls",
+      },
+      {
+        id: "calls:value::segment:0",
+        label: "value",
+        source: "module:source",
+        target: "module:target",
+        sourceHandle: "out:graph:calls",
+        targetHandle: "in:graph:calls",
+      },
+    ]);
+
+    const countedLabelIds = [...collapsedLabels.entries()]
+      .filter(([, label]) => label.label === "CalculatorError")
+      .map(([id]) => id);
+    const hiddenLabelIds = [...collapsedLabels.entries()]
+      .filter(([, label]) => label.label === undefined)
+      .map(([id]) => id);
+
+    expect(visibleSegments.map((segment) => segment.label).sort()).toEqual(["CalculatorError", "value"]);
+    expect(countedLabelIds).toHaveLength(1);
+    expect(collapsedLabels.get(countedLabelIds[0] ?? "")).toEqual({
+      label: "CalculatorError",
+      count: 3,
+    });
+    expect(hiddenLabelIds.sort()).toEqual([
+      "calls:error-b::segment:0",
+      "calls:error-c::segment:0",
+    ]);
+    expect(collapsedLabels.get("calls:value::segment:0")).toEqual({
+      label: "value",
+      count: undefined,
+    });
+  });
+
   it("reports graph port help through the workspace help box", async () => {
     const user = userEvent.setup();
 
@@ -700,7 +788,6 @@ describe("GraphCanvas", () => {
             }}
             highlightGraphPath={false}
             showEdgeLabels={false}
-            inspectorOpen={false}
             onSelectNode={vi.fn()}
             onActivateNode={vi.fn()}
             onInspectNode={vi.fn()}
@@ -710,7 +797,6 @@ describe("GraphCanvas", () => {
             onToggleGraphSetting={vi.fn()}
             onToggleGraphPathHighlight={vi.fn()}
             onToggleEdgeLabels={vi.fn()}
-            onToggleInspector={vi.fn()}
             onNavigateOut={vi.fn()}
             onClearSelection={vi.fn()}
           />
@@ -761,7 +847,6 @@ describe("GraphCanvas", () => {
         }}
         highlightGraphPath={false}
         showEdgeLabels={false}
-        inspectorOpen={false}
         onSelectNode={vi.fn()}
         onActivateNode={vi.fn()}
         onInspectNode={vi.fn()}
@@ -771,7 +856,6 @@ describe("GraphCanvas", () => {
         onToggleGraphSetting={vi.fn()}
         onToggleGraphPathHighlight={vi.fn()}
         onToggleEdgeLabels={vi.fn()}
-        onToggleInspector={vi.fn()}
         onNavigateOut={vi.fn()}
         onClearSelection={vi.fn()}
       />,
@@ -797,7 +881,6 @@ describe("GraphCanvas", () => {
         }}
         highlightGraphPath={false}
         showEdgeLabels={false}
-        inspectorOpen={false}
         onSelectNode={vi.fn()}
         onActivateNode={vi.fn()}
         onInspectNode={vi.fn()}
@@ -807,7 +890,6 @@ describe("GraphCanvas", () => {
         onToggleGraphSetting={vi.fn()}
         onToggleGraphPathHighlight={vi.fn()}
         onToggleEdgeLabels={vi.fn()}
-        onToggleInspector={vi.fn()}
         onNavigateOut={vi.fn()}
         onClearSelection={vi.fn()}
       />,
@@ -835,6 +917,23 @@ describe("GraphCanvas", () => {
     );
   });
 
+  it("fits the graph view when you press f", async () => {
+    renderGraphCanvas();
+
+    expect(await screen.findByTestId("rf__node-entry:calculate")).toBeInTheDocument();
+
+    const graphPanel = screen.getByRole("region", { name: /Graph canvas/i });
+    const fitViewButton = document.querySelector(".react-flow__controls-fitview") as HTMLButtonElement | null;
+    if (!fitViewButton) {
+      throw new Error("Expected the React Flow fit-view control to be rendered.");
+    }
+    const clickSpy = vi.spyOn(fitViewButton, "click").mockImplementation(() => {});
+
+    fireEvent.keyDown(graphPanel, { key: "f" });
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("clears selection when the graph pane background is clicked", async () => {
     const onClearSelection = vi.fn();
     const user = userEvent.setup();
@@ -854,7 +953,6 @@ describe("GraphCanvas", () => {
         }}
         highlightGraphPath={false}
         showEdgeLabels={false}
-        inspectorOpen={false}
         onSelectNode={vi.fn()}
         onActivateNode={vi.fn()}
         onInspectNode={vi.fn()}
@@ -864,7 +962,6 @@ describe("GraphCanvas", () => {
         onToggleGraphSetting={vi.fn()}
         onToggleGraphPathHighlight={vi.fn()}
         onToggleEdgeLabels={vi.fn()}
-        onToggleInspector={vi.fn()}
         onNavigateOut={vi.fn()}
         onClearSelection={onClearSelection}
       />,

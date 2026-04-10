@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type {
   GraphAbstractionLevel,
-  GraphBreadcrumbDto,
   GraphFilters,
   GraphSettings,
   GraphView,
@@ -15,15 +14,6 @@ interface Point {
 }
 
 const TOOLBAR_MARGIN = 16;
-
-function isNativeMacApp() {
-  return (
-    typeof window !== "undefined"
-    && "__TAURI_INTERNALS__" in window
-    && typeof navigator !== "undefined"
-    && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
-  );
-}
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -48,16 +38,14 @@ export function GraphToolbar({
   graphSettings,
   highlightGraphPath,
   showEdgeLabels,
-  inspectorOpen,
   canUndoDeclutter,
-  onSelectBreadcrumb,
   onSelectLevel,
   onDeclutter,
+  onFitView,
   onToggleGraphFilter,
   onToggleGraphSetting,
   onToggleGraphPathHighlight,
   onToggleEdgeLabels,
-  onToggleInspector,
   onUndoDeclutter,
 }: {
   graph?: GraphView;
@@ -65,20 +53,17 @@ export function GraphToolbar({
   graphSettings: GraphSettings;
   highlightGraphPath: boolean;
   showEdgeLabels: boolean;
-  inspectorOpen: boolean;
   canUndoDeclutter: boolean;
-  onSelectBreadcrumb: (breadcrumb: GraphBreadcrumbDto) => void;
   onSelectLevel: (level: GraphAbstractionLevel) => void;
   onDeclutter: () => void;
+  onFitView: () => void;
   onToggleGraphFilter: (key: keyof GraphFilters) => void;
   onToggleGraphSetting: (key: keyof GraphSettings) => void;
   onToggleGraphPathHighlight: () => void;
   onToggleEdgeLabels: () => void;
-  onToggleInspector: () => void;
   onUndoDeclutter: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [position, setPosition] = useState<Point | null>(null);
   const [hasMoved, setHasMoved] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -120,21 +105,15 @@ export function GraphToolbar({
     });
   }, [expanded, graph?.targetId, hasMoved, position]);
 
-  useEffect(() => {
-    setSettingsOpen(false);
-  }, [graph?.targetId]);
-
-  useEffect(() => {
-    if (!expanded) {
-      setSettingsOpen(false);
-    }
-  }, [expanded]);
-
   if (!graph) {
     return null;
   }
 
-  const showInlineViewOptions = !isNativeMacApp();
+  const availableLevels = graph.focus?.availableLevels ?? [graph.level];
+  const showLevelControls = availableLevels.length > 1;
+  const showRelationshipFilters = graph.level !== "flow";
+  const nodeCountLabel = `${graph.nodes.length} node${graph.nodes.length === 1 ? "" : "s"}`;
+  const edgeCountLabel = `${graph.edges.length} edge${graph.edges.length === 1 ? "" : "s"}`;
 
   const startDragging = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const toolbar = toolbarRef.current;
@@ -202,75 +181,94 @@ export function GraphToolbar({
               label: graph.focus?.label ?? "Graph",
               kind: graph.level,
             })}
+            aria-expanded={expanded}
             className="graph-toolbar__focus"
             type="button"
             onClick={() => setExpanded((current) => !current)}
           >
-            <span className="graph-toolbar__focus-label">{graph.focus?.label ?? "Graph"}</span>
-            <span className="graph-toolbar__focus-meta">{graph.level}</span>
+            <span className="graph-toolbar__focus-copy">
+              <span className="graph-toolbar__focus-label">{graph.focus?.label ?? "Graph"}</span>
+              <span className="graph-toolbar__focus-meta">{graph.level} view</span>
+            </span>
+            <span className="graph-toolbar__focus-state">{expanded ? "Hide" : "View"}</span>
           </button>
 
           <button
-            {...helpTargetProps("graph.toolbar.inspector")}
-            className={`toggle-button${inspectorOpen ? " is-active" : ""}`}
+            {...helpTargetProps("graph.toolbar.fit-view")}
+            className="ghost-button"
             type="button"
-            onClick={onToggleInspector}
+            onClick={onFitView}
           >
-            Inspector
-          </button>
-
-          <button
-            {...helpTargetProps("graph.toolbar.controls")}
-            className={`toggle-button${expanded ? " is-active" : ""}`}
-            type="button"
-            onClick={() => setExpanded((current) => !current)}
-          >
-            {expanded ? "Collapse" : "Controls"}
+            Fit view
           </button>
         </div>
 
         {expanded ? (
           <div className="graph-toolbar__details">
-            <div className="graph-toolbar__row graph-levels">
-              {(graph.focus?.availableLevels ?? [graph.level]).map((level) => (
-                <button
-                  key={level}
-                  {...helpTargetProps(`graph.level.${level}` as const)}
-                  className={`toggle-button${graph.level === level ? " is-active" : ""}`}
-                  type="button"
-                  onClick={() => onSelectLevel(level)}
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
+            {showLevelControls ? (
+              <section className="graph-toolbar__section">
+                <span className="graph-toolbar__section-label">Level</span>
+                <div className="graph-toolbar__row graph-levels">
+                  {availableLevels.map((level) => (
+                    <button
+                      key={level}
+                      {...helpTargetProps(`graph.level.${level}` as const)}
+                      className={`toggle-button${graph.level === level ? " is-active" : ""}`}
+                      type="button"
+                      onClick={() => onSelectLevel(level)}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
-            {showInlineViewOptions ? (
+            {showRelationshipFilters ? (
+              <section className="graph-toolbar__section">
+                <span className="graph-toolbar__section-label">Relationships</span>
+                <div className="graph-toolbar__row graph-filters">
+                  <button
+                    {...helpTargetProps("graph.filter.calls")}
+                    className={`toggle-button${graphFilters.includeCalls ? " is-active" : ""}`}
+                    type="button"
+                    onClick={() => onToggleGraphFilter("includeCalls")}
+                  >
+                    Calls
+                  </button>
+                  <button
+                    {...helpTargetProps("graph.filter.imports")}
+                    className={`toggle-button${graphFilters.includeImports ? " is-active" : ""}`}
+                    type="button"
+                    onClick={() => onToggleGraphFilter("includeImports")}
+                  >
+                    Imports
+                  </button>
+                  <button
+                    {...helpTargetProps("graph.filter.defines")}
+                    className={`toggle-button${graphFilters.includeDefines ? " is-active" : ""}`}
+                    type="button"
+                    onClick={() => onToggleGraphFilter("includeDefines")}
+                  >
+                    Defines
+                  </button>
+                </div>
+              </section>
+            ) : null}
+
+            <section className="graph-toolbar__section">
+              <span className="graph-toolbar__section-label">View</span>
               <div className="graph-toolbar__row graph-filters">
-                <button
-                  {...helpTargetProps("graph.filter.calls")}
-                  className={`toggle-button${graphFilters.includeCalls ? " is-active" : ""}`}
-                  type="button"
-                  onClick={() => onToggleGraphFilter("includeCalls")}
-                >
-                  Calls
-                </button>
-                <button
-                  {...helpTargetProps("graph.filter.imports")}
-                  className={`toggle-button${graphFilters.includeImports ? " is-active" : ""}`}
-                  type="button"
-                  onClick={() => onToggleGraphFilter("includeImports")}
-                >
-                  Imports
-                </button>
-                <button
-                  {...helpTargetProps("graph.filter.defines")}
-                  className={`toggle-button${graphFilters.includeDefines ? " is-active" : ""}`}
-                  type="button"
-                  onClick={() => onToggleGraphFilter("includeDefines")}
-                >
-                  Defines
-                </button>
+                {showRelationshipFilters ? (
+                  <button
+                    {...helpTargetProps("graph.settings.external-dependencies")}
+                    className={`toggle-button${graphSettings.includeExternalDependencies ? " is-active" : ""}`}
+                    type="button"
+                    onClick={() => onToggleGraphSetting("includeExternalDependencies")}
+                  >
+                    External
+                  </button>
+                ) : null}
                 <button
                   {...helpTargetProps("graph.filter.path")}
                   className={`toggle-button${highlightGraphPath ? " is-active" : ""}`}
@@ -288,89 +286,44 @@ export function GraphToolbar({
                   Labels
                 </button>
               </div>
-            ) : null}
+            </section>
 
-            <div className="graph-breadcrumbs graph-breadcrumbs--toolbar">
-              {graph.breadcrumbs.map((breadcrumb) => (
+            <section className="graph-toolbar__section">
+              <span className="graph-toolbar__section-label">Layout</span>
+              <div className="graph-toolbar__row graph-toolbar__layout-row">
                 <button
-                  key={`${breadcrumb.level}:${breadcrumb.nodeId}`}
-                  {...helpTargetProps("graph.toolbar.breadcrumb", { label: breadcrumb.label })}
-                  className="graph-breadcrumb"
+                  {...helpTargetProps("graph.declutter")}
+                  className="toggle-button"
                   type="button"
-                  onClick={() => onSelectBreadcrumb(breadcrumb)}
+                  onClick={onDeclutter}
                 >
-                  <span>{breadcrumb.level}</span>
-                  <strong>{breadcrumb.label}</strong>
+                  Declutter
                 </button>
-              ))}
-            </div>
+                {canUndoDeclutter ? (
+                  <button
+                    {...helpTargetProps("graph.undo-declutter")}
+                    className="ghost-button"
+                    type="button"
+                    onClick={onUndoDeclutter}
+                  >
+                    Undo declutter
+                  </button>
+                ) : null}
+              </div>
+            </section>
 
-            <div className="graph-toolbar__row graph-toolbar__settings-row">
-              <button
-                {...helpTargetProps("graph.declutter")}
-                className="toggle-button"
-                type="button"
-                onClick={onDeclutter}
-              >
-                Declutter
-              </button>
-              {canUndoDeclutter ? (
-                <button
-                  {...helpTargetProps("graph.undo-declutter")}
-                  className="ghost-button"
-                  type="button"
-                  onClick={onUndoDeclutter}
-                >
-                  Undo declutter
-                </button>
+            <div className="graph-toolbar__status" aria-label="Graph summary">
+              <span className="graph-toolbar__status-pill">{nodeCountLabel}</span>
+              <span className="graph-toolbar__status-pill">{edgeCountLabel}</span>
+              {graph.truncated ? (
+                <span className="graph-toolbar__status-pill graph-toolbar__status-pill--warning">
+                  Trimmed view
+                </span>
               ) : null}
-              <button
-                {...helpTargetProps("graph.toolbar.settings")}
-                className={`toggle-button${settingsOpen ? " is-active" : ""}`}
-                type="button"
-                onClick={() => setSettingsOpen((current) => !current)}
-              >
-                Settings
-              </button>
             </div>
           </div>
         ) : null}
       </div>
-
-      {settingsOpen ? (
-        <aside className="graph-settings-drawer">
-          <div className="graph-settings-drawer__header">
-            <div className="graph-settings-drawer__copy">
-              <h3>Graph settings</h3>
-              <p>Advanced visibility controls stay here so the main graph tools stay simple.</p>
-            </div>
-            <button
-              aria-label="Close graph settings"
-              className="graph-settings-drawer__close"
-              type="button"
-              onClick={() => setSettingsOpen(false)}
-            >
-              Close
-            </button>
-          </div>
-
-          <label className="graph-settings-toggle">
-            <div className="graph-settings-toggle__copy">
-              <strong>Show external dependencies</strong>
-              <span>Reveal dependency nodes and edges outside the authored repo boundary.</span>
-            </div>
-            <button
-              {...helpTargetProps("graph.settings.external-dependencies")}
-              aria-pressed={graphSettings.includeExternalDependencies}
-              className={`toggle-button${graphSettings.includeExternalDependencies ? " is-active" : ""}`}
-              type="button"
-              onClick={() => onToggleGraphSetting("includeExternalDependencies")}
-            >
-              {graphSettings.includeExternalDependencies ? "On" : "Off"}
-            </button>
-          </label>
-        </aside>
-      ) : null}
     </div>
   );
 }
