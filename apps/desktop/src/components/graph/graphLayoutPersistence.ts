@@ -16,10 +16,17 @@ export interface StoredGraphReroute {
   y: number;
 }
 
+export interface StoredGraphGroup {
+  id: string;
+  title: string;
+  memberNodeIds: string[];
+}
+
 export interface StoredGraphLayout {
   nodes: StoredGraphNodeLayout;
   reroutes: StoredGraphReroute[];
   pinnedNodeIds: string[];
+  groups: StoredGraphGroup[];
 }
 
 function emptyStoredGraphLayout(): StoredGraphLayout {
@@ -27,6 +34,7 @@ function emptyStoredGraphLayout(): StoredGraphLayout {
     nodes: {},
     reroutes: [],
     pinnedNodeIds: [],
+    groups: [],
   };
 }
 
@@ -102,8 +110,14 @@ function normalizeLayout(value: unknown): StoredGraphLayout {
   const maybeNodes = Reflect.get(value, "nodes");
   const maybeReroutes = Reflect.get(value, "reroutes");
   const maybePinnedNodeIds = Reflect.get(value, "pinnedNodeIds");
+  const maybeGroups = Reflect.get(value, "groups");
 
-  if (maybeNodes !== undefined || maybeReroutes !== undefined || maybePinnedNodeIds !== undefined) {
+  if (
+    maybeNodes !== undefined
+    || maybeReroutes !== undefined
+    || maybePinnedNodeIds !== undefined
+    || maybeGroups !== undefined
+  ) {
     return {
       nodes: normalizeNodeLayout(maybeNodes),
       reroutes: Array.isArray(maybeReroutes)
@@ -115,6 +129,31 @@ function normalizeLayout(value: unknown): StoredGraphLayout {
       pinnedNodeIds: Array.isArray(maybePinnedNodeIds)
         ? maybePinnedNodeIds.filter((item): item is string => typeof item === "string")
         : [],
+      groups: Array.isArray(maybeGroups)
+        ? maybeGroups.flatMap((item) => {
+            if (!item || typeof item !== "object") {
+              return [];
+            }
+
+            const id = Reflect.get(item, "id");
+            const title = Reflect.get(item, "title");
+            const memberNodeIds = Reflect.get(item, "memberNodeIds");
+
+            if (
+              typeof id !== "string"
+              || typeof title !== "string"
+              || !Array.isArray(memberNodeIds)
+            ) {
+              return [];
+            }
+
+            return [{
+              id,
+              title,
+              memberNodeIds: memberNodeIds.filter((memberId): memberId is string => typeof memberId === "string"),
+            } satisfies StoredGraphGroup];
+          })
+        : [],
     };
   }
 
@@ -122,6 +161,7 @@ function normalizeLayout(value: unknown): StoredGraphLayout {
     nodes: normalizeNodeLayout(value),
     reroutes: [],
     pinnedNodeIds: [],
+    groups: [],
   };
 }
 

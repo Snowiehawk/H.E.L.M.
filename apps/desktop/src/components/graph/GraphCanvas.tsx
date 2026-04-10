@@ -6,7 +6,9 @@ import {
   PanOnScrollMode,
   ReactFlow,
   SelectionMode,
+  ViewportPortal,
   applyNodeChanges,
+  useReactFlow,
   useKeyPress,
   type Edge,
   type EdgeTypes,
@@ -50,6 +52,7 @@ import {
   graphLayoutNodeKey,
   graphLayoutViewKey,
   readStoredGraphLayout,
+  type StoredGraphGroup,
   type StoredGraphLayout,
   type StoredGraphNodeLayout,
   type StoredGraphReroute,
@@ -59,6 +62,11 @@ import { EmptyState } from "../shared/EmptyState";
 
 const REROUTE_NODE_PREFIX = "reroute:";
 const REROUTE_NODE_SIZE = 18;
+const GROUP_BOX_PADDING = 24;
+const GROUP_TITLE_OFFSET = 12;
+const DEFAULT_GROUP_TITLE = "Group";
+const FALLBACK_GROUP_NODE_WIDTH = 252;
+const FALLBACK_GROUP_NODE_HEIGHT = 96;
 
 const nodeTypes: NodeTypes = {
   blueprint: BlueprintNode,
@@ -76,6 +84,30 @@ type SemanticCanvasNode = Node<BlueprintNodeData, "blueprint">;
 type RerouteCanvasNode = Node<RerouteNodeData, "reroute">;
 type GraphCanvasNode = SemanticCanvasNode | RerouteCanvasNode;
 type GraphCanvasEdge = Edge<BlueprintEdgeData, "blueprint">;
+
+interface GroupMembership {
+  groupByNodeId: Map<string, string>;
+  memberNodeIdsByGroupId: Map<string, string[]>;
+}
+
+interface GraphGroupBounds extends StoredGraphGroup {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface MergeGroupsForSelectionResult {
+  changed: boolean;
+  nextGroupId?: string;
+  nextGroups: StoredGraphGroup[];
+}
+
+interface UngroupGroupsForSelectionResult {
+  changed: boolean;
+  nextGroups: StoredGraphGroup[];
+  removedGroupIds: string[];
+}
 
 function isSemanticCanvasNode(node: GraphCanvasNode): node is SemanticCanvasNode {
   return node.type === "blueprint";
@@ -159,17 +191,142 @@ function createRerouteId(logicalEdgeId: string) {
   return `${sanitized}-${unique}`;
 }
 
+function createGroupId() {
+  const unique =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return `group-${unique}`;
+}
+
+function normalizeGroupTitle(title: string | undefined) {
+  const normalized = title?.trim();
+  return normalized?.length ? normalized : DEFAULT_GROUP_TITLE;
+}
+
+function compareNodeIds(left: string, right: string) {
+  return left.localeCompare(right);
+}
+
+function sortNodeIds(nodeIds: Iterable<string>) {
+  return [...nodeIds].sort(compareNodeIds);
+}
+
+function sameNodeIds(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((nodeId, index) => nodeId === right[index]);
+}
+
+export function normalizeStoredGroups(
+  groups: StoredGraphGroup[] | undefined,
+  liveNodeIds: Set<string>,
+): StoredGraphGroup[] {
+  const claimedNodeIds = new Set<string>();
+  const normalized: StoredGraphGroup[] = [];
+
+  (groups ?? []).forEach((group) => {
+    if (!group.id) {
+      return;
+    }
+
+    const memberNodeIds = sortNodeIds(
+      new Set(
+        (group.memberNodeIds ?? []).filter((memberNodeId) => (
+          liveNodeIds.has(memberNodeId)
+          && !claimedNodeIds.has(memberNodeId)
+        )),
+      ),
+    );
+
+    if (memberNodeIds.length < 2) {
+      return;
+    }
+
+    memberNodeIds.forEach((memberNodeId) => {
+      claimedNodeIds.add(memberNodeId);
+    });
+
+    normalized.push({
+      id: group.id,
+      title: normalizeGroupTitle(group.title),
+      memberNodeIds,
+    });
+  });
+
+  return normalized;
+}
+
+function buildGroupMembership(groups: StoredGraphGroup[]): GroupMembership {
+  const groupByNodeId = new Map<string, string>();
+  const memberNodeIdsByGroupId = new Map<string, string[]>();
+
+  groups.forEach((group) => {
+    const memberNodeIds = sortNodeIds(group.memberNodeIds);
+    memberNodeIdsByGroupId.set(group.id, memberNodeIds);
+    memberNodeIds.forEach((memberNodeId) => {
+      groupByNodeId.set(memberNodeId, group.id);
+    });
+  });
+
+  return {
+    groupByNodeId,
+    memberNodeIdsByGroupId,
+  };
+}
+
+function touchedGroupIdsForNodeIds(
+  nodeIds: Iterable<string>,
+  groupByNodeId: Map<string, string>,
+) {
+  const groupIds = new Set<string>();
+  [...nodeIds].forEach((nodeId) => {
+    const groupId = groupByNodeId.get(nodeId);
+    if (groupId) {
+      groupIds.add(groupId);
+    }
+  });
+  return sortNodeIds(groupIds);
+}
+
+export function expandGroupedNodeIds(
+  nodeIds: Iterable<string>,
+  groupByNodeId: Map<string, string>,
+  memberNodeIdsByGroupId: Map<string, string[]>,
+) {
+  const expanded = new Set<string>();
+  [...nodeIds].forEach((nodeId) => {
+    const groupId = groupByNodeId.get(nodeId);
+    if (!groupId) {
+      expanded.add(nodeId);
+      return;
+    }
+
+    (memberNodeIdsByGroupId.get(groupId) ?? []).forEach((memberNodeId) => {
+      expanded.add(memberNodeId);
+    });
+  });
+
+  return sortNodeIds(expanded);
+}
+
 function buildNodeShellClassName(
   nodeId: string,
   selectedNodeId: string,
   selectedRelatedNodeIds: Set<string>,
   selectionContextActive: boolean,
+  groupedNodeIds: Set<string>,
+  selectedGroupMemberNodeIds: Set<string>,
 ) {
   return [
     "graph-node-shell",
     nodeId === selectedNodeId ? "is-active" : "",
     selectionContextActive && selectedRelatedNodeIds.has(nodeId) ? "is-related" : "",
     selectionContextActive && !selectedRelatedNodeIds.has(nodeId) ? "is-dimmed" : "",
+    groupedNodeIds.has(nodeId) ? "is-group-member" : "",
+    selectedGroupMemberNodeIds.has(nodeId) ? "is-group-selected" : "",
   ].filter(Boolean).join(" ");
 }
 
@@ -227,6 +384,8 @@ function buildSemanticCanvasNodes(
   hoverActive: boolean,
   selectedRelatedNodeIds: Set<string>,
   selectionContextActive: boolean,
+  groupedNodeIds: Set<string>,
+  selectedGroupMemberNodeIds: Set<string>,
   canPinNodes: boolean,
   onTogglePinned: (nodeId: string) => void,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
@@ -301,6 +460,8 @@ function buildSemanticCanvasNodes(
         selectedNodeId,
         selectedRelatedNodeIds,
         selectionContextActive,
+        groupedNodeIds,
+        selectedGroupMemberNodeIds,
       ),
     };
   });
@@ -346,6 +507,8 @@ function buildCanvasNodes(
   selectedRelatedNodeIds: Set<string>,
   selectedConnectedEdgeIds: Set<string>,
   selectionContextActive: boolean,
+  groupedNodeIds: Set<string>,
+  selectedGroupMemberNodeIds: Set<string>,
   canPinNodes: boolean,
   onTogglePinned: (nodeId: string) => void,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
@@ -366,6 +529,8 @@ function buildCanvasNodes(
       hoverActive,
       selectedRelatedNodeIds,
       selectionContextActive,
+      groupedNodeIds,
+      selectedGroupMemberNodeIds,
       canPinNodes,
       onTogglePinned,
       onActivateNode,
@@ -429,7 +594,10 @@ function normalizeRerouteNodeOrders(nodes: GraphCanvasNode[]): GraphCanvasNode[]
   });
 }
 
-function persistGraphLayout(nodes: GraphCanvasNode[]): StoredGraphLayout {
+function persistGraphLayout(
+  nodes: GraphCanvasNode[],
+  groups: StoredGraphGroup[],
+): StoredGraphLayout {
   const semanticNodes = nodes.filter(isSemanticCanvasNode);
   const rerouteNodes = normalizeRerouteNodeOrders(nodes).filter(isRerouteCanvasNode);
 
@@ -461,6 +629,13 @@ function persistGraphLayout(nodes: GraphCanvasNode[]): StoredGraphLayout {
       .filter((node) => node.data.isPinned)
       .map((node) => node.id)
       .sort((left, right) => left.localeCompare(right)),
+    groups: groups
+      .map((group) => ({
+        id: group.id,
+        title: normalizeGroupTitle(group.title),
+        memberNodeIds: sortNodeIds(group.memberNodeIds),
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
   };
 }
 
@@ -534,6 +709,203 @@ function readMeasuredDimension(
   return undefined;
 }
 
+function semanticNodeDimension(
+  node: SemanticCanvasNode,
+  key: "width" | "height",
+) {
+  return readMeasuredDimension(node, key)
+    ?? (key === "width" ? FALLBACK_GROUP_NODE_WIDTH : FALLBACK_GROUP_NODE_HEIGHT);
+}
+
+function buildGraphGroupBounds(
+  group: StoredGraphGroup,
+  nodesById: Map<string, GraphCanvasNode>,
+): GraphGroupBounds | undefined {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  group.memberNodeIds.forEach((memberNodeId) => {
+    const node = nodesById.get(memberNodeId);
+    if (!node || !isSemanticCanvasNode(node)) {
+      return;
+    }
+
+    const width = semanticNodeDimension(node, "width");
+    const height = semanticNodeDimension(node, "height");
+    minX = Math.min(minX, node.position.x);
+    minY = Math.min(minY, node.position.y);
+    maxX = Math.max(maxX, node.position.x + width);
+    maxY = Math.max(maxY, node.position.y + height);
+  });
+
+  if (
+    !Number.isFinite(minX)
+    || !Number.isFinite(minY)
+    || !Number.isFinite(maxX)
+    || !Number.isFinite(maxY)
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...group,
+    x: minX - GROUP_BOX_PADDING,
+    y: minY - GROUP_BOX_PADDING,
+    width: maxX - minX + GROUP_BOX_PADDING * 2,
+    height: maxY - minY + GROUP_BOX_PADDING * 2,
+  };
+}
+
+function buildGraphGroupBoundsList(
+  groups: StoredGraphGroup[],
+  nodes: GraphCanvasNode[],
+) {
+  const nodesById = new Map(nodes.map((node) => [node.id, node] as const));
+  return groups.flatMap((group) => {
+    const bounds = buildGraphGroupBounds(group, nodesById);
+    return bounds ? [bounds] : [];
+  });
+}
+
+export function applyMemberNodeDelta(
+  nodes: GraphCanvasNode[],
+  memberNodeIds: Iterable<string>,
+  delta: { x: number; y: number },
+  basePositions?: Map<string, { x: number; y: number }>,
+) {
+  if (!delta.x && !delta.y) {
+    return nodes;
+  }
+
+  const targetNodeIds = new Set(memberNodeIds);
+  return nodes.map((node) => {
+    if (!isSemanticCanvasNode(node) || !targetNodeIds.has(node.id)) {
+      return node;
+    }
+
+    const basePosition = basePositions?.get(node.id) ?? node.position;
+    return {
+      ...node,
+      position: {
+        x: basePosition.x + delta.x,
+        y: basePosition.y + delta.y,
+      },
+    };
+  });
+}
+
+export function applyGroupedPositionChanges(
+  currentNodes: GraphCanvasNode[],
+  changes: NodeChange<GraphCanvasNode>[],
+  groupByNodeId: Map<string, string>,
+  memberNodeIdsByGroupId: Map<string, string[]>,
+) {
+  const nextNodes = applyNodeChanges(changes, currentNodes);
+  const currentNodesById = new Map(currentNodes.map((node) => [node.id, node] as const));
+  const groupDeltaByGroupId = new Map<string, { x: number; y: number }>();
+
+  changes.forEach((change) => {
+    if (change.type !== "position" || !change.position) {
+      return;
+    }
+
+    const groupId = groupByNodeId.get(change.id);
+    const currentNode = currentNodesById.get(change.id);
+    if (!groupId || !currentNode || !isSemanticCanvasNode(currentNode)) {
+      return;
+    }
+
+    if (!groupDeltaByGroupId.has(groupId)) {
+      groupDeltaByGroupId.set(groupId, {
+        x: change.position.x - currentNode.position.x,
+        y: change.position.y - currentNode.position.y,
+      });
+    }
+  });
+
+  if (!groupDeltaByGroupId.size) {
+    return nextNodes;
+  }
+
+  return nextNodes.map((node) => {
+    if (!isSemanticCanvasNode(node)) {
+      return node;
+    }
+
+    const groupId = groupByNodeId.get(node.id);
+    const delta = groupId ? groupDeltaByGroupId.get(groupId) : undefined;
+    const currentNode = currentNodesById.get(node.id);
+    if (!delta || !currentNode || !isSemanticCanvasNode(currentNode)) {
+      return node;
+    }
+
+    return {
+      ...node,
+      position: {
+        x: currentNode.position.x + delta.x,
+        y: currentNode.position.y + delta.y,
+      },
+    };
+  });
+}
+
+export function applyGroupedLayoutPositions(
+  nodes: GraphCanvasNode[],
+  nextPositions: Record<string, { x: number; y: number }>,
+  memberNodeIdsByGroupId: Map<string, string[]>,
+  groupByNodeId: Map<string, string>,
+) {
+  const groupDeltaByGroupId = new Map<string, { x: number; y: number }>();
+
+  memberNodeIdsByGroupId.forEach((memberNodeIds, groupId) => {
+    const anchorNodeId = memberNodeIds.find((memberNodeId) => nextPositions[memberNodeId]);
+    if (!anchorNodeId) {
+      return;
+    }
+
+    const anchorNode = nodes.find((node) => node.id === anchorNodeId);
+    const nextAnchorPosition = nextPositions[anchorNodeId];
+    if (!anchorNode || !nextAnchorPosition) {
+      return;
+    }
+
+    groupDeltaByGroupId.set(groupId, {
+      x: nextAnchorPosition.x - anchorNode.position.x,
+      y: nextAnchorPosition.y - anchorNode.position.y,
+    });
+  });
+
+  return nodes.map((node) => {
+    if (!isSemanticCanvasNode(node)) {
+      return node;
+    }
+
+    const groupId = groupByNodeId.get(node.id);
+    const delta = groupId ? groupDeltaByGroupId.get(groupId) : undefined;
+    if (delta) {
+      return {
+        ...node,
+        position: {
+          x: node.position.x + delta.x,
+          y: node.position.y + delta.y,
+        },
+      };
+    }
+
+    const nextPosition = nextPositions[node.id];
+    if (!nextPosition) {
+      return node;
+    }
+
+    return {
+      ...node,
+      position: nextPosition,
+    };
+  });
+}
+
 function toDeclutterNodes(nodes: GraphCanvasNode[]) {
   return nodes.filter(isSemanticCanvasNode).map((node) => ({
     id: node.id,
@@ -572,11 +944,99 @@ function storedLayoutIsEmpty(layout: StoredGraphLayout) {
     !Object.keys(layout.nodes).length
     && !layout.reroutes.length
     && !(layout.pinnedNodeIds?.length ?? 0)
+    && !(layout.groups?.length ?? 0)
   );
 }
 
 function pinActionHelpId(pinned: boolean): HelpDescriptorId {
   return pinned ? "graph.node.action.unpin" : "graph.node.action.pin";
+}
+
+export function mergeGroupsForSelection(
+  groups: StoredGraphGroup[],
+  selectedNodeIds: string[],
+  createId: () => string = createGroupId,
+): MergeGroupsForSelectionResult {
+  const normalizedSelectedNodeIds = sortNodeIds(new Set(selectedNodeIds));
+  if (normalizedSelectedNodeIds.length < 2) {
+    return {
+      changed: false,
+      nextGroups: groups,
+    };
+  }
+
+  const { groupByNodeId, memberNodeIdsByGroupId } = buildGroupMembership(groups);
+  const touchedGroupIds = touchedGroupIdsForNodeIds(normalizedSelectedNodeIds, groupByNodeId);
+  if (
+    touchedGroupIds.length === 1
+    && sameNodeIds(
+      sortNodeIds(memberNodeIdsByGroupId.get(touchedGroupIds[0] ?? "") ?? []),
+      normalizedSelectedNodeIds,
+    )
+  ) {
+    return {
+      changed: false,
+      nextGroups: groups,
+    };
+  }
+
+  const nextGroupId = createId();
+  return {
+    changed: true,
+    nextGroupId,
+    nextGroups: [
+      ...groups.filter((group) => !touchedGroupIds.includes(group.id)),
+      {
+        id: nextGroupId,
+        title: DEFAULT_GROUP_TITLE,
+        memberNodeIds: expandGroupedNodeIds(
+          normalizedSelectedNodeIds,
+          groupByNodeId,
+          memberNodeIdsByGroupId,
+        ),
+      },
+    ],
+  };
+}
+
+export function ungroupGroupsForSelection(
+  groups: StoredGraphGroup[],
+  selectedNodeIds: string[],
+  selectedGroupId?: string,
+): UngroupGroupsForSelectionResult {
+  const { groupByNodeId } = buildGroupMembership(groups);
+  const removedGroupIds = selectedGroupId
+    ? [selectedGroupId]
+    : touchedGroupIdsForNodeIds(selectedNodeIds, groupByNodeId);
+
+  if (!removedGroupIds.length) {
+    return {
+      changed: false,
+      nextGroups: groups,
+      removedGroupIds: [],
+    };
+  }
+
+  return {
+    changed: true,
+    nextGroups: groups.filter((group) => !removedGroupIds.includes(group.id)),
+    removedGroupIds,
+  };
+}
+
+export function renameGraphGroup(
+  groups: StoredGraphGroup[],
+  groupId: string,
+  title: string,
+) {
+  return groups.map((group) =>
+    group.id === groupId
+      ? {
+          ...group,
+          title: normalizeGroupTitle(title),
+        }
+      : group,
+  );
 }
 
 function isEditableEventTarget(target: EventTarget | null): boolean {
@@ -638,6 +1098,40 @@ function shouldHandlePinKey(event: {
     || event.altKey
     || event.ctrlKey
     || event.metaKey
+    || isEditableEventTarget(event.target)
+  );
+}
+
+function shouldHandleGroupKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  target: EventTarget | null;
+}) {
+  return !(
+    event.key.toLowerCase() !== "g"
+    || event.altKey
+    || !(event.ctrlKey || event.metaKey)
+    || event.shiftKey
+    || isEditableEventTarget(event.target)
+  );
+}
+
+function shouldHandleUngroupKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  target: EventTarget | null;
+}) {
+  return !(
+    event.key.toLowerCase() !== "g"
+    || event.altKey
+    || !(event.ctrlKey || event.metaKey)
+    || !event.shiftKey
     || isEditableEventTarget(event.target)
   );
 }
@@ -948,9 +1442,158 @@ function buildCanvasEdges({
   });
 }
 
+function GraphGroupLayer({
+  groupBounds,
+  nodes,
+  selectedGroupId,
+  editingGroupId,
+  editingGroupTitle,
+  onChangeEditingGroupTitle,
+  onFinishGroupTitleEditing,
+  onGroupMoveEnd,
+  onPreviewGroupMove,
+  onSelectGroup,
+  onStartEditingGroup,
+}: {
+  groupBounds: GraphGroupBounds[];
+  nodes: GraphCanvasNode[];
+  selectedGroupId?: string;
+  editingGroupId?: string;
+  editingGroupTitle: string;
+  onChangeEditingGroupTitle: (title: string) => void;
+  onFinishGroupTitleEditing: (groupId: string, mode: "save" | "cancel") => void;
+  onGroupMoveEnd: () => void;
+  onPreviewGroupMove: (
+    groupId: string,
+    delta: { x: number; y: number },
+    basePositions: Map<string, { x: number; y: number }>,
+  ) => void;
+  onSelectGroup: (groupId: string) => void;
+  onStartEditingGroup: (groupId: string) => void;
+}) {
+  const { screenToFlowPosition } = useReactFlow<GraphCanvasNode, GraphCanvasEdge>();
+
+  return (
+    <ViewportPortal>
+      {groupBounds.map((group) => (
+        <div
+          key={group.id}
+          data-testid={`graph-group-${group.id}`}
+          {...helpTargetProps("graph.group.box", {
+            label: group.title,
+          })}
+          className={`graph-group${selectedGroupId === group.id ? " is-selected" : ""}${editingGroupId === group.id ? " is-editing" : ""}`}
+          style={{
+            transform: `translate(${group.x}px, ${group.y}px)`,
+            width: `${group.width}px`,
+            height: `${group.height}px`,
+          }}
+          onPointerDown={(event) => {
+            if (event.button !== 0) {
+              return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            onSelectGroup(group.id);
+
+            const startFlowPosition = screenToFlowPosition({
+              x: event.clientX,
+              y: event.clientY,
+            });
+            const memberNodeIds = new Set(group.memberNodeIds);
+            const basePositions = new Map(
+              nodes
+                .filter((node) => isSemanticCanvasNode(node) && memberNodeIds.has(node.id))
+                .map((node) => [node.id, { x: node.position.x, y: node.position.y }] as const),
+            );
+            let moved = false;
+
+            const handleMove = (moveEvent: PointerEvent) => {
+              const currentFlowPosition = screenToFlowPosition({
+                x: moveEvent.clientX,
+                y: moveEvent.clientY,
+              });
+              const delta = {
+                x: currentFlowPosition.x - startFlowPosition.x,
+                y: currentFlowPosition.y - startFlowPosition.y,
+              };
+              if (delta.x || delta.y) {
+                moved = true;
+              }
+              onPreviewGroupMove(group.id, delta, basePositions);
+            };
+
+            const handleUp = () => {
+              window.removeEventListener("pointermove", handleMove);
+              window.removeEventListener("pointerup", handleUp);
+              if (moved) {
+                onGroupMoveEnd();
+              }
+            };
+
+            window.addEventListener("pointermove", handleMove);
+            window.addEventListener("pointerup", handleUp);
+          }}
+        >
+          <div className="graph-group__frame" />
+          <div
+            className="graph-group__title-anchor"
+            style={{
+              transform: `translate(${GROUP_BOX_PADDING}px, calc(-100% - ${GROUP_TITLE_OFFSET}px))`,
+            }}
+          >
+            {editingGroupId === group.id ? (
+              <input
+                autoFocus
+                className="graph-group__title-input"
+                data-testid={`graph-group-title-input-${group.id}`}
+                value={editingGroupTitle}
+                onBlur={() => onFinishGroupTitleEditing(group.id, "save")}
+                onChange={(event) => onChangeEditingGroupTitle(event.target.value)}
+                onFocus={(event) => {
+                  event.currentTarget.select();
+                }}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    onFinishGroupTitleEditing(group.id, "save");
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    onFinishGroupTitleEditing(group.id, "cancel");
+                  }
+                }}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+              />
+            ) : (
+              <div
+                className="graph-group__title"
+                onDoubleClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onStartEditingGroup(group.id);
+                }}
+              >
+                {group.title}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </ViewportPortal>
+  );
+}
+
 export function GraphCanvas({
   repoPath,
   graph,
+  isLoading = false,
+  errorMessage,
   activeNodeId,
   graphFilters,
   graphSettings,
@@ -972,6 +1615,8 @@ export function GraphCanvas({
 }: {
   repoPath?: string;
   graph?: GraphView;
+  isLoading?: boolean;
+  errorMessage?: string | null;
   activeNodeId?: string;
   graphFilters: GraphFilters;
   graphSettings: GraphSettings;
@@ -1013,6 +1658,11 @@ export function GraphCanvas({
   const panelRef = useRef<HTMLElement>(null);
   const graphHotkeyActiveRef = useRef(false);
   const [nodes, setNodes] = useState<GraphCanvasNode[]>([]);
+  const [groups, setGroups] = useState<StoredGraphGroup[]>([]);
+  const [selectedSemanticNodeIds, setSelectedSemanticNodeIds] = useState<string[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>(undefined);
+  const [editingGroupId, setEditingGroupId] = useState<string | undefined>(undefined);
+  const [editingGroupTitle, setEditingGroupTitle] = useState(DEFAULT_GROUP_TITLE);
   const [declutterUndo, setDeclutterUndo] = useState<
     | {
         viewKey: string;
@@ -1028,13 +1678,39 @@ export function GraphCanvas({
     [nodes],
   );
   const selectedRerouteCount = selectedRerouteNodes.length;
+  const { groupByNodeId, memberNodeIdsByGroupId } = useMemo(
+    () => buildGroupMembership(groups),
+    [groups],
+  );
+  const groupedNodeIds = useMemo(
+    () => new Set(sortNodeIds(groupByNodeId.keys())),
+    [groupByNodeId],
+  );
+  const semanticSelection = useMemo(
+    () => sortNodeIds(selectedSemanticNodeIds.filter((nodeId) => graphNodeIds.has(nodeId))),
+    [graphNodeIds, selectedSemanticNodeIds],
+  );
+  const semanticSelectionFromNodes = useMemo(
+    () => sortNodeIds(
+      nodes
+        .filter((node) => isSemanticCanvasNode(node) && Boolean(node.selected))
+        .map((node) => node.id),
+    ),
+    [nodes],
+  );
+  const effectiveSemanticSelection = semanticSelection.length
+    ? semanticSelection
+    : semanticSelectionFromNodes;
+  const selectedGroupMemberNodeIds = useMemo(
+    () => new Set(selectedGroupId ? memberNodeIdsByGroupId.get(selectedGroupId) ?? [] : []),
+    [memberNodeIdsByGroupId, selectedGroupId],
+  );
   const selectedNodeId = !graph
     ? ""
-    : selectedRerouteCount
+    : selectedRerouteCount || selectedGroupId || effectiveSemanticSelection.length > 1
       ? ""
-      : graphNodeIds.has(activeNodeId ?? "")
-        ? activeNodeId ?? ""
-        : "";
+      : effectiveSemanticSelection[0]
+        ?? (graphNodeIds.has(activeNodeId ?? "") ? activeNodeId ?? "" : "");
   const highlightedEdgeIds = useMemo(
     () => new Set(
       hoveredPortEdgeIds.length
@@ -1074,6 +1750,8 @@ export function GraphCanvas({
   const canPinNodes = graph?.level === "flow";
 
   const clearLocalSelection = () => {
+    setSelectedSemanticNodeIds([]);
+    setSelectedGroupId(undefined);
     setNodes((current) =>
       current.some((node) => node.selected)
         ? current.map((node) => (node.selected ? { ...node, selected: false } : node))
@@ -1081,8 +1759,61 @@ export function GraphCanvas({
     );
   };
 
-  const persistCurrentLayout = (nextNodes: GraphCanvasNode[]) => {
-    void writeStoredGraphLayout(repoPath, viewKey, persistGraphLayout(nextNodes));
+  const persistCurrentLayout = (
+    nextNodes: GraphCanvasNode[],
+    nextGroups: StoredGraphGroup[] = groups,
+  ) => {
+    void writeStoredGraphLayout(repoPath, viewKey, persistGraphLayout(nextNodes, nextGroups));
+  };
+
+  const persistCurrentCanvasState = () => {
+    hydrationGenerationRef.current += 1;
+    setNodes((current) => {
+      persistCurrentLayout(current, groups);
+      return current;
+    });
+  };
+
+  const selectGroup = (groupId: string) => {
+    setSelectedGroupId(groupId);
+    setSelectedSemanticNodeIds([]);
+    setNodes((current) =>
+      current.some((node) => node.selected)
+        ? current.map((node) => (node.selected ? { ...node, selected: false } : node))
+        : current,
+    );
+  };
+
+  const beginGroupTitleEditing = (groupId: string) => {
+    const group = groups.find((candidate) => candidate.id === groupId);
+    if (!group) {
+      return;
+    }
+    selectGroup(groupId);
+    setEditingGroupId(groupId);
+    setEditingGroupTitle(group.title);
+  };
+
+  const finishGroupTitleEditing = (
+    groupId: string,
+    mode: "save" | "cancel",
+  ) => {
+    if (editingGroupId !== groupId) {
+      return;
+    }
+
+    if (mode === "cancel") {
+      setEditingGroupId(undefined);
+      setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+      return;
+    }
+
+    const nextGroups = renameGraphGroup(groups, groupId, editingGroupTitle);
+    hydrationGenerationRef.current += 1;
+    setGroups(nextGroups);
+    persistCurrentLayout(nodes, nextGroups);
+    setEditingGroupId(undefined);
+    setEditingGroupTitle(DEFAULT_GROUP_TITLE);
   };
 
   const togglePinnedNodes = (nodeIds: string[]) => {
@@ -1093,13 +1824,47 @@ export function GraphCanvas({
     hydrationGenerationRef.current += 1;
     setDeclutterUndo(undefined);
     setNodes((current) => {
-      const targetNodeIds = new Set(nodeIds);
+      const targetNodeIds = expandGroupedNodeIds(nodeIds, groupByNodeId, memberNodeIdsByGroupId);
+      const semanticNodesById = new Map(
+        current
+          .filter(isSemanticCanvasNode)
+          .map((node) => [node.id, node] as const),
+      );
+      const nextPinnedByNodeId = new Map<string, boolean>();
+      const nextPinnedByGroupId = new Map<string, boolean>();
+
+      targetNodeIds.forEach((targetNodeId) => {
+        const groupId = groupByNodeId.get(targetNodeId);
+        if (!groupId) {
+          const targetNode = semanticNodesById.get(targetNodeId);
+          if (targetNode) {
+            nextPinnedByNodeId.set(targetNodeId, !targetNode.data.isPinned);
+          }
+          return;
+        }
+
+        if (!nextPinnedByGroupId.has(groupId)) {
+          const memberNodeIds = memberNodeIdsByGroupId.get(groupId) ?? [targetNodeId];
+          const shouldPin = memberNodeIds.some((memberNodeId) => (
+            !semanticNodesById.get(memberNodeId)?.data.isPinned
+          ));
+          nextPinnedByGroupId.set(groupId, shouldPin);
+        }
+      });
+
       const next = current.map((node) => {
-        if (!isSemanticCanvasNode(node) || !targetNodeIds.has(node.id)) {
+        if (!isSemanticCanvasNode(node)) {
           return node;
         }
 
-        const nextPinned = !node.data.isPinned;
+        const groupId = groupByNodeId.get(node.id);
+        const nextPinned = groupId
+          ? nextPinnedByGroupId.get(groupId)
+          : nextPinnedByNodeId.get(node.id);
+        if (nextPinned === undefined) {
+          return node;
+        }
+
         return {
           ...node,
           data: {
@@ -1125,6 +1890,53 @@ export function GraphCanvas({
     togglePinnedNodes([nodeId]);
   };
 
+  const createGroupFromSelection = () => {
+    const { changed, nextGroupId, nextGroups } = mergeGroupsForSelection(
+      groups,
+      effectiveSemanticSelection,
+    );
+    if (!changed || !nextGroupId) {
+      return;
+    }
+
+    hydrationGenerationRef.current += 1;
+    setDeclutterUndo(undefined);
+    setNodes((current) =>
+      current.some((node) => node.selected)
+        ? current.map((node) => (node.selected ? { ...node, selected: false } : node))
+        : current,
+    );
+    setGroups(nextGroups);
+    setSelectedSemanticNodeIds([]);
+    setSelectedGroupId(nextGroupId);
+    setEditingGroupId(nextGroupId);
+    setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+    persistCurrentLayout(nodes, nextGroups);
+  };
+
+  const ungroupSelection = () => {
+    const { changed, nextGroups, removedGroupIds } = ungroupGroupsForSelection(
+      groups,
+      effectiveSemanticSelection,
+      selectedGroupId,
+    );
+    if (!changed) {
+      return;
+    }
+
+    hydrationGenerationRef.current += 1;
+    setDeclutterUndo(undefined);
+    setGroups(nextGroups);
+    if (selectedGroupId && removedGroupIds.includes(selectedGroupId)) {
+      setSelectedGroupId(undefined);
+    }
+    if (editingGroupId && removedGroupIds.includes(editingGroupId)) {
+      setEditingGroupId(undefined);
+      setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+    }
+    persistCurrentLayout(nodes, nextGroups);
+  };
+
   const removeSelectedReroutes = () => {
     hydrationGenerationRef.current += 1;
     setDeclutterUndo(undefined);
@@ -1141,7 +1953,7 @@ export function GraphCanvas({
       const next = normalizeRerouteNodeOrders(
         current.filter((node) => !selectedIds.has(node.id)),
       );
-      persistCurrentLayout(next);
+      persistCurrentLayout(next, groups);
       return next;
     });
   };
@@ -1158,6 +1970,24 @@ export function GraphCanvas({
     if (selectedRerouteCount && shouldHandleRerouteDeleteKey(event)) {
       event.preventDefault();
       removeSelectedReroutes();
+      return;
+    }
+
+    if (shouldHandleUngroupKey(event)) {
+      event.preventDefault();
+      ungroupSelection();
+      return;
+    }
+
+    if (shouldHandleGroupKey(event)) {
+      event.preventDefault();
+      createGroupFromSelection();
+      return;
+    }
+
+    if (selectedGroupId && shouldHandlePinKey(event) && canPinNodes) {
+      event.preventDefault();
+      togglePinnedNodes(memberNodeIdsByGroupId.get(selectedGroupId) ?? []);
       return;
     }
 
@@ -1206,7 +2036,9 @@ export function GraphCanvas({
         !(graphHotkeyActiveRef.current || panelContainsTarget || panelContainsFocus)
         || (!shouldHandleNavigateOutKey(event)
           && !shouldHandleRerouteDeleteKey(event)
-          && !shouldHandlePinKey(event))
+          && !shouldHandlePinKey(event)
+          && !shouldHandleGroupKey(event)
+          && !shouldHandleUngroupKey(event))
       ) {
         return;
       }
@@ -1219,6 +2051,8 @@ export function GraphCanvas({
         !shouldHandleNavigateOutKey(event)
         && !shouldHandleRerouteDeleteKey(event)
         && !shouldHandlePinKey(event)
+        && !shouldHandleGroupKey(event)
+        && !shouldHandleUngroupKey(event)
       ) {
         return;
       }
@@ -1236,7 +2070,17 @@ export function GraphCanvas({
       document.removeEventListener("keydown", handleWindowKeyDown, true);
       panel?.removeEventListener("keydown", handlePanelKeyDown);
     };
-  }, [canPinNodes, onNavigateOut, selectedNodeId, selectedRerouteCount]);
+  }, [
+    canPinNodes,
+    createGroupFromSelection,
+    memberNodeIdsByGroupId,
+    onNavigateOut,
+    selectedGroupId,
+    selectedNodeId,
+    selectedRerouteCount,
+    togglePinnedNodes,
+    ungroupSelection,
+  ]);
 
   useEffect(() => {
     if (!selectedRerouteCount) {
@@ -1248,6 +2092,11 @@ export function GraphCanvas({
   useEffect(() => {
     if (!graph || !viewKey) {
       setNodes([]);
+      setGroups([]);
+      setSelectedSemanticNodeIds([]);
+      setSelectedGroupId(undefined);
+      setEditingGroupId(undefined);
+      setEditingGroupTitle(DEFAULT_GROUP_TITLE);
       return;
     }
 
@@ -1257,6 +2106,7 @@ export function GraphCanvas({
       nodes: {},
       reroutes: [],
       pinnedNodeIds: [],
+      groups: [],
     };
     const initialNodes = buildCanvasNodes(
       graph,
@@ -1267,6 +2117,8 @@ export function GraphCanvas({
       selectedRelatedNodeIds,
       selectedConnectedEdgeIds,
       selectionContextActive,
+      new Set<string>(),
+      new Set<string>(),
       canPinNodes,
       togglePinnedNode,
       onActivateNode,
@@ -1274,9 +2126,12 @@ export function GraphCanvas({
       setHoveredPortEdgeIds,
       () => setHoveredPortEdgeIds([]),
     );
-    setNodes(
-      initialNodes,
-    );
+    setNodes(initialNodes);
+    setGroups([]);
+    setSelectedSemanticNodeIds([]);
+    setSelectedGroupId(undefined);
+    setEditingGroupId(undefined);
+    setEditingGroupTitle(DEFAULT_GROUP_TITLE);
 
     let cancelled = false;
     void readStoredGraphLayout(repoPath, viewKey).then((savedLayout) => {
@@ -1293,6 +2148,7 @@ export function GraphCanvas({
           nodes: initialLayoutResult.positions,
           reroutes: [],
           pinnedNodeIds: [],
+          groups: [],
         };
         setNodes(
           buildCanvasNodes(
@@ -1304,6 +2160,8 @@ export function GraphCanvas({
             selectedRelatedNodeIds,
             selectedConnectedEdgeIds,
             selectionContextActive,
+            new Set<string>(),
+            new Set<string>(),
             canPinNodes,
             togglePinnedNode,
             onActivateNode,
@@ -1312,20 +2170,29 @@ export function GraphCanvas({
             () => setHoveredPortEdgeIds([]),
           ),
         );
+        setGroups([]);
         void writeStoredGraphLayout(repoPath, viewKey, initializedLayout);
         return;
       }
+
+      const normalizedGroups = normalizeStoredGroups(savedLayout.groups, graphNodeIds);
+      const normalizedLayout: StoredGraphLayout = {
+        ...savedLayout,
+        groups: normalizedGroups,
+      };
 
       setNodes(
         buildCanvasNodes(
           graph,
           selectedNodeId,
-          savedLayout,
+          normalizedLayout,
           new Set<string>(),
           false,
           selectedRelatedNodeIds,
           selectedConnectedEdgeIds,
           selectionContextActive,
+          new Set(normalizedGroups.flatMap((group) => group.memberNodeIds)),
+          new Set<string>(),
           canPinNodes,
           togglePinnedNode,
           onActivateNode,
@@ -1334,6 +2201,7 @@ export function GraphCanvas({
           () => setHoveredPortEdgeIds([]),
         ),
       );
+      setGroups(normalizedGroups);
     });
 
     return () => {
@@ -1345,6 +2213,7 @@ export function GraphCanvas({
     onActivateNode,
     onInspectNode,
     repoPath,
+    graphNodeIds,
     selectedConnectedEdgeIds,
     selectedNodeId,
     selectedRelatedNodeIds,
@@ -1366,6 +2235,8 @@ export function GraphCanvas({
         selectedRelatedNodeIds,
         selectedConnectedEdgeIds,
         selectionContextActive,
+        groupedNodeIds,
+        selectedGroupMemberNodeIds,
         canPinNodes,
         togglePinnedNode,
         onActivateNode,
@@ -1382,10 +2253,22 @@ export function GraphCanvas({
     onActivateNode,
     onInspectNode,
     selectedConnectedEdgeIds,
+    groupedNodeIds,
     selectedNodeId,
+    selectedGroupMemberNodeIds,
     selectedRelatedNodeIds,
     selectionContextActive,
   ]);
+
+  useEffect(() => {
+    if (selectedGroupId && !groups.some((group) => group.id === selectedGroupId)) {
+      setSelectedGroupId(undefined);
+    }
+    if (editingGroupId && !groups.some((group) => group.id === editingGroupId)) {
+      setEditingGroupId(undefined);
+      setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+    }
+  }, [editingGroupId, groups, selectedGroupId]);
 
   useEffect(() => {
     setDeclutterUndo(undefined);
@@ -1402,38 +2285,24 @@ export function GraphCanvas({
   }, [setTransientHelpTarget]);
 
   const handleNodesChange = (changes: NodeChange<GraphCanvasNode>[]) => {
-    setNodes((current) => applyNodeChanges(changes, current));
+    setNodes((current) =>
+      applyGroupedPositionChanges(
+        current,
+        changes,
+        groupByNodeId,
+        memberNodeIdsByGroupId,
+      ),
+    );
   };
 
-  const persistMovedNodes = (movedNodes: GraphCanvasNode[]) => {
-    hydrationGenerationRef.current += 1;
-    setNodes((current) => {
-      const movedPositions = new Map(
-        movedNodes.map((node) => [node.id, node.position] as const),
-      );
-      const next = normalizeRerouteNodeOrders(
-        current.map((node) =>
-          movedPositions.has(node.id)
-            ? {
-                ...node,
-                position: movedPositions.get(node.id) ?? node.position,
-              }
-            : node,
-        ),
-      );
-      persistCurrentLayout(next);
-      return next;
-    });
-  };
-
-  const handleNodeDragStop = (_event: unknown, draggedNode: GraphCanvasNode) => {
+  const handleNodeDragStop = () => {
     setDeclutterUndo(undefined);
-    persistMovedNodes([draggedNode]);
+    persistCurrentCanvasState();
   };
 
-  const handleSelectionDragStop = (_event: unknown, movedNodes: GraphCanvasNode[]) => {
+  const handleSelectionDragStop = () => {
     setDeclutterUndo(undefined);
-    persistMovedNodes(movedNodes);
+    persistCurrentCanvasState();
   };
 
   const handleDeclutter = () => {
@@ -1441,7 +2310,7 @@ export function GraphCanvas({
       return;
     }
 
-    const previousLayout = persistGraphLayout(nodes);
+    const previousLayout = persistGraphLayout(nodes, groups);
     const result = graph.level === "flow"
       ? layoutFlowGraph(toFlowLayoutNodes(nodes, graph), graph.edges, semanticPinnedNodeIds(nodes))
       : declutterGraphLayout(
@@ -1452,19 +2321,12 @@ export function GraphCanvas({
       return;
     }
 
-    const nextNodes = nodes.map((node) => {
-      if (!isSemanticCanvasNode(node)) {
-        return node;
-      }
-      const nextPosition = result.positions[node.id];
-      if (!nextPosition) {
-        return node;
-      }
-      return {
-        ...node,
-        position: nextPosition,
-      };
-    });
+    const nextNodes = applyGroupedLayoutPositions(
+      nodes,
+      result.positions,
+      memberNodeIdsByGroupId,
+      groupByNodeId,
+    );
 
     hydrationGenerationRef.current += 1;
     setNodes(nextNodes);
@@ -1472,7 +2334,7 @@ export function GraphCanvas({
       viewKey,
       layout: previousLayout,
     });
-    persistCurrentLayout(nextNodes);
+    persistCurrentLayout(nextNodes, groups);
   };
 
   const handleUndoDeclutter = () => {
@@ -1482,6 +2344,7 @@ export function GraphCanvas({
 
     hydrationGenerationRef.current += 1;
     setNodes((current) => applyStoredLayout(current, declutterUndo.layout));
+    setGroups(declutterUndo.layout.groups ?? []);
     void writeStoredGraphLayout(repoPath, viewKey, declutterUndo.layout);
     setDeclutterUndo(undefined);
   };
@@ -1542,17 +2405,53 @@ export function GraphCanvas({
           },
         } satisfies RerouteCanvasNode,
       ]);
-      persistCurrentLayout(next);
+      persistCurrentLayout(next, groups);
       return next;
     });
   };
 
+  const groupBounds = useMemo(
+    () => buildGraphGroupBoundsList(groups, nodes),
+    [groups, nodes],
+  );
+
+  const handlePreviewGroupMove = (
+    groupId: string,
+    delta: { x: number; y: number },
+    basePositions: Map<string, { x: number; y: number }>,
+  ) => {
+    setSelectedGroupId(groupId);
+    setSelectedSemanticNodeIds([]);
+    setDeclutterUndo(undefined);
+    setNodes((current) =>
+      applyMemberNodeDelta(
+        current,
+        memberNodeIdsByGroupId.get(groupId) ?? [],
+        delta,
+        basePositions,
+      ),
+    );
+  };
+
+  const handleGroupMoveEnd = () => {
+    persistCurrentCanvasState();
+  };
+
   if (!graph || !blueprint || !fitViewOptions || !viewKey) {
+    const emptyStateTitle = errorMessage
+      ? "Unable to open graph"
+      : isLoading
+        ? "Loading graph"
+        : "Blueprint canvas";
+    const emptyStateBody = errorMessage
+      ?? (isLoading
+        ? "Building the current graph view."
+        : "Index a repo to open the architecture map. Modules appear first, then symbols and flow only when you drill down.");
     return (
       <section className="content-panel graph-panel">
         <EmptyState
-          title="Blueprint canvas"
-          body="Index a repo to open the architecture map. Modules appear first, then symbols and flow only when you drill down."
+          title={emptyStateTitle}
+          body={emptyStateBody}
         />
       </section>
     );
@@ -1616,6 +2515,24 @@ export function GraphCanvas({
         onNodesChange={handleNodesChange}
         onNodeDragStop={handleNodeDragStop}
         onSelectionDragStop={handleSelectionDragStop}
+        onSelectionChange={({ nodes: selectedNodes }) => {
+          const nextSelectedSemanticNodeIds = sortNodeIds(
+            selectedNodes
+              .filter(isSemanticCanvasNode)
+              .map((node) => node.id),
+          );
+          const hasLocalNodeSelection = nextSelectedSemanticNodeIds.length > 0
+            || selectedNodes.some(isRerouteCanvasNode);
+
+          setSelectedSemanticNodeIds((current) =>
+            sameNodeIds(current, nextSelectedSemanticNodeIds)
+              ? current
+              : nextSelectedSemanticNodeIds,
+          );
+          if (hasLocalNodeSelection && selectedGroupId) {
+            setSelectedGroupId(undefined);
+          }
+        }}
         nodesDraggable
         nodesConnectable={false}
         selectionKeyCode={null}
@@ -1629,8 +2546,10 @@ export function GraphCanvas({
         panOnScrollMode={PanOnScrollMode.Free}
         zoomActivationKeyCode="Alt"
         panOnDrag={panModeActive}
-        onNodeClick={(_, node) => {
+        onNodeClick={(event, node) => {
           if (isRerouteCanvasNode(node)) {
+            setSelectedGroupId(undefined);
+            setSelectedSemanticNodeIds([]);
             setNodes((current) =>
               current.map((currentNode) => ({
                 ...currentNode,
@@ -1640,13 +2559,45 @@ export function GraphCanvas({
             onClearSelection();
             return;
           }
+
+          const additiveSelection = event.metaKey || event.ctrlKey;
+          setSelectedGroupId(undefined);
           setNodes((current) =>
-            current.map((currentNode) =>
-              isRerouteCanvasNode(currentNode) && currentNode.selected
-                ? { ...currentNode, selected: false }
-                : currentNode,
-            ),
+            current.map((currentNode) => {
+              if (isRerouteCanvasNode(currentNode)) {
+                return currentNode.selected
+                  ? { ...currentNode, selected: false }
+                  : currentNode;
+              }
+
+              if (currentNode.id === node.id) {
+                return {
+                  ...currentNode,
+                  selected: additiveSelection ? !Boolean(currentNode.selected) : true,
+                };
+              }
+
+              return additiveSelection
+                ? currentNode
+                : {
+                    ...currentNode,
+                    selected: false,
+                  };
+            }),
           );
+          setSelectedSemanticNodeIds((current) => {
+            if (!additiveSelection) {
+              return [node.id];
+            }
+
+            const next = new Set(current);
+            if (next.has(node.id)) {
+              next.delete(node.id);
+            } else {
+              next.add(node.id);
+            }
+            return sortNodeIds(next);
+          });
           onSelectNode(node.id, node.data.kind);
         }}
         onNodeDoubleClick={(_, node) => {
@@ -1660,6 +2611,19 @@ export function GraphCanvas({
           onClearSelection();
         }}
       >
+        <GraphGroupLayer
+          groupBounds={groupBounds}
+          nodes={nodes}
+          selectedGroupId={selectedGroupId}
+          editingGroupId={editingGroupId}
+          editingGroupTitle={editingGroupTitle}
+          onChangeEditingGroupTitle={setEditingGroupTitle}
+          onFinishGroupTitleEditing={finishGroupTitleEditing}
+          onGroupMoveEnd={handleGroupMoveEnd}
+          onPreviewGroupMove={handlePreviewGroupMove}
+          onSelectGroup={selectGroup}
+          onStartEditingGroup={beginGroupTitleEditing}
+        />
         <Controls showInteractive={false} />
         <Background gap={32} size={1} color="var(--line-strong)" />
       </ReactFlow>
@@ -1695,6 +2659,8 @@ function applyNodeDecorations(
   selectedRelatedNodeIds: Set<string>,
   selectedConnectedEdgeIds: Set<string>,
   selectionContextActive: boolean,
+  groupedNodeIds: Set<string>,
+  selectedGroupMemberNodeIds: Set<string>,
   canPinNodes: boolean,
   onTogglePinned: (nodeId: string) => void,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
@@ -1729,6 +2695,8 @@ function applyNodeDecorations(
       selectedNodeId,
       selectedRelatedNodeIds,
       selectionContextActive,
+      groupedNodeIds,
+      selectedGroupMemberNodeIds,
     );
     const ports = blueprint.nodePorts.get(node.id) ?? { inputs: [], outputs: [] };
     const actions: BlueprintNodeData["actions"] = [];

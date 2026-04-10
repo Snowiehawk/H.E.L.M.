@@ -61,6 +61,7 @@ describe("graphLayoutPersistence", () => {
       },
       reroutes: [],
       pinnedNodeIds: [],
+      groups: [],
     });
 
     expect(invokeMock).toHaveBeenCalledWith("read_repo_graph_layout", {
@@ -79,13 +80,14 @@ describe("graphLayoutPersistence", () => {
       },
       reroutes: [],
       pinnedNodeIds: ["module:beta"],
+      groups: [],
     });
 
     expect(invokeMock).toHaveBeenCalledWith("write_repo_graph_layout", {
       repoPath: "/workspace/project",
       viewKey: "module|module:alpha",
       layoutJson:
-        "{\"nodes\":{\"module:alpha\":{\"x\":120,\"y\":-40},\"module:beta\":{\"x\":440,\"y\":80}},\"reroutes\":[],\"pinnedNodeIds\":[\"module:beta\"]}",
+        "{\"nodes\":{\"module:alpha\":{\"x\":120,\"y\":-40},\"module:beta\":{\"x\":440,\"y\":80}},\"reroutes\":[],\"pinnedNodeIds\":[\"module:beta\"],\"groups\":[]}",
     });
   });
 
@@ -104,6 +106,13 @@ describe("graphLayoutPersistence", () => {
         },
       ],
       pinnedNodeIds: ["module:alpha"],
+      groups: [
+        {
+          id: "group-1",
+          title: "Helpers",
+          memberNodeIds: ["module:alpha", "module:beta"],
+        },
+      ],
     });
 
     await expect(
@@ -122,6 +131,13 @@ describe("graphLayoutPersistence", () => {
         },
       ],
       pinnedNodeIds: ["module:alpha"],
+      groups: [
+        {
+          id: "group-1",
+          title: "Helpers",
+          memberNodeIds: ["module:alpha", "module:beta"],
+        },
+      ],
     });
   });
 });

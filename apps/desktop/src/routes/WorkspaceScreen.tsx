@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -61,6 +61,10 @@ function shouldNavigateGraphOutFromKeyEvent(
   }
 
   if (!(event.target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (event.target.closest(".monaco-editor, .monaco-diff-editor")) {
     return false;
   }
 
@@ -288,8 +292,8 @@ export function WorkspaceScreen() {
   const [inspectorTargetId, setInspectorTargetId] = useState<string | undefined>(undefined);
   const [inspectorSnapshot, setInspectorSnapshot] = useState<GraphView["nodes"][number]>();
   const [isSavingSource, setIsSavingSource] = useState(false);
-  const [inspectorDraftContent, setInspectorDraftContent] = useState<string | undefined>(undefined);
   const [inspectorDirty, setInspectorDirty] = useState(false);
+  const inspectorDraftContentRef = useRef<string | undefined>(undefined);
   const [graphPathRevealError, setGraphPathRevealError] = useState<string | null>(null);
   const repoSession = useUiStore((state) => state.repoSession);
   const graphTargetId = useUiStore((state) => state.graphTargetId);
@@ -328,7 +332,7 @@ export function WorkspaceScreen() {
       setInspectorOpen(false);
       setInspectorTargetId(undefined);
       setInspectorSnapshot(undefined);
-      setInspectorDraftContent(undefined);
+      inspectorDraftContentRef.current = undefined;
       setInspectorDirty(false);
     }
   }, [repoSession]);
@@ -641,7 +645,7 @@ export function WorkspaceScreen() {
       selectNode(targetId);
       setInspectorTargetId(targetId);
       setInspectorDirty(false);
-      setInspectorDraftContent(content);
+      inspectorDraftContentRef.current = content;
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["overview"] }),
         queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
@@ -654,19 +658,28 @@ export function WorkspaceScreen() {
     }
   };
 
+  const handleInspectorEditorStateChange = useCallback((content?: string, dirty?: boolean) => {
+    inspectorDraftContentRef.current = content;
+    setInspectorDirty((current) => {
+      const next = Boolean(dirty);
+      return current === next ? current : next;
+    });
+  }, []);
+
   const handleOpenBlueprint = (symbolId: string) => {
     setInspectorTargetId(symbolId);
     focusGraph(symbolId, "symbol");
   };
 
   const requestInspectorClose = useCallback(async () => {
-    if (inspectorDirty && inspectorTargetId && inspectorDraftContent !== undefined) {
+    const draftContent = inspectorDraftContentRef.current;
+    if (inspectorDirty && inspectorTargetId && draftContent !== undefined) {
       const shouldSave = window.confirm(
         "Save your changes before closing the inspector? Click OK to save or Cancel to discard.",
       );
       if (shouldSave) {
         try {
-          await handleSaveNodeSource(inspectorTargetId, inspectorDraftContent);
+          await handleSaveNodeSource(inspectorTargetId, draftContent);
         } catch {
           return false;
         }
@@ -676,14 +689,13 @@ export function WorkspaceScreen() {
     setInspectorOpen(false);
     setInspectorTargetId(undefined);
     setInspectorSnapshot(undefined);
-    setInspectorDraftContent(undefined);
+    inspectorDraftContentRef.current = undefined;
     setInspectorDirty(false);
     setRevealedSource(undefined);
     return true;
   }, [
     handleSaveNodeSource,
     inspectorDirty,
-    inspectorDraftContent,
     inspectorTargetId,
     setRevealedSource,
   ]);
@@ -908,10 +920,7 @@ export function WorkspaceScreen() {
                   lastEdit={lastEdit}
                   isSavingSource={isSavingSource}
                   onSaveSource={handleSaveNodeSource}
-                  onEditorStateChange={(content, dirty) => {
-                    setInspectorDraftContent(content);
-                    setInspectorDirty(Boolean(dirty));
-                  }}
+                  onEditorStateChange={handleInspectorEditorStateChange}
                   onOpenFlow={(symbolId) => {
                     setInspectorTargetId(symbolId);
                     focusGraph(symbolId, "flow");
@@ -927,6 +936,16 @@ export function WorkspaceScreen() {
               <GraphCanvas
                 repoPath={repoSession?.path}
                 graph={graphQuery.data}
+                isLoading={!graphQuery.data && graphQuery.isFetching}
+                errorMessage={
+                  !graphQuery.data
+                    ? graphQuery.error instanceof Error
+                      ? graphQuery.error.message
+                      : graphQuery.error
+                        ? "Unable to load the current graph."
+                        : null
+                    : null
+                }
                 activeNodeId={activeNodeId}
                 graphFilters={graphFilters}
                 graphSettings={graphSettings}

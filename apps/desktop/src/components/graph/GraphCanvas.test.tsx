@@ -7,7 +7,17 @@ import {
   WorkspaceHelpProvider,
   WorkspaceHelpScope,
 } from "../workspace/workspaceHelp";
-import { GraphCanvas, buildEdgeLabelOffsets } from "./GraphCanvas";
+import {
+  GraphCanvas,
+  applyMemberNodeDelta,
+  applyGroupedLayoutPositions,
+  buildEdgeLabelOffsets,
+  mergeGroupsForSelection,
+  normalizeStoredGroups,
+  renameGraphGroup,
+  ungroupGroupsForSelection,
+} from "./GraphCanvas";
+import type { StoredGraphLayout } from "./graphLayoutPersistence";
 
 const { readStoredGraphLayoutMock, writeStoredGraphLayoutMock } = vi.hoisted(() => ({
   readStoredGraphLayoutMock: vi.fn(),
@@ -120,7 +130,7 @@ const baseGraph: GraphView = {
   truncated: false,
 };
 
-const originalLayout = {
+const originalLayout: StoredGraphLayout = {
   nodes: {
     "entry:calculate": { x: 0, y: 150 },
     "branch:left": { x: 220, y: 132 },
@@ -129,7 +139,159 @@ const originalLayout = {
   },
   reroutes: [],
   pinnedNodeIds: [],
+  groups: [],
 };
+
+const flowGroup = {
+  id: "group-flow-control-path",
+  title: "Group",
+  memberNodeIds: ["branch:left", "entry:calculate"],
+};
+
+const moduleGraph: GraphView = {
+  rootNodeId: "module:focus",
+  targetId: "module:focus",
+  level: "module",
+  nodes: [
+    {
+      id: "module:focus",
+      kind: "module",
+      label: "focus.py",
+      subtitle: "3 symbols",
+      x: 0,
+      y: 0,
+      metadata: {
+        relative_path: "src/focus.py",
+      },
+      availableActions: [],
+    },
+    {
+      id: "module:left-a",
+      kind: "module",
+      label: "left-a.py",
+      x: -240,
+      y: -60,
+      metadata: {
+        relative_path: "src/left-a.py",
+      },
+      availableActions: [],
+    },
+    {
+      id: "module:left-b",
+      kind: "module",
+      label: "left-b.py",
+      x: -240,
+      y: 60,
+      metadata: {
+        relative_path: "src/left-b.py",
+      },
+      availableActions: [],
+    },
+  ],
+  edges: [
+    {
+      id: "calls:left-a-focus",
+      kind: "calls",
+      source: "module:left-a",
+      target: "module:focus",
+      label: "2 calls",
+    },
+    {
+      id: "calls:left-b-focus",
+      kind: "calls",
+      source: "module:left-b",
+      target: "module:focus",
+      label: "1 call",
+    },
+  ],
+  breadcrumbs: [],
+  focus: {
+    targetId: "module:focus",
+    level: "module",
+    label: "focus.py",
+    availableLevels: ["repo", "module"],
+  },
+  truncated: false,
+};
+
+const moduleOriginalLayout: StoredGraphLayout = {
+  nodes: {
+    "module:focus": { x: 0, y: 0 },
+    "module:left-a": { x: -240, y: -60 },
+    "module:left-b": { x: -240, y: 60 },
+  },
+  reroutes: [],
+  pinnedNodeIds: [],
+  groups: [],
+};
+
+const moduleGroup = {
+  id: "group-module-left",
+  title: "Group",
+  memberNodeIds: ["module:focus", "module:left-a"],
+};
+
+function buildStoredLayout(overrides: Partial<StoredGraphLayout> = {}): StoredGraphLayout {
+  return {
+    nodes: {
+      ...originalLayout.nodes,
+      ...overrides.nodes,
+    },
+    reroutes: overrides.reroutes ?? originalLayout.reroutes,
+    pinnedNodeIds: overrides.pinnedNodeIds ?? originalLayout.pinnedNodeIds,
+    groups: overrides.groups ?? originalLayout.groups,
+  };
+}
+
+function buildModuleStoredLayout(overrides: Partial<StoredGraphLayout> = {}): StoredGraphLayout {
+  return {
+    nodes: {
+      ...moduleOriginalLayout.nodes,
+      ...overrides.nodes,
+    },
+    reroutes: overrides.reroutes ?? moduleOriginalLayout.reroutes,
+    pinnedNodeIds: overrides.pinnedNodeIds ?? moduleOriginalLayout.pinnedNodeIds,
+    groups: overrides.groups ?? moduleOriginalLayout.groups,
+  };
+}
+
+function latestPersistedLayout() {
+  return writeStoredGraphLayoutMock.mock.calls[writeStoredGraphLayoutMock.mock.calls.length - 1]?.[2];
+}
+
+function renderGraphCanvas(overrides: Partial<Parameters<typeof GraphCanvas>[0]> = {}) {
+  return render(
+    <GraphCanvas
+      repoPath="/workspace/calculator"
+      graph={baseGraph}
+      activeNodeId="entry:calculate"
+      graphFilters={{
+        includeCalls: true,
+        includeDefines: true,
+        includeImports: true,
+      }}
+      graphSettings={{
+        includeExternalDependencies: false,
+      }}
+      highlightGraphPath={false}
+      showEdgeLabels={false}
+      inspectorOpen={false}
+      onSelectNode={vi.fn()}
+      onActivateNode={vi.fn()}
+      onInspectNode={vi.fn()}
+      onSelectBreadcrumb={vi.fn()}
+      onSelectLevel={vi.fn()}
+      onToggleGraphFilter={vi.fn()}
+      onToggleGraphSetting={vi.fn()}
+      onToggleGraphPathHighlight={vi.fn()}
+      onToggleEdgeLabels={vi.fn()}
+      onToggleInspector={vi.fn()}
+      onNavigateOut={vi.fn()}
+      onClearSelection={vi.fn()}
+      {...overrides}
+    />,
+  );
+}
 
 describe("GraphCanvas", () => {
   beforeEach(() => {
@@ -144,6 +306,7 @@ describe("GraphCanvas", () => {
       nodes: {},
       reroutes: [],
       pinnedNodeIds: [],
+      groups: [],
     });
 
     render(
@@ -185,6 +348,43 @@ describe("GraphCanvas", () => {
     expect(Object.keys(initialWrite[2].nodes)).toEqual(
       expect.arrayContaining(["entry:calculate", "branch:left", "branch:right", "return:done"]),
     );
+  });
+
+  it("shows a loading state while a graph view is still being fetched", () => {
+    render(
+      <GraphCanvas
+        repoPath="/workspace/calculator"
+        graph={undefined}
+        isLoading
+        activeNodeId={undefined}
+        graphFilters={{
+          includeCalls: true,
+          includeDefines: true,
+          includeImports: true,
+        }}
+        graphSettings={{
+          includeExternalDependencies: false,
+        }}
+        highlightGraphPath={false}
+        showEdgeLabels={false}
+        inspectorOpen={false}
+        onSelectNode={vi.fn()}
+        onActivateNode={vi.fn()}
+        onInspectNode={vi.fn()}
+        onSelectBreadcrumb={vi.fn()}
+        onSelectLevel={vi.fn()}
+        onToggleGraphFilter={vi.fn()}
+        onToggleGraphSetting={vi.fn()}
+        onToggleGraphPathHighlight={vi.fn()}
+        onToggleEdgeLabels={vi.fn()}
+        onToggleInspector={vi.fn()}
+        onNavigateOut={vi.fn()}
+        onClearSelection={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Loading graph")).toBeInTheDocument();
+    expect(screen.getByText("Building the current graph view.")).toBeInTheDocument();
   });
 
   it("declutters the current view and can undo the saved layout change", async () => {
@@ -536,6 +736,7 @@ describe("GraphCanvas", () => {
         },
       ],
       pinnedNodeIds: [],
+      groups: [],
     });
 
     render(
@@ -667,5 +868,296 @@ describe("GraphCanvas", () => {
     await user.click(pane as HTMLElement);
 
     expect(onClearSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it("merges touched groups into one flat group when regrouping a selection", () => {
+    expect(
+      mergeGroupsForSelection(
+        [
+          {
+            id: "group-left",
+            title: "Left side",
+            memberNodeIds: ["branch:left", "entry:calculate"],
+          },
+          {
+            id: "group-right",
+            title: "Right side",
+            memberNodeIds: ["branch:right", "return:done"],
+          },
+        ],
+        ["branch:left", "branch:right"],
+        () => "group-merged",
+      ),
+    ).toEqual({
+      changed: true,
+      nextGroupId: "group-merged",
+      nextGroups: [
+        {
+          id: "group-merged",
+          title: "Group",
+          memberNodeIds: ["branch:left", "branch:right", "entry:calculate", "return:done"],
+        },
+      ],
+    });
+  });
+
+  it("no-ops grouping and ungroups touched selections through the pure grouping helpers", () => {
+    const existingGroups = [
+      {
+        id: flowGroup.id,
+        title: flowGroup.title,
+        memberNodeIds: flowGroup.memberNodeIds,
+      },
+    ];
+
+    expect(
+      mergeGroupsForSelection(existingGroups, ["entry:calculate", "branch:left"], () => "unused"),
+    ).toEqual({
+      changed: false,
+      nextGroups: existingGroups,
+    });
+
+    expect(ungroupGroupsForSelection(existingGroups, ["entry:calculate"])).toEqual({
+      changed: true,
+      nextGroups: [],
+      removedGroupIds: [flowGroup.id],
+    });
+  });
+
+  it("normalizes persisted groups against live nodes and keeps declutter deltas rigid for groups", () => {
+    expect(
+      normalizeStoredGroups(
+        [
+          {
+            id: "group-primary",
+            title: "",
+            memberNodeIds: ["entry:calculate", "branch:left", "branch:left", "missing:node"],
+          },
+          {
+            id: "group-secondary",
+            title: "Should drop",
+            memberNodeIds: ["entry:calculate", "return:done"],
+          },
+          {
+            id: "group-solo",
+            title: "Solo",
+            memberNodeIds: ["return:done"],
+          },
+        ],
+        new Set(baseGraph.nodes.map((node) => node.id)),
+      ),
+    ).toEqual([
+      {
+        id: "group-primary",
+        title: "Group",
+        memberNodeIds: ["branch:left", "entry:calculate"],
+      },
+    ]);
+
+    const groupedNodes = [
+      {
+        id: "entry:calculate",
+        type: "blueprint",
+        position: { x: 0, y: 150 },
+        data: {
+          kind: "entry",
+          label: "Entry",
+          isPinned: false,
+          inputPorts: [],
+          outputPorts: [],
+          actions: [],
+        },
+      },
+      {
+        id: "branch:left",
+        type: "blueprint",
+        position: { x: 220, y: 132 },
+        data: {
+          kind: "branch",
+          label: "branch left",
+          isPinned: false,
+          inputPorts: [],
+          outputPorts: [],
+          actions: [],
+        },
+      },
+      {
+        id: "return:done",
+        type: "blueprint",
+        position: { x: 520, y: 150 },
+        data: {
+          kind: "return",
+          label: "return done",
+          isPinned: false,
+          inputPorts: [],
+          outputPorts: [],
+          actions: [],
+        },
+      },
+    ] as unknown as Parameters<typeof applyGroupedLayoutPositions>[0];
+    const groupedLayout = applyGroupedLayoutPositions(
+      groupedNodes,
+      {
+        "entry:calculate": { x: 48, y: 186 },
+        "return:done": { x: 600, y: 140 },
+      },
+      new Map([[flowGroup.id, ["branch:left", "entry:calculate"]]]),
+      new Map([
+        ["entry:calculate", flowGroup.id],
+        ["branch:left", flowGroup.id],
+      ]),
+    );
+
+    expect(groupedLayout.find((node) => node.id === "entry:calculate")?.position).toEqual({
+      x: 48,
+      y: 186,
+    });
+    expect(groupedLayout.find((node) => node.id === "branch:left")?.position).toEqual({
+      x: 268,
+      y: 168,
+    });
+    expect(groupedLayout.find((node) => node.id === "return:done")?.position).toEqual({
+      x: 600,
+      y: 140,
+    });
+  });
+
+  it("renders persisted flow groups, keeps grouped member selection working, and renames groups through the pure title helper", async () => {
+    const onSelectNode = vi.fn();
+    readStoredGraphLayoutMock.mockResolvedValueOnce(buildStoredLayout({
+      groups: [flowGroup],
+    }));
+
+    renderGraphCanvas({
+      onSelectNode,
+    });
+
+    const groupBox = await screen.findByTestId(`graph-group-${flowGroup.id}`);
+    expect(groupBox).toBeInTheDocument();
+    expect(await screen.findByTestId("rf__node-entry:calculate")).toHaveClass("is-group-member");
+    fireEvent.click(within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Entry"));
+    expect(onSelectNode).toHaveBeenCalledWith("entry:calculate", "entry");
+    expect(renameGraphGroup([flowGroup], flowGroup.id, "Control path")).toEqual([
+      {
+        ...flowGroup,
+        title: "Control path",
+      },
+    ]);
+    expect(renameGraphGroup([flowGroup], flowGroup.id, "   ")).toEqual([
+      flowGroup,
+    ]);
+  });
+
+  it("fans out flow pinning to every grouped member and ungroups with the hotkey", async () => {
+    readStoredGraphLayoutMock.mockResolvedValueOnce(buildStoredLayout({
+      groups: [flowGroup],
+      pinnedNodeIds: ["entry:calculate"],
+    }));
+
+    renderGraphCanvas();
+
+    fireEvent.click(within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Entry"));
+
+    const graphPanel = screen.getByRole("region", { name: /Graph canvas/i });
+    fireEvent.keyDown(graphPanel, { key: "p" });
+
+    await waitFor(() =>
+      expect(latestPersistedLayout()?.pinnedNodeIds).toEqual(["branch:left", "entry:calculate"]),
+    );
+    expect(within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Unpin")).toBeInTheDocument();
+    expect(within(await screen.findByTestId("rf__node-branch:left")).getByText("Unpin")).toBeInTheDocument();
+
+    fireEvent.keyDown(graphPanel, { key: "p" });
+
+    await waitFor(() =>
+      expect(latestPersistedLayout()?.pinnedNodeIds).toEqual([]),
+    );
+
+    fireEvent.keyDown(graphPanel, { key: "g", metaKey: true, shiftKey: true });
+
+    await waitFor(() => expect(latestPersistedLayout()?.groups).toEqual([]));
+  });
+
+  it("applies group-box style movement deltas rigidly to every grouped member", () => {
+    const movedNodes = applyMemberNodeDelta(
+      [
+        {
+          id: "entry:calculate",
+          type: "blueprint",
+          position: { x: 0, y: 150 },
+          data: {
+            kind: "entry",
+            label: "Entry",
+            isPinned: false,
+            inputPorts: [],
+            outputPorts: [],
+            actions: [],
+          },
+        },
+        {
+          id: "branch:left",
+          type: "blueprint",
+          position: { x: 220, y: 132 },
+          data: {
+            kind: "branch",
+            label: "branch left",
+            isPinned: false,
+            inputPorts: [],
+            outputPorts: [],
+            actions: [],
+          },
+        },
+        {
+          id: "return:done",
+          type: "blueprint",
+          position: { x: 520, y: 150 },
+          data: {
+            kind: "return",
+            label: "return done",
+            isPinned: false,
+            inputPorts: [],
+            outputPorts: [],
+            actions: [],
+          },
+        },
+      ] as unknown as Parameters<typeof applyMemberNodeDelta>[0],
+      flowGroup.memberNodeIds,
+      { x: 60, y: 34 },
+      new Map([
+        ["entry:calculate", { x: 0, y: 150 }],
+        ["branch:left", { x: 220, y: 132 }],
+      ]),
+    );
+
+    expect(movedNodes.find((node) => node.id === "entry:calculate")?.position).toEqual({
+      x: 60,
+      y: 184,
+    });
+    expect(movedNodes.find((node) => node.id === "branch:left")?.position).toEqual({
+      x: 280,
+      y: 166,
+    });
+    expect(movedNodes.find((node) => node.id === "return:done")?.position).toEqual({
+      x: 520,
+      y: 150,
+    });
+  });
+
+  it("renders groups on non-flow canvases and leaves pinning unavailable", async () => {
+    readStoredGraphLayoutMock.mockResolvedValueOnce(buildModuleStoredLayout({
+      groups: [moduleGroup],
+    }));
+
+    renderGraphCanvas({
+      graph: moduleGraph,
+      activeNodeId: "module:focus",
+    });
+
+    expect(await screen.findByTestId(`graph-group-${moduleGroup.id}`)).toBeInTheDocument();
+    expect(within(await screen.findByTestId("rf__node-module:focus")).queryByText("Pin")).not.toBeInTheDocument();
+    fireEvent.click(within(await screen.findByTestId("rf__node-module:focus")).getByText("focus.py"));
+    fireEvent.keyDown(screen.getByRole("region", { name: /Graph canvas/i }), { key: "p" });
+
+    expect(writeStoredGraphLayoutMock).not.toHaveBeenCalled();
   });
 });

@@ -10,6 +10,8 @@ import {
   isGraphSymbolNodeKind,
   isInspectableGraphNodeKind,
 } from "../../lib/adapter";
+import { InspectorCodeSurface } from "../editor/InspectorCodeSurface";
+import { inferInspectorLanguage } from "../editor/inspectorLanguage";
 import { StatusPill } from "../shared/StatusPill";
 import { helpTargetProps } from "./workspaceHelp";
 
@@ -89,6 +91,12 @@ export function BlueprintInspector({
   const selectedRelativePath = relativePathForNode(selectedNode);
   const selectedSummary = selectionSummary(selectedNode);
   const nodePath = editableSource?.path ?? selectedRelativePath ?? symbol?.filePath;
+  const sourceLanguage = inferInspectorLanguage({
+    editablePath: editableSource?.path,
+    selectedRelativePath,
+    symbolFilePath: symbol?.filePath,
+    metadata: selectedNode?.metadata,
+  });
   const canEditInline = Boolean(
     selectedNode
     && editableSource
@@ -320,20 +328,30 @@ export function BlueprintInspector({
             </div>
           ) : canEditInline ? (
             <>
-              <label className="blueprint-field blueprint-field--editor">
+              <div className="blueprint-field blueprint-field--editor">
                 <span className="blueprint-field__label">
                   <strong>{selectedNode.kind === "function" ? "Function source" : "Variable source"}</strong>
                   <StatusPill tone={dirty ? "accent" : "default"}>{dirty ? "Unsaved" : "Synced"}</StatusPill>
                 </span>
-                <textarea
-                  {...helpTargetProps("inspector.editor")}
-                  className="blueprint-editor"
-                  spellCheck={false}
-                  value={draftSource}
-                  onChange={(event) => setDraftSource(event.target.value)}
-                  rows={14}
-                />
-              </label>
+                <div {...helpTargetProps("inspector.editor")}>
+                  <InspectorCodeSurface
+                    ariaLabel={
+                      selectedNode.kind === "function"
+                        ? "Function source editor"
+                        : "Variable source editor"
+                    }
+                    className="blueprint-editor"
+                    dataTestId="inspector-inline-editor"
+                    height={320}
+                    language={sourceLanguage}
+                    path={editableSource?.path ?? nodePath}
+                    startLine={editableSource?.startLine}
+                    value={draftSource}
+                    onChange={setDraftSource}
+                    readOnly={false}
+                  />
+                </div>
+              </div>
 
               {sourceError ? <p className="error-copy">{sourceError}</p> : null}
 
@@ -409,9 +427,17 @@ export function BlueprintInspector({
               Lines {revealedSource.startLine}-{revealedSource.endLine}
             </p>
           </div>
-          <pre className="code-panel blueprint-source-panel">
-            <code>{revealedSource.content}</code>
-          </pre>
+          <InspectorCodeSurface
+            ariaLabel="Revealed source"
+            className="blueprint-source-panel"
+            dataTestId="inspector-revealed-source"
+            height={220}
+            language={sourceLanguage}
+            path={revealedSource.path}
+            readOnly
+            startLine={revealedSource.startLine}
+            value={revealedSource.content}
+          />
         </section>
       ) : null}
     </aside>

@@ -61,6 +61,7 @@ export type HelpDescriptorId =
   | "graph.node.action.inspect"
   | "graph.node.action.pin"
   | "graph.node.action.unpin"
+  | "graph.group.box"
   | "graph.node.repo"
   | "graph.node.module"
   | "graph.node.symbol"
@@ -204,8 +205,8 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.canvas": () => ({
     title: "Graph canvas",
-    description: "Main blueprint workspace. Click empty space to clear selection, drag to marquee-select, and move nodes directly on the canvas.",
-    shortcut: "Hold Space to pan · Alt/Option + scroll to zoom · Backspace to go out",
+    description: "Main blueprint workspace. Click empty space to clear selection, drag to marquee-select, move nodes directly on the canvas, and group selected nodes together.",
+    shortcut: "Cmd/Ctrl + G groups · Cmd/Ctrl + Shift + G ungroups · Hold Space to pan · Alt/Option + scroll to zoom · Backspace to go out",
   }),
   "graph.toolbar.drag": () => ({
     title: "Move graph controls",
@@ -296,6 +297,11 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
     title: "Unpin node",
     description: "Let flow declutter reposition this node again during the next structured layout pass.",
     shortcut: "P",
+  }),
+  "graph.group.box": ({ label }) => ({
+    title: `${fallbackLabel(label, "Node group")} group`,
+    description: "Canvas boundary that keeps grouped nodes moving together. Double-click the title to rename it.",
+    shortcut: "Cmd/Ctrl + G groups selected nodes · Cmd/Ctrl + Shift + G ungroups",
   }),
   "graph.node.repo": ({ label }) => ({
     title: `${fallbackLabel(label, "Repo")} repo node`,

@@ -51,6 +51,15 @@ struct StoredGraphRerouteNode {
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct StoredGraphGroup {
+    id: String,
+    title: String,
+    #[serde(default)]
+    member_node_ids: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
 struct StoredGraphViewLayout {
     #[serde(default)]
     nodes: StoredGraphNodeLayout,
@@ -58,6 +67,8 @@ struct StoredGraphViewLayout {
     reroutes: Vec<StoredGraphRerouteNode>,
     #[serde(default)]
     pinned_node_ids: Vec<String>,
+    #[serde(default)]
+    groups: Vec<StoredGraphGroup>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -445,11 +456,13 @@ fn normalize_graph_view_layout(value: &Value) -> StoredGraphViewLayout {
         if object.contains_key("nodes")
             || object.contains_key("reroutes")
             || object.contains_key("pinnedNodeIds")
+            || object.contains_key("groups")
         {
             return StoredGraphViewLayout {
                 nodes: normalize_node_layout(object.get("nodes")),
                 reroutes: normalize_reroutes(object.get("reroutes")),
                 pinned_node_ids: normalize_pinned_node_ids(object.get("pinnedNodeIds")),
+                groups: normalize_groups(object.get("groups")),
             };
         }
     }
@@ -458,6 +471,7 @@ fn normalize_graph_view_layout(value: &Value) -> StoredGraphViewLayout {
         nodes: normalize_node_layout(Some(value)),
         reroutes: Vec::new(),
         pinned_node_ids: Vec::new(),
+        groups: Vec::new(),
     }
 }
 
@@ -519,6 +533,33 @@ fn normalize_pinned_node_ids(value: Option<&Value>) -> Vec<String> {
     items
         .iter()
         .filter_map(|item| item.as_str().map(ToOwned::to_owned))
+        .collect()
+}
+
+fn normalize_groups(value: Option<&Value>) -> Vec<StoredGraphGroup> {
+    let Some(items) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+
+    items
+        .iter()
+        .filter_map(|item| {
+            let object = item.as_object()?;
+            let id = object.get("id")?.as_str()?.to_string();
+            let title = object.get("title")?.as_str()?.to_string();
+            let member_node_ids = object
+                .get("memberNodeIds")?
+                .as_array()?
+                .iter()
+                .filter_map(|member| member.as_str().map(ToOwned::to_owned))
+                .collect();
+
+            Some(StoredGraphGroup {
+                id,
+                title,
+                member_node_ids,
+            })
+        })
         .collect()
 }
 

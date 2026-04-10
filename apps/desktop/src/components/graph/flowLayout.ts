@@ -35,12 +35,23 @@ interface SignatureSegment {
   rank: number;
 }
 
-const COLUMN_GAP = 340;
-const SUPPORT_COLUMN_OFFSET = 72;
-const CONTROL_ROW_GAP = 152;
-const SUPPORT_ROW_GAP = 130;
-const CONTROL_TOP_PADDING = 24;
-const SUPPORT_BAND_OFFSET = 184;
+interface ColumnMetrics {
+  averageWidth: number;
+  centerByColumn: Map<number, number>;
+  leftByColumn: Map<number, number>;
+  sortedColumns: number[];
+  stepEstimate: number;
+  widthByColumn: Map<number, number>;
+}
+
+const CONTROL_COLUMN_GUTTER = 180;
+const CONTROL_LANE_GAP = 220;
+const CONTROL_NODE_GAP = 76;
+const SUPPORT_COLUMN_OFFSET = 96;
+const SUPPORT_ROW_GAP = 148;
+const SUPPORT_BAND_MARGIN = 164;
+const PIN_DISTANCE_X = 420;
+const PIN_DISTANCE_Y = 220;
 
 const DEFAULT_NODE_SIZES: Record<GraphNodeKind, { width: number; height: number }> = {
   repo: { width: 260, height: 116 },
@@ -190,14 +201,16 @@ function sortNodesForFlow(nodes: ResolvedFlowNode[]) {
 
 function buildFallbackPositions(nodes: ResolvedFlowNode[]) {
   const ordered = sortNodesForFlow(nodes);
+  let cursor = 0;
   return new Map(
-    ordered.map((node, index) => [
-      node.id,
-      {
-        x: index * COLUMN_GAP,
-        y: 0,
-      },
-    ] as const),
+    ordered.map((node) => {
+      const position = {
+        x: cursor,
+        y: -node.height / 2,
+      };
+      cursor += node.width + CONTROL_COLUMN_GUTTER;
+      return [node.id, position] as const;
+    }),
   );
 }
 
@@ -207,10 +220,105 @@ function controlColumnOrder(nodes: ResolvedFlowNode[]) {
   );
 }
 
+function buildColumnMetrics(
+  nodes: ResolvedFlowNode[],
+  columns: Map<string, number>,
+): ColumnMetrics {
+  const widthByColumn = new Map<number, number>();
+  nodes.forEach((node) => {
+    const column = columns.get(node.id) ?? 0;
+    widthByColumn.set(column, Math.max(widthByColumn.get(column) ?? 0, node.width));
+  });
+
+  const sortedColumns = [...widthByColumn.keys()].sort((left, right) => left - right);
+  const leftByColumn = new Map<number, number>();
+  const centerByColumn = new Map<number, number>();
+  let cursor = 0;
+  sortedColumns.forEach((column, index) => {
+    if (index > 0) {
+      const previousColumn = sortedColumns[index - 1] as number;
+      cursor += (widthByColumn.get(previousColumn) ?? 0) + CONTROL_COLUMN_GUTTER;
+    }
+    const width = widthByColumn.get(column) ?? 0;
+    leftByColumn.set(column, cursor);
+    centerByColumn.set(column, cursor + width / 2);
+  });
+
+  const widths = [...widthByColumn.values()];
+  const averageWidth = widths.length
+    ? widths.reduce((sum, width) => sum + width, 0) / widths.length
+    : 260;
+
+  return {
+    averageWidth,
+    centerByColumn,
+    leftByColumn,
+    sortedColumns,
+    stepEstimate: averageWidth + CONTROL_COLUMN_GUTTER,
+    widthByColumn,
+  };
+}
+
+function resolveColumnLeft(
+  column: number,
+  columnMetrics: ColumnMetrics,
+) {
+  const exact = columnMetrics.leftByColumn.get(column);
+  if (exact !== undefined) {
+    return exact;
+  }
+
+  const { sortedColumns, stepEstimate } = columnMetrics;
+  if (!sortedColumns.length) {
+    return column * stepEstimate;
+  }
+
+  const firstColumn = sortedColumns[0] as number;
+  const lastColumn = sortedColumns[sortedColumns.length - 1] as number;
+  const firstLeft = columnMetrics.leftByColumn.get(firstColumn) ?? 0;
+  const lastLeft = columnMetrics.leftByColumn.get(lastColumn) ?? 0;
+
+  if (column <= firstColumn) {
+    return firstLeft - (firstColumn - column) * stepEstimate;
+  }
+  if (column >= lastColumn) {
+    return lastLeft + (column - lastColumn) * stepEstimate;
+  }
+
+  let lowerColumn = firstColumn;
+  let upperColumn = lastColumn;
+  for (let index = 1; index < sortedColumns.length; index += 1) {
+    const candidate = sortedColumns[index] as number;
+    if (candidate >= column) {
+      upperColumn = candidate;
+      lowerColumn = sortedColumns[index - 1] as number;
+      break;
+    }
+  }
+
+  const lowerLeft = columnMetrics.leftByColumn.get(lowerColumn) ?? 0;
+  const upperLeft = columnMetrics.leftByColumn.get(upperColumn) ?? 0;
+  const ratio = (column - lowerColumn) / Math.max(1, upperColumn - lowerColumn);
+  return lowerLeft + (upperLeft - lowerLeft) * ratio;
+}
+
+function resolveColumnCenter(
+  column: number,
+  columnMetrics: ColumnMetrics,
+) {
+  const exact = columnMetrics.centerByColumn.get(column);
+  if (exact !== undefined) {
+    return exact;
+  }
+
+  return resolveColumnLeft(column, columnMetrics) + columnMetrics.averageWidth / 2;
+}
+
 function placeControlNodes(
   nodes: ResolvedFlowNode[],
   columns: Map<string, number>,
   signatures: Map<string, SignatureSegment[]>,
+  columnMetrics: ColumnMetrics,
 ): Map<string, { x: number; y: number }> {
   const byColumn = new Map<number, ResolvedFlowNode[]>();
   nodes.forEach((node) => {
@@ -233,17 +341,32 @@ function placeControlNodes(
             || left.id.localeCompare(right.id);
         });
 
+      const columnLeft = resolveColumnLeft(column, columnMetrics);
+      const columnWidth = columnMetrics.widthByColumn.get(column) ?? columnMetrics.averageWidth;
+      const desiredCenters = sorted.map(
+        (node) => signatureOffset(signatures.get(node.id) ?? []) * CONTROL_LANE_GAP,
+      );
+      const tops: number[] = [];
       let previousBottom = Number.NEGATIVE_INFINITY;
-      sorted.forEach((node) => {
-        const desiredTop =
-          signatureOffset(signatures.get(node.id) ?? []) * CONTROL_ROW_GAP
-          - node.height / 2;
-        const nextTop = Math.max(desiredTop, previousBottom + CONTROL_TOP_PADDING);
-        positions.set(node.id, {
-          x: column * COLUMN_GAP,
-          y: nextTop,
-        });
+      sorted.forEach((node, index) => {
+        const desiredTop = desiredCenters[index] - node.height / 2;
+        const nextTop = Math.max(desiredTop, previousBottom + CONTROL_NODE_GAP);
+        tops.push(nextTop);
         previousBottom = nextTop + node.height;
+      });
+
+      const verticalShift = sorted.length
+        ? desiredCenters.reduce(
+          (sum, desiredCenter, index) => sum + (desiredCenter - (tops[index] + sorted[index]!.height / 2)),
+          0,
+        ) / sorted.length
+        : 0;
+
+      sorted.forEach((node, index) => {
+        positions.set(node.id, {
+          x: columnLeft + (columnWidth - node.width) / 2,
+          y: tops[index] + verticalShift,
+        });
       });
     });
 
@@ -275,7 +398,10 @@ function classifySupportNode(
 
 function placeSupportNodes(
   supportNodes: ResolvedFlowNode[],
-  positions: Map<string, { x: number; y: number }>,
+  controlNodes: ResolvedFlowNode[],
+  controlPositions: Map<string, { x: number; y: number }>,
+  columns: Map<string, number>,
+  columnMetrics: ColumnMetrics,
   edges: GraphEdgeDto[],
   controlNodeIds: Set<string>,
 ): Map<string, { x: number; y: number }> {
@@ -284,14 +410,23 @@ function placeSupportNodes(
     return supportPositions;
   }
 
+  const controlTop = controlNodes.reduce((lowest, node) => {
+    const top = controlPositions.get(node.id)?.y ?? 0;
+    return Math.min(lowest, top);
+  }, Number.POSITIVE_INFINITY);
+  const controlBottom = controlNodes.reduce((highest, node) => {
+    const top = controlPositions.get(node.id)?.y ?? 0;
+    return Math.max(highest, top + node.height);
+  }, Number.NEGATIVE_INFINITY);
+
   const columnsBySupport = new Map<string, number>();
   supportNodes.forEach((node) => {
     const relatedColumns = edges.flatMap((edge) => {
       if (edge.source === node.id && controlNodeIds.has(edge.target)) {
-        return [Math.round((positions.get(edge.target)?.x ?? 0) / COLUMN_GAP)];
+        return [columns.get(edge.target) ?? 0];
       }
       if (edge.target === node.id && controlNodeIds.has(edge.source)) {
-        return [Math.round((positions.get(edge.source)?.x ?? 0) / COLUMN_GAP)];
+        return [columns.get(edge.source) ?? 0];
       }
       return [];
     });
@@ -300,7 +435,16 @@ function placeSupportNodes(
       columnsBySupport.set(node.id, Math.round(average));
       return;
     }
-    columnsBySupport.set(node.id, node.flowOrder > 0 ? node.flowOrder : node.baseIndex);
+    const fallbackColumn = columnMetrics.sortedColumns.length
+      ? Math.max(
+        columnMetrics.sortedColumns[0] as number,
+        Math.min(
+          columnMetrics.sortedColumns[columnMetrics.sortedColumns.length - 1] as number,
+          node.flowOrder > 0 ? node.flowOrder : node.baseIndex,
+        ),
+      )
+      : 0;
+    columnsBySupport.set(node.id, fallbackColumn);
   });
 
   const above = supportNodes
@@ -324,17 +468,22 @@ function placeSupportNodes(
     bandNodes: ResolvedFlowNode[],
     direction: "above" | "below",
   ) => {
-    const depthByColumn = new Map<number, number>();
+    const nextOffsetByColumn = new Map<number, number>();
     bandNodes.forEach((node) => {
       const column = columnsBySupport.get(node.id) ?? 0;
-      const depth = depthByColumn.get(column) ?? 0;
-      depthByColumn.set(column, depth + 1);
+      const columnCenter = resolveColumnCenter(column, columnMetrics);
+      const currentOffset = nextOffsetByColumn.get(column) ?? 0;
+      const nextY =
+        direction === "above"
+          ? controlTop - SUPPORT_BAND_MARGIN - node.height - currentOffset
+          : controlBottom + SUPPORT_BAND_MARGIN + currentOffset;
+      nextOffsetByColumn.set(column, currentOffset + node.height + SUPPORT_ROW_GAP);
       supportPositions.set(node.id, {
-        x: column * COLUMN_GAP + (direction === "above" ? -SUPPORT_COLUMN_OFFSET : SUPPORT_COLUMN_OFFSET),
-        y:
-          direction === "above"
-            ? -SUPPORT_BAND_OFFSET - depth * SUPPORT_ROW_GAP
-            : SUPPORT_BAND_OFFSET + depth * SUPPORT_ROW_GAP,
+        x:
+          columnCenter
+          - node.width / 2
+          + (direction === "above" ? -SUPPORT_COLUMN_OFFSET : SUPPORT_COLUMN_OFFSET),
+        y: nextY,
       });
     });
   };
@@ -382,8 +531,8 @@ function applyPinnedAnchors(
       let deltaY = 0;
       pinned.forEach((pin) => {
         const normalizedDistance =
-          Math.abs(canonicalPosition.x - pin.canonical.x) / COLUMN_GAP
-          + Math.abs(canonicalPosition.y - pin.canonical.y) / CONTROL_ROW_GAP;
+          Math.abs(canonicalPosition.x - pin.canonical.x) / PIN_DISTANCE_X
+          + Math.abs(canonicalPosition.y - pin.canonical.y) / PIN_DISTANCE_Y;
         const weight = 1 / Math.pow(Math.max(0.6, normalizedDistance + 0.6), 2);
         weightSum += weight;
         deltaX += weight * (pin.current.x - pin.canonical.x);
@@ -455,15 +604,15 @@ export function layoutFlowGraph(
       });
 
       const columns = new Map<string, number>();
-      const orderedControlNodes = controlColumnOrder(
+      const controlNodes = controlColumnOrder(
         nodes.filter((node) => controlNodeIds.has(node.id)),
       );
-      orderedControlNodes.forEach((node) => {
+      controlNodes.forEach((node) => {
         if (node.kind === "entry" || !(incomingForwardByTarget.get(node.id)?.length)) {
           columns.set(node.id, 0);
         }
       });
-      orderedControlNodes.forEach((node) => {
+      controlNodes.forEach((node) => {
         const currentColumn = columns.get(node.id) ?? 0;
         columns.set(node.id, currentColumn);
         (outgoingForwardBySource.get(node.id) ?? []).forEach((edge) => {
@@ -473,7 +622,7 @@ export function layoutFlowGraph(
       });
 
       const signatures = new Map<string, SignatureSegment[]>();
-      orderedControlNodes.forEach((node) => {
+      controlNodes.forEach((node) => {
         if (!signatures.has(node.id)) {
           signatures.set(node.id, []);
         }
@@ -490,14 +639,19 @@ export function layoutFlowGraph(
         });
       });
 
+      const columnMetrics = buildColumnMetrics(controlNodes, columns);
       const controlPositions = placeControlNodes(
-        orderedControlNodes,
+        controlNodes,
         columns,
         signatures,
+        columnMetrics,
       );
       const supportPositions = placeSupportNodes(
         nodes.filter((node) => !controlNodeIds.has(node.id)),
+        controlNodes,
         controlPositions,
+        columns,
+        columnMetrics,
         relevantEdges,
         controlNodeIds,
       );

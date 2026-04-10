@@ -1174,11 +1174,13 @@ function layoutGraphView(raw: RawGraphView): GraphView {
       ? buildFlowLevels(raw.nodes, edgesForLevels)
       : buildBreadthLevels(raw.root_node_id, edgesForLevels);
   const repoNode = raw.nodes.find((node) => node.kind === "repo");
-  const positioned = layoutRelaxedDirectedGraph(raw.nodes, raw.edges, levels, {
-    architectureView,
-    flowView,
-    repoNodeId: architectureView ? repoNode?.node_id : undefined,
-  });
+  const positioned = flowView
+    ? layoutLightweightFlowGraph(raw.nodes, raw.edges, levels)
+    : layoutRelaxedDirectedGraph(raw.nodes, raw.edges, levels, {
+        architectureView,
+        flowView,
+        repoNodeId: architectureView ? repoNode?.node_id : undefined,
+      });
 
   return {
     rootNodeId: raw.root_node_id,
@@ -1263,6 +1265,7 @@ function buildFlowLevels(
 ): Map<string, number> {
   const levels = new Map<string, number>();
   const controlEdges = edges.filter((edge) => edge.kind === "controls");
+  const nodeById = new Map(nodes.map((node) => [node.node_id, node] as const));
   const orderedFlowNodes = nodes
     .map((node) => [node, rawFlowOrder(node)] as const)
     .filter((entry): entry is readonly [RawGraphViewNode, number] => entry[1] !== undefined)
@@ -1280,28 +1283,34 @@ function buildFlowLevels(
     return levels;
   }
 
-  nodes.forEach((node) => {
-    if (node.kind === "entry" || node.kind === "param") {
-      levels.set(node.node_id, 0);
+  const outgoingForwardEdges = new Map<string, RawGraphViewEdge[]>();
+  controlEdges
+    .filter((edge) => {
+      const sourceNode = nodeById.get(edge.source_id);
+      const targetNode = nodeById.get(edge.target_id);
+      const sourceOrder = sourceNode ? rawFlowOrder(sourceNode) : undefined;
+      const targetOrder = targetNode ? rawFlowOrder(targetNode) : undefined;
+      if (sourceOrder === undefined || targetOrder === undefined) {
+        return true;
+      }
+      return targetOrder >= sourceOrder;
+    })
+    .forEach((edge) => {
+      outgoingForwardEdges.set(edge.source_id, [...(outgoingForwardEdges.get(edge.source_id) ?? []), edge]);
+    });
+
+  const orderedNodes = nodes.slice().sort((left, right) =>
+    (rawFlowOrder(left) ?? Number.MAX_SAFE_INTEGER) - (rawFlowOrder(right) ?? Number.MAX_SAFE_INTEGER)
+    || `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
+  );
+  orderedNodes.forEach((node) => {
+    const baseLevel = levels.get(node.node_id) ?? (node.kind === "entry" || node.kind === "param" ? 0 : 1);
+    levels.set(node.node_id, baseLevel);
+    for (const edge of outgoingForwardEdges.get(node.node_id) ?? []) {
+      const nextLevel = baseLevel + 1;
+      levels.set(edge.target_id, Math.max(levels.get(edge.target_id) ?? 0, nextLevel));
     }
   });
-
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const edge of controlEdges) {
-      const sourceLevel = levels.get(edge.source_id);
-      if (sourceLevel === undefined) {
-        continue;
-      }
-      const nextLevel = sourceLevel + 1;
-      const currentLevel = levels.get(edge.target_id);
-      if (currentLevel === undefined || nextLevel > currentLevel) {
-        levels.set(edge.target_id, nextLevel);
-        changed = true;
-      }
-    }
-  }
 
   nodes.forEach((node) => {
     if (!levels.has(node.node_id)) {
@@ -1310,6 +1319,93 @@ function buildFlowLevels(
   });
 
   return levels;
+}
+
+function layoutLightweightFlowGraph(
+  nodes: RawGraphViewNode[],
+  edges: RawGraphViewEdge[],
+  levels: Map<string, number>,
+): Map<string, { x: number; y: number }> {
+  const orderedNodes = nodes
+    .slice()
+    .sort((left, right) =>
+      (rawFlowOrder(left) ?? Number.MAX_SAFE_INTEGER) - (rawFlowOrder(right) ?? Number.MAX_SAFE_INTEGER)
+      || `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
+    );
+  const positions = new Map<string, { x: number; y: number }>();
+  const controlEdges = edges.filter((edge) => edge.kind === "controls");
+
+  if (!controlEdges.length) {
+    orderedNodes.forEach((node, index) => {
+      positions.set(node.node_id, {
+        x: index * 280,
+        y: 0,
+      });
+    });
+    return positions;
+  }
+
+  const controlNodeIds = new Set<string>();
+  controlEdges.forEach((edge) => {
+    controlNodeIds.add(edge.source_id);
+    controlNodeIds.add(edge.target_id);
+  });
+
+  const mainFlowNodes = orderedNodes.filter((node) => node.kind === "entry" || controlNodeIds.has(node.node_id));
+  const buckets = new Map<number, RawGraphViewNode[]>();
+  mainFlowNodes.forEach((node) => {
+    const level = levels.get(node.node_id) ?? 0;
+    buckets.set(level, [...(buckets.get(level) ?? []), node]);
+  });
+
+  [...buckets.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .forEach(([level, group]) => {
+      const sortedGroup = group.slice().sort((left, right) =>
+        (rawFlowOrder(left) ?? Number.MAX_SAFE_INTEGER) - (rawFlowOrder(right) ?? Number.MAX_SAFE_INTEGER)
+        || `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
+      );
+      sortedGroup.forEach((node, index) => {
+        const centeredIndex = index - (sortedGroup.length - 1) / 2;
+        positions.set(node.node_id, {
+          x: level * 320,
+          y: centeredIndex * 150,
+        });
+      });
+    });
+
+  const controlColumnByNodeId = new Map<string, number>(
+    Array.from(positions.entries()).map(([nodeId, position]) => [nodeId, Math.round(position.x / 320)] as const),
+  );
+  const supportAboveDepthByColumn = new Map<number, number>();
+  const supportBelowDepthByColumn = new Map<number, number>();
+
+  orderedNodes
+    .filter((node) => !positions.has(node.node_id))
+    .forEach((node) => {
+      const relatedColumns = edges.flatMap((edge) => {
+        if (edge.source_id === node.node_id && controlColumnByNodeId.has(edge.target_id)) {
+          return [controlColumnByNodeId.get(edge.target_id) as number];
+        }
+        if (edge.target_id === node.node_id && controlColumnByNodeId.has(edge.source_id)) {
+          return [controlColumnByNodeId.get(edge.source_id) as number];
+        }
+        return [];
+      });
+      const column = relatedColumns.length
+        ? Math.round(relatedColumns.reduce((sum, value) => sum + value, 0) / relatedColumns.length)
+        : levels.get(node.node_id) ?? 0;
+      const above = node.kind === "param";
+      const depthByColumn = above ? supportAboveDepthByColumn : supportBelowDepthByColumn;
+      const depth = depthByColumn.get(column) ?? 0;
+      depthByColumn.set(column, depth + 1);
+      positions.set(node.node_id, {
+        x: column * 320 + (above ? -72 : 72),
+        y: above ? -180 - depth * 132 : 180 + depth * 132,
+      });
+    });
+
+  return positions;
 }
 
 function buildArchitectureLevels(
