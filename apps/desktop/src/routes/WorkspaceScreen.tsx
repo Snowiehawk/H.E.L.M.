@@ -30,6 +30,7 @@ import { useDesktopAdapter } from "../lib/adapter";
 import type {
   GraphAbstractionLevel,
   GraphBreadcrumbDto,
+  GraphNodeDto,
   GraphNodeKind,
   GraphView,
   OverviewModule,

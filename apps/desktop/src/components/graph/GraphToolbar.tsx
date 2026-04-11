@@ -38,7 +38,7 @@ export function GraphToolbar({
   graphSettings,
   highlightGraphPath,
   showEdgeLabels,
-  canUndoDeclutter,
+  canUndoLayout,
   onSelectLevel,
   onDeclutter,
   onFitView,
@@ -46,14 +46,14 @@ export function GraphToolbar({
   onToggleGraphSetting,
   onToggleGraphPathHighlight,
   onToggleEdgeLabels,
-  onUndoDeclutter,
+  onUndoLayout,
 }: {
   graph?: GraphView;
   graphFilters: GraphFilters;
   graphSettings: GraphSettings;
   highlightGraphPath: boolean;
   showEdgeLabels: boolean;
-  canUndoDeclutter: boolean;
+  canUndoLayout: boolean;
   onSelectLevel: (level: GraphAbstractionLevel) => void;
   onDeclutter: () => void;
   onFitView: () => void;
@@ -61,7 +61,7 @@ export function GraphToolbar({
   onToggleGraphSetting: (key: keyof GraphSettings) => void;
   onToggleGraphPathHighlight: () => void;
   onToggleEdgeLabels: () => void;
-  onUndoDeclutter: () => void;
+  onUndoLayout: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [position, setPosition] = useState<Point | null>(null);
@@ -299,14 +299,14 @@ export function GraphToolbar({
                 >
                   Declutter
                 </button>
-                {canUndoDeclutter ? (
+                {canUndoLayout ? (
                   <button
-                    {...helpTargetProps("graph.undo-declutter")}
+                    {...helpTargetProps("graph.undo-layout")}
                     className="ghost-button"
                     type="button"
-                    onClick={onUndoDeclutter}
+                    onClick={onUndoLayout}
                   >
-                    Undo declutter
+                    Undo layout
                   </button>
                 ) : null}
               </div>

@@ -432,15 +432,15 @@ describe("GraphCanvas", () => {
     expect(firstWrite[0]).toBe("/workspace/calculator");
     expect(firstWrite[1]).toBe("flow|symbol:calculator:calculate");
     expect(firstWrite[2]).not.toEqual(originalLayout);
-    expect(screen.getByRole("button", { name: "Undo declutter" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo layout" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Undo declutter" }));
+    await user.click(screen.getByRole("button", { name: "Undo layout" }));
 
     await waitFor(() => expect(writeStoredGraphLayoutMock).toHaveBeenCalledTimes(2));
     const secondWrite = writeStoredGraphLayoutMock.mock.calls[1];
     expect(secondWrite[2]).toEqual(originalLayout);
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Undo declutter" })).not.toBeInTheDocument(),
+      expect(screen.queryByRole("button", { name: "Undo layout" })).not.toBeInTheDocument(),
     );
   });
 
@@ -493,6 +493,43 @@ describe("GraphCanvas", () => {
     fireEvent.click(within(await screen.findByTestId("rf__node-branch:left")).getByText("branch left"));
 
     await waitFor(() => expect(readStoredGraphLayoutMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("treats shift-click as additive multiselect for nodes", async () => {
+    renderGraphCanvas();
+
+    fireEvent.click(within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Entry"));
+    fireEvent.keyDown(window, { key: "Shift", shiftKey: true });
+    fireEvent.click(
+      within(await screen.findByTestId("rf__node-branch:left")).getByText("branch left"),
+      { shiftKey: true },
+    );
+    fireEvent.keyUp(window, { key: "Shift" });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rf__node-entry:calculate")).toHaveClass("selected");
+      expect(screen.getByTestId("rf__node-branch:left")).toHaveClass("selected");
+    });
+  });
+
+  it("keeps single-select emphasis behavior across a multiselect context", async () => {
+    renderGraphCanvas();
+
+    fireEvent.click(within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Entry"));
+    fireEvent.keyDown(window, { key: "Shift", shiftKey: true });
+    fireEvent.click(
+      within(await screen.findByTestId("rf__node-branch:left")).getByText("branch left"),
+      { shiftKey: true },
+    );
+    fireEvent.keyUp(window, { key: "Shift" });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rf__node-entry:calculate")).toHaveClass("is-active", "is-related");
+      expect(screen.getByTestId("rf__node-branch:left")).toHaveClass("is-active", "is-related");
+      expect(screen.getByTestId("rf__node-branch:right")).toHaveClass("is-related");
+      expect(screen.getByTestId("rf__node-branch:right")).not.toHaveClass("is-dimmed");
+      expect(screen.getByTestId("rf__node-return:done")).toHaveClass("is-dimmed");
+    });
   });
 
   it("suppresses single-node emphasis while a marquee selection is active", () => {
@@ -1153,6 +1190,38 @@ describe("GraphCanvas", () => {
     ]);
   });
 
+  it("organizes a group through inline presets and can undo the layout change", async () => {
+    const user = userEvent.setup();
+    const groupedLayout = buildStoredLayout({
+      groups: [flowGroup],
+    });
+    readStoredGraphLayoutMock.mockResolvedValueOnce(groupedLayout);
+
+    renderGraphCanvas();
+
+    const groupBox = await screen.findByTestId(`graph-group-${flowGroup.id}`);
+    await user.click(within(groupBox).getByRole("button", { name: "Organize" }));
+
+    const organizePalette = await screen.findByTestId(`graph-group-organize-${flowGroup.id}`);
+    expect(within(organizePalette).getByRole("button", { name: "Column" })).toBeInTheDocument();
+    expect(within(organizePalette).getByRole("button", { name: "By kind" })).toBeInTheDocument();
+
+    await user.click(within(organizePalette).getByRole("button", { name: "Column" }));
+
+    await waitFor(() => expect(writeStoredGraphLayoutMock).toHaveBeenCalledTimes(1));
+    expect(latestPersistedLayout()?.groups).toEqual([flowGroup]);
+    expect(latestPersistedLayout()?.nodes["entry:calculate"]).not.toEqual(groupedLayout.nodes["entry:calculate"]);
+    expect(latestPersistedLayout()?.nodes["branch:left"]).not.toEqual(groupedLayout.nodes["branch:left"]);
+    expect(screen.queryByTestId(`graph-group-organize-${flowGroup.id}`)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /calculate/i }));
+    expect(screen.getByRole("button", { name: "Undo layout" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Undo layout" }));
+
+    await waitFor(() => expect(writeStoredGraphLayoutMock).toHaveBeenCalledTimes(2));
+    expect(writeStoredGraphLayoutMock.mock.calls[1]?.[2]).toEqual(groupedLayout);
+  });
+
   it("fans out flow pinning to every grouped member and ungroups from the group chip", async () => {
     readStoredGraphLayoutMock.mockResolvedValueOnce(buildStoredLayout({
       groups: [flowGroup],
@@ -1304,5 +1373,23 @@ describe("GraphCanvas", () => {
     fireEvent.keyDown(screen.getByRole("region", { name: /Graph canvas/i }), { key: "p" });
 
     expect(writeStoredGraphLayoutMock).not.toHaveBeenCalled();
+  });
+
+  it("hides the by-kind preset for groups with only one node kind", async () => {
+    const user = userEvent.setup();
+    readStoredGraphLayoutMock.mockResolvedValueOnce(buildModuleStoredLayout({
+      groups: [moduleGroup],
+    }));
+
+    renderGraphCanvas({
+      graph: moduleGraph,
+      activeNodeId: "module:focus",
+    });
+
+    const groupBox = await screen.findByTestId(`graph-group-${moduleGroup.id}`);
+    await user.click(within(groupBox).getByRole("button", { name: "Organize" }));
+
+    const organizePalette = await screen.findByTestId(`graph-group-organize-${moduleGroup.id}`);
+    expect(within(organizePalette).queryByRole("button", { name: "By kind" })).not.toBeInTheDocument();
   });
 });

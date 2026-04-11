@@ -55,13 +55,14 @@ export type HelpDescriptorId =
   | "graph.filter.path"
   | "graph.filter.labels"
   | "graph.declutter"
-  | "graph.undo-declutter"
+  | "graph.undo-layout"
   | "graph.settings.external-dependencies"
   | "graph.node.action.enter"
   | "graph.node.action.inspect"
   | "graph.node.action.pin"
   | "graph.node.action.unpin"
   | "graph.group.box"
+  | "graph.group.organize"
   | "graph.node.repo"
   | "graph.node.module"
   | "graph.node.symbol"
@@ -275,9 +276,9 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
     title: "Declutter",
     description: "Re-run layout for the current graph view. Flow views use a structured left-to-right pass, while the camera stays where it is.",
   }),
-  "graph.undo-declutter": () => ({
-    title: "Undo declutter",
-    description: "Restore the last saved node positions and pin state from before the current view was decluttered.",
+  "graph.undo-layout": () => ({
+    title: "Undo layout",
+    description: "Restore the last saved node positions, groups, reroutes, and pin state from before the most recent layout action.",
   }),
   "graph.settings.external-dependencies": () => ({
     title: "Show external dependencies",
@@ -303,8 +304,14 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.group.box": ({ label }) => ({
     title: `${fallbackLabel(label, "Node group")} group`,
-    description: "Canvas boundary that keeps grouped nodes moving together. Click the title to rename it or use the Ungroup chip to break the group apart.",
+    description: "Canvas boundary that keeps grouped nodes moving together. Click the title to rename it, use Organize to restack the group, or use Ungroup to break it apart.",
     shortcut: "Cmd/Ctrl + G groups selected nodes · Cmd/Ctrl + Shift + G ungroups",
+  }),
+  "graph.group.organize": ({ label }) => ({
+    title: label?.trim() ? `${label.trim()} group layout` : "Organize group",
+    description: label?.trim()
+      ? `Apply the ${label.trim().toLowerCase()} preset to this node group.`
+      : "Open one-shot organize presets like Column, Row, Grid, Tidy, and By kind for this node group.",
   }),
   "graph.node.repo": ({ label }) => ({
     title: `${fallbackLabel(label, "Repo")} repo node`,

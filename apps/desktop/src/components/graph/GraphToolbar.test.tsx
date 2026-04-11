@@ -32,7 +32,7 @@ describe("GraphToolbar", () => {
     const onToggleGraphFilter = vi.fn();
     const onToggleGraphSetting = vi.fn();
     const onDeclutter = vi.fn();
-    const onUndoDeclutter = vi.fn();
+    const onUndoLayout = vi.fn();
     const onFitView = vi.fn();
 
     render(
@@ -49,7 +49,7 @@ describe("GraphToolbar", () => {
           }}
           highlightGraphPath={false}
           showEdgeLabels={false}
-          canUndoDeclutter
+          canUndoLayout
           onSelectLevel={vi.fn()}
           onDeclutter={onDeclutter}
           onFitView={onFitView}
@@ -57,7 +57,7 @@ describe("GraphToolbar", () => {
           onToggleGraphSetting={onToggleGraphSetting}
           onToggleGraphPathHighlight={vi.fn()}
           onToggleEdgeLabels={vi.fn()}
-          onUndoDeclutter={onUndoDeclutter}
+          onUndoLayout={onUndoLayout}
         />
       </div>,
     );
@@ -66,13 +66,13 @@ describe("GraphToolbar", () => {
     await user.click(screen.getByRole("button", { name: /helm\.ui\.graph/i }));
     await user.click(screen.getByRole("button", { name: "Calls" }));
     await user.click(screen.getByRole("button", { name: "Declutter" }));
-    await user.click(screen.getByRole("button", { name: "Undo declutter" }));
+    await user.click(screen.getByRole("button", { name: "Undo layout" }));
     await user.click(screen.getByRole("button", { name: "External" }));
 
     expect(onFitView).toHaveBeenCalledTimes(1);
     expect(onToggleGraphFilter).toHaveBeenCalledWith("includeCalls");
     expect(onDeclutter).toHaveBeenCalledTimes(1);
-    expect(onUndoDeclutter).toHaveBeenCalledTimes(1);
+    expect(onUndoLayout).toHaveBeenCalledTimes(1);
     expect(onToggleGraphSetting).toHaveBeenCalledWith("includeExternalDependencies");
     expect(screen.getByText("0 nodes")).toBeInTheDocument();
     expect(screen.getByText("0 edges")).toBeInTheDocument();

@@ -899,14 +899,30 @@ button {
 }
 
 .graph-group__title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.graph-group__header {
+  display: grid;
+  gap: 8px;
+  max-width: min(460px, calc(100vw - 48px));
+}
+
+.graph-group__actions,
+.graph-group__organize-row {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .graph-group__title,
 .graph-group__title-input,
-.graph-group__action {
+.graph-group__action,
+.graph-group__mode {
   min-width: 132px;
   padding: 7px 14px;
   border-radius: 999px;
@@ -927,7 +943,8 @@ button {
   user-select: none;
 }
 
-.graph-group__action {
+.graph-group__action,
+.graph-group__mode {
   min-width: auto;
   appearance: none;
   cursor: pointer;
@@ -951,14 +968,23 @@ button {
 
 .graph-group.is-selected .graph-group__title,
 .graph-group.is-selected .graph-group__action,
+.graph-group.is-selected .graph-group__mode,
 .graph-group.is-editing .graph-group__title-input,
 .graph-group:hover .graph-group__title,
-.graph-group:hover .graph-group__action {
+.graph-group:hover .graph-group__action,
+.graph-group:hover .graph-group__mode,
+.graph-group__action.is-active {
   border-color: color-mix(in srgb, var(--accent-strong) 56%, white 18%);
   box-shadow:
     0 12px 28px color-mix(in srgb, #020611 22%, transparent),
     0 0 0 3px color-mix(in srgb, var(--accent-strong) 12%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 18%, transparent);
+}
+
+.graph-group__mode {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 42%, transparent), color-mix(in srgb, var(--surface-solid) 96%, transparent)),
+    color-mix(in srgb, var(--surface-solid) 90%, transparent);
 }
 
 .graph-reroute-node {

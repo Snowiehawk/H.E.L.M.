@@ -23,8 +23,12 @@ If you install the project locally, the same workflow is available as `helm scan
 
 A desktop shell now lives under `apps/desktop/`.
 
-- `cd apps/desktop && npm install && npm run dev` starts the browser-only UI with mock data.
-- `cd apps/desktop && npm run tauri dev` starts the desktop app and exercises the real Python backbone from the UI.
+- `python3 -m venv .venv-helm-dev && source .venv-helm-dev/bin/activate` creates the recommended local dev environment.
+- `python -m pip install '.[dev]'` installs the root dev helpers, including `invoke`.
+- `inv install-desktop` installs the desktop app's npm dependencies from the repo root.
+- `inv ui` starts the browser-only UI with mock data.
+- `inv desktop` starts the desktop app and exercises the real Python backbone from the UI.
+- `python -m invoke <task>` works too if you prefer not to add the `inv` shell shim to your PATH.
 
 The desktop flow is now the preferred way to validate the frontend/backend integration without running manual scan commands in the terminal.
 
@@ -53,3 +57,7 @@ The package is laid out under `src/helm/`:
 - `editor`: intentionally deferred mutation interfaces
 
 Tests are written to run under `unittest` in this environment and remain compatible with `pytest` later.
+
+For desktop work, the root `invoke` tasks automatically run inside `apps/desktop/` and default `HELM_WORKSPACE_ROOT` plus `HELM_PYTHON_BIN` to the current repo and Python interpreter. You can still override either environment variable manually if needed.
+
+If you use zsh, keep the extras spec quoted as `'.[dev]'` so the shell does not treat `[]` as a glob. This non-editable install is intentional for compatibility with the older `pip` that ships with macOS Command Line Tools Python.

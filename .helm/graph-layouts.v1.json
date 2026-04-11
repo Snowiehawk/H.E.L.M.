@@ -1,5 +1,40 @@
 {
   "views": {
+    "flow|symbol:src.helm._vendor:ensure_vendor_packages": {
+      "nodes": {
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:entry": {
+          "x": 0.0,
+          "y": -50.0
+        },
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:0": {
+          "x": 570.0,
+          "y": -50.0
+        },
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:1": {
+          "x": 1159.0,
+          "y": -50.0
+        },
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:2": {
+          "x": 1748.0,
+          "y": -50.0
+        },
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:3": {
+          "x": 2337.0,
+          "y": -50.0
+        },
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:4": {
+          "x": 2926.0,
+          "y": -50.0
+        },
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:5": {
+          "x": 3515.0,
+          "y": -50.0
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
     "flow|symbol:src.helm.editor.patcher:_add_import": {
       "nodes": {
         "flow:symbol:src.helm.editor.patcher:_add_import:entry": {
@@ -685,280 +720,390 @@
     "module|repo:/Users/noahphillips/Documents/git-repos/H.E.L.M.": {
       "nodes": {
         "module:src.helm": {
-          "x": 426.79241827567586,
-          "y": -2551.008009205276
+          "x": -815.7060323384071,
+          "y": -802.0695757211472
         },
         "module:src.helm._vendor": {
-          "x": 220.750351250578,
-          "y": -2311.845471134489
+          "x": 566.3375150445252,
+          "y": 432.3491443075442
         },
         "module:src.helm.cli": {
-          "x": 288.5548267817855,
-          "y": -2055.5661077968525
+          "x": 121.33751504452516,
+          "y": 572.3491443075442
         },
         "module:src.helm.config": {
-          "x": 442.3553162353532,
-          "y": -1873.254691279147
+          "x": -323.66248495547484,
+          "y": 712.3491443075442
         },
         "module:src.helm.editor": {
-          "x": 490.5852266389248,
-          "y": -1637.9676754190025
+          "x": -815.7060323384071,
+          "y": -662.0695757211472
         },
         "module:src.helm.editor.models": {
-          "x": 168.9039959482829,
-          "y": -1483.3719753606035
+          "x": -323.66248495547484,
+          "y": 432.3491443075442
         },
         "module:src.helm.editor.patcher": {
-          "x": 523.8520726426708,
-          "y": -1382.169422066512
+          "x": 121.33751504452516,
+          "y": 432.3491443075442
         },
         "module:src.helm.editor.serializer": {
-          "x": 626.9834211246035,
-          "y": -1125.089975169498
+          "x": 566.3375150445252,
+          "y": 712.3491443075442
         },
         "module:src.helm.graph": {
-          "x": 149.26987502634094,
-          "y": -1123.9850075610802
+          "x": -815.7060323384071,
+          "y": -242.06957572114715
         },
         "module:src.helm.graph.builder": {
-          "x": 342.88343574700843,
-          "y": -950.9964360998104
+          "x": 121.33751504452516,
+          "y": 712.3491443075442
         },
         "module:src.helm.graph.models": {
-          "x": 502.8503184668236,
-          "y": -749.0702624955362
+          "x": 121.33751504452516,
+          "y": 292.3491443075442
         },
         "module:src.helm.graph.queries": {
-          "x": 202.41511539369824,
-          "y": -598.9975975074071
+          "x": 121.33751504452516,
+          "y": 852.3491443075442
         },
         "module:src.helm.parser": {
-          "x": 605.1615392527018,
-          "y": -505.88043791183367
+          "x": -815.7060323384071,
+          "y": -102.06957572114716
         },
         "module:src.helm.parser.python_parser": {
-          "x": 217.30534117492527,
-          "y": -301.8876962942012
+          "x": -323.66248495547484,
+          "y": 852.3491443075442
         },
         "module:src.helm.parser.repo_loader": {
-          "x": 594.9310630864323,
-          "y": -229.67770664936424
+          "x": 566.3375150445252,
+          "y": 852.3491443075442
         },
         "module:src.helm.parser.symbols": {
-          "x": 336.24417428711945,
-          "y": -46.86175798711047
+          "x": 566.3375150445252,
+          "y": 572.3491443075442
         },
         "module:src.helm.ui": {
-          "x": 663.9135743201529,
-          "y": 78.7714839756084
+          "x": -815.7060323384071,
+          "y": 37.930424278852854
         },
         "module:src.helm.ui.api": {
-          "x": 280.10528438122975,
-          "y": 200.4167711381491
+          "x": -323.66248495547484,
+          "y": 992.3491443075442
         },
         "module:src.helm.ui.desktop_bridge": {
-          "x": 643.6330715568436,
-          "y": 397.7566798557168
+          "x": -323.66248495547484,
+          "y": 572.3491443075442
         },
         "module:src.helm.ui.python_adapter": {
-          "x": 307.4755416499474,
-          "y": 444.8464960230515
+          "x": -323.66248495547484,
+          "y": 292.3491443075442
         },
         "module:src.helm.utils": {
-          "x": 106.60319888925372,
-          "y": 680.3008535101405
+          "x": -815.7060323384071,
+          "y": -382.06957572114715
         },
         "module:src.helm.utils.logging": {
-          "x": 409.84760823569735,
-          "y": 696.3965771002569
+          "x": 121.33751504452516,
+          "y": 992.3491443075442
+        },
+        "module:tasks": {
+          "x": 566.3375150445252,
+          "y": 292.3491443075442
         },
         "module:tests": {
-          "x": 77.04335816824074,
-          "y": 1106.7162643424135
+          "x": -815.7060323384071,
+          "y": -522.0695757211472
         },
         "module:tests.helpers": {
-          "x": 1307.5230342568157,
-          "y": 1261.0884358764542
+          "x": 548.9387312009798,
+          "y": -524.3530593146924
         },
         "module:tests.test_cli": {
-          "x": 574.1188462819264,
-          "y": 917.5652770689866
+          "x": -314.18717827109936,
+          "y": -943.393247308527
         },
         "module:tests.test_config": {
-          "x": 730.5115063341545,
-          "y": 1704.0157323283129
+          "x": -314.18717827109936,
+          "y": 36.60675269147316
         },
         "module:tests.test_desktop_bridge": {
-          "x": 592.3885319809684,
-          "y": 1103.036836461073
+          "x": -314.18717827109936,
+          "y": -663.3932473085268
         },
         "module:tests.test_graph_builder": {
-          "x": 395.9514725725235,
-          "y": 1084.971017808629
+          "x": -314.18717827109936,
+          "y": -803.3932473085268
         },
         "module:tests.test_patcher": {
-          "x": 359.54519506014987,
-          "y": 1303.1993384209975
+          "x": -314.18717827109936,
+          "y": -523.3932473085268
         },
         "module:tests.test_python_adapter": {
-          "x": 599.6506324446356,
-          "y": 1283.7626887386896
+          "x": -314.18717827109936,
+          "y": -383.3932473085269
         },
         "module:tests.test_python_parser": {
-          "x": 519.9697994255145,
-          "y": 1438.854627739402
+          "x": -314.18717827109936,
+          "y": -243.39324730852684
         },
         "module:tests.test_repo_loader": {
-          "x": 428.09513625137185,
-          "y": 1593.101009674205
+          "x": -314.18717827109936,
+          "y": -103.39324730852684
         },
         "repo-root": {
-          "x": -482.99999999999994,
-          "y": 0.0
+          "x": -813.2060951601666,
+          "y": 296.3701727591007
         }
       },
       "reroutes": [],
       "pinned_node_ids": [],
-      "groups": []
+      "groups": [
+        {
+          "id": "group-43bb2581-08e0-4900-b80b-c0114a8faaf6",
+          "title": "Python Package Files",
+          "memberNodeIds": [
+            "module:src.helm",
+            "module:src.helm.editor",
+            "module:src.helm.graph",
+            "module:src.helm.parser",
+            "module:src.helm.ui",
+            "module:src.helm.utils",
+            "module:tests"
+          ]
+        },
+        {
+          "id": "group-7ed5e2c1-414f-4fe3-869c-e5d81863a820",
+          "title": "Testing",
+          "memberNodeIds": [
+            "module:tests.test_cli",
+            "module:tests.test_config",
+            "module:tests.test_desktop_bridge",
+            "module:tests.test_graph_builder",
+            "module:tests.test_patcher",
+            "module:tests.test_python_adapter",
+            "module:tests.test_python_parser",
+            "module:tests.test_repo_loader"
+          ]
+        },
+        {
+          "id": "group-8b10e80b-3db5-468f-9efd-c440d9f0f4e0",
+          "title": "Group",
+          "memberNodeIds": [
+            "module:src.helm._vendor",
+            "module:src.helm.cli",
+            "module:src.helm.config",
+            "module:src.helm.editor.models",
+            "module:src.helm.editor.patcher",
+            "module:src.helm.editor.serializer",
+            "module:src.helm.graph.builder",
+            "module:src.helm.graph.models",
+            "module:src.helm.graph.queries",
+            "module:src.helm.parser.python_parser",
+            "module:src.helm.parser.repo_loader",
+            "module:src.helm.parser.symbols",
+            "module:src.helm.ui.api",
+            "module:src.helm.ui.desktop_bridge",
+            "module:src.helm.ui.python_adapter",
+            "module:src.helm.utils.logging",
+            "module:tasks"
+          ]
+        }
+      ]
     },
     "repo|repo-root": {
       "nodes": {
         "module:src.helm": {
-          "x": 426.73741276989017,
-          "y": -2550.4269246419717
+          "x": 1646.3159985568332,
+          "y": -252.03894417297568
         },
         "module:src.helm._vendor": {
-          "x": 220.8627478130499,
-          "y": -2311.0618237585218
+          "x": 140.81420936178438,
+          "y": -334.18583795184543
         },
         "module:src.helm.cli": {
-          "x": 288.7567418249194,
-          "y": -2054.754970449987
+          "x": 585.8142093617844,
+          "y": -334.18583795184543
         },
         "module:src.helm.config": {
-          "x": 442.180992339708,
-          "y": -1872.0690251684923
+          "x": 1030.8142093617844,
+          "y": -334.18583795184543
         },
         "module:src.helm.editor": {
-          "x": 490.47066291509503,
-          "y": -1636.6763302383058
+          "x": 1646.3159985568332,
+          "y": -392.03894417297545
         },
         "module:src.helm.editor.models": {
-          "x": 169.03404179775944,
-          "y": -1481.7747501792187
+          "x": 585.8142093617844,
+          "y": -194.18583795184543
         },
         "module:src.helm.editor.patcher": {
-          "x": 523.8569785304016,
-          "y": -1380.6221578205336
+          "x": 140.81420936178438,
+          "y": -54.18583795184543
         },
         "module:src.helm.editor.serializer": {
-          "x": 626.3611166747097,
-          "y": -1123.0619930482862
+          "x": 1030.8142093617844,
+          "y": -54.18583795184543
         },
         "module:src.helm.graph": {
-          "x": 149.93504127716855,
-          "y": -1121.852567329729
+          "x": 1646.3159985568332,
+          "y": 27.961055827024325
         },
         "module:src.helm.graph.builder": {
-          "x": 343.0162588948928,
-          "y": -947.8193567370174
+          "x": 585.8142093617844,
+          "y": 85.81416204815457
         },
         "module:src.helm.graph.models": {
-          "x": 502.7550283358402,
-          "y": -745.413217002574
+          "x": 1030.8142093617844,
+          "y": 85.81416204815457
         },
         "module:src.helm.graph.queries": {
-          "x": 202.96637621003467,
-          "y": -594.059764064935
+          "x": 140.81420936178438,
+          "y": 365.81416204815457
         },
         "module:src.helm.parser": {
-          "x": 603.9949925478414,
-          "y": -500.6894538303859
+          "x": 1646.3159985568332,
+          "y": -112.03894417297568
         },
         "module:src.helm.parser.python_parser": {
-          "x": 218.7930909849153,
-          "y": -295.1142164553051
+          "x": 140.81420936178438,
+          "y": 225.81416204815457
         },
         "module:src.helm.parser.repo_loader": {
-          "x": 592.2692391391626,
-          "y": -223.4680028333437
+          "x": 585.8142093617844,
+          "y": 225.81416204815457
         },
         "module:src.helm.parser.symbols": {
-          "x": 330.9478346082604,
-          "y": -34.591963402298425
+          "x": 585.8142093617844,
+          "y": 365.81416204815457
         },
         "module:src.helm.ui": {
-          "x": 661.3936164887359,
-          "y": 82.2147620833858
+          "x": 1646.3159985568332,
+          "y": 167.9610558270242
         },
         "module:src.helm.ui.api": {
-          "x": 288.79501511454856,
-          "y": 220.5953454364755
+          "x": 140.81420936178438,
+          "y": -194.18583795184543
         },
         "module:src.helm.ui.desktop_bridge": {
-          "x": 628.7727269910359,
-          "y": 383.2729465423234
+          "x": 1030.8142093617844,
+          "y": -194.18583795184543
         },
         "module:src.helm.ui.python_adapter": {
-          "x": 258.8884606562512,
-          "y": 473.592082860178
+          "x": 585.8142093617844,
+          "y": -54.18583795184543
         },
         "module:src.helm.utils": {
-          "x": 198.30097220117855,
-          "y": 733.7904360346049
+          "x": 1646.3159985568332,
+          "y": 307.96105582702364
         },
         "module:src.helm.utils.logging": {
-          "x": 566.7533766883458,
-          "y": 667.6424259203592
+          "x": 140.81420936178438,
+          "y": 85.81416204815457
+        },
+        "module:tasks": {
+          "x": 1030.8142093617844,
+          "y": 225.81416204815457
         },
         "module:tests": {
-          "x": -265.07249655690055,
-          "y": 1011.0068167371352
+          "x": 1646.3159985568332,
+          "y": 447.96105582702313
         },
         "module:tests.helpers": {
-          "x": 1117.188550222681,
-          "y": 1260.0352851701011
+          "x": 2791.741219294427,
+          "y": 27.26106353280602
         },
         "module:tests.test_cli": {
-          "x": -265.72536039292197,
-          "y": 843.9641371079659
+          "x": 2170.5364062075214,
+          "y": -459.025813046006
         },
         "module:tests.test_config": {
-          "x": -149.18113404217468,
-          "y": 1714.8836630274366
+          "x": 2170.5364062075214,
+          "y": 520.9741869539939
         },
         "module:tests.test_desktop_bridge": {
-          "x": -265.13853318886515,
-          "y": 926.9844960213412
+          "x": 2170.5364062075214,
+          "y": -319.025813046006
         },
         "module:tests.test_graph_builder": {
-          "x": -265.8032170924549,
-          "y": 1095.0902782490898
+          "x": 2170.5364062075214,
+          "y": -179.02581304600602
         },
         "module:tests.test_patcher": {
-          "x": -263.8956484784517,
-          "y": 1177.5366886738288
+          "x": 2170.5364062075214,
+          "y": -39.02581304600602
         },
         "module:tests.test_python_adapter": {
-          "x": -261.4525136996738,
-          "y": 1260.2356627139145
+          "x": 2170.5364062075214,
+          "y": 100.97418695399398
         },
         "module:tests.test_python_parser": {
-          "x": -171.2896084401154,
-          "y": 1390.2362646135498
+          "x": 2170.5364062075214,
+          "y": 240.97418695399384
         },
         "module:tests.test_repo_loader": {
-          "x": -148.42218845372958,
-          "y": 1608.2394981537925
+          "x": 2170.5364062075214,
+          "y": 380.97418695399375
         },
-        "repo:/Users/noahphillips/Documents/git-repos/H.E.L.M.": {
-          "x": -482.99999999999994,
-          "y": 0.0
+        "repo-root": {
+          "x": 1011.2275997957918,
+          "y": -599.0001309413891
         }
       },
       "reroutes": [],
       "pinned_node_ids": [],
-      "groups": []
+      "groups": [
+        {
+          "id": "group-056e5aa6-1b20-4143-885d-db9723f004df",
+          "title": "Testing",
+          "memberNodeIds": [
+            "module:tests.test_cli",
+            "module:tests.test_config",
+            "module:tests.test_desktop_bridge",
+            "module:tests.test_graph_builder",
+            "module:tests.test_patcher",
+            "module:tests.test_python_adapter",
+            "module:tests.test_python_parser",
+            "module:tests.test_repo_loader"
+          ]
+        },
+        {
+          "id": "group-0f177fcd-a72e-41a4-a4f2-250918087a70",
+          "title": "Python Package Files",
+          "memberNodeIds": [
+            "module:src.helm",
+            "module:src.helm.editor",
+            "module:src.helm.graph",
+            "module:src.helm.parser",
+            "module:src.helm.ui",
+            "module:src.helm.utils",
+            "module:tests"
+          ]
+        },
+        {
+          "id": "group-3b4a5281-f0dc-4d4b-8c9b-0db6445c086b",
+          "title": "Group",
+          "memberNodeIds": [
+            "module:src.helm._vendor",
+            "module:src.helm.cli",
+            "module:src.helm.config",
+            "module:src.helm.editor.models",
+            "module:src.helm.editor.patcher",
+            "module:src.helm.editor.serializer",
+            "module:src.helm.graph.builder",
+            "module:src.helm.graph.models",
+            "module:src.helm.graph.queries",
+            "module:src.helm.parser.python_parser",
+            "module:src.helm.parser.repo_loader",
+            "module:src.helm.parser.symbols",
+            "module:src.helm.ui.api",
+            "module:src.helm.ui.desktop_bridge",
+            "module:src.helm.ui.python_adapter",
+            "module:src.helm.utils.logging",
+            "module:tasks"
+          ]
+        }
+      ]
     },
     "symbol|symbol:tests.test_cli:CliTests": {
       "nodes": {

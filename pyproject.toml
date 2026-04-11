@@ -12,7 +12,7 @@ authors = [{ name = "OpenAI Codex" }]
 dependencies = ["libcst>=1.8.6"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+dev = ["invoke>=2.2", "pytest>=7.0"]
 
 [project.scripts]
 helm = "helm.cli:main"

@@ -59,6 +59,10 @@ import {
   type StoredGraphReroute,
   writeStoredGraphLayout,
 } from "./graphLayoutPersistence";
+import {
+  organizeGroupedNodes,
+  type GroupOrganizeMode,
+} from "./groupOrganizeLayout";
 import { EmptyState } from "../shared/EmptyState";
 
 const REROUTE_NODE_PREFIX = "reroute:";
@@ -69,6 +73,13 @@ const DEFAULT_GROUP_TITLE = "Group";
 const FALLBACK_GROUP_NODE_WIDTH = 252;
 const FALLBACK_GROUP_NODE_HEIGHT = 96;
 const EMPTY_STRING_SET = new Set<string>();
+const GROUP_ORGANIZE_OPTIONS: Array<{ mode: GroupOrganizeMode; label: string }> = [
+  { mode: "column", label: "Column" },
+  { mode: "row", label: "Row" },
+  { mode: "grid", label: "Grid" },
+  { mode: "tidy", label: "Tidy" },
+  { mode: "kind", label: "By kind" },
+];
 
 const nodeTypes: NodeTypes = {
   blueprint: BlueprintNode,
@@ -235,7 +246,7 @@ function sameNodeIds(left: string[], right: string[]) {
   return left.every((nodeId, index) => nodeId === right[index]);
 }
 
-export function resolveSelectionPreviewNodeId({
+function resolveSelectionPreviewNodeIds({
   activeNodeId,
   effectiveSemanticSelection,
   graphNodeIds,
@@ -254,13 +265,42 @@ export function resolveSelectionPreviewNodeId({
     marqueeSelectionActive
     || selectedRerouteCount
     || selectedGroupId
-    || effectiveSemanticSelection.length > 1
   ) {
-    return "";
+    return [];
   }
 
-  return effectiveSemanticSelection[0]
-    ?? (graphNodeIds.has(activeNodeId ?? "") ? activeNodeId ?? "" : "");
+  if (effectiveSemanticSelection.length) {
+    return effectiveSemanticSelection;
+  }
+
+  return graphNodeIds.has(activeNodeId ?? "") ? [activeNodeId ?? ""] : [];
+}
+
+export function resolveSelectionPreviewNodeId({
+  activeNodeId,
+  effectiveSemanticSelection,
+  graphNodeIds,
+  marqueeSelectionActive,
+  selectedGroupId,
+  selectedRerouteCount,
+}: {
+  activeNodeId?: string;
+  effectiveSemanticSelection: string[];
+  graphNodeIds: Set<string>;
+  marqueeSelectionActive: boolean;
+  selectedGroupId?: string;
+  selectedRerouteCount: number;
+}) {
+  const previewNodeIds = resolveSelectionPreviewNodeIds({
+    activeNodeId,
+    effectiveSemanticSelection,
+    graphNodeIds,
+    marqueeSelectionActive,
+    selectedGroupId,
+    selectedRerouteCount,
+  });
+
+  return previewNodeIds.length === 1 ? previewNodeIds[0] ?? "" : "";
 }
 
 export function normalizeStoredGroups(
@@ -357,7 +397,7 @@ export function expandGroupedNodeIds(
 
 function buildNodeShellClassName(
   nodeId: string,
-  selectedNodeId: string,
+  selectedNodeIds: Set<string>,
   selectedRelatedNodeIds: Set<string>,
   selectionContextActive: boolean,
   groupedNodeIds: Set<string>,
@@ -365,7 +405,7 @@ function buildNodeShellClassName(
 ) {
   return [
     "graph-node-shell",
-    nodeId === selectedNodeId ? "is-active" : "",
+    selectedNodeIds.has(nodeId) ? "is-active" : "",
     selectionContextActive && selectedRelatedNodeIds.has(nodeId) ? "is-related" : "",
     selectionContextActive && !selectedRelatedNodeIds.has(nodeId) ? "is-dimmed" : "",
     groupedNodeIds.has(nodeId) ? "is-group-member" : "",
@@ -420,7 +460,7 @@ function decorateNodePorts(
 
 function buildSemanticCanvasNodes(
   graph: GraphView,
-  selectedNodeId: string,
+  selectedNodeIds: Set<string>,
   savedPositions: StoredGraphNodeLayout,
   pinnedNodeIds: Set<string>,
   highlightedEdgeIds: Set<string>,
@@ -500,7 +540,7 @@ function buildSemanticCanvasNodes(
       selectable: true,
       className: buildNodeShellClassName(
         node.id,
-        selectedNodeId,
+        selectedNodeIds,
         selectedRelatedNodeIds,
         selectionContextActive,
         groupedNodeIds,
@@ -543,7 +583,7 @@ function buildRerouteCanvasNodes(
 
 function buildCanvasNodes(
   graph: GraphView,
-  selectedNodeId: string,
+  selectedNodeIds: Set<string>,
   layout: StoredGraphLayout,
   highlightedEdgeIds: Set<string>,
   hoverActive: boolean,
@@ -565,7 +605,7 @@ function buildCanvasNodes(
   return [
     ...buildSemanticCanvasNodes(
       graph,
-      selectedNodeId,
+      selectedNodeIds,
       savedNodePositions,
       pinnedNodeIds,
       highlightedEdgeIds,
@@ -810,6 +850,19 @@ function buildGraphGroupBoundsList(
     const bounds = buildGraphGroupBounds(group, nodesById);
     return bounds ? [bounds] : [];
   });
+}
+
+function organizeOptionsForGroup(
+  group: StoredGraphGroup,
+  nodes: GraphCanvasNode[],
+) {
+  const kinds = new Set(
+    nodes
+      .filter((node) => isSemanticCanvasNode(node) && group.memberNodeIds.includes(node.id))
+      .map((node) => node.data.kind),
+  );
+
+  return GROUP_ORGANIZE_OPTIONS.filter((option) => option.mode !== "kind" || kinds.size > 1);
 }
 
 export function applyMemberNodeDelta(
@@ -1562,21 +1615,26 @@ function GraphGroupLayer({
   nodes,
   selectedGroupId,
   editingGroupId,
+  organizeGroupId,
   editingGroupTitle,
   onChangeEditingGroupTitle,
+  onApplyOrganizeMode,
   onFinishGroupTitleEditing,
   onGroupMoveEnd,
   onPreviewGroupMove,
   onSelectGroup,
   onStartEditingGroup,
+  onToggleOrganizeGroup,
   onUngroupGroup,
 }: {
   groupBounds: GraphGroupBounds[];
   nodes: GraphCanvasNode[];
   selectedGroupId?: string;
   editingGroupId?: string;
+  organizeGroupId?: string;
   editingGroupTitle: string;
   onChangeEditingGroupTitle: (title: string) => void;
+  onApplyOrganizeMode: (groupId: string, mode: GroupOrganizeMode) => void;
   onFinishGroupTitleEditing: (groupId: string, mode: "save" | "cancel") => void;
   onGroupMoveEnd: () => void;
   onPreviewGroupMove: (
@@ -1586,6 +1644,7 @@ function GraphGroupLayer({
   ) => void;
   onSelectGroup: (groupId: string) => void;
   onStartEditingGroup: (groupId: string) => void;
+  onToggleOrganizeGroup: (groupId: string) => void;
   onUngroupGroup: (groupId: string, title: string) => void;
 }) {
   const { screenToFlowPosition } = useReactFlow<GraphCanvasNode, GraphCanvasEdge>();
@@ -1688,39 +1747,86 @@ function GraphGroupLayer({
                 }}
               />
             ) : (
-              <div className="graph-group__title-row">
-                <div
-                  className="graph-group__title"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onStartEditingGroup(group.id);
-                  }}
-                  onDoubleClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onStartEditingGroup(group.id);
-                  }}
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                  }}
-                >
-                  {group.title}
+              <div className="graph-group__header">
+                <div className="graph-group__title-row">
+                  <div
+                    className="graph-group__title"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onStartEditingGroup(group.id);
+                    }}
+                    onDoubleClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onStartEditingGroup(group.id);
+                    }}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                    }}
+                  >
+                    {group.title}
+                  </div>
+                  <div className="graph-group__actions">
+                    <button
+                      {...helpTargetProps("graph.group.organize")}
+                      className={`graph-group__action${organizeGroupId === group.id ? " is-active" : ""}`}
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onToggleOrganizeGroup(group.id);
+                      }}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                      }}
+                    >
+                      Organize
+                    </button>
+                    <button
+                      className="graph-group__action graph-group__action--ungroup"
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onUngroupGroup(group.id, group.title);
+                      }}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                      }}
+                    >
+                      Ungroup
+                    </button>
+                  </div>
                 </div>
-                <button
-                  className="graph-group__action graph-group__action--ungroup"
-                  type="button"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onUngroupGroup(group.id, group.title);
-                  }}
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                  }}
-                >
-                  Ungroup
-                </button>
+                {organizeGroupId === group.id ? (
+                  <div
+                    className="graph-group__organize-row"
+                    data-testid={`graph-group-organize-${group.id}`}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                    }}
+                  >
+                    {organizeOptionsForGroup(group, nodes).map((option) => (
+                      <button
+                        key={option.mode}
+                        {...helpTargetProps("graph.group.organize", {
+                          label: option.label,
+                        })}
+                        className="graph-group__mode"
+                        data-testid={`graph-group-organize-${group.id}-${option.mode}`}
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onApplyOrganizeMode(group.id, option.mode);
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
@@ -1797,14 +1903,17 @@ export function GraphCanvas({
   const hydrationGenerationRef = useRef(0);
   const panelRef = useRef<HTMLElement>(null);
   const graphHotkeyActiveRef = useRef(false);
+  const skipNextSelectionSyncRef = useRef(false);
+  const shiftPressedRef = useRef(false);
   const [nodes, setNodes] = useState<GraphCanvasNode[]>([]);
   const [groups, setGroups] = useState<StoredGraphGroup[]>([]);
   const [selectedSemanticNodeIds, setSelectedSemanticNodeIds] = useState<string[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>(undefined);
   const [editingGroupId, setEditingGroupId] = useState<string | undefined>(undefined);
+  const [organizeGroupId, setOrganizeGroupId] = useState<string | undefined>(undefined);
   const [editingGroupTitle, setEditingGroupTitle] = useState(DEFAULT_GROUP_TITLE);
   const [marqueeSelectionActive, setMarqueeSelectionActive] = useState(false);
-  const [declutterUndo, setDeclutterUndo] = useState<
+  const [layoutUndo, setLayoutUndo] = useState<
     | {
         viewKey: string;
         layout: StoredGraphLayout;
@@ -1844,9 +1953,36 @@ export function GraphCanvas({
   const effectiveSemanticSelection = semanticSelection.length
     ? semanticSelection
     : semanticSelectionFromNodes;
+  const effectiveSemanticSelectionKey = effectiveSemanticSelection.join("\0");
   const selectedGroupMemberNodeIds = useMemo(
     () => new Set(selectedGroupId ? memberNodeIdsByGroupId.get(selectedGroupId) ?? [] : []),
     [memberNodeIdsByGroupId, selectedGroupId],
+  );
+  const selectionPreviewNodeIds = useMemo(
+    () => (!graph
+      ? []
+      : resolveSelectionPreviewNodeIds({
+          activeNodeId,
+          effectiveSemanticSelection,
+          graphNodeIds,
+          marqueeSelectionActive,
+          selectedGroupId,
+          selectedRerouteCount,
+        })),
+    [
+      activeNodeId,
+      effectiveSemanticSelectionKey,
+      graph,
+      graphNodeIds,
+      marqueeSelectionActive,
+      selectedGroupId,
+      selectedRerouteCount,
+    ],
+  );
+  const selectionPreviewNodeIdsKey = selectionPreviewNodeIds.join("\0");
+  const selectedPreviewNodeIds = useMemo(
+    () => new Set(selectionPreviewNodeIds),
+    [selectionPreviewNodeIdsKey],
   );
   const selectedNodeId = !graph
     ? ""
@@ -1873,32 +2009,35 @@ export function GraphCanvas({
     () =>
       new Set(
         (graph?.edges ?? [])
-          .filter((edge) => edge.source === selectedNodeId || edge.target === selectedNodeId)
+          .filter((edge) => selectedPreviewNodeIds.has(edge.source) || selectedPreviewNodeIds.has(edge.target))
           .map((edge) => edge.id),
       ),
-    [graph?.edges, selectedNodeId],
+    [graph?.edges, selectedPreviewNodeIds],
   );
   const selectedRelatedNodeIds = useMemo(() => {
     const related = new Set<string>();
-    if (!selectedNodeId) {
+    if (!selectionPreviewNodeIds.length) {
       return related;
     }
 
-    related.add(selectedNodeId);
+    selectionPreviewNodeIds.forEach((nodeId) => {
+      related.add(nodeId);
+    });
     (graph?.edges ?? []).forEach((edge) => {
-      if (edge.source === selectedNodeId || edge.target === selectedNodeId) {
+      if (selectedPreviewNodeIds.has(edge.source) || selectedPreviewNodeIds.has(edge.target)) {
         related.add(edge.source);
         related.add(edge.target);
       }
     });
     return related;
-  }, [graph?.edges, selectedNodeId]);
-  const selectionContextActive = Boolean(selectedNodeId);
+  }, [graph?.edges, selectionPreviewNodeIdsKey, selectedPreviewNodeIds]);
+  const selectionContextActive = selectionPreviewNodeIds.length > 0;
   const canPinNodes = graph?.level === "flow";
 
   const clearLocalSelection = () => {
     setSelectedSemanticNodeIds([]);
     setSelectedGroupId(undefined);
+    setOrganizeGroupId(undefined);
     setNodes((current) =>
       current.some((node) => node.selected)
         ? current.map((node) => (node.selected ? { ...node, selected: false } : node))
@@ -1923,6 +2062,7 @@ export function GraphCanvas({
 
   const selectGroup = (groupId: string) => {
     setSelectedGroupId(groupId);
+    setOrganizeGroupId((current) => (current === groupId ? current : undefined));
     setSelectedSemanticNodeIds([]);
     setNodes((current) =>
       current.some((node) => node.selected)
@@ -1937,6 +2077,7 @@ export function GraphCanvas({
       return;
     }
     selectGroup(groupId);
+    setOrganizeGroupId(undefined);
     setEditingGroupId(groupId);
     setEditingGroupTitle(group.title);
   };
@@ -1963,13 +2104,92 @@ export function GraphCanvas({
     setEditingGroupTitle(DEFAULT_GROUP_TITLE);
   };
 
+  const toggleOrganizeGroup = (groupId: string) => {
+    selectGroup(groupId);
+    setEditingGroupId(undefined);
+    setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+    setOrganizeGroupId((current) => (current === groupId ? undefined : groupId));
+  };
+
+  const applyOrganizeGroup = (groupId: string, mode: GroupOrganizeMode) => {
+    if (!graph || !viewKey) {
+      return;
+    }
+
+    const group = groups.find((candidate) => candidate.id === groupId);
+    if (!group) {
+      setOrganizeGroupId(undefined);
+      return;
+    }
+
+    const groupMemberNodeIds = new Set(group.memberNodeIds);
+    const graphNodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
+    const groupNodes = nodes.flatMap((node) => {
+      if (!isSemanticCanvasNode(node) || !groupMemberNodeIds.has(node.id)) {
+        return [];
+      }
+
+      const graphNode = graphNodesById.get(node.id);
+      return [{
+        id: node.id,
+        kind: node.data.kind,
+        x: node.position.x,
+        y: node.position.y,
+        width: semanticNodeDimension(node, "width"),
+        height: semanticNodeDimension(node, "height"),
+        metadata: graphNode?.metadata ?? {},
+      }];
+    });
+
+    setOrganizeGroupId(undefined);
+    if (groupNodes.length < 2) {
+      return;
+    }
+
+    const result = organizeGroupedNodes({
+      mode,
+      nodes: groupNodes,
+      edges: graph.edges,
+    });
+    if (!result.changed) {
+      return;
+    }
+
+    const previousLayout = persistGraphLayout(nodes, groups);
+    const nextNodes = nodes.map((node) => {
+      if (!isSemanticCanvasNode(node) || !groupMemberNodeIds.has(node.id)) {
+        return node;
+      }
+
+      const nextPosition = result.positions[node.id];
+      if (!nextPosition) {
+        return node;
+      }
+
+      return {
+        ...node,
+        position: nextPosition,
+      };
+    });
+
+    hydrationGenerationRef.current += 1;
+    setSelectedGroupId(groupId);
+    setSelectedSemanticNodeIds([]);
+    setNodes(nextNodes);
+    setLayoutUndo({
+      viewKey,
+      layout: previousLayout,
+    });
+    persistCurrentLayout(nextNodes, groups);
+  };
+
   const togglePinnedNodes = (nodeIds: string[]) => {
     if (!canPinNodes || !nodeIds.length) {
       return;
     }
 
     hydrationGenerationRef.current += 1;
-    setDeclutterUndo(undefined);
+    setLayoutUndo(undefined);
     setNodes((current) => {
       const targetNodeIds = expandGroupedNodeIds(nodeIds, groupByNodeId, memberNodeIdsByGroupId);
       const semanticNodesById = new Map(
@@ -2047,7 +2267,7 @@ export function GraphCanvas({
     }
 
     hydrationGenerationRef.current += 1;
-    setDeclutterUndo(undefined);
+    setLayoutUndo(undefined);
     setNodes((current) =>
       current.some((node) => node.selected)
         ? current.map((node) => (node.selected ? { ...node, selected: false } : node))
@@ -2056,6 +2276,7 @@ export function GraphCanvas({
     setGroups(nextGroups);
     setSelectedSemanticNodeIds([]);
     setSelectedGroupId(nextGroupId);
+    setOrganizeGroupId(undefined);
     setEditingGroupId(nextGroupId);
     setEditingGroupTitle(DEFAULT_GROUP_TITLE);
     persistCurrentLayout(nodes, nextGroups);
@@ -2072,10 +2293,13 @@ export function GraphCanvas({
     }
 
     hydrationGenerationRef.current += 1;
-    setDeclutterUndo(undefined);
+    setLayoutUndo(undefined);
     setGroups(nextGroups);
     if (selectedGroupId && removedGroupIds.includes(selectedGroupId)) {
       setSelectedGroupId(undefined);
+    }
+    if (organizeGroupId && removedGroupIds.includes(organizeGroupId)) {
+      setOrganizeGroupId(undefined);
     }
     if (editingGroupId && removedGroupIds.includes(editingGroupId)) {
       setEditingGroupId(undefined);
@@ -2104,10 +2328,13 @@ export function GraphCanvas({
     }
 
     hydrationGenerationRef.current += 1;
-    setDeclutterUndo(undefined);
+    setLayoutUndo(undefined);
     setGroups(nextGroups);
     if (selectedGroupId && removedGroupIds.includes(selectedGroupId)) {
       setSelectedGroupId(undefined);
+    }
+    if (organizeGroupId && removedGroupIds.includes(organizeGroupId)) {
+      setOrganizeGroupId(undefined);
     }
     if (editingGroupId && removedGroupIds.includes(editingGroupId)) {
       setEditingGroupId(undefined);
@@ -2118,7 +2345,7 @@ export function GraphCanvas({
 
   const removeSelectedReroutes = () => {
     hydrationGenerationRef.current += 1;
-    setDeclutterUndo(undefined);
+    setLayoutUndo(undefined);
     setNodes((current) => {
       const selectedIds = new Set(
         current
@@ -2300,6 +2527,33 @@ export function GraphCanvas({
   }, []);
 
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Shift") {
+        shiftPressedRef.current = true;
+      }
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "Shift") {
+        shiftPressedRef.current = false;
+      }
+    };
+
+    const handleBlur = () => {
+      shiftPressedRef.current = false;
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof document === "undefined") {
       return;
     }
@@ -2328,6 +2582,7 @@ export function GraphCanvas({
       setSelectedSemanticNodeIds([]);
       setSelectedGroupId(undefined);
       setEditingGroupId(undefined);
+      setOrganizeGroupId(undefined);
       setEditingGroupTitle(DEFAULT_GROUP_TITLE);
       setMarqueeSelectionActive(false);
       return;
@@ -2343,7 +2598,7 @@ export function GraphCanvas({
     };
     const initialNodes = buildCanvasNodes(
       graph,
-      "",
+      EMPTY_STRING_SET,
       emptyLayout,
       EMPTY_STRING_SET,
       false,
@@ -2364,6 +2619,7 @@ export function GraphCanvas({
     setSelectedSemanticNodeIds([]);
     setSelectedGroupId(undefined);
     setEditingGroupId(undefined);
+    setOrganizeGroupId(undefined);
     setEditingGroupTitle(DEFAULT_GROUP_TITLE);
 
     let cancelled = false;
@@ -2386,7 +2642,7 @@ export function GraphCanvas({
         setNodes(
           buildCanvasNodes(
             graph,
-            "",
+            EMPTY_STRING_SET,
             initializedLayout,
             EMPTY_STRING_SET,
             false,
@@ -2417,7 +2673,7 @@ export function GraphCanvas({
       setNodes(
         buildCanvasNodes(
           graph,
-          "",
+          EMPTY_STRING_SET,
           normalizedLayout,
           EMPTY_STRING_SET,
           false,
@@ -2458,7 +2714,7 @@ export function GraphCanvas({
       applyNodeDecorations(
         current,
         graph,
-        selectedNodeId,
+        selectedPreviewNodeIds,
         highlightedEdgeIds,
         hoverActive,
         selectedRelatedNodeIds,
@@ -2483,7 +2739,7 @@ export function GraphCanvas({
     onInspectNode,
     selectedConnectedEdgeIds,
     groupedNodeIds,
-    selectedNodeId,
+    selectedPreviewNodeIds,
     selectedGroupMemberNodeIds,
     selectedRelatedNodeIds,
     selectionContextActive,
@@ -2493,14 +2749,17 @@ export function GraphCanvas({
     if (selectedGroupId && !groups.some((group) => group.id === selectedGroupId)) {
       setSelectedGroupId(undefined);
     }
+    if (organizeGroupId && !groups.some((group) => group.id === organizeGroupId)) {
+      setOrganizeGroupId(undefined);
+    }
     if (editingGroupId && !groups.some((group) => group.id === editingGroupId)) {
       setEditingGroupId(undefined);
       setEditingGroupTitle(DEFAULT_GROUP_TITLE);
     }
-  }, [editingGroupId, groups, selectedGroupId]);
+  }, [editingGroupId, groups, organizeGroupId, selectedGroupId]);
 
   useEffect(() => {
-    setDeclutterUndo(undefined);
+    setLayoutUndo(undefined);
   }, [viewKey]);
 
   useEffect(() => {
@@ -2525,12 +2784,12 @@ export function GraphCanvas({
   };
 
   const handleNodeDragStop = () => {
-    setDeclutterUndo(undefined);
+    setLayoutUndo(undefined);
     persistCurrentCanvasState();
   };
 
   const handleSelectionDragStop = () => {
-    setDeclutterUndo(undefined);
+    setLayoutUndo(undefined);
     persistCurrentCanvasState();
   };
 
@@ -2559,23 +2818,24 @@ export function GraphCanvas({
 
     hydrationGenerationRef.current += 1;
     setNodes(nextNodes);
-    setDeclutterUndo({
+    setLayoutUndo({
       viewKey,
       layout: previousLayout,
     });
     persistCurrentLayout(nextNodes, groups);
   };
 
-  const handleUndoDeclutter = () => {
-    if (!viewKey || !declutterUndo || declutterUndo.viewKey !== viewKey) {
+  const handleUndoLayout = () => {
+    if (!viewKey || !layoutUndo || layoutUndo.viewKey !== viewKey) {
       return;
     }
 
     hydrationGenerationRef.current += 1;
-    setNodes((current) => applyStoredLayout(current, declutterUndo.layout));
-    setGroups(declutterUndo.layout.groups ?? []);
-    void writeStoredGraphLayout(repoPath, viewKey, declutterUndo.layout);
-    setDeclutterUndo(undefined);
+    setNodes((current) => applyStoredLayout(current, layoutUndo.layout));
+    setGroups(layoutUndo.layout.groups ?? []);
+    setOrganizeGroupId(undefined);
+    void writeStoredGraphLayout(repoPath, viewKey, layoutUndo.layout);
+    setLayoutUndo(undefined);
   };
 
   const handleInsertReroute = (
@@ -2588,7 +2848,7 @@ export function GraphCanvas({
     }
 
     hydrationGenerationRef.current += 1;
-    setDeclutterUndo(undefined);
+    setLayoutUndo(undefined);
     setNodes((current) => {
       const edgeReroutes = current
         .filter(
@@ -2650,8 +2910,9 @@ export function GraphCanvas({
     basePositions: Map<string, { x: number; y: number }>,
   ) => {
     setSelectedGroupId(groupId);
+    setOrganizeGroupId((current) => (current === groupId ? current : undefined));
     setSelectedSemanticNodeIds([]);
-    setDeclutterUndo(undefined);
+    setLayoutUndo(undefined);
     setNodes((current) =>
       applyMemberNodeDelta(
         current,
@@ -2764,6 +3025,11 @@ export function GraphCanvas({
           setMarqueeSelectionActive(false);
         }}
         onSelectionChange={({ nodes: selectedNodes }) => {
+          if (skipNextSelectionSyncRef.current) {
+            skipNextSelectionSyncRef.current = false;
+            return;
+          }
+
           const nextSelectedSemanticNodeIds = sortNodeIds(
             selectedNodes
               .filter(isSemanticCanvasNode)
@@ -2780,10 +3046,14 @@ export function GraphCanvas({
           if (hasLocalNodeSelection && selectedGroupId) {
             setSelectedGroupId(undefined);
           }
+          if (hasLocalNodeSelection && organizeGroupId) {
+            setOrganizeGroupId(undefined);
+          }
         }}
         nodesDraggable
         nodesConnectable={false}
         selectionKeyCode={null}
+        multiSelectionKeyCode={["Meta", "Control", "Shift"]}
         selectionOnDrag={!panModeActive}
         selectionMode={SelectionMode.Partial}
         paneClickDistance={4}
@@ -2797,6 +3067,7 @@ export function GraphCanvas({
         onNodeClick={(event, node) => {
           if (isRerouteCanvasNode(node)) {
             setSelectedGroupId(undefined);
+            setOrganizeGroupId(undefined);
             setSelectedSemanticNodeIds([]);
             setNodes((current) =>
               current.map((currentNode) => ({
@@ -2808,8 +3079,17 @@ export function GraphCanvas({
             return;
           }
 
-          const additiveSelection = event.metaKey || event.ctrlKey;
+          const toggleSelectionModifier = event.metaKey || event.ctrlKey;
+          const shiftSelectionModifier = event.shiftKey || shiftPressedRef.current;
+          const additiveSelection = (
+            toggleSelectionModifier
+            || shiftSelectionModifier
+          );
+          const shiftOnlySelection = shiftSelectionModifier && !toggleSelectionModifier;
+          const wasSelectedBeforeClick = selectedSemanticNodeIds.includes(node.id);
+          skipNextSelectionSyncRef.current = additiveSelection;
           setSelectedGroupId(undefined);
+          setOrganizeGroupId(undefined);
           setNodes((current) =>
             current.map((currentNode) => {
               if (isRerouteCanvasNode(currentNode)) {
@@ -2821,7 +3101,11 @@ export function GraphCanvas({
               if (currentNode.id === node.id) {
                 return {
                   ...currentNode,
-                  selected: additiveSelection ? !Boolean(currentNode.selected) : true,
+                  selected: additiveSelection
+                    ? shiftOnlySelection
+                      ? true
+                      : !wasSelectedBeforeClick
+                    : true,
                 };
               }
 
@@ -2836,6 +3120,10 @@ export function GraphCanvas({
           setSelectedSemanticNodeIds((current) => {
             if (!additiveSelection) {
               return [node.id];
+            }
+
+            if (shiftOnlySelection) {
+              return sortNodeIds(new Set([...current, node.id]));
             }
 
             const next = new Set(current);
@@ -2864,13 +3152,16 @@ export function GraphCanvas({
           nodes={nodes}
           selectedGroupId={selectedGroupId}
           editingGroupId={editingGroupId}
+          organizeGroupId={organizeGroupId}
           editingGroupTitle={editingGroupTitle}
           onChangeEditingGroupTitle={setEditingGroupTitle}
+          onApplyOrganizeMode={applyOrganizeGroup}
           onFinishGroupTitleEditing={finishGroupTitleEditing}
           onGroupMoveEnd={handleGroupMoveEnd}
           onPreviewGroupMove={handlePreviewGroupMove}
           onSelectGroup={selectGroup}
           onStartEditingGroup={beginGroupTitleEditing}
+          onToggleOrganizeGroup={toggleOrganizeGroup}
           onUngroupGroup={ungroupGroup}
         />
         <Controls showInteractive={false} />
@@ -2883,7 +3174,7 @@ export function GraphCanvas({
         graphSettings={graphSettings}
         highlightGraphPath={highlightGraphPath}
         showEdgeLabels={showEdgeLabels}
-        canUndoDeclutter={Boolean(declutterUndo && declutterUndo.viewKey === viewKey)}
+        canUndoLayout={Boolean(layoutUndo && layoutUndo.viewKey === viewKey)}
         onSelectLevel={onSelectLevel}
         onDeclutter={handleDeclutter}
         onFitView={handleFitView}
@@ -2891,7 +3182,7 @@ export function GraphCanvas({
         onToggleGraphSetting={onToggleGraphSetting}
         onToggleGraphPathHighlight={onToggleGraphPathHighlight}
         onToggleEdgeLabels={onToggleEdgeLabels}
-        onUndoDeclutter={handleUndoDeclutter}
+        onUndoLayout={handleUndoLayout}
       />
     </section>
   );
@@ -2900,7 +3191,7 @@ export function GraphCanvas({
 function applyNodeDecorations(
   nodes: GraphCanvasNode[],
   graph: GraphView,
-  selectedNodeId: string,
+  selectedNodeIds: Set<string>,
   highlightedEdgeIds: Set<string>,
   hoverActive: boolean,
   selectedRelatedNodeIds: Set<string>,
@@ -2939,7 +3230,7 @@ function applyNodeDecorations(
 
     const nextClassName = buildNodeShellClassName(
       node.id,
-      selectedNodeId,
+      selectedNodeIds,
       selectedRelatedNodeIds,
       selectionContextActive,
       groupedNodeIds,

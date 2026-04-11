@@ -22,24 +22,38 @@ Premium minimal desktop shell for exploring local repositories before editing th
 
 ## How to run the UI
 
-From the repo root:
+From the repo root, create and activate the recommended local venv:
 
 ```bash
-cd apps/desktop
-npm install
+python3 -m venv .venv-helm-dev
+source .venv-helm-dev/bin/activate
 ```
 
-For UI-only styling work with mock data:
+Then install the Python dev helpers:
 
 ```bash
-npm run dev
+python -m pip install '.[dev]'
+```
+
+Then install the desktop app dependencies:
+
+```bash
+inv install-desktop
+```
+
+For UI-only styling work with mock data from the repo root:
+
+```bash
+inv ui
 ```
 
 For the real desktop app with the live Python backend wired in:
 
 ```bash
-npm run tauri dev
+inv desktop
 ```
+
+If you prefer the module form, `python -m invoke ui` and `python -m invoke desktop` do the same thing.
 
 ## Prerequisites
 
@@ -55,7 +69,9 @@ export HELM_PYTHON_BIN=/path/to/python3
 export HELM_WORKSPACE_ROOT=/absolute/path/to/H.E.L.M.
 ```
 
-before `npm run tauri dev`.
+before `inv desktop`.
+
+If you use zsh, keep `'.[dev]'` quoted so the shell does not expand the brackets. This uses a non-editable install on purpose so it works with the older `pip` bundled on many macOS systems.
 
 ## Testing from the UI
 
