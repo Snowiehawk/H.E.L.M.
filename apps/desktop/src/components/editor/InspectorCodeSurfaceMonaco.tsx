@@ -9,6 +9,7 @@ import {
   ensureMonacoSetup,
   type MonacoEditorOptions,
 } from "./monacoSetup";
+import { normalizeHighlightRange } from "./inspectorCodeRange";
 
 ensureMonacoSetup();
 
@@ -21,11 +22,14 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
   onChange,
   path,
   readOnly,
+  highlightRange,
   startLine,
+  startColumn,
   value,
 }: InspectorCodeSurfaceProps) {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
+  const decorationIdsRef = useRef<string[]>([]);
   const theme = useResolvedMonacoTheme();
   const modelPath = useMemo(
     () => buildModelPath(path, language, readOnly, startLine),
@@ -92,6 +96,52 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
     }
     monacoRef.current.editor.setModelLanguage(model, language);
   }, [language, modelPath]);
+
+  useEffect(() => {
+    const editorInstance = editorRef.current;
+    const monacoInstance = monacoRef.current;
+    const model = editorInstance?.getModel();
+    if (!editorInstance || !monacoInstance || !model) {
+      return;
+    }
+
+    const normalizedRange = normalizeHighlightRange(
+      highlightRange,
+      model,
+      startLine,
+      startColumn ?? 0,
+    );
+    const nextDecorations = normalizedRange
+      ? [
+          {
+            range: normalizedRange,
+            options: {
+              className: "inspector-code-surface__range-highlight",
+              inlineClassName: "inspector-code-surface__range-highlight-inline",
+              stickiness:
+                monacoInstance.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+            },
+          },
+        ]
+      : [];
+
+    decorationIdsRef.current = editorInstance.deltaDecorations(
+      decorationIdsRef.current,
+      nextDecorations,
+    );
+
+    if (normalizedRange) {
+      editorInstance.revealRangeInCenterIfOutsideViewport(normalizedRange);
+    }
+  }, [highlightRange, startColumn, startLine, value]);
+
+  useEffect(() => () => {
+    const editorInstance = editorRef.current;
+    if (!editorInstance || decorationIdsRef.current.length === 0) {
+      return;
+    }
+    decorationIdsRef.current = editorInstance.deltaDecorations(decorationIdsRef.current, []);
+  }, []);
 
   return (
     <div

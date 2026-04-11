@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "../app/AppProviders";
 import { buildRepoSession } from "../lib/mocks/mockData";
 import { MockDesktopAdapter } from "../lib/adapter/mockDesktopAdapter";
+import type { SourceRange } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 
@@ -15,6 +16,7 @@ vi.mock("../components/editor/InspectorCodeSurface", () => ({
     ariaLabel,
     className,
     dataTestId,
+    highlightRange,
     onChange,
     readOnly,
     value,
@@ -22,16 +24,29 @@ vi.mock("../components/editor/InspectorCodeSurface", () => ({
     ariaLabel: string;
     className?: string;
     dataTestId?: string;
+    highlightRange?: SourceRange;
     onChange?: (value: string) => void;
     readOnly: boolean;
     value: string;
   }) =>
     readOnly ? (
-      <div className={className} data-read-only="true" data-testid={dataTestId}>
+      <div
+        className={className}
+        data-highlight-end-line={highlightRange?.endLine}
+        data-highlight-start-line={highlightRange?.startLine}
+        data-read-only="true"
+        data-testid={dataTestId}
+      >
         <pre aria-label={ariaLabel}>{value}</pre>
       </div>
     ) : (
-      <div className={className} data-read-only="false" data-testid={dataTestId}>
+      <div
+        className={className}
+        data-highlight-end-line={highlightRange?.endLine}
+        data-highlight-start-line={highlightRange?.startLine}
+        data-read-only="false"
+        data-testid={dataTestId}
+      >
         <textarea
           aria-label={ariaLabel}
           spellCheck={false}
@@ -187,10 +202,10 @@ describe("WorkspaceScreen", () => {
     expect(graphPane).not.toBeNull();
     await user.click(graphPane as HTMLElement);
 
-    const collapsedDrawer = await screen.findByTestId("blueprint-inspector-drawer");
-    expect(collapsedDrawer).toHaveAttribute("data-mode", "collapsed");
-    expect(within(collapsedDrawer).getByText("helm.ui.api")).toBeInTheDocument();
-    expect(within(collapsedDrawer).queryByTestId("blueprint-inspector-drawer-close")).not.toBeInTheDocument();
+    const expandedDrawer = await screen.findByTestId("blueprint-inspector-drawer");
+    expect(expandedDrawer).toHaveAttribute("data-mode", "expanded");
+    expect(within(expandedDrawer).getByRole("heading", { name: "build_graph_summary" })).toBeInTheDocument();
+    expect(within(expandedDrawer).getByText(/Declaration editor/i)).toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("updates the active inspector target when another inspectable node is selected while visible", async () => {
@@ -368,6 +383,40 @@ describe("WorkspaceScreen", () => {
 
     expect(await screen.findByRole("heading", { name: /Internal flow/i })).toBeInTheDocument();
     expect((await graph.findAllByText("self")).length).toBeGreaterThan(0);
+  });
+
+  it("keeps the flow owner source in the inspector and highlights the selected class-flow member", async () => {
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const classNode = (await graph.findByText("GraphSummary")).closest(".graph-node");
+    expect(classNode).not.toBeNull();
+    fireEvent.click(within(classNode as HTMLElement).getByText("Inspect"));
+    fireEvent.click(await screen.findByRole("button", { name: /Open flow/i }));
+
+    expect(await screen.findByRole("heading", { name: /Internal flow/i })).toBeInTheDocument();
+
+    fireEvent.click(await graph.findByText("to_payload"));
+
+    const drawer = await screen.findByTestId("blueprint-inspector-drawer");
+    expect(within(drawer).getByRole("heading", { name: "GraphSummary" })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Read-only class source/i)).toHaveTextContent("class GraphSummary");
+    expect(screen.getByTestId("inspector-readonly-source")).toHaveAttribute("data-highlight-start-line", "11");
+    expect(screen.getByTestId("inspector-readonly-source")).toHaveAttribute("data-highlight-end-line", "15");
   });
 
   it("navigates one layer out with Backspace from class flow to class blueprint", async () => {

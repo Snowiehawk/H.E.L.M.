@@ -220,6 +220,8 @@ interface RawEditableNodeSource {
   path: string;
   start_line: number;
   end_line: number;
+  start_column?: number | null;
+  end_column?: number | null;
   content: string;
   editable: boolean;
   node_kind: GraphNodeDto["kind"];
@@ -547,6 +549,8 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       path: raw.path,
       startLine: raw.start_line,
       endLine: raw.end_line,
+      startColumn: raw.start_column ?? undefined,
+      endColumn: raw.end_column ?? undefined,
       content: raw.content,
       editable: raw.editable,
       nodeKind: raw.node_kind,

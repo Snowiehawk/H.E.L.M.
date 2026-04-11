@@ -3,6 +3,7 @@ import type {
   EditableNodeSource,
   GraphNodeDto,
   RevealedSource,
+  SourceRange,
   StructuralEditResult,
   SymbolDetails,
 } from "../../lib/adapter";
@@ -26,6 +27,7 @@ export function BlueprintInspector({
   revealedSource,
   lastEdit,
   isSavingSource,
+  highlightRange,
   onSaveSource,
   onEditorStateChange,
   onDismissSource,
@@ -39,6 +41,7 @@ export function BlueprintInspector({
   revealedSource?: RevealedSource;
   lastEdit?: StructuralEditResult;
   isSavingSource: boolean;
+  highlightRange?: SourceRange;
   onSaveSource: (targetId: string, content: string) => Promise<void>;
   onEditorStateChange: (content?: string, dirty?: boolean) => void;
   onDismissSource: () => void;
@@ -63,6 +66,7 @@ export function BlueprintInspector({
   );
   const dirty = canEditInline && draftSource !== editableSource?.content;
   const topLevel = metadataBoolean(selectedNode, "top_level");
+  const inspectorClassName = `pane pane--inspector blueprint-inspector${revealedSource ? " blueprint-inspector--with-revealed-source" : ""}`;
 
   useEffect(() => {
     setDraftSource(editableSource?.content ?? "");
@@ -120,7 +124,7 @@ export function BlueprintInspector({
   }
 
   return (
-    <aside className="pane pane--inspector blueprint-inspector">
+    <aside className={inspectorClassName}>
       <section className="sidebar-card blueprint-inspector__card">
         <div className="sidebar-card__header">
           <div>
@@ -212,10 +216,12 @@ export function BlueprintInspector({
                     }
                     className="blueprint-editor"
                     dataTestId="inspector-inline-editor"
-                    height={320}
+                    height="clamp(280px, 34vh, 420px)"
                     language={sourceLanguage}
                     path={editableSource?.path ?? nodePath}
                     startLine={editableSource?.startLine}
+                    startColumn={editableSource?.startColumn}
+                    highlightRange={highlightRange}
                     value={draftSource}
                     onChange={setDraftSource}
                     readOnly={false}
@@ -247,13 +253,28 @@ export function BlueprintInspector({
               </div>
             </>
           ) : editableSource ? (
-            <div className="info-card">
-              <strong>{editableSource.nodeKind}</strong>
-              <p>{editableSource.reason ?? "This node is inspectable but not inline editable in v1."}</p>
-              <p className="muted-copy">
-                Lines {editableSource.startLine}-{editableSource.endLine}
-              </p>
-            </div>
+            <>
+              <InspectorCodeSurface
+                ariaLabel={`Read-only ${selectedNode.kind} source`}
+                className="blueprint-code-details"
+                dataTestId="inspector-readonly-source"
+                height="clamp(220px, 28vh, 320px)"
+                language={sourceLanguage}
+                path={editableSource.path}
+                highlightRange={highlightRange}
+                readOnly
+                startLine={editableSource.startLine}
+                startColumn={editableSource.startColumn}
+                value={editableSource.content}
+              />
+              <div className="info-card">
+                <strong>{editableSource.nodeKind}</strong>
+                <p>{editableSource.reason ?? "This node is inspectable but not inline editable in v1."}</p>
+                <p className="muted-copy">
+                  Lines {editableSource.startLine}-{editableSource.endLine}
+                </p>
+              </div>
+            </>
           ) : (
             <div className="info-card">
               <p>Source metadata is not available for this node yet.</p>
@@ -301,7 +322,7 @@ export function BlueprintInspector({
             ariaLabel="Revealed source"
             className="blueprint-source-panel"
             dataTestId="inspector-revealed-source"
-            height={220}
+            height="clamp(220px, 28vh, 320px)"
             language={sourceLanguage}
             path={revealedSource.path}
             readOnly

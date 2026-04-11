@@ -186,6 +186,13 @@ export interface GraphSettings {
   includeExternalDependencies: boolean;
 }
 
+export interface SourceRange {
+  startLine: number;
+  endLine: number;
+  startColumn?: number;
+  endColumn?: number;
+}
+
 export interface GraphView {
   rootNodeId: string;
   targetId: string;
@@ -223,12 +230,10 @@ export function isEnterableGraphNodeKind(
   return kind === "repo" || kind === "module" || kind === "symbol" || kind === "class";
 }
 
-export interface RevealedSource {
+export interface RevealedSource extends SourceRange {
   targetId: string;
   title: string;
   path: string;
-  startLine: number;
-  endLine: number;
   content: string;
 }
 

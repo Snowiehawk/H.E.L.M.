@@ -22,6 +22,7 @@ from helm.graph.models import (
     GraphViewNodeKind,
 )
 from helm.parser import ParsedModule, PythonModuleParser, SymbolDef, SymbolKind, discover_python_modules
+from helm.parser.symbols import SourceSpan
 from helm.ui.api import build_export_payload, build_graph_summary
 
 
@@ -149,6 +150,7 @@ class PythonRepoAdapter:
                     kind=GraphViewNodeKind.PARAM,
                     label=argument.arg,
                     subtitle="parameter",
+                    metadata=_source_metadata_for_ast_node(argument),
                 )
             )
             definitions[argument.arg] = param_id
@@ -821,6 +823,7 @@ class PythonRepoAdapter:
                 "relative_path": self._relative_path_for(node),
                 "top_level": top_level,
                 "inbound_dependency_count": inbound_count,
+                **_source_metadata_for_span(node.span),
             },
             available_actions=tuple(
                 action
@@ -945,6 +948,14 @@ class PythonRepoAdapter:
             "path": self._relative_path_for(node),
             "start_line": start_line,
             "end_line": end_line,
+            **(
+                {
+                    "start_column": node.span.start_column,
+                    "end_column": node.span.end_column,
+                }
+                if exact and node.span is not None
+                else {}
+            ),
             "content": snippet,
         }
 
@@ -1129,7 +1140,10 @@ def _append_statement_flow(
             kind=kind,
             label=label,
             subtitle=statement.__class__.__name__,
-            metadata={"flow_order": flow_order},
+            metadata={
+                "flow_order": flow_order,
+                **_source_metadata_for_ast_node(statement),
+            },
         )
     )
     _append_control_edges(pending_links=pending_links, target_id=node_id, edges=edges)
@@ -1217,6 +1231,42 @@ def _statement_label(statement: ast.stmt) -> str:
 
 def _contains_call(statement: ast.stmt) -> bool:
     return any(isinstance(node, ast.Call) for node in ast.walk(statement))
+
+
+def _source_metadata_for_span(span: SourceSpan | None) -> dict[str, int]:
+    if span is None:
+        return {}
+
+    return {
+        "source_start_line": span.start_line,
+        "source_start_column": span.start_column,
+        "source_end_line": span.end_line,
+        "source_end_column": span.end_column,
+    }
+
+
+def _source_metadata_for_ast_node(node: ast.AST) -> dict[str, int]:
+    start_line = getattr(node, "lineno", None)
+    start_column = getattr(node, "col_offset", None)
+    end_line = getattr(node, "end_lineno", None) or start_line
+    end_column = getattr(node, "end_col_offset", None)
+    if (
+        not isinstance(start_line, int)
+        or not isinstance(start_column, int)
+        or not isinstance(end_line, int)
+    ):
+        return {}
+
+    if not isinstance(end_column, int):
+        node_label = getattr(node, "arg", None)
+        end_column = start_column + len(node_label) if isinstance(node_label, str) else start_column
+
+    return {
+        "source_start_line": start_line,
+        "source_start_column": start_column,
+        "source_end_line": end_line,
+        "source_end_column": end_column,
+    }
 
 
 def _names_used(statement: ast.stmt) -> set[str]:

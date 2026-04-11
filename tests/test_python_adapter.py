@@ -106,6 +106,12 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 {edge.metadata["path_key"] for edge in branch_edges},
                 {"true", "false"},
             )
+            param_node = next(node for node in flow.nodes if node.node_id.endswith(":param:value"))
+            self.assertEqual(param_node.metadata["source_start_line"], 1)
+            self.assertEqual(param_node.metadata["source_end_line"], 1)
+            assign_node = next(node for node in flow.nodes if node.kind.value == "assign")
+            self.assertEqual(assign_node.metadata["source_start_line"], 2)
+            self.assertEqual(assign_node.metadata["source_end_line"], 2)
 
     def test_flow_view_marks_loop_body_and_exit_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -229,6 +235,9 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 if edge.kind.value == "calls"
             }
             self.assertIn(("symbol:service:Service.run", "symbol:service:Service.helper"), call_edges)
+            helper_node = next(node for node in flow.nodes if node.node_id == "symbol:service:Service.helper")
+            self.assertEqual(helper_node.metadata["source_start_line"], 5)
+            self.assertEqual(helper_node.metadata["source_end_line"], 6)
 
     def test_external_dependencies_are_hidden_by_default_but_available_in_advanced_settings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

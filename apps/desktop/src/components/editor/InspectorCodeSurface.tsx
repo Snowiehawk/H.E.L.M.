@@ -1,4 +1,5 @@
 import { memo, useEffect, useState } from "react";
+import type { SourceRange } from "../../lib/adapter";
 
 export interface InspectorCodeSurfaceProps {
   value: string;
@@ -6,11 +7,13 @@ export interface InspectorCodeSurfaceProps {
   readOnly: boolean;
   path?: string;
   startLine?: number;
+  startColumn?: number;
   height?: number | string;
   ariaLabel: string;
   onChange?: (value: string) => void;
   className?: string;
   dataTestId?: string;
+  highlightRange?: SourceRange;
 }
 
 type MonacoSurfaceComponent = typeof import("./InspectorCodeSurfaceMonaco").InspectorCodeSurfaceMonaco;

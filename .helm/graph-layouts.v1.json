@@ -55,6 +55,25 @@
       "pinned_node_ids": [],
       "groups": []
     },
+    "flow|symbol:src.helm.graph.models:make_repo_id": {
+      "nodes": {
+        "flow:symbol:src.helm.graph.models:make_repo_id:entry": {
+          "x": -172.27882037533507,
+          "y": -83.36997319034853
+        },
+        "flow:symbol:src.helm.graph.models:make_repo_id:param:root_path": {
+          "x": -169.66756032171577,
+          "y": 21.931434007496335
+        },
+        "flow:symbol:src.helm.graph.models:make_repo_id:statement:0": {
+          "x": 370.0,
+          "y": -48.0
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
     "flow|symbol:tests.helpers:write_repo_files": {
       "nodes": {
         "flow:symbol:tests.helpers:write_repo_files:entry": {
@@ -84,6 +103,56 @@
         "flow:symbol:tests.helpers:write_repo_files:statement:3": {
           "x": 1674.510456135317,
           "y": -9.072243272169109
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "flow|symbol:tests.test_cli:CliTests": {
+      "nodes": {
+        "flow:symbol:tests.test_cli:CliTests:entry": {
+          "x": -58.59075763644381,
+          "y": -32.86851127750293
+        },
+        "symbol:tests.test_cli:CliTests.test_scan_command_prints_summary_and_writes_json": {
+          "x": 417.2222222222222,
+          "y": -72.70553865985252
+        },
+        "symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo": {
+          "x": 420.48658587444675,
+          "y": 32.050310442623406
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "flow|symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo": {
+      "nodes": {
+        "flow:symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo:entry": {
+          "x": 127.18395573997232,
+          "y": -56.67704011065006
+        },
+        "flow:symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo:param:self": {
+          "x": 1189.6482976838856,
+          "y": -30.896467764122832
+        },
+        "flow:symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo:statement:0": {
+          "x": 415.6203319502075,
+          "y": -230.09889349930845
+        },
+        "flow:symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo:statement:1": {
+          "x": 656.2876083974679,
+          "y": -56.490539552999735
+        },
+        "flow:symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo:statement:2": {
+          "x": 1271.083873288071,
+          "y": -266.3853674657423
+        },
+        "flow:symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo:statement:3": {
+          "x": 1649.75825619011,
+          "y": -108.88865354671763
         }
       },
       "reroutes": [],
@@ -225,6 +294,85 @@
         "symbol:src.helm.editor.serializer:serialize_edit_request": {
           "x": 587.0,
           "y": 199.0
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|module:src.helm.graph.models": {
+      "nodes": {
+        "module:src.helm.graph.models": {
+          "x": 305.73468981802694,
+          "y": 19.626061905111456
+        },
+        "symbol:src.helm.graph.models:BuildReport": {
+          "x": 881.4502200049856,
+          "y": -573.4217762048023
+        },
+        "symbol:src.helm.graph.models:EdgeKind": {
+          "x": 1081.7530857666725,
+          "y": 119.6455699461481
+        },
+        "symbol:src.helm.graph.models:GraphAbstractionLevel": {
+          "x": 1084.8343204018065,
+          "y": 218.22988207622615
+        },
+        "symbol:src.helm.graph.models:GraphAction": {
+          "x": 881.8225596432112,
+          "y": -471.79181671500635
+        },
+        "symbol:src.helm.graph.models:GraphBreadcrumb": {
+          "x": 1265.5237268946205,
+          "y": -573.3500380599337
+        },
+        "symbol:src.helm.graph.models:GraphEdge": {
+          "x": 1271.0723572479517,
+          "y": -467.5171137750989
+        },
+        "symbol:src.helm.graph.models:GraphFocus": {
+          "x": 1270.3312784855152,
+          "y": -364.1154543124318
+        },
+        "symbol:src.helm.graph.models:GraphNode": {
+          "x": 884.7729953903782,
+          "y": -365.00865826706945
+        },
+        "symbol:src.helm.graph.models:GraphView": {
+          "x": 1266.526779326628,
+          "y": -258.52164095666546
+        },
+        "symbol:src.helm.graph.models:GraphViewEdge": {
+          "x": 886.347334641827,
+          "y": -261.0046740413733
+        },
+        "symbol:src.helm.graph.models:GraphViewEdgeKind": {
+          "x": 1090.814728097664,
+          "y": 325.0246893088141
+        },
+        "symbol:src.helm.graph.models:GraphViewNode": {
+          "x": 1265.203405166742,
+          "y": -152.02630672175474
+        },
+        "symbol:src.helm.graph.models:GraphViewNodeKind": {
+          "x": 1089.4917973580864,
+          "y": 429.5792197583297
+        },
+        "symbol:src.helm.graph.models:NodeKind": {
+          "x": 1090.941570769087,
+          "y": 533.7236350221136
+        },
+        "symbol:src.helm.graph.models:RepoGraph": {
+          "x": 886.0960250317423,
+          "y": -154.09714353222466
+        },
+        "symbol:src.helm.graph.models:UnresolvedCall": {
+          "x": 1077.6448563583426,
+          "y": -44.59699063093296
+        },
+        "symbol:src.helm.graph.models:make_repo_id": {
+          "x": 1777.6096473444952,
+          "y": 19.325166002181646
         }
       },
       "reroutes": [],
@@ -457,16 +605,16 @@
     "module|module:tests.test_cli": {
       "nodes": {
         "module:tests.helpers": {
-          "x": 430.0,
-          "y": 80.0
+          "x": 565.9649122807018,
+          "y": -38.42105263157896
         },
         "module:tests.test_cli": {
           "x": -119.0,
           "y": 22.0
         },
         "symbol:tests.test_cli:CliTests": {
-          "x": 406.0,
-          "y": -114.0
+          "x": 500.7368421052632,
+          "y": 70.21052631578951
         }
       },
       "reroutes": [],
@@ -806,6 +954,33 @@
         "repo:/Users/noahphillips/Documents/git-repos/H.E.L.M.": {
           "x": -482.99999999999994,
           "y": 0.0
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "symbol|symbol:tests.test_cli:CliTests": {
+      "nodes": {
+        "module:tests.helpers": {
+          "x": 972.6415685775472,
+          "y": 232.25048396571765
+        },
+        "module:tests.test_cli": {
+          "x": 151.55489623851847,
+          "y": 190.826667607148
+        },
+        "symbol:tests.test_cli:CliTests": {
+          "x": 936.732128012712,
+          "y": 79.47312795828262
+        },
+        "symbol:tests.test_cli:CliTests.test_scan_command_prints_summary_and_writes_json": {
+          "x": 1429.5394189877466,
+          "y": 44.988561839150776
+        },
+        "symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo": {
+          "x": 1430.8069616245602,
+          "y": -65.17378113059691
         }
       },
       "reroutes": [],

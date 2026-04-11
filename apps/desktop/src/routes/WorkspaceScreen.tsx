@@ -34,6 +34,7 @@ import type {
   GraphView,
   OverviewModule,
   SearchResult,
+  SourceRange,
   StructuralEditRequest,
 } from "../lib/adapter";
 import {
@@ -55,6 +56,37 @@ function graphNodeRelativePath(
     return fallback;
   }
   return undefined;
+}
+
+function graphNodeMetadataNumber(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+) {
+  const value =
+    metadata?.[key]
+    ?? metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+  return typeof value === "number" ? value : undefined;
+}
+
+function graphNodeSourceRange(node: GraphNodeDto | undefined): SourceRange | undefined {
+  if (!node) {
+    return undefined;
+  }
+
+  const startLine = graphNodeMetadataNumber(node.metadata, "source_start_line");
+  const endLine = graphNodeMetadataNumber(node.metadata, "source_end_line");
+  if (typeof startLine !== "number" || typeof endLine !== "number") {
+    return undefined;
+  }
+
+  const startColumn = graphNodeMetadataNumber(node.metadata, "source_start_column");
+  const endColumn = graphNodeMetadataNumber(node.metadata, "source_end_column");
+  return {
+    startLine,
+    endLine,
+    startColumn,
+    endColumn,
+  };
 }
 
 function isTextEditingTarget(target: EventTarget | null) {
@@ -638,6 +670,13 @@ export function WorkspaceScreen() {
         : "hidden";
   const effectiveInspectorNode =
     inspectorPanelMode === "hidden" ? previewInspectorNode : inspectorNode;
+  const inspectorHighlightRange = useMemo(
+    () =>
+      inspectorPanelMode !== "hidden" && activeLevel === "flow"
+        ? graphNodeSourceRange(selectedGraphNode)
+        : undefined,
+    [activeLevel, inspectorPanelMode, selectedGraphNode],
+  );
 
   const editableSourceQuery = useQuery({
     queryKey: ["editable-node-source", repoSession?.id, inspectorNode?.id],
@@ -698,6 +737,7 @@ export function WorkspaceScreen() {
 
     if (
       inspectorPanelMode !== "hidden"
+      && activeLevel !== "flow"
       && (isEnterableGraphNodeKind(kind) || isInspectableGraphNodeKind(kind))
     ) {
       const node = graphQuery.data?.nodes.find((candidate) => candidate.id === nodeId);
@@ -742,6 +782,12 @@ export function WorkspaceScreen() {
     }
 
     selectNode(nodeId);
+    if (activeLevel === "flow" && inspectorPanelMode !== "hidden") {
+      setDismissedPeekNodeId(undefined);
+      setInspectorPanelMode("expanded");
+      return;
+    }
+
     const node = graphQuery.data?.nodes.find((candidate) => candidate.id === nodeId);
     if (node) {
       setInspectorSnapshot(node);
@@ -749,7 +795,7 @@ export function WorkspaceScreen() {
     setDismissedPeekNodeId(undefined);
     setInspectorTargetId(nodeId);
     setInspectorPanelMode("expanded");
-  }, [dismissedPeekNodeId, graphQuery.data, selectNode]);
+  }, [activeLevel, graphQuery.data, inspectorPanelMode, selectNode]);
 
   const handleSelectBreadcrumb = (breadcrumb: GraphBreadcrumbDto) => {
     if (breadcrumb.level === "flow") {
@@ -958,13 +1004,7 @@ export function WorkspaceScreen() {
     setInspectorPanelMode("expanded");
   }, [inspectorSnapshot, previewInspectorNode, selectedGraphNode]);
 
-  const handleClearGraphSelection = async () => {
-    if (inspectorPanelMode !== "hidden") {
-      const closed = await requestInspectorClose();
-      if (!closed) {
-        return;
-      }
-    }
+  const handleClearGraphSelection = () => {
     selectNode(undefined);
   };
 
@@ -1114,7 +1154,12 @@ export function WorkspaceScreen() {
       ? inspectorSummaryText
       : graphContextSubtitle
     : graphContextSubtitle;
-  const drawerActionNode = effectiveInspectorNode;
+  const drawerActionNode =
+    activeLevel === "flow"
+    && selectedGraphNode
+    && (isEnterableGraphNodeKind(selectedGraphNode.kind) || isInspectableGraphNodeKind(selectedGraphNode.kind))
+      ? selectedGraphNode
+      : effectiveInspectorNode;
   const drawerNodePath =
     relativePathForNode(drawerActionNode)
     ?? (drawerActionNode?.subtitle?.endsWith(".py") ? drawerActionNode.subtitle : undefined);
@@ -1454,6 +1499,7 @@ export function WorkspaceScreen() {
                         revealedSource={revealedSource}
                         lastEdit={lastEdit}
                         isSavingSource={isSavingSource}
+                        highlightRange={inspectorHighlightRange}
                         onSaveSource={handleSaveNodeSource}
                         onEditorStateChange={handleInspectorEditorStateChange}
                         onDismissSource={() => setRevealedSource(undefined)}

@@ -909,11 +909,11 @@ function buildMockFunctionFlowView(
       },
       nodes: [
         node(entryId, "entry", "Entry", symbol.qualname, 0, 180),
-        node(`flow:${symbol.nodeId}:param:graph`, "param", "graph", "parameter", 220, 80),
-        node(`flow:${symbol.nodeId}:param:top_n`, "param", "top_n", "parameter", 220, 280),
-        node(`flow:${symbol.nodeId}:assign:modules`, "assign", "module_summaries", "collect module stats", 470, 80),
-        node(`flow:${symbol.nodeId}:call:rank`, "call", "sorted(...)", "rank modules", 720, 80),
-        node(`flow:${symbol.nodeId}:return`, "return", "return GraphSummary(...)", "emit blueprint summary", 970, 180),
+        node(`flow:${symbol.nodeId}:param:graph`, "param", "graph", "parameter", 220, 80, sourceSpanMetadataForTargetId(`flow:${symbol.nodeId}:param:graph`, state)),
+        node(`flow:${symbol.nodeId}:param:top_n`, "param", "top_n", "parameter", 220, 280, sourceSpanMetadataForTargetId(`flow:${symbol.nodeId}:param:top_n`, state)),
+        node(`flow:${symbol.nodeId}:assign:modules`, "assign", "module_summaries", "collect module stats", 470, 80, sourceSpanMetadataForTargetId(`flow:${symbol.nodeId}:assign:modules`, state)),
+        node(`flow:${symbol.nodeId}:call:rank`, "call", "sorted(...)", "rank modules", 720, 80, sourceSpanMetadataForTargetId(`flow:${symbol.nodeId}:call:rank`, state)),
+        node(`flow:${symbol.nodeId}:return`, "return", "return GraphSummary(...)", "emit blueprint summary", 970, 180, sourceSpanMetadataForTargetId(`flow:${symbol.nodeId}:return`, state)),
       ],
       edges: [
         edge(`controls:${entryId}:assign`, "controls", entryId, `flow:${symbol.nodeId}:assign:modules`),
@@ -943,8 +943,8 @@ function buildMockFunctionFlowView(
       },
       nodes: [
         node(entryId, "entry", "Entry", symbol.qualname, 0, 180),
-        node(`flow:${symbol.nodeId}:param:self`, "param", "self", "parameter", 220, 180),
-        node(`flow:${symbol.nodeId}:return`, "return", "return {...}", "emit payload map", 500, 180),
+        node(`flow:${symbol.nodeId}:param:self`, "param", "self", "parameter", 220, 180, sourceSpanMetadataForTargetId(`flow:${symbol.nodeId}:param:self`)),
+        node(`flow:${symbol.nodeId}:return`, "return", "return {...}", "emit payload map", 500, 180, sourceSpanMetadataForTargetId(`flow:${symbol.nodeId}:return`)),
       ],
       edges: [
         edge(`controls:${entryId}:return`, "controls", entryId, `flow:${symbol.nodeId}:return`),
@@ -1014,6 +1014,7 @@ function buildMockClassFlowView(
         node(member.nodeId, graphNodeKindForSymbolKind(member.kind), member.name, member.qualname, order * 260, 180, {
           symbolKind: member.kind,
           flow_order: order,
+          ...sourceSpanMetadataForTargetId(member.nodeId),
         }, symbolActions(mockSymbolEditable(member), flowEnabledForSymbol(member))),
       ),
     ],
@@ -1063,6 +1064,7 @@ export function buildEditableNodeSource(
   }
 
   const defaultContent = state.editedSources[targetId] ?? defaultSymbolSource(state, symbol);
+  const sourceSpan = sourceSpanForTargetId(targetId, state);
 
   return {
     targetId,
@@ -1070,6 +1072,8 @@ export function buildEditableNodeSource(
     path: symbol.filePath,
     startLine: symbol.startLine,
     endLine: symbol.endLine,
+    startColumn: sourceSpan?.startColumn,
+    endColumn: sourceSpan?.endColumn,
     content: defaultContent,
     editable: mockInlineEditableSymbol(symbol),
     nodeKind: graphNodeKindForSymbolKind(symbol.kind),
@@ -1245,6 +1249,69 @@ function defaultSymbolSource(
 
 function symbolId(moduleName: string, qualname: string): string {
   return `symbol:${moduleName}:${qualname}`;
+}
+
+function sourceSpanForTargetId(
+  targetId: string,
+  state?: MockWorkspaceState,
+): {
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+} | undefined {
+  const primarySymbolId = state ? symbolId("helm.ui.api", state.primarySummarySymbolName) : undefined;
+  switch (targetId) {
+    case primarySymbolId:
+      return { startLine: 18, startColumn: 0, endLine: 21, endColumn: 82 };
+    case graphSummarySymbolId():
+      return { startLine: 6, startColumn: 0, endLine: 15, endColumn: 9 };
+    case graphSummaryRepoPathSymbolId():
+      return { startLine: 8, startColumn: 4, endLine: 8, endColumn: 18 };
+    case graphSummaryModuleCountSymbolId():
+      return { startLine: 9, startColumn: 4, endLine: 9, endColumn: 21 };
+    case graphSummaryToPayloadSymbolId():
+      return { startLine: 11, startColumn: 4, endLine: 15, endColumn: 9 };
+    case symbolId("helm.ui.api", "build_export_payload"):
+      return { startLine: 24, startColumn: 0, endLine: 25, endColumn: 27 };
+    case symbolId("helm.cli", "main"):
+      return { startLine: 4, startColumn: 0, endLine: 6, endColumn: 12 };
+    case symbolId("helm.graph.models", "RepoGraph"):
+      return { startLine: 4, startColumn: 0, endLine: 8, endColumn: 26 };
+    case primarySymbolId ? `flow:${primarySymbolId}:param:graph` : "":
+      return { startLine: 18, startColumn: 24, endLine: 18, endColumn: 29 };
+    case primarySymbolId ? `flow:${primarySymbolId}:param:top_n` : "":
+      return { startLine: 18, startColumn: 42, endLine: 18, endColumn: 47 };
+    case primarySymbolId ? `flow:${primarySymbolId}:assign:modules` : "":
+      return { startLine: 19, startColumn: 4, endLine: 19, endColumn: 24 };
+    case primarySymbolId ? `flow:${primarySymbolId}:call:rank` : "":
+      return { startLine: 20, startColumn: 4, endLine: 20, endColumn: 52 };
+    case primarySymbolId ? `flow:${primarySymbolId}:return` : "":
+      return { startLine: 21, startColumn: 4, endLine: 21, endColumn: 78 };
+    case `flow:${graphSummaryToPayloadSymbolId()}:param:self`:
+      return { startLine: 11, startColumn: 19, endLine: 11, endColumn: 23 };
+    case `flow:${graphSummaryToPayloadSymbolId()}:return`:
+      return { startLine: 12, startColumn: 8, endLine: 15, endColumn: 9 };
+    default:
+      return undefined;
+  }
+}
+
+function sourceSpanMetadataForTargetId(
+  targetId: string,
+  state?: MockWorkspaceState,
+): Record<string, number> {
+  const sourceSpan = sourceSpanForTargetId(targetId, state);
+  if (!sourceSpan) {
+    return {};
+  }
+
+  return {
+    source_start_line: sourceSpan.startLine,
+    source_start_column: sourceSpan.startColumn,
+    source_end_line: sourceSpan.endLine,
+    source_end_column: sourceSpan.endColumn,
+  };
 }
 
 function node(

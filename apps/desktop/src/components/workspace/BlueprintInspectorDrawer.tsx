@@ -23,7 +23,7 @@ export interface BlueprintInspectorDrawerAction {
 }
 
 export const BLUEPRINT_INSPECTOR_COLLAPSED_HEIGHT = 60;
-export const DEFAULT_BLUEPRINT_INSPECTOR_DRAWER_HEIGHT = 360;
+export const DEFAULT_BLUEPRINT_INSPECTOR_DRAWER_HEIGHT = 420;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
