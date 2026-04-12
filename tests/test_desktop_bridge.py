@@ -106,3 +106,26 @@ class DesktopBridgeTests(unittest.TestCase):
                 if node["kind"] == "symbol"
             }
             self.assertIn("helper_blueprint", symbol_names)
+
+    def test_apply_edit_to_payload_create_returns_changed_symbol_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            write_repo_files(root, {"service.py": "def helper():\n    return 'ok'\n"})
+
+            response = apply_edit_to_payload(
+                root,
+                json.dumps(
+                    {
+                        "kind": "create_symbol",
+                        "relative_path": "service.py",
+                        "new_name": "build_issue_one",
+                        "symbol_kind": "function",
+                    }
+                ),
+            )
+
+            self.assertIn("Created function build_issue_one", response["edit"]["summary"])
+            self.assertEqual(
+                response["edit"]["changed_node_ids"],
+                ["symbol:service:build_issue_one"],
+            )

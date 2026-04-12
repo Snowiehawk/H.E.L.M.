@@ -49,6 +49,44 @@ export interface MockWorkspaceState {
   editedSources: Record<string, string>;
 }
 
+const pythonKeywords = new Set([
+  "False",
+  "None",
+  "True",
+  "and",
+  "as",
+  "assert",
+  "async",
+  "await",
+  "break",
+  "class",
+  "continue",
+  "def",
+  "del",
+  "elif",
+  "else",
+  "except",
+  "finally",
+  "for",
+  "from",
+  "global",
+  "if",
+  "import",
+  "in",
+  "is",
+  "lambda",
+  "nonlocal",
+  "not",
+  "or",
+  "pass",
+  "raise",
+  "return",
+  "try",
+  "while",
+  "with",
+  "yield",
+]);
+
 export function buildRepoSession(path = defaultRepoPath): RepoSession {
   const segments = path.split("/").filter(Boolean);
   const name = segments[segments.length - 1] ?? "repo";
@@ -1106,7 +1144,11 @@ export function applyMockEdit(
     }
   }
 
-  if (request.kind === "create_symbol" && request.relativePath === "src/helm/ui/api.py" && request.newName && request.symbolKind) {
+  if (request.kind === "create_symbol" && request.relativePath && request.newName && request.symbolKind) {
+    validateMockCreateSymbolRequest(state, request.relativePath, request.newName);
+    if (request.relativePath !== "src/helm/ui/api.py") {
+      throw new Error("Mock symbol creation is only seeded for src/helm/ui/api.py.");
+    }
     state.uiApiExtraSymbols.push({ name: request.newName, kind: request.symbolKind });
     return {
       request: {
@@ -1196,6 +1238,34 @@ export function applyMockEdit(
     changedNodeIds: request.targetId ? [request.targetId] : [],
     warnings: ["This edit is simulated in the mock adapter."],
   };
+}
+
+function validateMockCreateSymbolRequest(
+  state: MockWorkspaceState,
+  relativePath: string,
+  newName: string,
+) {
+  if (!/^[_A-Za-z][_A-Za-z0-9]*$/.test(newName)) {
+    throw new Error(`Created symbol name '${newName}' must be a valid Python identifier.`);
+  }
+  if (pythonKeywords.has(newName)) {
+    throw new Error(`Created symbol name '${newName}' cannot be a Python keyword.`);
+  }
+
+  const existing = Object.values(buildSymbols(state)).some((symbol) => {
+    if (symbol.filePath !== relativePath) {
+      return false;
+    }
+    const modulePrefix = `${symbol.moduleName}.`;
+    const localQualname = symbol.qualname.startsWith(modulePrefix)
+      ? symbol.qualname.slice(modulePrefix.length)
+      : symbol.qualname;
+    return !localQualname.includes(".") && symbol.name === newName;
+  });
+
+  if (existing) {
+    throw new Error(`Top-level symbol '${newName}' already exists in ${relativePath}.`);
+  }
 }
 
 function buildCliSource(state: MockWorkspaceState): string {

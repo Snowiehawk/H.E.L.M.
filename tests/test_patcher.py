@@ -118,6 +118,7 @@ class EditorIntegrationTests(unittest.TestCase):
             )
             self.assertIn("Created function build_blueprint", create_result.summary)
             self.assertIn("def build_blueprint():", (root / "beta.py").read_text(encoding="utf-8"))
+            self.assertEqual(create_result.changed_node_ids, ("symbol:beta:build_blueprint",))
 
             parsed_modules, _, inbound = parse_repo(root)
             move_result = apply_structural_edit(
@@ -150,6 +151,62 @@ class EditorIntegrationTests(unittest.TestCase):
             )
             self.assertIn("Deleted build_blueprint", delete_result.summary)
             self.assertNotIn("def build_blueprint():", (root / "beta.py").read_text(encoding="utf-8"))
+
+    def test_create_symbol_rejects_invalid_python_identifiers_keywords_and_duplicates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": "def helper():\n    return 'ok'\n",
+                },
+            )
+
+            parsed_modules, _, inbound = parse_repo(root)
+            with self.assertRaisesRegex(ValueError, "valid Python identifier"):
+                apply_structural_edit(
+                    root,
+                    serialize_edit_request(
+                        {
+                            "kind": "create_symbol",
+                            "relative_path": "service.py",
+                            "new_name": "123helper",
+                            "symbol_kind": "function",
+                        }
+                    ),
+                    parsed_modules=parsed_modules,
+                    inbound_dependency_count=inbound,
+                )
+
+            with self.assertRaisesRegex(ValueError, "Python keyword"):
+                apply_structural_edit(
+                    root,
+                    serialize_edit_request(
+                        {
+                            "kind": "create_symbol",
+                            "relative_path": "service.py",
+                            "new_name": "class",
+                            "symbol_kind": "function",
+                        }
+                    ),
+                    parsed_modules=parsed_modules,
+                    inbound_dependency_count=inbound,
+                )
+
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                apply_structural_edit(
+                    root,
+                    serialize_edit_request(
+                        {
+                            "kind": "create_symbol",
+                            "relative_path": "service.py",
+                            "new_name": "helper",
+                            "symbol_kind": "function",
+                        }
+                    ),
+                    parsed_modules=parsed_modules,
+                    inbound_dependency_count=inbound,
+                )
 
     def test_add_and_remove_import_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

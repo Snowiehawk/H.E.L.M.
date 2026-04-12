@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "../app/AppProviders";
 import { buildRepoSession } from "../lib/mocks/mockData";
 import { MockDesktopAdapter } from "../lib/adapter/mockDesktopAdapter";
-import type { SourceRange } from "../lib/adapter";
+import type { GraphAbstractionLevel, SourceRange } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 
@@ -93,6 +93,28 @@ function resetStore() {
     showEdgeLabels: true,
     revealedSource: undefined,
     lastEdit: undefined,
+  });
+}
+
+function setGraphFocusForTest({
+  targetId,
+  level,
+  activeNodeId,
+  activeSymbolId,
+}: {
+  targetId: string;
+  level: GraphAbstractionLevel;
+  activeNodeId?: string;
+  activeSymbolId?: string;
+}) {
+  const current = useUiStore.getState();
+  useUiStore.setState({
+    ...current,
+    activeTab: "graph",
+    graphTargetId: targetId,
+    activeLevel: level,
+    activeNodeId,
+    activeSymbolId,
   });
 }
 
@@ -271,6 +293,167 @@ describe("WorkspaceScreen", () => {
     expect(await screen.findByTestId("blueprint-inspector-drawer")).toHaveAttribute("data-mode", "expanded");
     expect(await screen.findByText(/Declaration editor/i)).toBeInTheDocument();
   });
+
+  it("creates a function from the empty inspector in module view and focuses it", async () => {
+    const user = userEvent.setup();
+    setGraphFocusForTest({
+      targetId: "module:helm.ui.api",
+      level: "module",
+      activeNodeId: undefined,
+      activeSymbolId: undefined,
+    });
+
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await user.click(await screen.findByTestId("blueprint-inspector-drawer-toggle"));
+
+    expect(await screen.findByRole("heading", { name: /Create function/i })).toBeInTheDocument();
+    expect(screen.getByText("src/helm/ui/api.py")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Create function/i })).toBeDisabled();
+
+    await user.type(screen.getByRole("textbox", { name: /Function name/i }), "build_issue_one");
+    await user.click(screen.getByRole("button", { name: /Create function/i }));
+
+    expect(await screen.findByRole("heading", { name: "build_issue_one" })).toBeInTheDocument();
+    expect(await screen.findByText(/Declaration editor/i)).toBeInTheDocument();
+    expect(
+      (await screen.findByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement).value,
+    ).toContain("def build_issue_one()");
+    expect(
+      within(screen.getByRole("navigation", { name: /Graph path/i })).getByText("build_issue_one"),
+    ).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("uses the parent module path when creating a function from empty symbol view", async () => {
+    const user = userEvent.setup();
+    const adapter = new MockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    setGraphFocusForTest({
+      targetId: "symbol:helm.ui.api:build_graph_summary",
+      level: "symbol",
+      activeNodeId: undefined,
+      activeSymbolId: "symbol:helm.ui.api:build_graph_summary",
+    });
+
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await user.click(await screen.findByTestId("blueprint-inspector-drawer-toggle"));
+
+    expect(await screen.findByRole("heading", { name: /Create function/i })).toBeInTheDocument();
+    expect(screen.getByText("src/helm/ui/api.py")).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: /Function name/i }), "build_symbol_helper");
+    await user.click(screen.getByRole("button", { name: /Create function/i }));
+
+    await waitFor(() =>
+      expect(editSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "create_symbol",
+          relativePath: "src/helm/ui/api.py",
+          newName: "build_symbol_helper",
+          symbolKind: "function",
+        }),
+      ),
+    );
+    expect(await screen.findByRole("heading", { name: "build_symbol_helper" })).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("keeps repo-level empty inspector informational without a create form", async () => {
+    const user = userEvent.setup();
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await user.click(await screen.findByTestId("blueprint-inspector-drawer-toggle"));
+
+    expect(await screen.findByRole("heading", { name: /Nothing selected/i })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Function name/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Select a graph node, then inspect or enter it explicitly from the canvas\./i)).toBeInTheDocument();
+  });
+
+  it("keeps flow-level empty inspector informational without a create form", async () => {
+    const user = userEvent.setup();
+    setGraphFocusForTest({
+      targetId: "symbol:helm.ui.api:build_graph_summary",
+      level: "flow",
+      activeNodeId: undefined,
+      activeSymbolId: "symbol:helm.ui.api:build_graph_summary",
+    });
+
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await user.click(await screen.findByTestId("blueprint-inspector-drawer-toggle"));
+
+    expect(await screen.findByRole("heading", { name: /Nothing selected/i })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Function name/i })).not.toBeInTheDocument();
+  });
+
+  it("renders backend validation errors inline in the empty inspector create form", async () => {
+    const user = userEvent.setup();
+    setGraphFocusForTest({
+      targetId: "module:helm.ui.api",
+      level: "module",
+      activeNodeId: undefined,
+      activeSymbolId: undefined,
+    });
+
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await user.click(await screen.findByTestId("blueprint-inspector-drawer-toggle"));
+    await user.type(
+      await screen.findByRole("textbox", { name: /Function name/i }),
+      "build_graph_summary",
+    );
+    await user.click(screen.getByRole("button", { name: /Create function/i }));
+
+    expect(
+      await screen.findByText("Top-level symbol 'build_graph_summary' already exists in src/helm/ui/api.py."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Create function/i })).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("navigates one layer out with Backspace from flow to symbol", async () => {
     const user = userEvent.setup();

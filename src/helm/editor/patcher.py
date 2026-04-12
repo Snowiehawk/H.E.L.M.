@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import keyword
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 from helm._vendor import ensure_vendor_packages
 from helm.editor.models import StructuralEditKind, StructuralEditRequest, StructuralEditResult
-from helm.parser.symbols import ParsedModule, SymbolDef, SymbolKind
+from helm.parser.symbols import ParsedModule, SymbolDef, SymbolKind, make_symbol_id
 
 ensure_vendor_packages()
 
@@ -93,11 +94,13 @@ def _rename_symbol(context: EditContext, request: StructuralEditRequest) -> Stru
 
 def _create_symbol(context: EditContext, request: StructuralEditRequest) -> StructuralEditResult:
     parsed = _require_module(context, request.relative_path or "")
+    new_name = request.new_name or "new_symbol"
+    _validate_created_symbol_name(parsed, new_name)
     source_path = Path(parsed.module.file_path)
     module = cst.parse_module(source_path.read_text(encoding="utf-8"))
     snippet = _symbol_template(
         request.symbol_kind or "function",
-        request.new_name or "new_symbol",
+        new_name,
         request.body,
     )
     statement = cst.parse_module(snippet).body[0]
@@ -105,8 +108,9 @@ def _create_symbol(context: EditContext, request: StructuralEditRequest) -> Stru
     source_path.write_text(updated.code, encoding="utf-8")
     return StructuralEditResult(
         request=request,
-        summary=f"Created {request.symbol_kind} {request.new_name} in {parsed.module.relative_path}.",
+        summary=f"Created {request.symbol_kind} {new_name} in {parsed.module.relative_path}.",
         touched_relative_paths=(parsed.module.relative_path,),
+        changed_node_ids=(make_symbol_id(parsed.module.module_name, new_name),),
     )
 
 
@@ -462,3 +466,17 @@ def _parse_replacement_statement(symbol: SymbolDef, content: str) -> cst.CSTNode
     raise ValueError(
         f"Variable replacement must be a single top-level assignment targeting '{symbol.name}'."
     )
+
+
+def _validate_created_symbol_name(parsed: ParsedModule, name: str) -> None:
+    if not name.isidentifier():
+        raise ValueError(f"Created symbol name '{name}' must be a valid Python identifier.")
+    if keyword.iskeyword(name):
+        raise ValueError(f"Created symbol name '{name}' cannot be a Python keyword.")
+    if any(
+        symbol.parent_symbol_id is None and symbol.name == name
+        for symbol in parsed.symbols
+    ):
+        raise ValueError(
+            f"Top-level symbol '{name}' already exists in {parsed.module.relative_path}."
+        )

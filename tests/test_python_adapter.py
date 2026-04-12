@@ -308,6 +308,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
             )
 
             self.assertEqual(response["edit"]["reparsed_relative_paths"], ["beta.py"])
+            self.assertEqual(response["edit"]["changed_node_ids"], ["symbol:beta:build_blueprint"])
             symbol_names = {
                 node["name"]
                 for node in response["payload"]["graph"]["nodes"]

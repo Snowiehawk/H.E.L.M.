@@ -439,8 +439,10 @@ export function WorkspaceScreen() {
   const [inspectorDrawerHeight, setInspectorDrawerHeight] = useState(readStoredInspectorDrawerHeight);
   const [explorerSidebarWidth, setExplorerSidebarWidth] = useState(readStoredExplorerSidebarWidth);
   const [isSavingSource, setIsSavingSource] = useState(false);
+  const [isCreatingFunction, setIsCreatingFunction] = useState(false);
   const [inspectorDirty, setInspectorDirty] = useState(false);
   const [inspectorActionError, setInspectorActionError] = useState<string | null>(null);
+  const [createFunctionError, setCreateFunctionError] = useState<string | null>(null);
   const inspectorSpaceTapRef = useRef<{ startedAt: number; cancelled: boolean } | null>(null);
   const workspaceLayoutRef = useRef<HTMLDivElement>(null);
   const [workspaceLayoutWidth, setWorkspaceLayoutWidth] = useState(() =>
@@ -911,6 +913,25 @@ export function WorkspaceScreen() {
     }
   };
 
+  const handleCreateFunction = async (relativePath: string, newName: string) => {
+    setCreateFunctionError(null);
+    setIsCreatingFunction(true);
+    try {
+      await handleApplyEdit({
+        kind: "create_symbol",
+        relativePath,
+        newName,
+        symbolKind: "function",
+      });
+    } catch (reason) {
+      setCreateFunctionError(
+        reason instanceof Error ? reason.message : "Unable to create the function right now.",
+      );
+    } finally {
+      setIsCreatingFunction(false);
+    }
+  };
+
   const handleSaveNodeSource = async (targetId: string, content: string) => {
     setIsSavingSource(true);
     try {
@@ -1134,6 +1155,15 @@ export function WorkspaceScreen() {
       .find((breadcrumb) => breadcrumb.level === "module")?.subtitle ?? undefined,
     [graphQuery.data?.breadcrumbs],
   );
+  useEffect(() => {
+    setCreateFunctionError(null);
+  }, [activeLevel, currentModulePath, graphTargetId, inspectorPanelMode, inspectorTargetId, selectedGraphNode?.id]);
+  const emptyInspectorCreateTargetPath =
+    inspectorPanelMode === "expanded"
+    && !inspectorNode
+    && (activeLevel === "module" || activeLevel === "symbol")
+      ? currentModulePath
+      : undefined;
   const inspectorDrawerStatus = isSavingSource
     ? { label: "Saving", tone: "warning" as const }
     : inspectorDirty
@@ -1500,7 +1530,11 @@ export function WorkspaceScreen() {
                         revealedSource={revealedSource}
                         lastEdit={lastEdit}
                         isSavingSource={isSavingSource}
+                        createFunctionTargetPath={emptyInspectorCreateTargetPath}
+                        createFunctionError={createFunctionError}
+                        isCreatingFunction={isCreatingFunction}
                         highlightRange={inspectorHighlightRange}
+                        onCreateFunction={handleCreateFunction}
                         onSaveSource={handleSaveNodeSource}
                         onEditorStateChange={handleInspectorEditorStateChange}
                         onDismissSource={() => setRevealedSource(undefined)}
