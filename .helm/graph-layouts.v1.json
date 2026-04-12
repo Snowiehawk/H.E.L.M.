@@ -213,6 +213,64 @@
       "pinned_node_ids": [],
       "groups": []
     },
+    "flow|symbol:tests.test_patcher:EditorIntegrationTests": {
+      "nodes": {
+        "flow:symbol:tests.test_patcher:EditorIntegrationTests:entry": {
+          "x": 0.0,
+          "y": -50.0
+        },
+        "symbol:tests.test_patcher:EditorIntegrationTests.test_add_and_remove_import_round_trip": {
+          "x": 806.7821576763486,
+          "y": 240.70539419087137
+        },
+        "symbol:tests.test_patcher:EditorIntegrationTests.test_create_delete_and_move_symbol_round_trip": {
+          "x": 806.7821576763486,
+          "y": 100.70539419087136
+        },
+        "symbol:tests.test_patcher:EditorIntegrationTests.test_rejects_rename_when_inbound_calls_exist": {
+          "x": 806.7821576763486,
+          "y": -39.294605809128626
+        },
+        "symbol:tests.test_patcher:EditorIntegrationTests.test_rename_symbol_updates_definition_for_dependency_free_symbol": {
+          "x": 806.7821576763486,
+          "y": -179.29460580912863
+        },
+        "symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload": {
+          "x": 806.7821576763486,
+          "y": -319.2946058091286
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "flow|symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload": {
+      "nodes": {
+        "flow:symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload:entry": {
+          "x": 0.0,
+          "y": -47.0
+        },
+        "flow:symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload:param:self": {
+          "x": 179.78634580368026,
+          "y": 125.80941178571058
+        },
+        "flow:symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload:statement:0": {
+          "x": 485.1541589965798,
+          "y": -164.15415899657978
+        },
+        "flow:symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload:statement:1": {
+          "x": 677.8766728027362,
+          "y": 37.580122305061366
+        },
+        "flow:symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload:statement:2": {
+          "x": 1369.5614617328315,
+          "y": 197.02434245417183
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
     "module|module:src.helm.editor.patcher": {
       "nodes": {
         "module:src.helm.editor.patcher": {
@@ -602,19 +660,19 @@
         },
         "module:tests.test_cli": {
           "x": 70.1494166339789,
-          "y": -439.2122680105504
+          "y": -451.5766601401809
         },
         "module:tests.test_desktop_bridge": {
           "x": -134.6884362277418,
           "y": -270.04658298139054
         },
         "module:tests.test_graph_builder": {
-          "x": -226.08988743031296,
-          "y": -128.60400929289762
+          "x": -226.08988743031293,
+          "y": -140.96840142252807
         },
         "module:tests.test_patcher": {
           "x": -152.29786639293246,
-          "y": 20.611127032282653
+          "y": 8.246734902652165
         },
         "module:tests.test_python_adapter": {
           "x": -116.0078025938404,
