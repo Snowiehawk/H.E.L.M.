@@ -1,0 +1,1229 @@
+{
+  "views": {
+    "flow|symbol:src.helm._vendor:ensure_vendor_packages": {
+      "nodes": {
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:entry": {
+          "x": 0.0,
+          "y": -50.0
+        },
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:0": {
+          "x": 570.0,
+          "y": -50.0
+        },
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:1": {
+          "x": 1159.0,
+          "y": -50.0
+        },
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:2": {
+          "x": 1748.0,
+          "y": -50.0
+        },
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:3": {
+          "x": 2337.0,
+          "y": -50.0
+        },
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:4": {
+          "x": 2926.0,
+          "y": -50.0
+        },
+        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:5": {
+          "x": 3515.0,
+          "y": -50.0
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "flow|symbol:src.helm.editor.patcher:_add_import": {
+      "nodes": {
+        "flow:symbol:src.helm.editor.patcher:_add_import:entry": {
+          "x": 16.0,
+          "y": -213.0
+        },
+        "flow:symbol:src.helm.editor.patcher:_add_import:param:context": {
+          "x": -43.0,
+          "y": -6.0
+        },
+        "flow:symbol:src.helm.editor.patcher:_add_import:param:request": {
+          "x": 34.0,
+          "y": 183.0
+        },
+        "flow:symbol:src.helm.editor.patcher:_add_import:statement:0": {
+          "x": 487.0,
+          "y": -25.0
+        },
+        "flow:symbol:src.helm.editor.patcher:_add_import:statement:1": {
+          "x": 1010.660876256959,
+          "y": -136.761942720022
+        },
+        "flow:symbol:src.helm.editor.patcher:_add_import:statement:2": {
+          "x": 1308.0,
+          "y": -306.0
+        },
+        "flow:symbol:src.helm.editor.patcher:_add_import:statement:3": {
+          "x": 1594.0,
+          "y": -146.0
+        },
+        "flow:symbol:src.helm.editor.patcher:_add_import:statement:4": {
+          "x": 2095.3075421964695,
+          "y": -534.269546079035
+        },
+        "flow:symbol:src.helm.editor.patcher:_add_import:statement:5": {
+          "x": 2745.1433126402635,
+          "y": -594.4108797032308
+        },
+        "flow:symbol:src.helm.editor.patcher:_add_import:statement:6": {
+          "x": 3401.1464735519385,
+          "y": -306.3862040352681
+        },
+        "flow:symbol:src.helm.editor.patcher:_add_import:statement:7": {
+          "x": 2307.4315045915423,
+          "y": 11.699961522485594
+        },
+        "flow:symbol:src.helm.editor.patcher:_add_import:statement:8": {
+          "x": 2983.6814083977565,
+          "y": 167.40544774785815
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "flow|symbol:src.helm.graph.models:make_repo_id": {
+      "nodes": {
+        "flow:symbol:src.helm.graph.models:make_repo_id:entry": {
+          "x": -172.27882037533507,
+          "y": -83.36997319034853
+        },
+        "flow:symbol:src.helm.graph.models:make_repo_id:param:root_path": {
+          "x": -169.66756032171577,
+          "y": 21.931434007496335
+        },
+        "flow:symbol:src.helm.graph.models:make_repo_id:statement:0": {
+          "x": 370.0,
+          "y": -48.0
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "flow|symbol:tests.helpers:write_repo_files": {
+      "nodes": {
+        "flow:symbol:tests.helpers:write_repo_files:entry": {
+          "x": -101.2452472553548,
+          "y": -178.0
+        },
+        "flow:symbol:tests.helpers:write_repo_files:param:files": {
+          "x": -56.0,
+          "y": 2.0
+        },
+        "flow:symbol:tests.helpers:write_repo_files:param:root": {
+          "x": -6.875475080269297,
+          "y": 133.6349810550478
+        },
+        "flow:symbol:tests.helpers:write_repo_files:statement:0": {
+          "x": 379.0,
+          "y": -156.2671101720156
+        },
+        "flow:symbol:tests.helpers:write_repo_files:statement:1": {
+          "x": 885.3878325076397,
+          "y": -144.53326969800457
+        },
+        "flow:symbol:tests.helpers:write_repo_files:statement:2": {
+          "x": 1293.607414262227,
+          "y": -223.82889730886765
+        },
+        "flow:symbol:tests.helpers:write_repo_files:statement:3": {
+          "x": 1674.510456135317,
+          "y": -9.072243272169109
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "flow|symbol:tests.test_cli:CliTests": {
+      "nodes": {
+        "flow:symbol:tests.test_cli:CliTests:entry": {
+          "x": -58.59075763644381,
+          "y": -32.86851127750293
+        },
+        "symbol:tests.test_cli:CliTests.test_scan_command_prints_summary_and_writes_json": {
+          "x": 417.2222222222222,
+          "y": -72.70553865985252
+        },
+        "symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo": {
+          "x": 420.48658587444675,
+          "y": 32.050310442623406
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "flow|symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo": {
+      "nodes": {
+        "flow:symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo:entry": {
+          "x": 127.18395573997232,
+          "y": -56.67704011065006
+        },
+        "flow:symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo:param:self": {
+          "x": 1189.6482976838856,
+          "y": -30.896467764122832
+        },
+        "flow:symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo:statement:0": {
+          "x": 415.6203319502075,
+          "y": -230.09889349930845
+        },
+        "flow:symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo:statement:1": {
+          "x": 656.2876083974679,
+          "y": -56.490539552999735
+        },
+        "flow:symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo:statement:2": {
+          "x": 1271.083873288071,
+          "y": -266.3853674657423
+        },
+        "flow:symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo:statement:3": {
+          "x": 1649.75825619011,
+          "y": -108.88865354671763
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "flow|symbol:tests.test_graph_builder:GraphBuilderTests.test_tracks_unresolved_external_calls": {
+      "nodes": {
+        "flow:symbol:tests.test_graph_builder:GraphBuilderTests.test_tracks_unresolved_external_calls:entry": {
+          "x": 0.0,
+          "y": -48.0
+        },
+        "flow:symbol:tests.test_graph_builder:GraphBuilderTests.test_tracks_unresolved_external_calls:param:self": {
+          "x": 137.35757575757572,
+          "y": 90.9018181818182
+        },
+        "flow:symbol:tests.test_graph_builder:GraphBuilderTests.test_tracks_unresolved_external_calls:statement:0": {
+          "x": 588.0,
+          "y": -48.0
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "flow|symbol:tests.test_patcher:EditorIntegrationTests": {
+      "nodes": {
+        "flow:symbol:tests.test_patcher:EditorIntegrationTests:entry": {
+          "x": 0.0,
+          "y": -50.0
+        },
+        "symbol:tests.test_patcher:EditorIntegrationTests.test_add_and_remove_import_round_trip": {
+          "x": 806.7821576763486,
+          "y": 240.70539419087137
+        },
+        "symbol:tests.test_patcher:EditorIntegrationTests.test_create_delete_and_move_symbol_round_trip": {
+          "x": 806.7821576763486,
+          "y": 100.70539419087136
+        },
+        "symbol:tests.test_patcher:EditorIntegrationTests.test_rejects_rename_when_inbound_calls_exist": {
+          "x": 806.7821576763486,
+          "y": -39.294605809128626
+        },
+        "symbol:tests.test_patcher:EditorIntegrationTests.test_rename_symbol_updates_definition_for_dependency_free_symbol": {
+          "x": 806.7821576763486,
+          "y": -179.29460580912863
+        },
+        "symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload": {
+          "x": 806.7821576763486,
+          "y": -319.2946058091286
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "flow|symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload": {
+      "nodes": {
+        "flow:symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload:entry": {
+          "x": 0.0,
+          "y": -47.0
+        },
+        "flow:symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload:param:self": {
+          "x": 179.78634580368026,
+          "y": 125.80941178571058
+        },
+        "flow:symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload:statement:0": {
+          "x": 485.1541589965798,
+          "y": -164.15415899657978
+        },
+        "flow:symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload:statement:1": {
+          "x": 677.8766728027362,
+          "y": 37.580122305061366
+        },
+        "flow:symbol:tests.test_patcher:EditorIntegrationTests.test_serialize_edit_request_validates_supported_payload:statement:2": {
+          "x": 1369.5614617328315,
+          "y": 197.02434245417183
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|module:src.helm.editor.patcher": {
+      "nodes": {
+        "module:src.helm.editor.patcher": {
+          "x": -821.2335136081065,
+          "y": 12.466411012646644
+        },
+        "symbol:src.helm.editor.patcher:EditContext": {
+          "x": -206.3640347472196,
+          "y": -825.19961651897
+        },
+        "symbol:src.helm.editor.patcher:_add_import": {
+          "x": 199.64171746823092,
+          "y": -703.2667944936767
+        },
+        "symbol:src.helm.editor.patcher:_append_spacing": {
+          "x": 196.34869550601832,
+          "y": -604.0895706329422
+        },
+        "symbol:src.helm.editor.patcher:_build_import_statement": {
+          "x": 195.0,
+          "y": -515.0
+        },
+        "symbol:src.helm.editor.patcher:_create_symbol": {
+          "x": 192.5707046832239,
+          "y": -416.2220091772055
+        },
+        "symbol:src.helm.editor.patcher:_delete_symbol": {
+          "x": 196.0223926582356,
+          "y": -227.4216256961755
+        },
+        "symbol:src.helm.editor.patcher:_extract_statement": {
+          "x": 198.37492297455415,
+          "y": -322.9552146835289
+        },
+        "symbol:src.helm.editor.patcher:_import_insertion_index": {
+          "x": 197.59309734145944,
+          "y": 662.8138053170811
+        },
+        "symbol:src.helm.editor.patcher:_move_symbol": {
+          "x": 193.5111963291178,
+          "y": -135.15483120249883
+        },
+        "symbol:src.helm.editor.patcher:_node_code": {
+          "x": 201.07998360719145,
+          "y": 762.7242346841389
+        },
+        "symbol:src.helm.editor.patcher:_parse_replacement_statement": {
+          "x": 189.30966240499765,
+          "y": -38.17722386073441
+        },
+        "symbol:src.helm.editor.patcher:_preserve_statement_spacing": {
+          "x": 189.5502294301384,
+          "y": 66.06717797470671
+        },
+        "symbol:src.helm.editor.patcher:_remove_import": {
+          "x": 203.35444772146877,
+          "y": 1259.5394096289433
+        },
+        "symbol:src.helm.editor.patcher:_rename_statement_name": {
+          "x": 199.9027597464572,
+          "y": 862.6775319625176
+        },
+        "symbol:src.helm.editor.patcher:_rename_symbol": {
+          "x": 194.75559816455893,
+          "y": 172.1772238607344
+        },
+        "symbol:src.helm.editor.patcher:_replace_symbol_source": {
+          "x": 204.70314322748715,
+          "y": 1160.16825303855
+        },
+        "symbol:src.helm.editor.patcher:_require_module": {
+          "x": 196.57645689867437,
+          "y": 273.1324385442632
+        },
+        "symbol:src.helm.editor.patcher:_require_top_level_symbol": {
+          "x": 197.48880367088225,
+          "y": 373.1772238607344
+        },
+        "symbol:src.helm.editor.patcher:_statement_matches_import": {
+          "x": 197.90659455675743,
+          "y": 962.429295316776
+        },
+        "symbol:src.helm.editor.patcher:_statement_matches_symbol": {
+          "x": 197.86564405058664,
+          "y": 469.5092789239677
+        },
+        "symbol:src.helm.editor.patcher:_symbol_template": {
+          "x": 202.5054441136674,
+          "y": 1064.427377911626
+        },
+        "symbol:src.helm.editor.patcher:apply_structural_edit": {
+          "x": 201.1753064555843,
+          "y": 563.3058275946973
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|module:src.helm.editor.serializer": {
+      "nodes": {
+        "module:src.helm.editor.serializer": {
+          "x": 66.0,
+          "y": 15.0
+        },
+        "symbol:src.helm.editor.serializer:_optional_string": {
+          "x": 561.0,
+          "y": -186.0
+        },
+        "symbol:src.helm.editor.serializer:_validate_request": {
+          "x": 609.0,
+          "y": 8.0
+        },
+        "symbol:src.helm.editor.serializer:serialize_edit_request": {
+          "x": 587.0,
+          "y": 199.0
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|module:src.helm.graph.models": {
+      "nodes": {
+        "module:src.helm.graph.models": {
+          "x": 305.73468981802694,
+          "y": 19.626061905111456
+        },
+        "symbol:src.helm.graph.models:BuildReport": {
+          "x": 881.4502200049856,
+          "y": -573.4217762048023
+        },
+        "symbol:src.helm.graph.models:EdgeKind": {
+          "x": 1081.7530857666725,
+          "y": 119.6455699461481
+        },
+        "symbol:src.helm.graph.models:GraphAbstractionLevel": {
+          "x": 1084.8343204018065,
+          "y": 218.22988207622615
+        },
+        "symbol:src.helm.graph.models:GraphAction": {
+          "x": 881.8225596432112,
+          "y": -471.79181671500635
+        },
+        "symbol:src.helm.graph.models:GraphBreadcrumb": {
+          "x": 1265.5237268946205,
+          "y": -573.3500380599337
+        },
+        "symbol:src.helm.graph.models:GraphEdge": {
+          "x": 1271.0723572479517,
+          "y": -467.5171137750989
+        },
+        "symbol:src.helm.graph.models:GraphFocus": {
+          "x": 1270.3312784855152,
+          "y": -364.1154543124318
+        },
+        "symbol:src.helm.graph.models:GraphNode": {
+          "x": 884.7729953903782,
+          "y": -365.00865826706945
+        },
+        "symbol:src.helm.graph.models:GraphView": {
+          "x": 1266.526779326628,
+          "y": -258.52164095666546
+        },
+        "symbol:src.helm.graph.models:GraphViewEdge": {
+          "x": 886.347334641827,
+          "y": -261.0046740413733
+        },
+        "symbol:src.helm.graph.models:GraphViewEdgeKind": {
+          "x": 1090.814728097664,
+          "y": 325.0246893088141
+        },
+        "symbol:src.helm.graph.models:GraphViewNode": {
+          "x": 1265.203405166742,
+          "y": -152.02630672175474
+        },
+        "symbol:src.helm.graph.models:GraphViewNodeKind": {
+          "x": 1089.4917973580864,
+          "y": 429.5792197583297
+        },
+        "symbol:src.helm.graph.models:NodeKind": {
+          "x": 1090.941570769087,
+          "y": 533.7236350221136
+        },
+        "symbol:src.helm.graph.models:RepoGraph": {
+          "x": 886.0960250317423,
+          "y": -154.09714353222466
+        },
+        "symbol:src.helm.graph.models:UnresolvedCall": {
+          "x": 1077.6448563583426,
+          "y": -44.59699063093296
+        },
+        "symbol:src.helm.graph.models:make_repo_id": {
+          "x": 1777.6096473444952,
+          "y": 19.325166002181646
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|module:src.helm.parser.python_parser": {
+      "nodes": {
+        "module:__future__": {
+          "x": 381.6238844958275,
+          "y": -616.8265380755299
+        },
+        "module:ast": {
+          "x": 586.037142742508,
+          "y": -467.9588135748885
+        },
+        "module:dataclasses": {
+          "x": 386.1219745253357,
+          "y": -363.5381264058596
+        },
+        "module:helm.parser.symbols": {
+          "x": 198.75759183746857,
+          "y": -284.0004470085402
+        },
+        "module:pathlib": {
+          "x": 575.3803059870583,
+          "y": -217.2958542512854
+        },
+        "module:src.helm.parser.python_parser": {
+          "x": -546.2457147390401,
+          "y": -19.016026688403713
+        },
+        "symbol:src.helm.parser.python_parser:PythonModuleParser": {
+          "x": 455.7986111267153,
+          "y": 622.0159786576858
+        },
+        "symbol:src.helm.parser.python_parser:_ModuleVisitor": {
+          "x": 364.44119068508473,
+          "y": 106.28714312788932
+        },
+        "symbol:src.helm.parser.python_parser:_extract_call_path": {
+          "x": 588.2361879562919,
+          "y": -13.40114323862577
+        },
+        "symbol:src.helm.parser.python_parser:_line_starts": {
+          "x": 319.3491652649906,
+          "y": -92.85837643817284
+        },
+        "symbol:src.helm.parser.python_parser:_offset_for_position": {
+          "x": 584.044630692429,
+          "y": 200.48169617102292
+        },
+        "symbol:src.helm.parser.python_parser:_safe_unparse": {
+          "x": 240.750247355727,
+          "y": 263.6941355881276
+        },
+        "symbol:src.helm.parser.python_parser:_span_for_node": {
+          "x": 503.79701643928223,
+          "y": 392.6882984278718
+        },
+        "symbol:src.helm.parser.python_parser:_syntax_error_span": {
+          "x": 250.3072941913858,
+          "y": 487.37419471227537
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|module:src.helm.parser.repo_loader": {
+      "nodes": {
+        "module:src.helm.parser.repo_loader": {
+          "x": -251.2196977540204,
+          "y": 2.1743427501224204
+        },
+        "symbol:src.helm.parser.repo_loader:RepoInventory": {
+          "x": 362.82048397024937,
+          "y": 399.04652271699103
+        },
+        "symbol:src.helm.parser.repo_loader:_GitIgnoreRule": {
+          "x": 399.63199653001175,
+          "y": -403.13212111107106
+        },
+        "symbol:src.helm.parser.repo_loader:_is_gitignored": {
+          "x": 533.8903364549723,
+          "y": -168.16333334488428
+        },
+        "symbol:src.helm.parser.repo_loader:_load_gitignore_rules": {
+          "x": 336.7099746745963,
+          "y": -43.30148283947488
+        },
+        "symbol:src.helm.parser.repo_loader:_module_name_from_relative_path": {
+          "x": 322.8205054220796,
+          "y": 135.68803863287832
+        },
+        "symbol:src.helm.parser.repo_loader:discover_python_modules": {
+          "x": 548.6603409777015,
+          "y": 170.5693539238418
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|module:src.helm.parser.symbols": {
+      "nodes": {
+        "module:src.helm.parser.symbols": {
+          "x": -16.21527777777777,
+          "y": 37.77777777777784
+        },
+        "symbol:src.helm.parser.symbols:CallSite": {
+          "x": 705.0,
+          "y": -645.0
+        },
+        "symbol:src.helm.parser.symbols:ImportRef": {
+          "x": 706.0,
+          "y": -546.0
+        },
+        "symbol:src.helm.parser.symbols:ModuleRef": {
+          "x": 705.0,
+          "y": -449.0
+        },
+        "symbol:src.helm.parser.symbols:ParseDiagnostic": {
+          "x": 704.0,
+          "y": -264.0
+        },
+        "symbol:src.helm.parser.symbols:ParsedModule": {
+          "x": 701.0,
+          "y": -359.0
+        },
+        "symbol:src.helm.parser.symbols:ReferenceConfidence": {
+          "x": 705.0,
+          "y": 35.0
+        },
+        "symbol:src.helm.parser.symbols:SourceSpan": {
+          "x": 708.0,
+          "y": -169.0
+        },
+        "symbol:src.helm.parser.symbols:SymbolDef": {
+          "x": 707.0,
+          "y": -73.0
+        },
+        "symbol:src.helm.parser.symbols:SymbolKind": {
+          "x": 705.0,
+          "y": 130.0
+        },
+        "symbol:src.helm.parser.symbols:make_call_id": {
+          "x": 705.0,
+          "y": 254.0
+        },
+        "symbol:src.helm.parser.symbols:make_import_id": {
+          "x": 708.0,
+          "y": 349.0
+        },
+        "symbol:src.helm.parser.symbols:make_module_id": {
+          "x": 705.0,
+          "y": 446.0
+        },
+        "symbol:src.helm.parser.symbols:make_symbol_id": {
+          "x": 705.0,
+          "y": 544.0
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|module:src.helm.utils.logging": {
+      "nodes": {
+        "module:src.helm.utils.logging": {
+          "x": 43.73568659363772,
+          "y": 13.292225746702686
+        },
+        "symbol:src.helm.utils.logging:configure_logging": {
+          "x": 590.1327203076519,
+          "y": -137.02848715786462
+        },
+        "symbol:src.helm.utils.logging:get_logger": {
+          "x": 620.296346495732,
+          "y": 162.678665459798
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|module:tests.helpers": {
+      "nodes": {
+        "module:tests.helpers": {
+          "x": 658.8685785686764,
+          "y": 70.5867641417825
+        },
+        "module:tests.test_cli": {
+          "x": 70.1494166339789,
+          "y": -451.5766601401809
+        },
+        "module:tests.test_desktop_bridge": {
+          "x": -134.6884362277418,
+          "y": -270.04658298139054
+        },
+        "module:tests.test_graph_builder": {
+          "x": -226.08988743031293,
+          "y": -140.96840142252807
+        },
+        "module:tests.test_patcher": {
+          "x": -152.29786639293246,
+          "y": 8.246734902652165
+        },
+        "module:tests.test_python_adapter": {
+          "x": -116.0078025938404,
+          "y": 168.05022951532408
+        },
+        "module:tests.test_python_parser": {
+          "x": -40.72888354392913,
+          "y": 335.1723321276337
+        },
+        "module:tests.test_repo_loader": {
+          "x": 10.89103881840026,
+          "y": 494.5197591525236
+        },
+        "symbol:tests.helpers:write_repo_files": {
+          "x": 1076.7727920018733,
+          "y": 65.75424099968801
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|module:tests.test_cli": {
+      "nodes": {
+        "module:tests.helpers": {
+          "x": 565.9649122807018,
+          "y": -38.42105263157896
+        },
+        "module:tests.test_cli": {
+          "x": -119.0,
+          "y": 22.0
+        },
+        "symbol:tests.test_cli:CliTests": {
+          "x": 500.7368421052632,
+          "y": 70.21052631578951
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|module:tests.test_graph_builder": {
+      "nodes": {
+        "module:tests.helpers": {
+          "x": 406.4834391370431,
+          "y": 113.38401574759226
+        },
+        "module:tests.test_graph_builder": {
+          "x": -327.80906948594907,
+          "y": 20.680321140302908
+        },
+        "symbol:tests.test_graph_builder:GraphBuilderTests": {
+          "x": 390.4859002495606,
+          "y": -162.3597799716906
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|module:tests.test_patcher": {
+      "nodes": {
+        "module:tests.helpers": {
+          "x": 403.8196249933874,
+          "y": -197.00556061396657
+        },
+        "module:tests.test_patcher": {
+          "x": -76.56266940830174,
+          "y": 19.65867070762816
+        },
+        "symbol:tests.test_patcher:EditorIntegrationTests": {
+          "x": 447.272191566015,
+          "y": 15.621251202819714
+        },
+        "symbol:tests.test_patcher:parse_repo": {
+          "x": 403.93777346342176,
+          "y": 254.4138812586266
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|module:tests.test_python_adapter": {
+      "nodes": {
+        "module:tests.helpers": {
+          "x": 547.5817265471941,
+          "y": -116.0001395542019
+        },
+        "module:tests.test_python_adapter": {
+          "x": -61.23332645534879,
+          "y": -48.50894956850199
+        },
+        "symbol:tests.test_python_adapter:PythonRepoAdapterTests": {
+          "x": 525.8076314194371,
+          "y": 33.97003873096352
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "module|repo:/Users/noahphillips/Documents/git-repos/H.E.L.M.": {
+      "nodes": {
+        "module:src.helm": {
+          "x": -815.7060323384071,
+          "y": -802.0695757211472
+        },
+        "module:src.helm._vendor": {
+          "x": 566.3375150445252,
+          "y": 432.3491443075442
+        },
+        "module:src.helm.cli": {
+          "x": 121.33751504452516,
+          "y": 572.3491443075442
+        },
+        "module:src.helm.config": {
+          "x": -323.66248495547484,
+          "y": 712.3491443075442
+        },
+        "module:src.helm.editor": {
+          "x": -815.7060323384071,
+          "y": -662.0695757211472
+        },
+        "module:src.helm.editor.models": {
+          "x": -323.66248495547484,
+          "y": 432.3491443075442
+        },
+        "module:src.helm.editor.patcher": {
+          "x": 121.33751504452516,
+          "y": 432.3491443075442
+        },
+        "module:src.helm.editor.serializer": {
+          "x": 566.3375150445252,
+          "y": 712.3491443075442
+        },
+        "module:src.helm.graph": {
+          "x": -815.7060323384071,
+          "y": -242.06957572114715
+        },
+        "module:src.helm.graph.builder": {
+          "x": 121.33751504452516,
+          "y": 712.3491443075442
+        },
+        "module:src.helm.graph.models": {
+          "x": 121.33751504452516,
+          "y": 292.3491443075442
+        },
+        "module:src.helm.graph.queries": {
+          "x": 121.33751504452516,
+          "y": 852.3491443075442
+        },
+        "module:src.helm.parser": {
+          "x": -815.7060323384071,
+          "y": -102.06957572114716
+        },
+        "module:src.helm.parser.python_parser": {
+          "x": -323.66248495547484,
+          "y": 852.3491443075442
+        },
+        "module:src.helm.parser.repo_loader": {
+          "x": 566.3375150445252,
+          "y": 852.3491443075442
+        },
+        "module:src.helm.parser.symbols": {
+          "x": 566.3375150445252,
+          "y": 572.3491443075442
+        },
+        "module:src.helm.ui": {
+          "x": -815.7060323384071,
+          "y": 37.930424278852854
+        },
+        "module:src.helm.ui.api": {
+          "x": -323.66248495547484,
+          "y": 992.3491443075442
+        },
+        "module:src.helm.ui.desktop_bridge": {
+          "x": -323.66248495547484,
+          "y": 572.3491443075442
+        },
+        "module:src.helm.ui.python_adapter": {
+          "x": -323.66248495547484,
+          "y": 292.3491443075442
+        },
+        "module:src.helm.utils": {
+          "x": -815.7060323384071,
+          "y": -382.06957572114715
+        },
+        "module:src.helm.utils.logging": {
+          "x": 121.33751504452516,
+          "y": 992.3491443075442
+        },
+        "module:tasks": {
+          "x": 566.3375150445252,
+          "y": 292.3491443075442
+        },
+        "module:tests": {
+          "x": -815.7060323384071,
+          "y": -522.0695757211472
+        },
+        "module:tests.helpers": {
+          "x": 548.9387312009798,
+          "y": -524.3530593146924
+        },
+        "module:tests.test_cli": {
+          "x": -314.18717827109936,
+          "y": -943.393247308527
+        },
+        "module:tests.test_config": {
+          "x": -314.18717827109936,
+          "y": 36.60675269147316
+        },
+        "module:tests.test_desktop_bridge": {
+          "x": -314.18717827109936,
+          "y": -663.3932473085268
+        },
+        "module:tests.test_graph_builder": {
+          "x": -314.18717827109936,
+          "y": -803.3932473085268
+        },
+        "module:tests.test_patcher": {
+          "x": -314.18717827109936,
+          "y": -523.3932473085268
+        },
+        "module:tests.test_python_adapter": {
+          "x": -314.18717827109936,
+          "y": -383.3932473085269
+        },
+        "module:tests.test_python_parser": {
+          "x": -314.18717827109936,
+          "y": -243.39324730852684
+        },
+        "module:tests.test_repo_loader": {
+          "x": -314.18717827109936,
+          "y": -103.39324730852684
+        },
+        "repo-root": {
+          "x": -813.2060951601666,
+          "y": 296.3701727591007
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": [
+        {
+          "id": "group-43bb2581-08e0-4900-b80b-c0114a8faaf6",
+          "title": "Python Package Files",
+          "memberNodeIds": [
+            "module:src.helm",
+            "module:src.helm.editor",
+            "module:src.helm.graph",
+            "module:src.helm.parser",
+            "module:src.helm.ui",
+            "module:src.helm.utils",
+            "module:tests"
+          ]
+        },
+        {
+          "id": "group-7ed5e2c1-414f-4fe3-869c-e5d81863a820",
+          "title": "Testing",
+          "memberNodeIds": [
+            "module:tests.test_cli",
+            "module:tests.test_config",
+            "module:tests.test_desktop_bridge",
+            "module:tests.test_graph_builder",
+            "module:tests.test_patcher",
+            "module:tests.test_python_adapter",
+            "module:tests.test_python_parser",
+            "module:tests.test_repo_loader"
+          ]
+        },
+        {
+          "id": "group-8b10e80b-3db5-468f-9efd-c440d9f0f4e0",
+          "title": "Group",
+          "memberNodeIds": [
+            "module:src.helm._vendor",
+            "module:src.helm.cli",
+            "module:src.helm.config",
+            "module:src.helm.editor.models",
+            "module:src.helm.editor.patcher",
+            "module:src.helm.editor.serializer",
+            "module:src.helm.graph.builder",
+            "module:src.helm.graph.models",
+            "module:src.helm.graph.queries",
+            "module:src.helm.parser.python_parser",
+            "module:src.helm.parser.repo_loader",
+            "module:src.helm.parser.symbols",
+            "module:src.helm.ui.api",
+            "module:src.helm.ui.desktop_bridge",
+            "module:src.helm.ui.python_adapter",
+            "module:src.helm.utils.logging",
+            "module:tasks"
+          ]
+        }
+      ]
+    },
+    "repo|repo-root": {
+      "nodes": {
+        "module:src.helm": {
+          "x": 1646.3159985568332,
+          "y": -252.03894417297568
+        },
+        "module:src.helm._vendor": {
+          "x": 140.81420936178438,
+          "y": -334.18583795184543
+        },
+        "module:src.helm.cli": {
+          "x": 585.8142093617844,
+          "y": -334.18583795184543
+        },
+        "module:src.helm.config": {
+          "x": 1030.8142093617844,
+          "y": -334.18583795184543
+        },
+        "module:src.helm.editor": {
+          "x": 1646.3159985568332,
+          "y": -392.03894417297545
+        },
+        "module:src.helm.editor.models": {
+          "x": 585.8142093617844,
+          "y": -194.18583795184543
+        },
+        "module:src.helm.editor.patcher": {
+          "x": 140.81420936178438,
+          "y": -54.18583795184543
+        },
+        "module:src.helm.editor.serializer": {
+          "x": 1030.8142093617844,
+          "y": -54.18583795184543
+        },
+        "module:src.helm.graph": {
+          "x": 1646.3159985568332,
+          "y": 27.961055827024325
+        },
+        "module:src.helm.graph.builder": {
+          "x": 585.8142093617844,
+          "y": 85.81416204815457
+        },
+        "module:src.helm.graph.models": {
+          "x": 1030.8142093617844,
+          "y": 85.81416204815457
+        },
+        "module:src.helm.graph.queries": {
+          "x": 140.81420936178438,
+          "y": 365.81416204815457
+        },
+        "module:src.helm.parser": {
+          "x": 1646.3159985568332,
+          "y": -112.03894417297568
+        },
+        "module:src.helm.parser.python_parser": {
+          "x": 140.81420936178438,
+          "y": 225.81416204815457
+        },
+        "module:src.helm.parser.repo_loader": {
+          "x": 585.8142093617844,
+          "y": 225.81416204815457
+        },
+        "module:src.helm.parser.symbols": {
+          "x": 585.8142093617844,
+          "y": 365.81416204815457
+        },
+        "module:src.helm.ui": {
+          "x": 1646.3159985568332,
+          "y": 167.9610558270242
+        },
+        "module:src.helm.ui.api": {
+          "x": 140.81420936178438,
+          "y": -194.18583795184543
+        },
+        "module:src.helm.ui.desktop_bridge": {
+          "x": 1030.8142093617844,
+          "y": -194.18583795184543
+        },
+        "module:src.helm.ui.python_adapter": {
+          "x": 585.8142093617844,
+          "y": -54.18583795184543
+        },
+        "module:src.helm.utils": {
+          "x": 1646.3159985568332,
+          "y": 307.96105582702364
+        },
+        "module:src.helm.utils.logging": {
+          "x": 140.81420936178438,
+          "y": 85.81416204815457
+        },
+        "module:tasks": {
+          "x": 1030.8142093617844,
+          "y": 225.81416204815457
+        },
+        "module:tests": {
+          "x": 1646.3159985568332,
+          "y": 447.96105582702313
+        },
+        "module:tests.helpers": {
+          "x": 2791.741219294427,
+          "y": 27.26106353280602
+        },
+        "module:tests.test_cli": {
+          "x": 2170.5364062075214,
+          "y": -459.025813046006
+        },
+        "module:tests.test_config": {
+          "x": 2170.5364062075214,
+          "y": 520.9741869539939
+        },
+        "module:tests.test_desktop_bridge": {
+          "x": 2170.5364062075214,
+          "y": -319.025813046006
+        },
+        "module:tests.test_graph_builder": {
+          "x": 2170.5364062075214,
+          "y": -179.02581304600602
+        },
+        "module:tests.test_patcher": {
+          "x": 2170.5364062075214,
+          "y": -39.02581304600602
+        },
+        "module:tests.test_python_adapter": {
+          "x": 2170.5364062075214,
+          "y": 100.97418695399398
+        },
+        "module:tests.test_python_parser": {
+          "x": 2170.5364062075214,
+          "y": 240.97418695399384
+        },
+        "module:tests.test_repo_loader": {
+          "x": 2170.5364062075214,
+          "y": 380.97418695399375
+        },
+        "repo-root": {
+          "x": 1011.2275997957918,
+          "y": -599.0001309413891
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": [
+        {
+          "id": "group-056e5aa6-1b20-4143-885d-db9723f004df",
+          "title": "Testing",
+          "memberNodeIds": [
+            "module:tests.test_cli",
+            "module:tests.test_config",
+            "module:tests.test_desktop_bridge",
+            "module:tests.test_graph_builder",
+            "module:tests.test_patcher",
+            "module:tests.test_python_adapter",
+            "module:tests.test_python_parser",
+            "module:tests.test_repo_loader"
+          ]
+        },
+        {
+          "id": "group-0f177fcd-a72e-41a4-a4f2-250918087a70",
+          "title": "Python Package Files",
+          "memberNodeIds": [
+            "module:src.helm",
+            "module:src.helm.editor",
+            "module:src.helm.graph",
+            "module:src.helm.parser",
+            "module:src.helm.ui",
+            "module:src.helm.utils",
+            "module:tests"
+          ]
+        },
+        {
+          "id": "group-3b4a5281-f0dc-4d4b-8c9b-0db6445c086b",
+          "title": "Group",
+          "memberNodeIds": [
+            "module:src.helm._vendor",
+            "module:src.helm.cli",
+            "module:src.helm.config",
+            "module:src.helm.editor.models",
+            "module:src.helm.editor.patcher",
+            "module:src.helm.editor.serializer",
+            "module:src.helm.graph.builder",
+            "module:src.helm.graph.models",
+            "module:src.helm.graph.queries",
+            "module:src.helm.parser.python_parser",
+            "module:src.helm.parser.repo_loader",
+            "module:src.helm.parser.symbols",
+            "module:src.helm.ui.api",
+            "module:src.helm.ui.desktop_bridge",
+            "module:src.helm.ui.python_adapter",
+            "module:src.helm.utils.logging",
+            "module:tasks"
+          ]
+        }
+      ]
+    },
+    "symbol|symbol:tests.test_cli:CliTests": {
+      "nodes": {
+        "module:tests.helpers": {
+          "x": 972.6415685775472,
+          "y": 232.25048396571765
+        },
+        "module:tests.test_cli": {
+          "x": 151.55489623851847,
+          "y": 190.826667607148
+        },
+        "symbol:tests.test_cli:CliTests": {
+          "x": 936.732128012712,
+          "y": 79.47312795828262
+        },
+        "symbol:tests.test_cli:CliTests.test_scan_command_prints_summary_and_writes_json": {
+          "x": 1429.5394189877466,
+          "y": 44.988561839150776
+        },
+        "symbol:tests.test_cli:CliTests.test_scan_command_returns_error_for_missing_repo": {
+          "x": 1430.8069616245602,
+          "y": -65.17378113059691
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    },
+    "symbol|symbol:tests.test_graph_builder:GraphBuilderTests": {
+      "nodes": {
+        "module:tests.helpers": {
+          "x": 428.85873441997546,
+          "y": 311.0068992770298
+        },
+        "module:tests.test_graph_builder": {
+          "x": -97.0,
+          "y": 160.0
+        },
+        "symbol:tests.test_graph_builder:GraphBuilderTests": {
+          "x": 121.0,
+          "y": -76.0
+        },
+        "symbol:tests.test_graph_builder:GraphBuilderTests.test_builds_import_and_call_edges_for_internal_symbols": {
+          "x": 673.2582140913587,
+          "y": -217.480291777854
+        },
+        "symbol:tests.test_graph_builder:GraphBuilderTests.test_promotes_top_level_enums_and_variables_into_graph_symbols": {
+          "x": 672.2874512191921,
+          "y": -115.69711020703387
+        },
+        "symbol:tests.test_graph_builder:GraphBuilderTests.test_tracks_direct_class_attributes_as_nested_symbols": {
+          "x": 671.9415257443329,
+          "y": -16.6333766940514
+        },
+        "symbol:tests.test_graph_builder:GraphBuilderTests.test_tracks_unresolved_external_calls": {
+          "x": 674.1291070456793,
+          "y": 89.19973983569159
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": []
+    }
+  }
+}

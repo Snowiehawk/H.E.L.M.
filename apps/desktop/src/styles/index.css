@@ -1,6 +1,7 @@
 :root {
   color-scheme: light;
   font-family: "SF Pro Display", "SF Pro Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --app-ui-scale: 1;
   --bg: #f3f5f8;
   --bg-accent: rgba(126, 140, 165, 0.16);
   --surface: rgba(255, 255, 255, 0.76);
@@ -47,6 +48,13 @@ body,
 #root {
   margin: 0;
   height: 100%;
+}
+
+.app-scale-shell {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -193,6 +201,11 @@ button {
   grid-template-columns: 320px minmax(0, 1fr) 320px;
   gap: 0;
   min-height: calc(100vh - 162px);
+}
+
+.workspace-layout--blueprint {
+  grid-template-columns: 320px minmax(0, 1fr) 360px;
+  min-height: calc(100vh - 72px);
 }
 
 .welcome-hero,
@@ -358,6 +371,7 @@ button {
 .chip-button,
 .list-button,
 .ghost-button,
+.secondary-button,
 .primary-button,
 .workspace-tab,
 .toggle-button {
@@ -397,6 +411,7 @@ button {
 }
 
 .ghost-button,
+.secondary-button,
 .primary-button,
 .toggle-button,
 .workspace-tab {
@@ -408,6 +423,12 @@ button {
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent-strong) 84%, #ffffff 16%), color-mix(in srgb, var(--accent-strong) 92%, #1d4ed8 8%));
   color: #ffffff;
   box-shadow: 0 10px 18px color-mix(in srgb, var(--accent-strong) 34%, transparent);
+}
+
+.secondary-button {
+  border-color: color-mix(in srgb, var(--accent-strong) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 46%, var(--surface-solid) 54%);
+  color: var(--text);
 }
 
 .status-pill {
@@ -491,6 +512,13 @@ button {
   gap: 8px;
 }
 
+.info-card__label {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .signature-block {
   display: inline-flex;
   max-width: 100%;
@@ -561,6 +589,267 @@ button {
   padding: 14px;
 }
 
+.blueprint-stage {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+  padding: 18px;
+  border-right: 1px solid var(--line);
+}
+
+.blueprint-stage__header {
+  display: grid;
+  gap: 4px;
+  padding: 4px 8px 0;
+}
+
+.blueprint-stage__header h2 {
+  margin: 0;
+  font-size: 1.12rem;
+  letter-spacing: -0.03em;
+}
+
+.blueprint-stage__header p {
+  margin: 0;
+  color: var(--text-muted);
+  max-width: 64ch;
+}
+
+.blueprint-sidebar,
+.blueprint-inspector {
+  overflow: auto;
+}
+
+.blueprint-sidebar__actions {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.blueprint-sidebar__section,
+.blueprint-inspector__section {
+  padding-bottom: 4px;
+}
+
+.graph-breadcrumbs,
+.graph-levels,
+.graph-filters,
+.blueprint-form {
+  display: grid;
+  gap: 10px;
+}
+
+.graph-breadcrumbs {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.graph-breadcrumb {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+  color: var(--text);
+}
+
+.graph-breadcrumb span {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.graph-levels {
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+}
+
+.graph-hud {
+  width: min(540px, calc(100vw - 48px));
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-strong) 92%, transparent);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(18px);
+}
+
+.graph-hud__bar,
+.graph-hud__actions,
+.graph-hud__nav,
+.graph-depth,
+.graph-filters,
+.blueprint-field {
+  display: flex;
+  gap: 10px;
+}
+
+.graph-hud__bar {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.graph-hud__focus {
+  display: grid;
+  gap: 3px;
+}
+
+.graph-hud__focus strong {
+  font-size: 1rem;
+}
+
+.graph-hud__focus span:last-child {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.graph-hud__toggle {
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-solid) 86%, transparent);
+}
+
+.graph-hud__panel {
+  display: grid;
+  gap: 12px;
+}
+
+.blueprint-inspector__card {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.blueprint-form {
+  margin-top: 10px;
+}
+
+.blueprint-field {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.blueprint-field span {
+  font-size: 0.84rem;
+  color: var(--text-muted);
+}
+
+.blueprint-field__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.blueprint-field input,
+.blueprint-field textarea {
+  width: 100%;
+  max-width: 100%;
+  padding: 12px 13px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-solid) 86%, transparent);
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+.blueprint-field--editor {
+  gap: 12px;
+}
+
+.blueprint-editor {
+  min-height: 320px;
+}
+
+.blueprint-preview {
+  border-style: dashed;
+}
+
+.blueprint-source-panel {
+  margin: 0;
+  max-height: 320px;
+}
+
+.inspector-code-surface {
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface-strong) 82%, transparent);
+}
+
+.inspector-code-surface--editable {
+  min-height: 320px;
+}
+
+.inspector-code-surface--readonly {
+  min-height: 220px;
+}
+
+.inspector-code-surface__editor,
+.inspector-code-surface__loading,
+.inspector-code-surface__fallback-input,
+.inspector-code-surface__fallback-pre {
+  width: 100%;
+  min-height: inherit;
+}
+
+.inspector-code-surface__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.inspector-code-surface__fallback-input,
+.inspector-code-surface__fallback-pre {
+  margin: 0;
+  padding: 12px 13px;
+  background: transparent;
+  color: var(--text);
+  font-family: "SF Mono", "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  border: 0;
+}
+
+.inspector-code-surface__fallback-input {
+  resize: vertical;
+}
+
+.inspector-code-surface__fallback-pre {
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.inspector-code-surface .monaco-editor,
+.inspector-code-surface .monaco-editor-background,
+.inspector-code-surface .margin {
+  background: transparent !important;
+}
+
+.inspector-code-surface .monaco-editor .overflow-guard {
+  border-radius: 16px;
+}
+
+.inspector-code-surface .inspector-code-surface__range-highlight {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.inspector-code-surface .inspector-code-surface__range-highlight-inline {
+  background: color-mix(in srgb, var(--accent-strong) 22%, transparent);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 28%, transparent);
+}
+
 .react-flow__renderer,
 .react-flow__pane,
 .react-flow__viewport {
@@ -568,31 +857,757 @@ button {
 }
 
 .react-flow__node.graph-node-shell,
-.react-flow__node-default.graph-node-shell {
+.react-flow__node-default.graph-node-shell,
+.react-flow__node.graph-reroute-shell,
+.react-flow__node-default.graph-reroute-shell {
   border: none !important;
   background: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
+  will-change: transform, opacity, filter;
+  transition: opacity 160ms ease, filter 160ms ease;
+}
+
+.graph-group {
+  position: absolute;
+  z-index: 0;
+  pointer-events: auto;
+}
+
+.graph-group__frame {
+  width: 100%;
+  height: 100%;
+  border-radius: 28px;
+  border: 1px solid color-mix(in srgb, var(--accent-strong) 32%, var(--line-strong) 68%);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-strong) 5%, transparent), transparent 42%),
+    color-mix(in srgb, var(--accent-strong) 4%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 10%, transparent),
+    0 12px 30px color-mix(in srgb, #020611 16%, transparent);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.graph-group__title-anchor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: auto;
+}
+
+.graph-group__title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.graph-group__header {
+  display: grid;
+  gap: 8px;
+  max-width: min(460px, calc(100vw - 48px));
+}
+
+.graph-group__actions,
+.graph-group__organize-row {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.graph-group__title,
+.graph-group__title-input,
+.graph-group__action,
+.graph-group__mode {
+  min-width: 132px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent-strong) 38%, var(--line-strong) 62%);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fbfdff 18%, transparent), color-mix(in srgb, var(--surface-solid) 94%, transparent)),
+    color-mix(in srgb, var(--surface-solid) 90%, transparent);
+  box-shadow:
+    0 10px 24px color-mix(in srgb, #020611 18%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 16%, transparent);
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.graph-group__title {
+  user-select: none;
+}
+
+.graph-group__action,
+.graph-group__mode {
+  min-width: auto;
+  appearance: none;
+  cursor: pointer;
+  color: var(--text);
+  font: inherit;
+  line-height: 1;
+}
+
+.graph-group__title-input {
+  outline: none;
+}
+
+.graph-group.is-selected .graph-group__frame,
+.graph-group:hover .graph-group__frame {
+  border-color: color-mix(in srgb, var(--accent-strong) 66%, white 14%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 18%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--accent-strong) 12%, transparent),
+    0 14px 34px color-mix(in srgb, #020611 22%, transparent);
+}
+
+.graph-group.is-selected .graph-group__title,
+.graph-group.is-selected .graph-group__action,
+.graph-group.is-selected .graph-group__mode,
+.graph-group.is-editing .graph-group__title-input,
+.graph-group:hover .graph-group__title,
+.graph-group:hover .graph-group__action,
+.graph-group:hover .graph-group__mode,
+.graph-group__action.is-active {
+  border-color: color-mix(in srgb, var(--accent-strong) 56%, white 18%);
+  box-shadow:
+    0 12px 28px color-mix(in srgb, #020611 22%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--accent-strong) 12%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 18%, transparent);
+}
+
+.graph-group__mode {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 42%, transparent), color-mix(in srgb, var(--surface-solid) 96%, transparent)),
+    color-mix(in srgb, var(--surface-solid) 90%, transparent);
+}
+
+.graph-reroute-node {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent-strong) 46%, var(--line-strong) 54%);
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent-strong) 28%, #dfe8ff 72%) 0, color-mix(in srgb, var(--surface-solid) 86%, transparent) 68%),
+    color-mix(in srgb, var(--surface-solid) 94%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent-strong) 16%, transparent),
+    0 10px 18px color-mix(in srgb, #020611 26%, transparent);
+  transition:
+    opacity 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.graph-reroute-node__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-strong) 78%, #e9f2ff 22%);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent-strong) 18%, transparent);
+}
+
+.graph-reroute-node__handle {
+  width: 8px !important;
+  height: 8px !important;
+  opacity: 0 !important;
+  pointer-events: none;
+  background: transparent !important;
+  border: none !important;
+}
+
+.graph-reroute-shell.is-related .graph-reroute-node {
+  border-color: color-mix(in srgb, var(--accent-strong) 72%, white 18%);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent-strong) 22%, transparent),
+    0 12px 22px color-mix(in srgb, #020611 30%, transparent);
+}
+
+.graph-reroute-shell.is-dimmed {
+  opacity: 0.28;
+  filter: saturate(0.66) brightness(0.82);
+}
+
+.graph-reroute-shell:hover .graph-reroute-node,
+.graph-reroute-node.is-selected {
+  border-color: color-mix(in srgb, var(--accent-strong) 74%, white 18%);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent-strong) 28%, transparent),
+    0 0 0 6px color-mix(in srgb, var(--accent-strong) 14%, transparent),
+    0 14px 24px color-mix(in srgb, #020611 34%, transparent);
 }
 
 .graph-node {
+  --node-top: color-mix(in srgb, #d8e6ff 48%, var(--surface-solid) 52%);
+  --node-base: color-mix(in srgb, var(--surface-solid) 95%, transparent);
+  --node-border: color-mix(in srgb, #b8cae8 68%, var(--line-strong) 32%);
+  --node-glow: color-mix(in srgb, #91b8ff 22%, transparent);
+  --node-chip-bg: color-mix(in srgb, #d9e7ff 18%, transparent);
+  --node-chip-border: color-mix(in srgb, #b7cdfc 64%, transparent);
+  --node-chip-text: color-mix(in srgb, #e6f0ff 92%, var(--text-muted) 8%);
+  --node-title-color: var(--text);
+  --node-subtitle-color: color-mix(in srgb, var(--text-muted) 86%, #edf4ff 14%);
+  position: relative;
   display: grid;
-  gap: 5px;
-  min-width: 170px;
-  padding: 14px;
-  border-radius: 18px;
-  border: 1px solid var(--line-strong);
-  background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
-  box-shadow: var(--shadow-card);
+  grid-template-columns: minmax(0, max-content) minmax(172px, 1fr) minmax(0, max-content);
+  gap: 12px;
+  align-items: center;
+  min-width: 252px;
+  max-width: 388px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--node-border);
+  background: linear-gradient(180deg, var(--node-top), var(--node-base));
+  box-shadow:
+    0 20px 40px color-mix(in srgb, #020611 46%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--node-glow) 22%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 12%, transparent);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.graph-node::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--node-border) 70%, white 30%), transparent 82%);
+  opacity: 0.95;
+  pointer-events: none;
+}
+
+.graph-node--pinned {
+  box-shadow:
+    0 20px 40px color-mix(in srgb, #020611 46%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--node-glow) 22%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, #ffd47a 58%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 12%, transparent);
+}
+
+.graph-node__body {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.graph-node__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.graph-node__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.graph-node__action {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--node-border) 54%, transparent);
+  background: color-mix(in srgb, var(--node-chip-bg) 72%, var(--surface-solid) 28%);
+  color: var(--node-title-color);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .graph-node--repo {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 48%, var(--surface-solid) 52%), color-mix(in srgb, var(--surface-solid) 92%, transparent));
+  --node-top: color-mix(in srgb, #8cc7ff 34%, var(--surface-solid) 66%);
+  --node-base: color-mix(in srgb, #11243d 34%, var(--surface-solid) 66%);
+  --node-border: color-mix(in srgb, #74baff 76%, var(--line-strong) 24%);
+  --node-glow: color-mix(in srgb, #5ab8ff 34%, transparent);
+  --node-chip-bg: color-mix(in srgb, #8fd1ff 22%, transparent);
+  --node-chip-border: color-mix(in srgb, #80c5ff 58%, transparent);
+  --node-chip-text: #d8f3ff;
+  --node-title-color: #f3fbff;
+  --node-subtitle-color: color-mix(in srgb, #d1ebff 82%, var(--text-muted) 18%);
+}
+
+.graph-node--module {
+  --node-top: color-mix(in srgb, #aebeff 34%, var(--surface-solid) 66%);
+  --node-base: color-mix(in srgb, #141b39 28%, var(--surface-solid) 72%);
+  --node-border: color-mix(in srgb, #9fb3ff 76%, var(--line-strong) 24%);
+  --node-glow: color-mix(in srgb, #93aaff 26%, transparent);
+  --node-chip-bg: color-mix(in srgb, #c1ccff 18%, transparent);
+  --node-chip-border: color-mix(in srgb, #b6c6ff 54%, transparent);
+  --node-chip-text: #e2e8ff;
+  --node-title-color: #f5f7ff;
+  --node-subtitle-color: color-mix(in srgb, #dbe3ff 76%, var(--text-muted) 24%);
+}
+
+.graph-node--symbol {
+  --node-top: color-mix(in srgb, #d9ebb0 30%, var(--surface-solid) 70%);
+  --node-base: color-mix(in srgb, #1f2612 24%, var(--surface-solid) 76%);
+  --node-border: color-mix(in srgb, #cfe38f 72%, var(--line-strong) 28%);
+  --node-glow: color-mix(in srgb, #d3e885 24%, transparent);
+  --node-chip-bg: color-mix(in srgb, #dcec9d 18%, transparent);
+  --node-chip-border: color-mix(in srgb, #d3e68f 48%, transparent);
+  --node-chip-text: #eef8cf;
+  --node-title-color: #fbfee8;
+  --node-subtitle-color: color-mix(in srgb, #e0efbd 72%, var(--text-muted) 28%);
+}
+
+.graph-node--function {
+  --node-top: color-mix(in srgb, #97c0ff 30%, var(--surface-solid) 70%);
+  --node-base: color-mix(in srgb, #162743 24%, var(--surface-solid) 76%);
+  --node-border: color-mix(in srgb, #8ab5ff 74%, var(--line-strong) 26%);
+  --node-glow: color-mix(in srgb, #7aa9ff 24%, transparent);
+  --node-chip-bg: color-mix(in srgb, #9ec4ff 18%, transparent);
+  --node-chip-border: color-mix(in srgb, #8cb8ff 48%, transparent);
+  --node-chip-text: #e3efff;
+  --node-title-color: #f5f9ff;
+  --node-subtitle-color: color-mix(in srgb, #d7e6ff 76%, var(--text-muted) 24%);
+}
+
+.graph-node--class {
+  --node-top: color-mix(in srgb, #cfe79a 28%, var(--surface-solid) 72%);
+  --node-base: color-mix(in srgb, #202c13 24%, var(--surface-solid) 76%);
+  --node-border: color-mix(in srgb, #c5df89 72%, var(--line-strong) 28%);
+  --node-glow: color-mix(in srgb, #b9d96f 24%, transparent);
+  --node-chip-bg: color-mix(in srgb, #d6eda4 16%, transparent);
+  --node-chip-border: color-mix(in srgb, #cae390 46%, transparent);
+  --node-chip-text: #f0f9d3;
+  --node-title-color: #fbffef;
+  --node-subtitle-color: color-mix(in srgb, #e4f1c0 74%, var(--text-muted) 26%);
+}
+
+.graph-node--enum {
+  --node-top: color-mix(in srgb, #9be1d3 28%, var(--surface-solid) 72%);
+  --node-base: color-mix(in srgb, #123029 24%, var(--surface-solid) 76%);
+  --node-border: color-mix(in srgb, #8ad8c8 72%, var(--line-strong) 28%);
+  --node-glow: color-mix(in srgb, #74d1bf 24%, transparent);
+  --node-chip-bg: color-mix(in srgb, #a2e7d8 16%, transparent);
+  --node-chip-border: color-mix(in srgb, #90dccd 46%, transparent);
+  --node-chip-text: #ddfff7;
+  --node-title-color: #f3fffb;
+  --node-subtitle-color: color-mix(in srgb, #ccf5ea 74%, var(--text-muted) 26%);
+}
+
+.graph-node--variable {
+  --node-top: color-mix(in srgb, #e4b1ff 28%, var(--surface-solid) 72%);
+  --node-base: color-mix(in srgb, #2a1735 24%, var(--surface-solid) 76%);
+  --node-border: color-mix(in srgb, #d8a1fb 72%, var(--line-strong) 28%);
+  --node-glow: color-mix(in srgb, #cc8ef4 24%, transparent);
+  --node-chip-bg: color-mix(in srgb, #e2b2ff 16%, transparent);
+  --node-chip-border: color-mix(in srgb, #d6a4fa 46%, transparent);
+  --node-chip-text: #f7e3ff;
+  --node-title-color: #fdf4ff;
+  --node-subtitle-color: color-mix(in srgb, #ebd2ff 74%, var(--text-muted) 26%);
+}
+
+.graph-node--entry,
+.graph-node--param,
+.graph-node--assign,
+.graph-node--call,
+.graph-node--branch,
+.graph-node--loop,
+.graph-node--return {
+  min-width: 272px;
+  max-width: 408px;
+}
+
+.graph-node--entry {
+  --node-top: color-mix(in srgb, #7fe0da 28%, var(--surface-solid) 72%);
+  --node-base: color-mix(in srgb, #0f2e31 24%, var(--surface-solid) 76%);
+  --node-border: color-mix(in srgb, #6fd9d4 74%, var(--line-strong) 26%);
+  --node-glow: color-mix(in srgb, #5ed6cf 26%, transparent);
+  --node-chip-bg: color-mix(in srgb, #8ae5df 16%, transparent);
+  --node-chip-border: color-mix(in srgb, #7addd7 50%, transparent);
+  --node-chip-text: #d8fffa;
+  --node-title-color: #f1ffff;
+  --node-subtitle-color: color-mix(in srgb, #c7f3ef 76%, var(--text-muted) 24%);
+}
+
+.graph-node--param {
+  --node-top: color-mix(in srgb, #f7a5c7 26%, var(--surface-solid) 74%);
+  --node-base: color-mix(in srgb, #331728 22%, var(--surface-solid) 78%);
+  --node-border: color-mix(in srgb, #ef9fc0 74%, var(--line-strong) 26%);
+  --node-glow: color-mix(in srgb, #ed8db7 24%, transparent);
+  --node-chip-bg: color-mix(in srgb, #f5aeca 16%, transparent);
+  --node-chip-border: color-mix(in srgb, #ef9fc1 48%, transparent);
+  --node-chip-text: #ffe2ef;
+  --node-title-color: #fff5fa;
+  --node-subtitle-color: color-mix(in srgb, #ffd5e6 76%, var(--text-muted) 24%);
+}
+
+.graph-node--assign {
+  --node-top: color-mix(in srgb, #f6be76 28%, var(--surface-solid) 72%);
+  --node-base: color-mix(in srgb, #342413 24%, var(--surface-solid) 76%);
+  --node-border: color-mix(in srgb, #f0b36b 74%, var(--line-strong) 26%);
+  --node-glow: color-mix(in srgb, #f2a74d 24%, transparent);
+  --node-chip-bg: color-mix(in srgb, #f7c17b 16%, transparent);
+  --node-chip-border: color-mix(in srgb, #efb76c 48%, transparent);
+  --node-chip-text: #ffe6c0;
+  --node-title-color: #fff9ec;
+  --node-subtitle-color: color-mix(in srgb, #ffe0b3 78%, var(--text-muted) 22%);
+}
+
+.graph-node--call {
+  --node-top: color-mix(in srgb, #93bcff 28%, var(--surface-solid) 72%);
+  --node-base: color-mix(in srgb, #132843 24%, var(--surface-solid) 76%);
+  --node-border: color-mix(in srgb, #86b2ff 74%, var(--line-strong) 26%);
+  --node-glow: color-mix(in srgb, #76a8ff 24%, transparent);
+  --node-chip-bg: color-mix(in srgb, #9bbfff 16%, transparent);
+  --node-chip-border: color-mix(in srgb, #89b3ff 48%, transparent);
+  --node-chip-text: #deebff;
+  --node-title-color: #f4f9ff;
+  --node-subtitle-color: color-mix(in srgb, #d2e4ff 76%, var(--text-muted) 24%);
+}
+
+.graph-node--branch {
+  --node-top: color-mix(in srgb, #ff9e82 28%, var(--surface-solid) 72%);
+  --node-base: color-mix(in srgb, #381d1a 24%, var(--surface-solid) 76%);
+  --node-border: color-mix(in srgb, #f7987a 72%, var(--line-strong) 28%);
+  --node-glow: color-mix(in srgb, #ff8d73 24%, transparent);
+  --node-chip-bg: color-mix(in srgb, #ffab8e 16%, transparent);
+  --node-chip-border: color-mix(in srgb, #f99b80 46%, transparent);
+  --node-chip-text: #ffe4db;
+  --node-title-color: #fff5f2;
+  --node-subtitle-color: color-mix(in srgb, #ffd5c8 76%, var(--text-muted) 24%);
+}
+
+.graph-node--loop {
+  --node-top: color-mix(in srgb, #caa4ff 28%, var(--surface-solid) 72%);
+  --node-base: color-mix(in srgb, #24183c 24%, var(--surface-solid) 76%);
+  --node-border: color-mix(in srgb, #c09bff 72%, var(--line-strong) 28%);
+  --node-glow: color-mix(in srgb, #b487ff 24%, transparent);
+  --node-chip-bg: color-mix(in srgb, #caa8ff 16%, transparent);
+  --node-chip-border: color-mix(in srgb, #c09eff 46%, transparent);
+  --node-chip-text: #f0e4ff;
+  --node-title-color: #faf5ff;
+  --node-subtitle-color: color-mix(in srgb, #e4d1ff 76%, var(--text-muted) 24%);
+}
+
+.graph-node--return {
+  --node-top: color-mix(in srgb, #8fe6ab 28%, var(--surface-solid) 72%);
+  --node-base: color-mix(in srgb, #152f22 24%, var(--surface-solid) 76%);
+  --node-border: color-mix(in srgb, #82d99f 72%, var(--line-strong) 28%);
+  --node-glow: color-mix(in srgb, #72d792 24%, transparent);
+  --node-chip-bg: color-mix(in srgb, #95e9b0 16%, transparent);
+  --node-chip-border: color-mix(in srgb, #82dba0 46%, transparent);
+  --node-chip-text: #e0ffe9;
+  --node-title-color: #f5fff7;
+  --node-subtitle-color: color-mix(in srgb, #d2f9dd 76%, var(--text-muted) 24%);
+}
+
+.graph-node__title,
+.graph-node__subtitle {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-node__title {
+  font-size: 1rem;
+  letter-spacing: -0.02em;
+  color: var(--node-title-color);
+}
+
+.graph-node__subtitle {
+  color: var(--node-subtitle-color);
+  font-size: 0.82rem;
+}
+
+.graph-node__kind {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--node-chip-border);
+  border-radius: 999px;
+  background: var(--node-chip-bg);
+  color: var(--node-chip-text);
+  font-size: 0.64rem;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.graph-node__ports {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.graph-node__ports--input {
+  justify-items: start;
+}
+
+.graph-node__ports--output {
+  justify-items: end;
+}
+
+.graph-node__ports.is-empty {
+  display: none;
+}
+
+.graph-node__port {
+  position: relative;
+  min-height: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 92px;
+  transition: opacity 140ms ease, filter 140ms ease;
+}
+
+.graph-node__port--output {
+  justify-content: flex-end;
+}
+
+.graph-node__port.is-highlighted {
+  filter: brightness(1.12);
+}
+
+.graph-node__port.is-dimmed {
+  opacity: 0.34;
+}
+
+.graph-node__port-label {
+  display: block;
+  max-width: 76px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  transition: color 140ms ease;
+}
+
+.graph-node__port.is-highlighted .graph-node__port-label {
+  color: var(--text);
+}
+
+.graph-node__port-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding-inline: 5px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 80%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: help;
+  transition:
+    opacity 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.graph-node__port.is-highlighted .graph-node__port-badge {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-strong) 18%, transparent);
+}
+
+.graph-node__port--control .graph-node__port-label {
+  color: color-mix(in srgb, #ffbf5a 68%, var(--text-muted) 32%);
+}
+
+.graph-node__port--control .graph-node__port-badge {
+  border-color: color-mix(in srgb, #ffbf5a 68%, var(--line-strong) 32%);
+  color: color-mix(in srgb, #ffbf5a 76%, var(--text-muted) 24%);
+}
+
+.graph-node__port--data .graph-node__port-label {
+  color: color-mix(in srgb, var(--accent-strong) 72%, var(--text-muted) 28%);
+}
+
+.graph-node__port--data .graph-node__port-badge {
+  border-color: color-mix(in srgb, var(--accent-strong) 74%, var(--line-strong) 26%);
+  color: color-mix(in srgb, var(--accent-strong) 82%, var(--text-muted) 18%);
+}
+
+.graph-node__handle {
+  width: 10px !important;
+  height: 10px !important;
+  border: 2px solid var(--line-strong) !important;
+  border-radius: 999px !important;
+  background: var(--surface-solid) !important;
+  transition:
+    opacity 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background 140ms ease;
+}
+
+.graph-node__port--input .graph-node__handle {
+  left: -18px !important;
+  top: 50% !important;
+  transform: translateY(-50%);
+}
+
+.graph-node__port--output .graph-node__handle {
+  right: -18px !important;
+  top: 50% !important;
+  transform: translateY(-50%);
+}
+
+.graph-node__handle--graph {
+  border-color: var(--line-strong) !important;
+}
+
+.graph-node__handle--control {
+  border-color: color-mix(in srgb, #ffbf5a 78%, var(--line-strong) 22%) !important;
+}
+
+.graph-node__handle--data {
+  border-color: var(--accent-strong) !important;
+}
+
+.graph-node__handle.is-highlighted {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-strong) 18%, transparent);
+}
+
+.graph-node__handle.is-dimmed {
+  opacity: 0.3;
 }
 
 .graph-node-shell.is-active .graph-node {
-  border-color: color-mix(in srgb, var(--accent-strong) 62%, transparent);
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 32%, transparent), var(--shadow-card);
+  border-color: color-mix(in srgb, var(--node-border) 76%, white 24%);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--node-border) 36%, white 64%),
+    0 0 0 7px color-mix(in srgb, var(--node-glow) 34%, transparent),
+    0 26px 56px color-mix(in srgb, #020611 56%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 14%, transparent);
+}
+
+.graph-node-shell.is-active .graph-node::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 21px;
+  border: 2px solid color-mix(in srgb, var(--node-border) 32%, white 68%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--node-glow) 22%, transparent),
+    0 0 18px color-mix(in srgb, var(--node-glow) 20%, transparent);
+  pointer-events: none;
+}
+
+.graph-node-shell.is-group-member:not(.is-group-selected):not(.is-active) .graph-node {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent-strong) 14%, transparent),
+    0 18px 38px color-mix(in srgb, #020611 40%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 14%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 12%, transparent);
+}
+
+.graph-node-shell.is-group-selected .graph-node {
+  border-color: color-mix(in srgb, var(--accent-strong) 54%, white 10%);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent-strong) 18%, transparent),
+    0 0 0 6px color-mix(in srgb, var(--accent-strong) 10%, transparent),
+    0 24px 48px color-mix(in srgb, #020611 44%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 18%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 14%, transparent);
+}
+
+.graph-node-shell.is-related:not(.is-active) .graph-node {
+  border-color: color-mix(in srgb, var(--node-border) 80%, white 8%);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--node-glow) 16%, transparent),
+    0 18px 38px color-mix(in srgb, #020611 40%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 12%, transparent);
+}
+
+.graph-node-shell:hover:not(.is-active) .graph-node {
+  border-color: color-mix(in srgb, var(--node-border) 72%, white 20%);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--node-border) 24%, white 42%),
+    0 0 0 5px color-mix(in srgb, var(--node-glow) 20%, transparent),
+    0 22px 46px color-mix(in srgb, #020611 48%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 14%, transparent);
+}
+
+.graph-node-shell.is-dimmed {
+  opacity: 0.34;
+  filter: saturate(0.72) brightness(0.82);
+}
+
+.graph-panel .react-flow__edge-path,
+.graph-panel .react-flow__edge-text,
+.graph-panel .react-flow__edge-textbg {
+  transition:
+    opacity 140ms ease,
+    stroke 140ms ease,
+    stroke-width 140ms ease,
+    fill 140ms ease;
+}
+
+.graph-edge__interaction {
+  cursor: cell;
+}
+
+.graph-edge__create-trigger {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px dashed color-mix(in srgb, var(--accent-strong) 52%, white 10%);
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent), color-mix(in srgb, var(--surface-solid) 94%, transparent), color-mix(in srgb, var(--accent) 10%, transparent));
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(14px);
+  cursor: copy;
+  z-index: 4;
+}
+
+.graph-edge__create-trigger:hover,
+.graph-edge__create-trigger:focus-visible {
+  border-color: var(--accent-strong);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--surface-solid) 96%, transparent), color-mix(in srgb, var(--accent) 16%, transparent));
+  color: var(--text);
+}
+
+.graph-edge__create-trigger-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.graph-edge__create-trigger-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  line-height: 1;
 }
 
 .graph-controls {
@@ -678,9 +1693,11 @@ button {
 }
 
 .ghost-button:hover,
+.secondary-button:hover,
 .primary-button:hover,
 .chip-button:hover,
 .list-button:hover,
+.graph-breadcrumb:hover,
 .workspace-tab:hover,
 .table-row:hover,
 .toggle-button:hover,
@@ -691,6 +1708,10 @@ button {
 
 @media (max-width: 1220px) {
   .workspace-layout {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+
+  .workspace-layout--blueprint {
     grid-template-columns: 280px minmax(0, 1fr);
   }
 
@@ -831,6 +1852,45 @@ button {
   overflow: hidden;
 }
 
+.workspace-layout--blueprint {
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+
+.workspace-layout__resize-rail {
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.workspace-layout__resize-rail-handle {
+  display: block;
+  width: 4px;
+  height: min(88px, 24%);
+  min-height: 52px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line-strong) 72%, transparent);
+  transition:
+    background 140ms ease,
+    transform 140ms ease;
+}
+
+.workspace-layout__resize-rail:hover .workspace-layout__resize-rail-handle,
+.workspace-layout__resize-rail:focus-visible .workspace-layout__resize-rail-handle {
+  background: color-mix(in srgb, var(--accent-strong) 68%, var(--line-strong) 32%);
+  transform: scaleX(1.25);
+}
+
+.workspace-layout__resize-rail:focus-visible {
+  outline: none;
+}
+
 .app-frame--macos .window-bar {
   padding-left: 92px;
   padding-right: 16px;
@@ -843,9 +1903,9 @@ button {
 .explorer-shell {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-  gap: 18px;
+  gap: 14px;
   min-height: 0;
-  padding: 20px 16px;
+  padding: 16px 14px;
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--surface) 82%, transparent),
@@ -876,44 +1936,196 @@ button {
   align-content: start;
 }
 
+.workspace-help-box {
+  display: grid;
+  gap: 8px;
+  min-height: 122px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-strong) 78%, transparent),
+    color-mix(in srgb, var(--surface-subtle) 84%, transparent)
+  );
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.workspace-help-box__title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workspace-help-box__title {
+  display: block;
+  font-size: 0.82rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.workspace-help-box__description {
+  margin: 0;
+  min-height: calc(1.46em * 2);
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  line-height: 1.46;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.workspace-help-box__meta {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.workspace-help-box__meta-item {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workspace-help-box__meta-item strong {
+  font-size: 0.64rem;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.workspace-help-box__meta-item span {
+  display: -webkit-box;
+  color: color-mix(in srgb, var(--text-muted) 88%, var(--text) 12%);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+}
+
+.explorer-tree__rows {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+
 .explorer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   min-height: 38px;
+  padding-block: 8px;
+  padding-right: 10px;
   border-radius: 14px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text);
   text-align: left;
+  font-size: 0.92rem;
+  cursor: pointer;
   transition:
     background 140ms ease,
     border-color 140ms ease,
     color 140ms ease;
 }
 
-.explorer-row span {
+.explorer-row__disclosure {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.explorer-row__disclosure:hover {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.explorer-row__disclosure.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.explorer-row__kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-elevated) 72%, transparent);
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.explorer-row__kind--directory {
+  background: color-mix(in srgb, var(--accent) 42%, transparent);
+  color: color-mix(in srgb, var(--accent-strong) 78%, var(--text) 22%);
+}
+
+.explorer-row__kind--file {
+  background: color-mix(in srgb, var(--line-strong) 42%, transparent);
+  color: color-mix(in srgb, var(--text) 74%, var(--text-muted) 26%);
+}
+
+.explorer-row__kind--empty {
+  opacity: 0;
+}
+
+.explorer-row__label {
   display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .explorer-row--directory {
-  display: flex;
-  align-items: center;
-  color: var(--text-muted);
-  font-size: 0.84rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--text) 86%, var(--text-muted) 14%);
+  font-weight: 500;
 }
 
-.explorer-row--file {
-  padding-block: 8px;
+.explorer-row--outline {
+  min-height: 34px;
+  color: color-mix(in srgb, var(--text) 88%, var(--text-muted) 12%);
+}
+
+.explorer-row:hover,
+.explorer-row.is-focused {
+  border-color: color-mix(in srgb, var(--accent-strong) 24%, var(--line) 76%);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 .explorer-row--file:hover,
-.explorer-row--file.is-active {
+.explorer-row--file.is-active,
+.explorer-row--outline.is-active {
   border-color: color-mix(in srgb, var(--accent-strong) 34%, var(--line) 66%);
   background: color-mix(in srgb, var(--accent) 52%, transparent);
+}
+
+.explorer-row:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent-strong) 54%, white 46%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-strong) 34%, transparent);
 }
 
 .graph-stage {
@@ -923,8 +2135,8 @@ button {
   min-height: 0;
   overflow: hidden;
   background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 42%, transparent), transparent 28%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 62%, transparent), transparent 28%);
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 20%, transparent), transparent 24%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 58%, transparent), transparent 32%);
 }
 
 .graph-stage__error {
@@ -934,7 +2146,128 @@ button {
   z-index: 12;
 }
 
+.blueprint-stage {
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+
+.blueprint-stage__header {
+  display: grid;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.blueprint-stage__header-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.blueprint-stage__header .window-bar__eyebrow {
+  margin: 0;
+}
+
+.blueprint-stage__header h2 {
+  font-size: 1rem;
+  line-height: 1.1;
+}
+
+.graph-location {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.graph-location__label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.graph-location__trail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.graph-location__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.graph-location__separator {
+  color: color-mix(in srgb, var(--text-muted) 74%, transparent);
+}
+
+.graph-location__button,
+.graph-location__link,
+.graph-location__segment {
+  max-width: min(28vw, 320px);
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.graph-location__button {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.graph-location__button:hover {
+  color: var(--text);
+}
+
+.graph-location__link {
+  border: none;
+  background: transparent;
+  color: color-mix(in srgb, var(--accent-strong) 84%, var(--text) 16%);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent-strong) 48%, transparent);
+  text-underline-offset: 0.16em;
+}
+
+.graph-location__link:hover {
+  color: color-mix(in srgb, var(--accent-strong) 56%, white 44%);
+  text-decoration-color: currentColor;
+}
+
+.graph-location__link.is-current {
+  font-weight: 600;
+}
+
+.graph-location__segment {
+  color: var(--text-muted);
+}
+
+.graph-location__segment.is-current {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.blueprint-sidebar,
+.blueprint-inspector {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface) 74%, transparent),
+    color-mix(in srgb, var(--surface-subtle) 42%, transparent)
+  );
+}
+
 .graph-panel {
+  position: relative;
   height: 100%;
   min-height: 0;
   padding: 0;
@@ -946,10 +2279,630 @@ button {
   height: 100%;
 }
 
+.graph-panel .react-flow__panel {
+  margin: 12px;
+}
+
+.graph-panel .react-flow__controls {
+  margin: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-strong) 92%, transparent);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.graph-panel .react-flow__controls-button {
+  border-bottom-color: var(--line);
+  background: color-mix(in srgb, var(--surface-solid) 90%, transparent);
+  color: var(--text);
+}
+
+.graph-panel .react-flow__selection,
+.graph-panel .react-flow__nodesselection-rect {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--accent-strong) 76%, white 12%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 24%, transparent);
+}
+
+.graph-panel .react-flow__pane.selection {
+  cursor: crosshair;
+}
+
+.graph-panel.is-pan-active .react-flow__renderer,
+.graph-panel.is-pan-active .react-flow__viewport,
+.graph-panel.is-pan-active .react-flow__pane,
+.graph-panel.is-pan-active .react-flow__pane.draggable,
+.graph-panel.is-pan-active .react-flow__node,
+.graph-panel.is-pan-active .react-flow__node *,
+.graph-panel.is-pan-active .react-flow__edge,
+.graph-panel.is-pan-active .react-flow__edge *,
+.graph-panel.is-pan-active .graph-group,
+.graph-panel.is-pan-active .graph-group *,
+.graph-panel.is-pan-active .graph-node,
+.graph-panel.is-pan-active .graph-node * {
+  cursor: grab !important;
+}
+
+.graph-panel.is-pan-active .react-flow__pane.dragging,
+.graph-panel.is-pan-active .react-flow__pane.dragging *,
+.graph-panel.is-pan-active .react-flow__node.dragging,
+.graph-panel.is-pan-active .react-flow__node.dragging *,
+.graph-panel.is-pan-active .react-flow__selection.dragging,
+.graph-panel.is-pan-active .react-flow__selection.dragging * {
+  cursor: grabbing !important;
+}
+
+.graph-panel.is-create-mode .react-flow__pane,
+.graph-panel.is-create-mode .react-flow__pane.draggable,
+.graph-panel.is-create-mode .react-flow__node,
+.graph-panel.is-create-mode .react-flow__node *,
+.graph-panel.is-create-mode .react-flow__edge,
+.graph-panel.is-create-mode .react-flow__edge *,
+.graph-panel.is-create-mode .graph-group,
+.graph-panel.is-create-mode .graph-group * {
+  cursor: copy !important;
+}
+
+body.graph-pan-cursor-active,
+body.graph-pan-cursor-active * {
+  cursor: grab !important;
+}
+
+body.graph-pan-cursor-dragging,
+body.graph-pan-cursor-dragging * {
+  cursor: grabbing !important;
+}
+
+.graph-panel .react-flow__attribution {
+  display: none;
+}
+
+.graph-toolbar--floating {
+  position: absolute;
+  z-index: 14;
+  min-width: 0;
+  max-width: min(320px, calc(100% - 32px));
+}
+
+.graph-toolbar__surface {
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-strong) 90%, transparent);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(18px);
+}
+
+.graph-toolbar__compact,
+.graph-toolbar__row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.graph-toolbar__drag {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-solid) 90%, transparent);
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.graph-toolbar__drag:active {
+  cursor: grabbing;
+}
+
+.graph-toolbar__drag span {
+  display: block;
+  width: 14px;
+  height: 2px;
+  margin-inline: auto;
+  border-radius: 999px;
+  background: var(--text-muted);
+}
+
+.graph-toolbar__focus {
+  min-width: 0;
+  flex: 1 1 132px;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+  color: var(--text);
+}
+
+.graph-toolbar__focus-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.graph-toolbar__focus-label,
+.graph-toolbar__focus-meta,
+.graph-toolbar__focus-state {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-toolbar__focus-label {
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.graph-toolbar__focus-meta {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.graph-toolbar__focus-state {
+  flex-shrink: 0;
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.graph-toolbar__details {
+  display: grid;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.graph-toolbar.is-collapsed .graph-toolbar__details {
+  display: none;
+}
+
+.graph-toolbar .graph-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.graph-toolbar .graph-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.graph-toolbar__section {
+  display: grid;
+  gap: 6px;
+}
+
+.graph-toolbar__section-label {
+  padding-inline: 2px;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.graph-toolbar__layout-row {
+  justify-content: flex-start;
+}
+
+.graph-toolbar__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.graph-toolbar__status-pill {
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-solid) 90%, transparent);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+.graph-toolbar__status-pill--warning {
+  border-color: color-mix(in srgb, var(--accent-strong) 54%, var(--line) 46%);
+  color: var(--accent-strong);
+}
+
+.blueprint-main {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 6px;
+  padding: 10px 12px 12px;
+  border-right: none;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 18%, transparent), transparent 24%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 64%, transparent), transparent 28%);
+  overflow: hidden;
+}
+
+.blueprint-main__body {
+  min-height: 0;
+  display: block;
+}
+
+.blueprint-graph-shell {
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.blueprint-graph-shell__canvas {
+  min-height: 0;
+  flex: 1 1 auto;
+  position: relative;
+}
+
+.blueprint-graph-shell__canvas > .graph-panel {
+  height: 100%;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--surface) 32%, transparent);
+}
+
+.graph-create-mode__tint {
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 18%, transparent), transparent 32%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, transparent), color-mix(in srgb, var(--surface) 18%, transparent));
+  pointer-events: none;
+  z-index: 2;
+}
+
+.graph-create-mode__badge {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  z-index: 3;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-strong) 54%, white 12%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: var(--shadow-card);
+}
+
+.graph-create-mode__watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  font-size: clamp(2.4rem, 4vw, 4.6rem);
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--accent-strong) 10%, white 90%);
+  opacity: 0.18;
+  pointer-events: none;
+  user-select: none;
+}
+
+.graph-create-mode__hint {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 3;
+  max-width: min(420px, calc(100% - 36px));
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line) 58%);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-solid) 90%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: var(--shadow-card);
+}
+
+.graph-create-composer {
+  position: absolute;
+  z-index: 4;
+  width: min(360px, calc(100% - 24px));
+  transform: translate(14px, 14px);
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line) 58%);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-strong) 96%, transparent), color-mix(in srgb, var(--surface-solid) 94%, transparent));
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(18px);
+}
+
+.graph-create-composer__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.graph-create-composer__header h3 {
+  margin: 4px 0 0;
+}
+
+.graph-create-composer__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.blueprint-inspector-drawer {
+  min-height: 0;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-strong) 94%, transparent), color-mix(in srgb, var(--surface-subtle) 88%, transparent));
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(18px);
+}
+
+.blueprint-inspector-drawer__peek {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.blueprint-inspector-drawer__peek-main,
+.blueprint-inspector-drawer__rail-button {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.blueprint-inspector-drawer__peek-main {
+  flex: 1 1 320px;
+}
+
+.blueprint-inspector-drawer__peek-close {
+  flex-shrink: 0;
+}
+
+.blueprint-inspector-drawer__rail {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 14px 0;
+}
+
+.blueprint-inspector-drawer__rail-button {
+  flex: 1 1 320px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  cursor: ns-resize;
+}
+
+.blueprint-inspector-drawer__grip {
+  width: 34px;
+  flex-shrink: 0;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+}
+
+.blueprint-inspector-drawer__grip span {
+  width: 26px;
+  height: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 70%, transparent);
+}
+
+.blueprint-inspector-drawer__summary {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 2px;
+}
+
+.blueprint-inspector-drawer__summary strong,
+.blueprint-inspector-drawer__summary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blueprint-inspector-drawer__summary span {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.blueprint-inspector-drawer__peek-main .status-pill,
+.blueprint-inspector-drawer__rail-button .status-pill {
+  margin-left: auto;
+}
+
+.blueprint-inspector-drawer__actions {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.blueprint-inspector-drawer__actions--expanded {
+  padding-bottom: 10px;
+}
+
+.blueprint-inspector-drawer__action {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.blueprint-inspector-drawer__error {
+  margin: 0 14px 8px;
+}
+
+.blueprint-inspector-drawer__body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.blueprint-inspector-drawer__body > .blueprint-inspector {
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-content: start;
+  gap: 16px;
+  height: 100%;
+  padding: 0 14px 14px;
+  background: transparent;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  scrollbar-gutter: stable;
+}
+
+.blueprint-inspector-drawer__body > .blueprint-inspector .blueprint-inspector__card,
+.blueprint-inspector-drawer__body > .blueprint-inspector .blueprint-inspector__section {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-strong) 92%, transparent);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(18px);
+}
+
+.blueprint-inspector-drawer__body > .blueprint-inspector .blueprint-inspector__card {
+  grid-column: 1;
+  grid-row: 1;
+  position: static;
+  top: auto;
+  z-index: auto;
+  align-self: start;
+}
+
+.blueprint-inspector__section--selection,
+.blueprint-inspector__section--last-edit {
+  grid-column: 1;
+}
+
+.blueprint-inspector__section--selection {
+  grid-row: 2;
+}
+
+.blueprint-inspector__section--last-edit {
+  grid-row: 3;
+}
+
+.blueprint-inspector__section--editor {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-height: 0;
+  display: grid;
+  gap: 16px;
+  align-self: start;
+}
+
+.blueprint-inspector__section--revealed {
+  grid-column: 1 / -1;
+}
+
+.blueprint-main .blueprint-source-panel {
+  height: 220px;
+}
+
+.blueprint-inspector__meta {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.blueprint-inspector__meta > .error-copy {
+  grid-column: 1 / -1;
+}
+
+.blueprint-inspector__editor-actions {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.blueprint-inspector__error-card {
+  border-color: color-mix(in srgb, var(--danger, #ef4444) 40%, transparent);
+}
+
+.blueprint-inspector__chrome {
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.blueprint-inspector .sidebar-card__header,
+.blueprint-inspector .section-header,
+.blueprint-inspector .info-card,
+.blueprint-inspector .code-panel,
+.blueprint-inspector .blueprint-field,
+.blueprint-inspector .blueprint-field__label {
+  min-width: 0;
+}
+
+.blueprint-inspector .info-card strong,
+.blueprint-inspector .info-card p,
+.blueprint-inspector .section-header h3,
+.blueprint-inspector .muted-copy,
+.blueprint-inspector .error-copy {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.blueprint-inspector .blueprint-source-panel,
+.blueprint-inspector .blueprint-editor,
+.blueprint-inspector .blueprint-code-details {
+  max-width: 100%;
+}
+
 .graph-hud {
   display: grid;
-  gap: 10px;
-  max-width: min(420px, calc(100vw - 420px));
+  gap: 8px;
+  max-width: min(360px, calc(100vw - 440px));
 }
 
 .graph-hud__bar,
@@ -962,16 +2915,17 @@ button {
 
 .graph-hud__bar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px;
-  border-radius: 18px;
+  padding: 10px 12px;
+  border-radius: 20px;
 }
 
 .graph-hud__focus {
   display: grid;
   gap: 2px;
+  min-width: 0;
 }
 
 .graph-hud__focus strong {
@@ -979,12 +2933,19 @@ button {
   letter-spacing: -0.02em;
 }
 
+.graph-hud__focus span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .graph-hud__actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
-  align-items: center;
+  align-items: flex-start;
+  flex-shrink: 0;
 }
 
 .graph-hud__nav {
@@ -1040,6 +3001,19 @@ button {
 .graph-hud__section {
   display: grid;
   gap: 8px;
+}
+
+.graph-levels--compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.graph-breadcrumbs--compact {
+  grid-template-columns: 1fr;
+}
+
+.graph-breadcrumbs--compact .graph-breadcrumb {
+  padding: 8px 10px;
 }
 
 .graph-depth,
@@ -1126,8 +3100,22 @@ button {
     grid-template-columns: 260px minmax(0, 1fr);
   }
 
+  .workspace-layout--blueprint {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
   .graph-hud {
     max-width: min(360px, calc(100vw - 340px));
+  }
+}
+
+@media (max-width: 1220px) {
+  .blueprint-inspector-drawer__peek {
+    gap: 10px;
+  }
+
+  .blueprint-inspector-drawer__body > .blueprint-inspector {
+    grid-template-columns: minmax(200px, 240px) minmax(0, 1fr);
   }
 }
 
@@ -1135,6 +3123,11 @@ button {
   .workspace-layout {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(220px, 36vh) minmax(0, 1fr);
+  }
+
+  .workspace-layout--blueprint {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(240px, 38vh) minmax(0, 1fr);
   }
 
   .explorer-shell {
@@ -1146,11 +3139,75 @@ button {
     min-height: 0;
   }
 
+  .blueprint-main {
+    padding: 12px;
+  }
+
+  .graph-toolbar--floating {
+    max-width: min(320px, calc(100% - 24px));
+  }
+
+  .graph-toolbar__compact {
+    gap: 6px;
+  }
+
+  .graph-toolbar__focus {
+    flex-basis: 132px;
+  }
+
+  .blueprint-graph-shell {
+    gap: 10px;
+  }
+
+  .blueprint-inspector-drawer__body > .blueprint-inspector {
+    grid-template-columns: 1fr;
+    padding: 0 10px 10px;
+  }
+
+  .blueprint-inspector__section--selection,
+  .blueprint-inspector__section--last-edit,
+  .blueprint-inspector__section--editor,
+  .blueprint-inspector__section--revealed {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .blueprint-inspector-drawer__peek {
+    align-items: flex-start;
+  }
+
+  .blueprint-inspector-drawer__peek-main,
+  .blueprint-inspector-drawer__rail-button {
+    align-items: flex-start;
+  }
+
   .graph-hud,
   .graph-detail,
   .graph-detail--compact {
     width: min(calc(100% - 24px), 100%);
     max-width: none;
+  }
+}
+
+@media (min-width: 1480px) {
+  .blueprint-inspector-drawer__body > .blueprint-inspector.blueprint-inspector--with-revealed-source {
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .blueprint-inspector-drawer__body > .blueprint-inspector.blueprint-inspector--with-revealed-source .blueprint-inspector__section--selection,
+  .blueprint-inspector-drawer__body > .blueprint-inspector.blueprint-inspector--with-revealed-source .blueprint-inspector__section--last-edit {
+    grid-column: 1;
+  }
+
+  .blueprint-inspector-drawer__body > .blueprint-inspector.blueprint-inspector--with-revealed-source .blueprint-inspector__section--editor {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+  }
+
+  .blueprint-inspector-drawer__body > .blueprint-inspector.blueprint-inspector--with-revealed-source .blueprint-inspector__section--revealed {
+    grid-column: 3;
+    grid-row: 1 / span 3;
+    align-self: start;
   }
 }
 

@@ -57,6 +57,7 @@ def build_graph_summary(graph: RepoGraph, top_n: int = 10) -> GraphSummary:
     import_counts = _count_edges_by_module(graph, EdgeKind.IMPORTS)
     call_counts = _count_edges_by_module(graph, EdgeKind.CALLS)
     symbol_counts = _count_symbols_by_module(graph)
+    import_edge_count = sum(import_counts.values())
 
     module_summaries: list[ModuleSummary] = []
     for module_node in iter_nodes_by_kind(graph, NodeKind.MODULE):
@@ -83,7 +84,7 @@ def build_graph_summary(graph: RepoGraph, top_n: int = 10) -> GraphSummary:
         repo_path=graph.root_path,
         module_count=graph.report.module_count,
         symbol_count=graph.report.symbol_count,
-        import_edge_count=graph.report.import_edge_count,
+        import_edge_count=import_edge_count,
         call_edge_count=graph.report.call_edge_count,
         unresolved_call_count=graph.report.unresolved_call_count,
         diagnostic_count=graph.report.diagnostic_count,
@@ -137,7 +138,10 @@ def _count_edges_by_module(graph: RepoGraph, edge_kind: EdgeKind) -> dict[str, i
     counts: dict[str, int] = {}
     for edge in iter_edges(graph, edge_kind):
         source_node = graph.nodes.get(edge.source_id)
+        target_node = graph.nodes.get(edge.target_id)
         if source_node is None:
+            continue
+        if edge_kind == EdgeKind.IMPORTS and target_node is not None and target_node.is_external:
             continue
         if source_node.kind == NodeKind.MODULE:
             module_id = source_node.node_id

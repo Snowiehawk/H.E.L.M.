@@ -1,11 +1,28 @@
 import { PropsWithChildren, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   AdapterProvider,
   createDesktopAdapter,
   DesktopAdapter,
 } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
+
+const APP_MENU_EVENT = "helm://app-menu";
+
+function isTauriApp() {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+function isNativeMacApp() {
+  return (
+    isTauriApp()
+    && typeof navigator !== "undefined"
+    && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
+  );
+}
 
 function ThemeBridge() {
   const theme = useUiStore((state) => state.theme);
@@ -22,6 +39,169 @@ function ThemeBridge() {
         : theme;
     document.documentElement.dataset.theme = resolved;
   }, [theme]);
+
+  return null;
+}
+
+function UiScaleBridge() {
+  const uiScale = useUiStore((state) => state.uiScale);
+  const increaseUiScale = useUiStore((state) => state.increaseUiScale);
+  const decreaseUiScale = useUiStore((state) => state.decreaseUiScale);
+  const resetUiScale = useUiStore((state) => state.resetUiScale);
+
+  useEffect(() => {
+    if (isNativeMacApp()) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) {
+        return;
+      }
+
+      const isZoomInKey =
+        event.key === "="
+        || event.key === "+"
+        || event.code === "NumpadAdd";
+      const isZoomOutKey =
+        event.key === "-"
+        || event.key === "_"
+        || event.code === "NumpadSubtract";
+      const isResetKey =
+        event.key === "0"
+        || event.code === "Numpad0";
+
+      if (!isZoomInKey && !isZoomOutKey && !isResetKey) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (isZoomInKey) {
+        increaseUiScale();
+        return;
+      }
+
+      if (isZoomOutKey) {
+        decreaseUiScale();
+        return;
+      }
+
+      resetUiScale();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [decreaseUiScale, increaseUiScale, resetUiScale]);
+
+  useEffect(() => {
+    if (!isTauriApp()) {
+      return;
+    }
+
+    void getCurrentWebview().setZoom(uiScale).catch((error) => {
+      console.warn("Unable to apply native webview zoom.", error);
+    });
+  }, [uiScale]);
+
+  return null;
+}
+
+function NativeMacMenuBridge() {
+  const graphFilters = useUiStore((state) => state.graphFilters);
+  const highlightGraphPath = useUiStore((state) => state.highlightGraphPath);
+  const showEdgeLabels = useUiStore((state) => state.showEdgeLabels);
+  const increaseUiScale = useUiStore((state) => state.increaseUiScale);
+  const decreaseUiScale = useUiStore((state) => state.decreaseUiScale);
+  const resetUiScale = useUiStore((state) => state.resetUiScale);
+  const toggleGraphFilter = useUiStore((state) => state.toggleGraphFilter);
+  const toggleGraphPathHighlight = useUiStore((state) => state.toggleGraphPathHighlight);
+  const toggleEdgeLabels = useUiStore((state) => state.toggleEdgeLabels);
+
+  useEffect(() => {
+    if (!isNativeMacApp()) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void (async () => {
+      const detach = await listen<{ action?: string }>(APP_MENU_EVENT, (event) => {
+        switch (event.payload?.action) {
+          case "zoom-in":
+            increaseUiScale();
+            break;
+          case "zoom-out":
+            decreaseUiScale();
+            break;
+          case "zoom-reset":
+            resetUiScale();
+            break;
+          case "toggle-calls":
+            toggleGraphFilter("includeCalls");
+            break;
+          case "toggle-imports":
+            toggleGraphFilter("includeImports");
+            break;
+          case "toggle-defines":
+            toggleGraphFilter("includeDefines");
+            break;
+          case "toggle-path-highlight":
+            toggleGraphPathHighlight();
+            break;
+          case "toggle-edge-labels":
+            toggleEdgeLabels();
+            break;
+          default:
+            break;
+        }
+      });
+
+      if (disposed) {
+        detach();
+        return;
+      }
+
+      unlisten = detach;
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [
+    decreaseUiScale,
+    increaseUiScale,
+    resetUiScale,
+    toggleEdgeLabels,
+    toggleGraphFilter,
+    toggleGraphPathHighlight,
+  ]);
+
+  useEffect(() => {
+    if (!isNativeMacApp()) {
+      return;
+    }
+
+    void (async () => {
+      await invoke("sync_graph_view_menu_state", {
+        stateJson: JSON.stringify({
+          includeCalls: graphFilters.includeCalls,
+          includeImports: graphFilters.includeImports,
+          includeDefines: graphFilters.includeDefines,
+          highlightGraphPath,
+          showEdgeLabels,
+        }),
+      });
+    })();
+  }, [
+    graphFilters.includeCalls,
+    graphFilters.includeDefines,
+    graphFilters.includeImports,
+    highlightGraphPath,
+    showEdgeLabels,
+  ]);
 
   return null;
 }
@@ -48,7 +228,9 @@ export function AppProviders({
     <QueryClientProvider client={queryClient}>
       <AdapterProvider adapter={resolvedAdapter}>
         <ThemeBridge />
-        {children}
+        <UiScaleBridge />
+        <NativeMacMenuBridge />
+        <div className="app-scale-shell">{children}</div>
       </AdapterProvider>
     </QueryClientProvider>
   );

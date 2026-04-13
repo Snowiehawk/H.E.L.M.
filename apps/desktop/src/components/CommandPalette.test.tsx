@@ -6,16 +6,26 @@ import { MockDesktopAdapter } from "../lib/adapter/mockDesktopAdapter";
 import { useUiStore } from "../store/uiStore";
 import { CommandPalette } from "./CommandPalette";
 
+function clearLocalStorage() {
+  if (typeof window.localStorage?.clear === "function") {
+    window.localStorage.clear();
+  }
+}
+
 function resetStore() {
   const current = useUiStore.getState();
+  clearLocalStorage();
   useUiStore.setState({
     ...current,
+    uiScale: 1,
     paletteOpen: true,
     sidebarQuery: "",
     activeTab: "graph",
     activeFilePath: undefined,
     activeSymbolId: undefined,
     activeNodeId: undefined,
+    graphTargetId: undefined,
+    activeLevel: "module",
   });
 }
 
@@ -41,6 +51,6 @@ describe("CommandPalette", () => {
 
     const state = useUiStore.getState();
     expect(state.activeTab).toBe("symbol");
-    expect(state.activeSymbolId).toBe("symbol:helm.ui.api.build_graph_summary");
+    expect(state.activeSymbolId).toBe("symbol:helm.ui.api:build_graph_summary");
   });
 });

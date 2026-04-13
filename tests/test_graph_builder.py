@@ -76,3 +76,66 @@ class GraphBuilderTests(unittest.TestCase):
             self.assertEqual(graph.report.unresolved_call_count, 1)
             self.assertIn("module:requests", graph.nodes)
             self.assertEqual(graph.nodes["module:requests"].is_external, True)
+
+    def test_promotes_top_level_enums_and_variables_into_graph_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "from enum import Enum\n\n"
+                        "READY = True\n\n"
+                        "class Mode(Enum):\n"
+                        "    FAST = 'fast'\n"
+                    ),
+                },
+            )
+
+            inventory = discover_python_modules(root)
+            parsed_modules = [PythonModuleParser().parse_module(module) for module in inventory.modules]
+            graph = build_repo_graph(root, parsed_modules)
+
+            self.assertIn("symbol:service:READY", graph.nodes)
+            self.assertIn("symbol:service:Mode", graph.nodes)
+            self.assertEqual(graph.nodes["symbol:service:READY"].metadata["symbol_kind"], "variable")
+            self.assertEqual(graph.nodes["symbol:service:Mode"].metadata["symbol_kind"], "enum")
+
+            define_edges = {
+                (edge.source_id, edge.target_id)
+                for edge in graph.edges
+                if edge.kind == EdgeKind.DEFINES
+            }
+            self.assertIn(("module:service", "symbol:service:READY"), define_edges)
+            self.assertIn(("module:service", "symbol:service:Mode"), define_edges)
+
+    def test_tracks_direct_class_attributes_as_nested_symbols(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "class Service:\n"
+                        "    enabled = True\n\n"
+                        "    def run(self):\n"
+                        "        return self.enabled\n"
+                    ),
+                },
+            )
+
+            inventory = discover_python_modules(root)
+            parsed_modules = [PythonModuleParser().parse_module(module) for module in inventory.modules]
+            graph = build_repo_graph(root, parsed_modules)
+
+            self.assertIn("symbol:service:Service", graph.nodes)
+            self.assertIn("symbol:service:Service.enabled", graph.nodes)
+            self.assertEqual(graph.nodes["symbol:service:Service.enabled"].metadata["symbol_kind"], "variable")
+
+            contain_edges = {
+                (edge.source_id, edge.target_id)
+                for edge in graph.edges
+                if edge.kind == EdgeKind.CONTAINS
+            }
+            self.assertIn(("symbol:service:Service", "symbol:service:Service.enabled"), contain_edges)
+            self.assertIn(("symbol:service:Service", "symbol:service:Service.run"), contain_edges)

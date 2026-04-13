@@ -22,6 +22,40 @@ class EdgeKind(str, Enum):
     CALLS = "calls"
 
 
+class GraphAbstractionLevel(str, Enum):
+    REPO = "repo"
+    MODULE = "module"
+    SYMBOL = "symbol"
+    FLOW = "flow"
+
+
+class GraphViewNodeKind(str, Enum):
+    REPO = "repo"
+    MODULE = "module"
+    SYMBOL = "symbol"
+    FUNCTION = "function"
+    CLASS = "class"
+    ENUM = "enum"
+    VARIABLE = "variable"
+    ENTRY = "entry"
+    PARAM = "param"
+    ASSIGN = "assign"
+    CALL = "call"
+    BRANCH = "branch"
+    LOOP = "loop"
+    RETURN = "return"
+    EXIT = "exit"
+
+
+class GraphViewEdgeKind(str, Enum):
+    CONTAINS = "contains"
+    IMPORTS = "imports"
+    DEFINES = "defines"
+    CALLS = "calls"
+    CONTROLS = "controls"
+    DATA = "data"
+
+
 def make_repo_id(root_path: str) -> str:
     return f"repo:{root_path}"
 
@@ -137,4 +171,122 @@ class RepoGraph:
                 unresolved.to_dict() for unresolved in self.unresolved_calls
             ],
             "report": self.report.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
+class GraphAction:
+    action_id: str
+    label: str
+    enabled: bool = True
+    reason: str | None = None
+    payload: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "action_id": self.action_id,
+            "label": self.label,
+            "enabled": self.enabled,
+            "reason": self.reason,
+            "payload": self.payload,
+        }
+
+
+@dataclass(frozen=True)
+class GraphBreadcrumb:
+    node_id: str
+    level: GraphAbstractionLevel
+    label: str
+    subtitle: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "node_id": self.node_id,
+            "level": self.level.value,
+            "label": self.label,
+            "subtitle": self.subtitle,
+        }
+
+
+@dataclass(frozen=True)
+class GraphFocus:
+    target_id: str
+    level: GraphAbstractionLevel
+    label: str
+    subtitle: str | None = None
+    available_levels: tuple[GraphAbstractionLevel, ...] = field(default_factory=tuple)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "target_id": self.target_id,
+            "level": self.level.value,
+            "label": self.label,
+            "subtitle": self.subtitle,
+            "available_levels": [level.value for level in self.available_levels],
+        }
+
+
+@dataclass(frozen=True)
+class GraphViewNode:
+    node_id: str
+    kind: GraphViewNodeKind
+    label: str
+    subtitle: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    available_actions: tuple[GraphAction, ...] = field(default_factory=tuple)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "node_id": self.node_id,
+            "kind": self.kind.value,
+            "label": self.label,
+            "subtitle": self.subtitle,
+            "metadata": self.metadata,
+            "available_actions": [action.to_dict() for action in self.available_actions],
+        }
+
+
+@dataclass(frozen=True)
+class GraphViewEdge:
+    edge_id: str
+    kind: GraphViewEdgeKind
+    source_id: str
+    target_id: str
+    label: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "edge_id": self.edge_id,
+            "kind": self.kind.value,
+            "source_id": self.source_id,
+            "target_id": self.target_id,
+            "label": self.label,
+            "metadata": self.metadata,
+        }
+
+
+@dataclass(frozen=True)
+class GraphView:
+    root_node_id: str
+    target_id: str
+    level: GraphAbstractionLevel
+    nodes: tuple[GraphViewNode, ...]
+    edges: tuple[GraphViewEdge, ...]
+    breadcrumbs: tuple[GraphBreadcrumb, ...] = field(default_factory=tuple)
+    focus: GraphFocus | None = None
+    truncated: bool = False
+    flow_state: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "root_node_id": self.root_node_id,
+            "target_id": self.target_id,
+            "level": self.level.value,
+            "nodes": [node.to_dict() for node in self.nodes],
+            "edges": [edge.to_dict() for edge in self.edges],
+            "breadcrumbs": [breadcrumb.to_dict() for breadcrumb in self.breadcrumbs],
+            "focus": self.focus.to_dict() if self.focus is not None else None,
+            "truncated": self.truncated,
+            "flow_state": self.flow_state,
         }

@@ -4,6 +4,7 @@ import type {
   SymbolDetails,
   WorkspaceTab,
 } from "../../lib/adapter";
+import { isGraphSymbolNodeKind } from "../../lib/adapter";
 
 export function GraphDetailPanel({
   activeTab,
@@ -193,12 +194,12 @@ export function GraphDetailPanel({
             <button
               className="ghost-button"
               type="button"
-              onClick={() => onOpenFile(selectedNode.subtitle, selectedNode.id)}
+              onClick={() => onOpenFile(selectedNode.subtitle ?? "", selectedNode.id)}
             >
               Open file
             </button>
           ) : null}
-          {selectedNode.kind === "symbol" ? (
+          {isGraphSymbolNodeKind(selectedNode.kind) ? (
             <button
               className="ghost-button"
               type="button"

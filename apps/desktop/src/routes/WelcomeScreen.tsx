@@ -46,17 +46,17 @@ export function WelcomeScreen() {
     <DesktopWindow
       eyebrow="H.E.L.M."
       title="Open a repo."
-      subtitle="Index it, then live inside the graph."
+      subtitle="Index it, then live inside the blueprint."
       actions={<ThemeCycleButton />}
       compact
     >
       <main className="launch-layout">
         <section className="launch-card">
-          <span className="window-bar__eyebrow">Desktop Graph Shell</span>
+          <span className="window-bar__eyebrow">Desktop Blueprint Shell</span>
           <h2>One action to start.</h2>
           <p>
-            Open a local repository and H.E.L.M. will index it, place the file explorer on the
-            left, and turn the rest of the app into the code graph.
+            Open a local repository and H.E.L.M. will index it, open at the architecture layer,
+            and let you drill into symbols and flow only when you choose.
           </p>
           <div className="hero-card__actions">
             <button className="primary-button" type="button" onClick={() => openAndIndexRepo()}>

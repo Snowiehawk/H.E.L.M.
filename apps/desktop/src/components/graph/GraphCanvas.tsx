@@ -1,226 +1,3567 @@
-import { useState } from "react";
-import { Background, Controls, MarkerType, Panel, ReactFlow } from "@xyflow/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Background,
+  Controls,
+  MarkerType,
+  PanOnScrollMode,
+  ReactFlow,
+  SelectionMode,
+  ViewportPortal,
+  applyNodeChanges,
+  useReactFlow,
+  useKeyPress,
+  type Edge,
+  type EdgeTypes,
+  type Node,
+  type NodeChange,
+  type NodeTypes,
+  type ReactFlowInstance,
+} from "@xyflow/react";
+import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import type {
+  GraphAbstractionLevel,
+  GraphBreadcrumbDto,
+  GraphEdgeKind,
   GraphFilters,
-  GraphNeighborhood,
   GraphNodeKind,
+  GraphNodeDto,
+  GraphSettings,
+  GraphView,
 } from "../../lib/adapter";
+import {
+  isEnterableGraphNodeKind,
+  isGraphSymbolNodeKind,
+  isInspectableGraphNodeKind,
+} from "../../lib/adapter";
+import { GraphToolbar } from "./GraphToolbar";
+import {
+  BlueprintNode,
+  type BlueprintNodeData,
+  type BlueprintNodePort,
+} from "./BlueprintNode";
+import { BlueprintEdge, type BlueprintEdgeData } from "./BlueprintEdge";
+import { RerouteNode, type RerouteNodeData } from "./RerouteNode";
+import {
+  helpIdForGraphEdgeKind,
+  helpTargetProps,
+  type HelpDescriptorId,
+  useWorkspaceHelp,
+} from "../workspace/workspaceHelp";
+import { buildBlueprintPresentation } from "./blueprintPorts";
+import { declutterGraphLayout } from "./declutterLayout";
+import { layoutFlowGraph } from "./flowLayout";
+import {
+  graphLayoutNodeKey,
+  graphLayoutViewKey,
+  readStoredGraphLayout,
+  type StoredGraphGroup,
+  type StoredGraphLayout,
+  type StoredGraphNodeLayout,
+  type StoredGraphReroute,
+  writeStoredGraphLayout,
+} from "./graphLayoutPersistence";
+import {
+  organizeGroupedNodes,
+  type GroupOrganizeMode,
+} from "./groupOrganizeLayout";
 import { EmptyState } from "../shared/EmptyState";
 
-export function GraphCanvas({
-  graph,
+const REROUTE_NODE_PREFIX = "reroute:";
+const REROUTE_NODE_SIZE = 18;
+const GROUP_BOX_PADDING = 24;
+const GROUP_TITLE_OFFSET = 12;
+const DEFAULT_GROUP_TITLE = "Group";
+const FALLBACK_GROUP_NODE_WIDTH = 252;
+const FALLBACK_GROUP_NODE_HEIGHT = 96;
+const EMPTY_STRING_SET = new Set<string>();
+const GROUP_ORGANIZE_OPTIONS: Array<{ mode: GroupOrganizeMode; label: string }> = [
+  { mode: "column", label: "Column" },
+  { mode: "row", label: "Row" },
+  { mode: "grid", label: "Grid" },
+  { mode: "tidy", label: "Tidy" },
+  { mode: "kind", label: "By kind" },
+];
+
+const nodeTypes: NodeTypes = {
+  blueprint: BlueprintNode,
+  reroute: RerouteNode,
+};
+
+const edgeTypes: EdgeTypes = {
+  blueprint: BlueprintEdge,
+};
+
+const MIN_GRAPH_ZOOM = 0.12;
+const MAX_GRAPH_ZOOM = 1.8;
+
+type SemanticCanvasNode = Node<BlueprintNodeData, "blueprint">;
+type RerouteCanvasNode = Node<RerouteNodeData, "reroute">;
+type GraphCanvasNode = SemanticCanvasNode | RerouteCanvasNode;
+type GraphCanvasEdge = Edge<BlueprintEdgeData, "blueprint">;
+export type CreateModeState = "inactive" | "active" | "composing";
+export interface GraphCreateIntent {
+  anchorEdgeId?: string;
+  anchorLabel?: string;
+  flowPosition: { x: number; y: number };
+  panelPosition: { x: number; y: number };
+}
+type FlowCreateLaneTrigger = {
+  edgeId: string;
+  buttonLabel: string;
+  ariaLabel: string;
+  edgeLabel: string | undefined;
+  x: number;
+  y: number;
+  angle: number;
+  length: number;
+};
+type EdgeLabelSegment = {
+  id: string;
+  label: string;
+  source: string;
+  target: string;
+  sourceHandle: string | null | undefined;
+  targetHandle: string | null | undefined;
+};
+
+interface CollapsedEdgeLabel {
+  label?: string;
+  count?: number;
+}
+
+interface GroupMembership {
+  groupByNodeId: Map<string, string>;
+  memberNodeIdsByGroupId: Map<string, string[]>;
+}
+
+interface GraphGroupBounds extends StoredGraphGroup {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface MergeGroupsForSelectionResult {
+  changed: boolean;
+  nextGroupId?: string;
+  nextGroups: StoredGraphGroup[];
+}
+
+interface UngroupGroupsForSelectionResult {
+  changed: boolean;
+  nextGroups: StoredGraphGroup[];
+  removedGroupIds: string[];
+}
+
+function isSemanticCanvasNode(node: GraphCanvasNode): node is SemanticCanvasNode {
+  return node.type === "blueprint";
+}
+
+function isRerouteCanvasNode(node: GraphCanvasNode): node is RerouteCanvasNode {
+  return node.type === "reroute";
+}
+
+function metadataNumber(node: GraphNodeDto, key: string): number | undefined {
+  const value =
+    node.metadata[key]
+    ?? node.metadata[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+  return typeof value === "number" ? value : undefined;
+}
+
+function metadataString(node: GraphNodeDto, key: string): string | undefined {
+  const value =
+    node.metadata[key]
+    ?? node.metadata[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+  return typeof value === "string" ? value : undefined;
+}
+
+function looksLikeSourcePath(value: string): boolean {
+  return value.includes("/") || value.endsWith(".py");
+}
+
+function moduleDisplayLabel(node: GraphNodeDto): string {
+  if (node.kind !== "module") {
+    return node.label;
+  }
+
+  const relativePath = metadataString(node, "relative_path");
+  if (!relativePath || !looksLikeSourcePath(relativePath)) {
+    return node.label;
+  }
+
+  const segments = relativePath.split("/").filter(Boolean);
+  return segments[segments.length - 1] ?? node.label;
+}
+
+function nodeSummary(node: GraphNodeDto): string | undefined {
+  if (node.kind === "repo") {
+    return "Architecture map";
+  }
+  if (node.kind === "module") {
+    const symbolCount = metadataNumber(node, "symbol_count");
+    const callCount = metadataNumber(node, "call_count");
+    if (typeof symbolCount === "number" && typeof callCount === "number") {
+      return `${symbolCount} symbols · ${callCount} calls`;
+    }
+  }
+  if (isGraphSymbolNodeKind(node.kind)) {
+    const symbolKind =
+      metadataString(node, "symbol_kind")
+      ?? (node.kind === "symbol" ? undefined : node.kind);
+    const moduleName = metadataString(node, "module_name");
+    if (symbolKind && moduleName) {
+      return `${symbolKind.replaceAll("_", " ")} · ${moduleName}`;
+    }
+  }
+  return node.subtitle ?? undefined;
+}
+
+function rerouteNodeId(rerouteId: string) {
+  return `${REROUTE_NODE_PREFIX}${rerouteId}`;
+}
+
+function rerouteStorageId(nodeId: string) {
+  return nodeId.startsWith(REROUTE_NODE_PREFIX)
+    ? nodeId.slice(REROUTE_NODE_PREFIX.length)
+    : nodeId;
+}
+
+function createRerouteId(logicalEdgeId: string) {
+  const sanitized = logicalEdgeId.replace(/[^a-zA-Z0-9_-]+/g, "-");
+  const unique =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return `${sanitized}-${unique}`;
+}
+
+function createGroupId() {
+  const unique =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return `group-${unique}`;
+}
+
+function normalizeGroupTitle(title: string | undefined) {
+  const normalized = title?.trim();
+  return normalized?.length ? normalized : DEFAULT_GROUP_TITLE;
+}
+
+function compareNodeIds(left: string, right: string) {
+  return left.localeCompare(right);
+}
+
+function sortNodeIds(nodeIds: Iterable<string>) {
+  return [...nodeIds].sort(compareNodeIds);
+}
+
+function sameNodeIds(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((nodeId, index) => nodeId === right[index]);
+}
+
+function resolveSelectionPreviewNodeIds({
   activeNodeId,
-  currentNodeLabel,
-  canNavigateUp,
-  canNavigateRoot,
-  graphDepth,
+  effectiveSemanticSelection,
+  graphNodeIds,
+  marqueeSelectionActive,
+  selectedGroupId,
+  selectedRerouteCount,
+}: {
+  activeNodeId?: string;
+  effectiveSemanticSelection: string[];
+  graphNodeIds: Set<string>;
+  marqueeSelectionActive: boolean;
+  selectedGroupId?: string;
+  selectedRerouteCount: number;
+}) {
+  if (
+    marqueeSelectionActive
+    || selectedRerouteCount
+    || selectedGroupId
+  ) {
+    return [];
+  }
+
+  if (effectiveSemanticSelection.length) {
+    return effectiveSemanticSelection;
+  }
+
+  return graphNodeIds.has(activeNodeId ?? "") ? [activeNodeId ?? ""] : [];
+}
+
+export function resolveSelectionPreviewNodeId({
+  activeNodeId,
+  effectiveSemanticSelection,
+  graphNodeIds,
+  marqueeSelectionActive,
+  selectedGroupId,
+  selectedRerouteCount,
+}: {
+  activeNodeId?: string;
+  effectiveSemanticSelection: string[];
+  graphNodeIds: Set<string>;
+  marqueeSelectionActive: boolean;
+  selectedGroupId?: string;
+  selectedRerouteCount: number;
+}) {
+  const previewNodeIds = resolveSelectionPreviewNodeIds({
+    activeNodeId,
+    effectiveSemanticSelection,
+    graphNodeIds,
+    marqueeSelectionActive,
+    selectedGroupId,
+    selectedRerouteCount,
+  });
+
+  return previewNodeIds.length === 1 ? previewNodeIds[0] ?? "" : "";
+}
+
+export function normalizeStoredGroups(
+  groups: StoredGraphGroup[] | undefined,
+  liveNodeIds: Set<string>,
+): StoredGraphGroup[] {
+  const claimedNodeIds = new Set<string>();
+  const normalized: StoredGraphGroup[] = [];
+
+  (groups ?? []).forEach((group) => {
+    if (!group.id) {
+      return;
+    }
+
+    const memberNodeIds = sortNodeIds(
+      new Set(
+        (group.memberNodeIds ?? []).filter((memberNodeId) => (
+          liveNodeIds.has(memberNodeId)
+          && !claimedNodeIds.has(memberNodeId)
+        )),
+      ),
+    );
+
+    if (memberNodeIds.length < 2) {
+      return;
+    }
+
+    memberNodeIds.forEach((memberNodeId) => {
+      claimedNodeIds.add(memberNodeId);
+    });
+
+    normalized.push({
+      id: group.id,
+      title: normalizeGroupTitle(group.title),
+      memberNodeIds,
+    });
+  });
+
+  return normalized;
+}
+
+function buildGroupMembership(groups: StoredGraphGroup[]): GroupMembership {
+  const groupByNodeId = new Map<string, string>();
+  const memberNodeIdsByGroupId = new Map<string, string[]>();
+
+  groups.forEach((group) => {
+    const memberNodeIds = sortNodeIds(group.memberNodeIds);
+    memberNodeIdsByGroupId.set(group.id, memberNodeIds);
+    memberNodeIds.forEach((memberNodeId) => {
+      groupByNodeId.set(memberNodeId, group.id);
+    });
+  });
+
+  return {
+    groupByNodeId,
+    memberNodeIdsByGroupId,
+  };
+}
+
+function touchedGroupIdsForNodeIds(
+  nodeIds: Iterable<string>,
+  groupByNodeId: Map<string, string>,
+) {
+  const groupIds = new Set<string>();
+  [...nodeIds].forEach((nodeId) => {
+    const groupId = groupByNodeId.get(nodeId);
+    if (groupId) {
+      groupIds.add(groupId);
+    }
+  });
+  return sortNodeIds(groupIds);
+}
+
+export function expandGroupedNodeIds(
+  nodeIds: Iterable<string>,
+  groupByNodeId: Map<string, string>,
+  memberNodeIdsByGroupId: Map<string, string[]>,
+) {
+  const expanded = new Set<string>();
+  [...nodeIds].forEach((nodeId) => {
+    const groupId = groupByNodeId.get(nodeId);
+    if (!groupId) {
+      expanded.add(nodeId);
+      return;
+    }
+
+    (memberNodeIdsByGroupId.get(groupId) ?? []).forEach((memberNodeId) => {
+      expanded.add(memberNodeId);
+    });
+  });
+
+  return sortNodeIds(expanded);
+}
+
+function buildNodeShellClassName(
+  nodeId: string,
+  selectedNodeIds: Set<string>,
+  selectedRelatedNodeIds: Set<string>,
+  selectionContextActive: boolean,
+  groupedNodeIds: Set<string>,
+  selectedGroupMemberNodeIds: Set<string>,
+) {
+  return [
+    "graph-node-shell",
+    selectedNodeIds.has(nodeId) ? "is-active" : "",
+    selectionContextActive && selectedRelatedNodeIds.has(nodeId) ? "is-related" : "",
+    selectionContextActive && !selectedRelatedNodeIds.has(nodeId) ? "is-dimmed" : "",
+    groupedNodeIds.has(nodeId) ? "is-group-member" : "",
+    selectedGroupMemberNodeIds.has(nodeId) ? "is-group-selected" : "",
+  ].filter(Boolean).join(" ");
+}
+
+function buildRerouteShellClassName(
+  logicalEdgeId: string,
+  highlightedEdgeIds: Set<string>,
+  hoverActive: boolean,
+  selectedConnectedEdgeIds: Set<string>,
+  selectionContextActive: boolean,
+) {
+  const related = hoverActive
+    ? highlightedEdgeIds.has(logicalEdgeId)
+    : selectionContextActive
+      ? selectedConnectedEdgeIds.has(logicalEdgeId)
+      : false;
+  const dimmed = hoverActive
+    ? !highlightedEdgeIds.has(logicalEdgeId)
+    : selectionContextActive
+      ? !selectedConnectedEdgeIds.has(logicalEdgeId)
+      : false;
+
+  return [
+    "graph-reroute-shell",
+    related ? "is-related" : "",
+    dimmed ? "is-dimmed" : "",
+  ].filter(Boolean).join(" ");
+}
+
+function decorateNodePorts(
+  ports: BlueprintNodePort[],
+  highlightedEdgeIds: Set<string>,
+  hoverActive: boolean,
+  onPortHoverStart: (edgeIds: string[]) => void,
+  onPortHoverEnd: () => void,
+): BlueprintNodePort[] {
+  return ports.map((port) => {
+    const portEdgeIds = port.memberEdgeIds ?? [];
+    const isHighlighted = portEdgeIds.some((edgeId) => highlightedEdgeIds.has(edgeId));
+    return {
+      ...port,
+      isHighlighted,
+      isDimmed: hoverActive && !isHighlighted,
+      onHoverStart: portEdgeIds.length ? () => onPortHoverStart(portEdgeIds) : undefined,
+      onHoverEnd: portEdgeIds.length ? onPortHoverEnd : undefined,
+    };
+  });
+}
+
+function buildSemanticCanvasNodes(
+  graph: GraphView,
+  selectedNodeIds: Set<string>,
+  savedPositions: StoredGraphNodeLayout,
+  pinnedNodeIds: Set<string>,
+  highlightedEdgeIds: Set<string>,
+  hoverActive: boolean,
+  selectedRelatedNodeIds: Set<string>,
+  selectionContextActive: boolean,
+  groupedNodeIds: Set<string>,
+  selectedGroupMemberNodeIds: Set<string>,
+  canPinNodes: boolean,
+  onTogglePinned: (nodeId: string) => void,
+  onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
+  onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
+  onPortHoverStart: (edgeIds: string[]) => void,
+  onPortHoverEnd: () => void,
+): SemanticCanvasNode[] {
+  const blueprint = buildBlueprintPresentation(graph);
+  return graph.nodes.map<SemanticCanvasNode>((node) => {
+    const ports = blueprint.nodePorts.get(node.id) ?? { inputs: [], outputs: [] };
+    const savedPosition = savedPositions[graphLayoutNodeKey(node.id, node.kind)];
+    const isPinned = pinnedNodeIds.has(node.id);
+    const actions: BlueprintNodeData["actions"] = [];
+
+    if (isEnterableGraphNodeKind(node.kind)) {
+      actions.push({
+        id: "enter",
+        label: "Enter",
+        helpId: "graph.node.action.enter",
+        onAction: () => onActivateNode(node.id, node.kind),
+      });
+    }
+
+    if (isInspectableGraphNodeKind(node.kind)) {
+      actions.push({
+        id: "inspect",
+        label: "Inspect",
+        helpId: "graph.node.action.inspect",
+        onAction: () => onInspectNode(node.id, node.kind),
+      });
+    }
+
+    if (canPinNodes) {
+      actions.push({
+        id: "pin",
+        label: isPinned ? "Unpin" : "Pin",
+        helpId: pinActionHelpId(isPinned),
+        onAction: () => onTogglePinned(node.id),
+      });
+    }
+
+    return {
+      id: node.id,
+      position: savedPosition ?? { x: node.x, y: node.y },
+      type: "blueprint",
+      data: {
+        kind: node.kind,
+        label: moduleDisplayLabel(node),
+        summary: nodeSummary(node),
+        isPinned,
+        inputPorts: decorateNodePorts(
+          ports.inputs,
+          highlightedEdgeIds,
+          hoverActive,
+          onPortHoverStart,
+          onPortHoverEnd,
+        ),
+        outputPorts: decorateNodePorts(
+          ports.outputs,
+          highlightedEdgeIds,
+          hoverActive,
+          onPortHoverStart,
+          onPortHoverEnd,
+        ),
+        actions,
+        onDefaultAction: actions[0]?.onAction,
+      },
+      draggable: true,
+      selectable: true,
+      className: buildNodeShellClassName(
+        node.id,
+        selectedNodeIds,
+        selectedRelatedNodeIds,
+        selectionContextActive,
+        groupedNodeIds,
+        selectedGroupMemberNodeIds,
+      ),
+    };
+  });
+}
+
+function buildRerouteCanvasNodes(
+  reroutes: StoredGraphReroute[],
+  highlightedEdgeIds: Set<string>,
+  hoverActive: boolean,
+  selectedConnectedEdgeIds: Set<string>,
+  selectionContextActive: boolean,
+): RerouteCanvasNode[] {
+  return reroutes
+    .slice()
+    .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
+    .map<RerouteCanvasNode>((reroute) => ({
+      id: rerouteNodeId(reroute.id),
+      position: { x: reroute.x, y: reroute.y },
+      type: "reroute",
+      data: {
+        kind: "reroute",
+        logicalEdgeId: reroute.edgeId,
+        order: reroute.order,
+      },
+      draggable: true,
+      selectable: true,
+      className: buildRerouteShellClassName(
+        reroute.edgeId,
+        highlightedEdgeIds,
+        hoverActive,
+        selectedConnectedEdgeIds,
+        selectionContextActive,
+      ),
+    }));
+}
+
+function buildCanvasNodes(
+  graph: GraphView,
+  selectedNodeIds: Set<string>,
+  layout: StoredGraphLayout,
+  highlightedEdgeIds: Set<string>,
+  hoverActive: boolean,
+  selectedRelatedNodeIds: Set<string>,
+  selectedConnectedEdgeIds: Set<string>,
+  selectionContextActive: boolean,
+  groupedNodeIds: Set<string>,
+  selectedGroupMemberNodeIds: Set<string>,
+  canPinNodes: boolean,
+  onTogglePinned: (nodeId: string) => void,
+  onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
+  onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
+  onPortHoverStart: (edgeIds: string[]) => void,
+  onPortHoverEnd: () => void,
+): GraphCanvasNode[] {
+  const savedNodePositions = layout.nodes ?? {};
+  const savedReroutes = layout.reroutes ?? [];
+  const pinnedNodeIds = new Set(layout.pinnedNodeIds ?? []);
+  return [
+    ...buildSemanticCanvasNodes(
+      graph,
+      selectedNodeIds,
+      savedNodePositions,
+      pinnedNodeIds,
+      highlightedEdgeIds,
+      hoverActive,
+      selectedRelatedNodeIds,
+      selectionContextActive,
+      groupedNodeIds,
+      selectedGroupMemberNodeIds,
+      canPinNodes,
+      onTogglePinned,
+      onActivateNode,
+      onInspectNode,
+      onPortHoverStart,
+      onPortHoverEnd,
+    ),
+    ...buildRerouteCanvasNodes(
+      savedReroutes,
+      highlightedEdgeIds,
+      hoverActive,
+      selectedConnectedEdgeIds,
+      selectionContextActive,
+    ),
+  ];
+}
+
+function normalizeRerouteNodeOrders(nodes: GraphCanvasNode[]): GraphCanvasNode[] {
+  const reroutesByEdge = new Map<string, RerouteCanvasNode[]>();
+  nodes.forEach((node) => {
+    if (!isRerouteCanvasNode(node)) {
+      return;
+    }
+    const edgeId = node.data.logicalEdgeId;
+    const current = reroutesByEdge.get(edgeId) ?? [];
+    current.push(node);
+    reroutesByEdge.set(edgeId, current);
+  });
+
+  if (!reroutesByEdge.size) {
+    return nodes;
+  }
+
+  const nextOrderByNodeId = new Map<string, number>();
+  reroutesByEdge.forEach((reroutes) => {
+    reroutes
+      .slice()
+      .sort((left, right) => left.data.order - right.data.order || left.id.localeCompare(right.id))
+      .forEach((node, index) => {
+        nextOrderByNodeId.set(node.id, index);
+      });
+  });
+
+  return nodes.map((node) => {
+    if (!isRerouteCanvasNode(node)) {
+      return node;
+    }
+
+    const nextOrder = nextOrderByNodeId.get(node.id);
+    if (nextOrder === undefined || nextOrder === node.data.order) {
+      return node;
+    }
+
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        order: nextOrder,
+      },
+    };
+  });
+}
+
+function persistGraphLayout(
+  nodes: GraphCanvasNode[],
+  groups: StoredGraphGroup[],
+): StoredGraphLayout {
+  const semanticNodes = nodes.filter(isSemanticCanvasNode);
+  const rerouteNodes = normalizeRerouteNodeOrders(nodes).filter(isRerouteCanvasNode);
+
+  return {
+    nodes: Object.fromEntries(
+      semanticNodes.map((node) => [
+        graphLayoutNodeKey(node.id, node.data.kind),
+        {
+          x: node.position.x,
+          y: node.position.y,
+        },
+      ]),
+    ),
+    reroutes: rerouteNodes
+      .map((node) => ({
+        id: rerouteStorageId(node.id),
+        edgeId: node.data.logicalEdgeId,
+        order: node.data.order,
+        x: node.position.x,
+        y: node.position.y,
+      }))
+      .sort(
+        (left, right) =>
+          left.edgeId.localeCompare(right.edgeId)
+          || left.order - right.order
+          || left.id.localeCompare(right.id),
+      ),
+    pinnedNodeIds: semanticNodes
+      .filter((node) => node.data.isPinned)
+      .map((node) => node.id)
+      .sort((left, right) => left.localeCompare(right)),
+    groups: groups
+      .map((group) => ({
+        id: group.id,
+        title: normalizeGroupTitle(group.title),
+        memberNodeIds: sortNodeIds(group.memberNodeIds),
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  };
+}
+
+function applyStoredLayout(nodes: GraphCanvasNode[], layout: StoredGraphLayout) {
+  const reroutesById = new Map(
+    layout.reroutes.map((reroute) => [rerouteNodeId(reroute.id), reroute] as const),
+  );
+  const pinnedNodeIds = new Set(layout.pinnedNodeIds ?? []);
+
+  return nodes.map((node) => {
+    if (isRerouteCanvasNode(node)) {
+      const nextReroute = reroutesById.get(node.id);
+      if (!nextReroute) {
+        return node;
+      }
+      return {
+        ...node,
+        position: {
+          x: nextReroute.x,
+          y: nextReroute.y,
+        },
+        data: {
+          ...node.data,
+          order: nextReroute.order,
+        },
+      };
+    }
+
+    const nextPosition = layout.nodes[graphLayoutNodeKey(node.id, node.data.kind)];
+    return {
+      ...node,
+      position: nextPosition ?? node.position,
+      data: {
+        ...node.data,
+        isPinned: pinnedNodeIds.has(node.id),
+        actions: (node.data.actions ?? []).map((action) =>
+          action.id === "pin"
+                ? {
+                    ...action,
+                    label: pinnedNodeIds.has(node.id) ? "Unpin" : "Pin",
+                    helpId: pinActionHelpId(pinnedNodeIds.has(node.id)),
+                  }
+                : action,
+            ),
+      },
+    };
+  });
+}
+
+function readMeasuredDimension(
+  node: GraphCanvasNode,
+  key: "width" | "height",
+) {
+  const directValue = Reflect.get(node, key);
+  if (typeof directValue === "number" && directValue > 0) {
+    return directValue;
+  }
+
+  const measured = Reflect.get(node, "measured");
+  if (measured && typeof measured === "object") {
+    const measuredValue = Reflect.get(measured, key);
+    if (typeof measuredValue === "number" && measuredValue > 0) {
+      return measuredValue;
+    }
+  }
+
+  if (isRerouteCanvasNode(node)) {
+    return REROUTE_NODE_SIZE;
+  }
+
+  return undefined;
+}
+
+function semanticNodeDimension(
+  node: SemanticCanvasNode,
+  key: "width" | "height",
+) {
+  return readMeasuredDimension(node, key)
+    ?? (key === "width" ? FALLBACK_GROUP_NODE_WIDTH : FALLBACK_GROUP_NODE_HEIGHT);
+}
+
+function buildGraphGroupBounds(
+  group: StoredGraphGroup,
+  nodesById: Map<string, GraphCanvasNode>,
+): GraphGroupBounds | undefined {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  group.memberNodeIds.forEach((memberNodeId) => {
+    const node = nodesById.get(memberNodeId);
+    if (!node || !isSemanticCanvasNode(node)) {
+      return;
+    }
+
+    const width = semanticNodeDimension(node, "width");
+    const height = semanticNodeDimension(node, "height");
+    minX = Math.min(minX, node.position.x);
+    minY = Math.min(minY, node.position.y);
+    maxX = Math.max(maxX, node.position.x + width);
+    maxY = Math.max(maxY, node.position.y + height);
+  });
+
+  if (
+    !Number.isFinite(minX)
+    || !Number.isFinite(minY)
+    || !Number.isFinite(maxX)
+    || !Number.isFinite(maxY)
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...group,
+    x: minX - GROUP_BOX_PADDING,
+    y: minY - GROUP_BOX_PADDING,
+    width: maxX - minX + GROUP_BOX_PADDING * 2,
+    height: maxY - minY + GROUP_BOX_PADDING * 2,
+  };
+}
+
+function buildGraphGroupBoundsList(
+  groups: StoredGraphGroup[],
+  nodes: GraphCanvasNode[],
+) {
+  const nodesById = new Map(nodes.map((node) => [node.id, node] as const));
+  return groups.flatMap((group) => {
+    const bounds = buildGraphGroupBounds(group, nodesById);
+    return bounds ? [bounds] : [];
+  });
+}
+
+function organizeOptionsForGroup(
+  group: StoredGraphGroup,
+  nodes: GraphCanvasNode[],
+) {
+  const kinds = new Set(
+    nodes
+      .filter((node) => isSemanticCanvasNode(node) && group.memberNodeIds.includes(node.id))
+      .map((node) => node.data.kind),
+  );
+
+  return GROUP_ORGANIZE_OPTIONS.filter((option) => option.mode !== "kind" || kinds.size > 1);
+}
+
+export function applyMemberNodeDelta(
+  nodes: GraphCanvasNode[],
+  memberNodeIds: Iterable<string>,
+  delta: { x: number; y: number },
+  basePositions?: Map<string, { x: number; y: number }>,
+) {
+  if (!delta.x && !delta.y) {
+    return nodes;
+  }
+
+  const targetNodeIds = new Set(memberNodeIds);
+  return nodes.map((node) => {
+    if (!isSemanticCanvasNode(node) || !targetNodeIds.has(node.id)) {
+      return node;
+    }
+
+    const basePosition = basePositions?.get(node.id) ?? node.position;
+    return {
+      ...node,
+      position: {
+        x: basePosition.x + delta.x,
+        y: basePosition.y + delta.y,
+      },
+    };
+  });
+}
+
+export function applyGroupedPositionChanges(
+  currentNodes: GraphCanvasNode[],
+  changes: NodeChange<GraphCanvasNode>[],
+  groupByNodeId: Map<string, string>,
+  memberNodeIdsByGroupId: Map<string, string[]>,
+) {
+  const nextNodes = applyNodeChanges(changes, currentNodes);
+  const currentNodesById = new Map(currentNodes.map((node) => [node.id, node] as const));
+  const groupDeltaByGroupId = new Map<string, { x: number; y: number }>();
+
+  changes.forEach((change) => {
+    if (change.type !== "position" || !change.position) {
+      return;
+    }
+
+    const groupId = groupByNodeId.get(change.id);
+    const currentNode = currentNodesById.get(change.id);
+    if (!groupId || !currentNode || !isSemanticCanvasNode(currentNode)) {
+      return;
+    }
+
+    if (!groupDeltaByGroupId.has(groupId)) {
+      groupDeltaByGroupId.set(groupId, {
+        x: change.position.x - currentNode.position.x,
+        y: change.position.y - currentNode.position.y,
+      });
+    }
+  });
+
+  if (!groupDeltaByGroupId.size) {
+    return nextNodes;
+  }
+
+  return nextNodes.map((node) => {
+    if (!isSemanticCanvasNode(node)) {
+      return node;
+    }
+
+    const groupId = groupByNodeId.get(node.id);
+    const delta = groupId ? groupDeltaByGroupId.get(groupId) : undefined;
+    const currentNode = currentNodesById.get(node.id);
+    if (!delta || !currentNode || !isSemanticCanvasNode(currentNode)) {
+      return node;
+    }
+
+    return {
+      ...node,
+      position: {
+        x: currentNode.position.x + delta.x,
+        y: currentNode.position.y + delta.y,
+      },
+    };
+  });
+}
+
+export function applyGroupedLayoutPositions(
+  nodes: GraphCanvasNode[],
+  nextPositions: Record<string, { x: number; y: number }>,
+  memberNodeIdsByGroupId: Map<string, string[]>,
+  groupByNodeId: Map<string, string>,
+) {
+  const groupDeltaByGroupId = new Map<string, { x: number; y: number }>();
+
+  memberNodeIdsByGroupId.forEach((memberNodeIds, groupId) => {
+    const anchorNodeId = memberNodeIds.find((memberNodeId) => nextPositions[memberNodeId]);
+    if (!anchorNodeId) {
+      return;
+    }
+
+    const anchorNode = nodes.find((node) => node.id === anchorNodeId);
+    const nextAnchorPosition = nextPositions[anchorNodeId];
+    if (!anchorNode || !nextAnchorPosition) {
+      return;
+    }
+
+    groupDeltaByGroupId.set(groupId, {
+      x: nextAnchorPosition.x - anchorNode.position.x,
+      y: nextAnchorPosition.y - anchorNode.position.y,
+    });
+  });
+
+  return nodes.map((node) => {
+    if (!isSemanticCanvasNode(node)) {
+      return node;
+    }
+
+    const groupId = groupByNodeId.get(node.id);
+    const delta = groupId ? groupDeltaByGroupId.get(groupId) : undefined;
+    if (delta) {
+      return {
+        ...node,
+        position: {
+          x: node.position.x + delta.x,
+          y: node.position.y + delta.y,
+        },
+      };
+    }
+
+    const nextPosition = nextPositions[node.id];
+    if (!nextPosition) {
+      return node;
+    }
+
+    return {
+      ...node,
+      position: nextPosition,
+    };
+  });
+}
+
+function toDeclutterNodes(nodes: GraphCanvasNode[]) {
+  return nodes.filter(isSemanticCanvasNode).map((node) => ({
+    id: node.id,
+    kind: node.data.kind,
+    x: node.position.x,
+    y: node.position.y,
+    width: readMeasuredDimension(node, "width"),
+    height: readMeasuredDimension(node, "height"),
+  }));
+}
+
+function toFlowLayoutNodes(nodes: GraphCanvasNode[], graph: GraphView) {
+  const metadataByNodeId = new Map(graph.nodes.map((node) => [node.id, node.metadata] as const));
+  return nodes
+    .filter(isSemanticCanvasNode)
+    .map((node) => ({
+      id: node.id,
+      kind: node.data.kind,
+      x: node.position.x,
+      y: node.position.y,
+      width: readMeasuredDimension(node, "width"),
+      height: readMeasuredDimension(node, "height"),
+      metadata: metadataByNodeId.get(node.id) ?? {},
+    }));
+}
+
+function semanticPinnedNodeIds(nodes: GraphCanvasNode[]) {
+  return nodes
+    .filter(isSemanticCanvasNode)
+    .filter((node) => node.data.isPinned)
+    .map((node) => node.id);
+}
+
+function storedLayoutIsEmpty(layout: StoredGraphLayout) {
+  return (
+    !Object.keys(layout.nodes).length
+    && !layout.reroutes.length
+    && !(layout.pinnedNodeIds?.length ?? 0)
+    && !(layout.groups?.length ?? 0)
+  );
+}
+
+function pinActionHelpId(pinned: boolean): HelpDescriptorId {
+  return pinned ? "graph.node.action.unpin" : "graph.node.action.pin";
+}
+
+export function mergeGroupsForSelection(
+  groups: StoredGraphGroup[],
+  selectedNodeIds: string[],
+  createId: () => string = createGroupId,
+): MergeGroupsForSelectionResult {
+  const normalizedSelectedNodeIds = sortNodeIds(new Set(selectedNodeIds));
+  if (normalizedSelectedNodeIds.length < 2) {
+    return {
+      changed: false,
+      nextGroups: groups,
+    };
+  }
+
+  const { groupByNodeId, memberNodeIdsByGroupId } = buildGroupMembership(groups);
+  const touchedGroupIds = touchedGroupIdsForNodeIds(normalizedSelectedNodeIds, groupByNodeId);
+  if (
+    touchedGroupIds.length === 1
+    && sameNodeIds(
+      sortNodeIds(memberNodeIdsByGroupId.get(touchedGroupIds[0] ?? "") ?? []),
+      normalizedSelectedNodeIds,
+    )
+  ) {
+    return {
+      changed: false,
+      nextGroups: groups,
+    };
+  }
+
+  const nextGroupId = createId();
+  return {
+    changed: true,
+    nextGroupId,
+    nextGroups: [
+      ...groups.filter((group) => !touchedGroupIds.includes(group.id)),
+      {
+        id: nextGroupId,
+        title: DEFAULT_GROUP_TITLE,
+        memberNodeIds: expandGroupedNodeIds(
+          normalizedSelectedNodeIds,
+          groupByNodeId,
+          memberNodeIdsByGroupId,
+        ),
+      },
+    ],
+  };
+}
+
+export function ungroupGroupsForSelection(
+  groups: StoredGraphGroup[],
+  selectedNodeIds: string[],
+  selectedGroupId?: string,
+): UngroupGroupsForSelectionResult {
+  const { groupByNodeId } = buildGroupMembership(groups);
+  const removedGroupIds = selectedGroupId
+    ? [selectedGroupId]
+    : touchedGroupIdsForNodeIds(selectedNodeIds, groupByNodeId);
+
+  if (!removedGroupIds.length) {
+    return {
+      changed: false,
+      nextGroups: groups,
+      removedGroupIds: [],
+    };
+  }
+
+  return {
+    changed: true,
+    nextGroups: groups.filter((group) => !removedGroupIds.includes(group.id)),
+    removedGroupIds,
+  };
+}
+
+export function renameGraphGroup(
+  groups: StoredGraphGroup[],
+  groupId: string,
+  title: string,
+) {
+  return groups.map((group) =>
+    group.id === groupId
+      ? {
+          ...group,
+          title: normalizeGroupTitle(title),
+        }
+      : group,
+  );
+}
+
+function isEditableEventTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const editableHost = target.closest(
+    'input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"]',
+  );
+  return editableHost instanceof HTMLElement;
+}
+
+function shouldHandleNavigateOutKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  target: EventTarget | null;
+}) {
+  return !(
+    event.key !== "Backspace"
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || event.shiftKey
+    || isEditableEventTarget(event.target)
+  );
+}
+
+function shouldHandleRerouteDeleteKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  target: EventTarget | null;
+}) {
+  return !(
+    (event.key !== "Backspace" && event.key !== "Delete")
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || event.shiftKey
+    || isEditableEventTarget(event.target)
+  );
+}
+
+function shouldHandlePinKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  target: EventTarget | null;
+}) {
+  return !(
+    event.key.toLowerCase() !== "p"
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || isEditableEventTarget(event.target)
+  );
+}
+
+function shouldHandleCreateModeKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  target: EventTarget | null;
+}) {
+  return !(
+    event.key.toLowerCase() !== "c"
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || event.shiftKey
+    || isEditableEventTarget(event.target)
+  );
+}
+
+function shouldHandleFitViewKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  target: EventTarget | null;
+}) {
+  return !(
+    event.key.toLowerCase() !== "f"
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || event.shiftKey
+    || isEditableEventTarget(event.target)
+  );
+}
+
+function shouldHandleGroupKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  target: EventTarget | null;
+}) {
+  return !(
+    event.key.toLowerCase() !== "g"
+    || event.altKey
+    || !(event.ctrlKey || event.metaKey)
+    || event.shiftKey
+    || isEditableEventTarget(event.target)
+  );
+}
+
+function shouldHandleUngroupKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  target: EventTarget | null;
+}) {
+  return !(
+    event.key.toLowerCase() !== "g"
+    || event.altKey
+    || !(event.ctrlKey || event.metaKey)
+    || !event.shiftKey
+    || isEditableEventTarget(event.target)
+  );
+}
+
+function nodeCenter(node: GraphCanvasNode) {
+  const width = readMeasuredDimension(node, "width") ?? 0;
+  const height = readMeasuredDimension(node, "height") ?? 0;
+  return {
+    x: node.position.x + width / 2,
+    y: node.position.y + height / 2,
+  };
+}
+
+function controlEdgePathLabel(edge: GraphView["edges"][number]) {
+  const directLabel = typeof edge.label === "string" ? edge.label.trim() : "";
+  if (directLabel) {
+    return directLabel;
+  }
+
+  const metadataLabel = edge.metadata ?? {};
+  const rawPathLabel = (
+    (typeof metadataLabel["path_label"] === "string" && metadataLabel["path_label"])
+    || (typeof metadataLabel["pathLabel"] === "string" && metadataLabel["pathLabel"])
+    || (typeof metadataLabel["path_key"] === "string" && metadataLabel["path_key"])
+    || (typeof metadataLabel["pathKey"] === "string" && metadataLabel["pathKey"])
+  );
+  return typeof rawPathLabel === "string" ? rawPathLabel.trim() : "";
+}
+
+function titleCaseLabel(value: string) {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b([a-z])/g, (_, letter: string) => letter.toUpperCase());
+}
+
+function flowCreateLaneLabel(pathLabel: string, sourceKind: GraphNodeKind) {
+  if (pathLabel) {
+    return titleCaseLabel(pathLabel);
+  }
+  return sourceKind === "entry" ? "First step" : "Insert";
+}
+
+function flowCreateLaneAriaLabel(label: string) {
+  if (label === "Insert") {
+    return "Insert here";
+  }
+  if (label === "First step") {
+    return "Insert first step";
+  }
+  return `Insert on ${label.toLowerCase()} path`;
+}
+
+function rerouteHandleId(
+  type: "source" | "target",
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+) {
+  const deltaX = to.x - from.x;
+  const deltaY = to.y - from.y;
+  if (Math.abs(deltaX) >= Math.abs(deltaY)) {
+    return `${type}:${deltaX >= 0 ? "right" : "left"}`;
+  }
+  return `${type}:${deltaY >= 0 ? "bottom" : "top"}`;
+}
+
+function buildLogicalEdgeGroups(nodes: GraphCanvasNode[]) {
+  const nodeLookup = new Map(nodes.map((node) => [node.id, node] as const));
+  const reroutesByEdge = new Map<string, RerouteCanvasNode[]>();
+
+  nodes.forEach((node) => {
+    if (!isRerouteCanvasNode(node)) {
+      return;
+    }
+    const edgeId = node.data.logicalEdgeId;
+    const current = reroutesByEdge.get(edgeId) ?? [];
+    current.push(node);
+    reroutesByEdge.set(edgeId, current);
+  });
+
+  reroutesByEdge.forEach((reroutes, edgeId) => {
+    reroutesByEdge.set(
+      edgeId,
+      reroutes
+        .slice()
+        .sort((left, right) => left.data.order - right.data.order || left.id.localeCompare(right.id)),
+    );
+  });
+
+  return {
+    nodeLookup,
+    reroutesByEdge,
+  };
+}
+
+function buildEdgeStroke(kind: GraphEdgeKind, highlighted: boolean) {
+  if (kind === "contains") {
+    return "color-mix(in srgb, var(--line-strong) 52%, transparent)";
+  }
+  if (kind === "data") {
+    return "var(--accent-strong)";
+  }
+  if (kind === "controls") {
+    return "color-mix(in srgb, #ffbf5a 72%, var(--line-strong) 28%)";
+  }
+  return highlighted ? "var(--accent-strong)" : "var(--line-strong)";
+}
+
+function estimateEdgeLabelWidth(label: string) {
+  return Math.max(48, Math.round(label.trim().length * 7.2) + 22);
+}
+
+function inferLabelOffsetAxis(
+  sourceHandle: string | null | undefined,
+  targetHandle: string | null | undefined,
+) {
+  const handleSignature = `${sourceHandle ?? ""}|${targetHandle ?? ""}`;
+  if (handleSignature.includes("top") || handleSignature.includes("bottom")) {
+    return "y" as const;
+  }
+  return "x" as const;
+}
+
+function buildLabelLaneKey(
+  source: string,
+  target: string,
+  sourceHandle: string | null | undefined,
+  targetHandle: string | null | undefined,
+) {
+  return `${source}->${target}|${sourceHandle ?? ""}|${targetHandle ?? ""}`;
+}
+
+export function buildEdgeLabelOffsets(
+  labelSegments: EdgeLabelSegment[],
+) {
+  const offsets = new Map<string, { x: number; y: number }>();
+  const groups = new Map<string, EdgeLabelSegment[]>();
+
+  labelSegments.forEach((segment) => {
+    const key = buildLabelLaneKey(
+      segment.source,
+      segment.target,
+      segment.sourceHandle,
+      segment.targetHandle,
+    );
+    const current = groups.get(key) ?? [];
+    current.push(segment);
+    groups.set(key, current);
+  });
+
+  groups.forEach((group) => {
+    if (group.length <= 1) {
+      return;
+    }
+
+    const axis = inferLabelOffsetAxis(group[0]?.sourceHandle, group[0]?.targetHandle);
+    const ordered = group
+      .slice()
+      .sort(
+        (left, right) =>
+          left.label.localeCompare(right.label)
+          || left.id.localeCompare(right.id),
+      );
+    const gap = 12;
+    const widths = ordered.map((segment) => estimateEdgeLabelWidth(segment.label));
+    const totalWidth = widths.reduce((sum, width) => sum + width, 0) + gap * (ordered.length - 1);
+    let cursor = -totalWidth / 2;
+
+    ordered.forEach((segment, index) => {
+      const width = widths[index] ?? 0;
+      const centerOffset = cursor + width / 2;
+      offsets.set(
+        segment.id,
+        axis === "x"
+          ? { x: centerOffset, y: -10 }
+          : { x: 14, y: centerOffset },
+      );
+      cursor += width + gap;
+    });
+  });
+
+  return offsets;
+}
+
+export function collapseDuplicateEdgeLabels(labelSegments: EdgeLabelSegment[]) {
+  const collapsedLabels = new Map<string, CollapsedEdgeLabel>();
+  const visibleSegments: EdgeLabelSegment[] = [];
+  const groups = new Map<string, EdgeLabelSegment[]>();
+
+  labelSegments.forEach((segment) => {
+    const normalizedLabel = segment.label.trim();
+    const key = buildLabelLaneKey(
+      segment.source,
+      segment.target,
+      segment.sourceHandle,
+      segment.targetHandle,
+    );
+    const current = groups.get(key) ?? [];
+    current.push({
+      ...segment,
+      label: normalizedLabel,
+    });
+    groups.set(key, current);
+  });
+
+  groups.forEach((group) => {
+    const labelsByText = new Map<string, EdgeLabelSegment[]>();
+
+    group.forEach((segment) => {
+      const current = labelsByText.get(segment.label) ?? [];
+      current.push(segment);
+      labelsByText.set(segment.label, current);
+    });
+
+    labelsByText.forEach((matchingSegments) => {
+      const ordered = matchingSegments
+        .slice()
+        .sort((left, right) => left.id.localeCompare(right.id));
+      const anchor = ordered[0];
+
+      if (!anchor) {
+        return;
+      }
+
+      visibleSegments.push(anchor);
+      collapsedLabels.set(anchor.id, {
+        label: anchor.label,
+        count: ordered.length > 1 ? ordered.length : undefined,
+      });
+
+      ordered.slice(1).forEach((segment) => {
+        collapsedLabels.set(segment.id, {});
+      });
+    });
+  });
+
+  return {
+    collapsedLabels,
+    visibleSegments,
+  };
+}
+
+function buildCanvasEdges({
+  blueprint,
+  createModeControlEdgeEnabled,
+  graph,
+  highlightedEdgeIds,
+  hoverActive,
+  nodes,
+  onEdgeHoverEnd,
+  onEdgeHoverStart,
+  onInsertReroute,
+  selectedConnectedEdgeIds,
+  selectionContextActive,
+  showEdgeLabels,
+  highlightGraphPath,
+}: {
+  blueprint: ReturnType<typeof buildBlueprintPresentation>;
+  createModeControlEdgeEnabled: boolean;
+  graph: GraphView;
+  highlightedEdgeIds: Set<string>;
+  hoverActive: boolean;
+  nodes: GraphCanvasNode[];
+  onEdgeHoverEnd: () => void;
+  onEdgeHoverStart: (
+    logicalEdgeId: string,
+    logicalEdgeKind: GraphEdgeKind,
+    logicalEdgeLabel?: string,
+  ) => void;
+  onInsertReroute: (
+    logicalEdgeId: string,
+    segmentIndex: number,
+    position: { x: number; y: number },
+  ) => void;
+  selectedConnectedEdgeIds: Set<string>;
+  selectionContextActive: boolean;
+  showEdgeLabels: boolean;
+  highlightGraphPath: boolean;
+}): GraphCanvasEdge[] {
+  const { nodeLookup, reroutesByEdge } = buildLogicalEdgeGroups(nodes);
+  const segmentDrafts = graph.edges.flatMap<GraphCanvasEdge>((edge) => {
+    const reroutes = reroutesByEdge.get(edge.id) ?? [];
+    const handles = blueprint.edgeHandles.get(edge.id);
+    const connected = selectedConnectedEdgeIds.has(edge.id);
+    const edgeHovered = highlightedEdgeIds.has(edge.id);
+    const selectionHighlighted = selectionContextActive && connected;
+    const highlighted = hoverActive
+      ? edgeHovered
+      : selectionContextActive
+        ? selectionHighlighted
+        : highlightGraphPath && connected;
+    const createHighlighted = createModeControlEdgeEnabled && edge.kind === "controls";
+    const dimmed = hoverActive
+      ? !edgeHovered
+      : selectionContextActive
+        ? !selectionHighlighted
+        : false;
+    const stroke = createHighlighted
+      ? "var(--accent-strong)"
+      : buildEdgeStroke(edge.kind, highlighted);
+    const segmentCount = reroutes.length + 1;
+    const labelSegmentIndex = Math.floor(segmentCount / 2);
+
+    return Array.from({ length: segmentCount }, (_, segmentIndex) => {
+      const previousReroute = reroutes[segmentIndex - 1];
+      const nextReroute = reroutes[segmentIndex];
+      const sourceNodeId = previousReroute ? previousReroute.id : edge.source;
+      const targetNodeId = nextReroute ? nextReroute.id : edge.target;
+      const sourceNode = nodeLookup.get(sourceNodeId);
+      const targetNode = nodeLookup.get(targetNodeId);
+      const sourceCenter = sourceNode ? nodeCenter(sourceNode) : { x: 0, y: 0 };
+      const targetCenter = targetNode ? nodeCenter(targetNode) : { x: 0, y: 0 };
+      const isLastSegment = segmentIndex === segmentCount - 1;
+      const sourceHandle = previousReroute
+        ? rerouteHandleId("source", sourceCenter, targetCenter)
+        : handles?.sourceHandle;
+      const targetHandle = nextReroute
+        ? rerouteHandleId("target", targetCenter, sourceCenter)
+        : handles?.targetHandle;
+      const label =
+        showEdgeLabels && segmentIndex === labelSegmentIndex && (!dimmed || highlighted)
+          ? edge.label
+          : undefined;
+
+      return {
+        id: `${edge.id}::segment:${segmentIndex}`,
+        type: "blueprint" as const,
+        source: sourceNodeId,
+        target: targetNodeId,
+        sourceHandle,
+        targetHandle,
+        data: {
+          logicalEdgeId: edge.id,
+          logicalEdgeKind: edge.kind,
+          logicalEdgeLabel: edge.label,
+          segmentIndex,
+          onHoverStart: onEdgeHoverStart,
+          onHoverEnd: onEdgeHoverEnd,
+          onInsertReroute,
+        },
+        label,
+        animated: (highlighted || createHighlighted) && (edge.kind === "calls" || edge.kind === "controls"),
+        style: {
+          stroke,
+          strokeWidth:
+            highlighted || createHighlighted
+              ? 2.8
+              : edge.kind === "data"
+                ? 1.8
+                : edge.kind === "contains"
+                  ? 1
+                  : 1.2,
+          strokeDasharray: edge.kind === "data" ? "8 6" : edge.kind === "controls" ? "0" : undefined,
+          opacity: dimmed ? 0.18 : highlighted || createHighlighted ? 1 : selectionContextActive ? 0.92 : 0.84,
+        },
+        labelShowBg: false,
+        labelBgPadding: [5, 9] as [number, number],
+        labelBgBorderRadius: 999,
+        labelBgStyle: {
+          fill: "var(--surface-solid)",
+          stroke: highlighted ? "var(--accent-strong)" : "var(--line-strong)",
+          strokeWidth: 1,
+          opacity: dimmed ? 0.2 : 0.92,
+        },
+        labelStyle: {
+          fill: highlighted ? "var(--text)" : "var(--text-muted)",
+          fontSize: 11,
+          fontWeight: 600,
+          opacity: dimmed ? 0.24 : 1,
+        },
+        markerEnd: isLastSegment
+          ? {
+              type: MarkerType.ArrowClosed,
+              color: stroke,
+            }
+          : undefined,
+      };
+    });
+  });
+
+  const rawLabelSegments = segmentDrafts
+    .filter((edge) => typeof edge.label === "string" && edge.label.trim().length > 0)
+    .map((edge) => ({
+      id: edge.id,
+      label: edge.label as string,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourceHandle,
+      targetHandle: edge.targetHandle,
+    }));
+  const { collapsedLabels, visibleSegments } = collapseDuplicateEdgeLabels(rawLabelSegments);
+  const labelOffsets = buildEdgeLabelOffsets(visibleSegments);
+
+  return segmentDrafts.map<GraphCanvasEdge>((edge) => {
+    const offset = labelOffsets.get(edge.id);
+    const edgeData = edge.data as BlueprintEdgeData;
+    const collapsedLabel = collapsedLabels.get(edge.id);
+    return {
+      ...edge,
+      label: collapsedLabel ? collapsedLabel.label : edge.label,
+      data: {
+        logicalEdgeId: edgeData.logicalEdgeId,
+        logicalEdgeKind: edgeData.logicalEdgeKind,
+        logicalEdgeLabel: edgeData.logicalEdgeLabel,
+        labelCount: collapsedLabel?.count,
+        segmentIndex: edgeData.segmentIndex,
+        onHoverStart: edgeData.onHoverStart,
+        onHoverEnd: edgeData.onHoverEnd,
+        onClick: edgeData.onClick,
+        onInsertReroute: edgeData.onInsertReroute,
+        labelOffsetX: offset?.x ?? 0,
+        labelOffsetY: offset?.y ?? 0,
+      },
+    };
+  });
+}
+
+function GraphGroupLayer({
+  groupBounds,
+  nodes,
+  selectedGroupId,
+  editingGroupId,
+  organizeGroupId,
+  editingGroupTitle,
+  onChangeEditingGroupTitle,
+  onApplyOrganizeMode,
+  onFinishGroupTitleEditing,
+  onGroupMoveEnd,
+  onPreviewGroupMove,
+  onSelectGroup,
+  onStartEditingGroup,
+  onToggleOrganizeGroup,
+  onUngroupGroup,
+}: {
+  groupBounds: GraphGroupBounds[];
+  nodes: GraphCanvasNode[];
+  selectedGroupId?: string;
+  editingGroupId?: string;
+  organizeGroupId?: string;
+  editingGroupTitle: string;
+  onChangeEditingGroupTitle: (title: string) => void;
+  onApplyOrganizeMode: (groupId: string, mode: GroupOrganizeMode) => void;
+  onFinishGroupTitleEditing: (groupId: string, mode: "save" | "cancel") => void;
+  onGroupMoveEnd: () => void;
+  onPreviewGroupMove: (
+    groupId: string,
+    delta: { x: number; y: number },
+    basePositions: Map<string, { x: number; y: number }>,
+  ) => void;
+  onSelectGroup: (groupId: string) => void;
+  onStartEditingGroup: (groupId: string) => void;
+  onToggleOrganizeGroup: (groupId: string) => void;
+  onUngroupGroup: (groupId: string, title: string) => void;
+}) {
+  const { screenToFlowPosition } = useReactFlow<GraphCanvasNode, GraphCanvasEdge>();
+
+  return (
+    <ViewportPortal>
+      {groupBounds.map((group) => (
+        <div
+          key={group.id}
+          data-testid={`graph-group-${group.id}`}
+          {...helpTargetProps("graph.group.box", {
+            label: group.title,
+          })}
+          className={`graph-group${selectedGroupId === group.id ? " is-selected" : ""}${editingGroupId === group.id ? " is-editing" : ""}`}
+          style={{
+            transform: `translate(${group.x}px, ${group.y}px)`,
+            width: `${group.width}px`,
+            height: `${group.height}px`,
+          }}
+          onPointerDown={(event) => {
+            if (event.button !== 0) {
+              return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            onSelectGroup(group.id);
+
+            const startFlowPosition = screenToFlowPosition({
+              x: event.clientX,
+              y: event.clientY,
+            });
+            const memberNodeIds = new Set(group.memberNodeIds);
+            const basePositions = new Map(
+              nodes
+                .filter((node) => isSemanticCanvasNode(node) && memberNodeIds.has(node.id))
+                .map((node) => [node.id, { x: node.position.x, y: node.position.y }] as const),
+            );
+            let moved = false;
+
+            const handleMove = (moveEvent: PointerEvent) => {
+              const currentFlowPosition = screenToFlowPosition({
+                x: moveEvent.clientX,
+                y: moveEvent.clientY,
+              });
+              const delta = {
+                x: currentFlowPosition.x - startFlowPosition.x,
+                y: currentFlowPosition.y - startFlowPosition.y,
+              };
+              if (delta.x || delta.y) {
+                moved = true;
+              }
+              onPreviewGroupMove(group.id, delta, basePositions);
+            };
+
+            const handleUp = () => {
+              window.removeEventListener("pointermove", handleMove);
+              window.removeEventListener("pointerup", handleUp);
+              if (moved) {
+                onGroupMoveEnd();
+              }
+            };
+
+            window.addEventListener("pointermove", handleMove);
+            window.addEventListener("pointerup", handleUp);
+          }}
+        >
+          <div className="graph-group__frame" />
+          <div
+            className="graph-group__title-anchor"
+            style={{
+              transform: `translate(${GROUP_BOX_PADDING}px, calc(-100% - ${GROUP_TITLE_OFFSET}px))`,
+            }}
+          >
+            {editingGroupId === group.id ? (
+              <input
+                autoFocus
+                className="graph-group__title-input"
+                data-testid={`graph-group-title-input-${group.id}`}
+                value={editingGroupTitle}
+                onBlur={() => onFinishGroupTitleEditing(group.id, "save")}
+                onChange={(event) => onChangeEditingGroupTitle(event.target.value)}
+                onFocus={(event) => {
+                  event.currentTarget.select();
+                }}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    onFinishGroupTitleEditing(group.id, "save");
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    onFinishGroupTitleEditing(group.id, "cancel");
+                  }
+                }}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+              />
+            ) : (
+              <div className="graph-group__header">
+                <div className="graph-group__title-row">
+                  <div
+                    className="graph-group__title"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onStartEditingGroup(group.id);
+                    }}
+                    onDoubleClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onStartEditingGroup(group.id);
+                    }}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                    }}
+                  >
+                    {group.title}
+                  </div>
+                  <div className="graph-group__actions">
+                    <button
+                      {...helpTargetProps("graph.group.organize")}
+                      className={`graph-group__action${organizeGroupId === group.id ? " is-active" : ""}`}
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onToggleOrganizeGroup(group.id);
+                      }}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                      }}
+                    >
+                      Organize
+                    </button>
+                    <button
+                      className="graph-group__action graph-group__action--ungroup"
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onUngroupGroup(group.id, group.title);
+                      }}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                      }}
+                    >
+                      Ungroup
+                    </button>
+                  </div>
+                </div>
+                {organizeGroupId === group.id ? (
+                  <div
+                    className="graph-group__organize-row"
+                    data-testid={`graph-group-organize-${group.id}`}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                    }}
+                  >
+                    {organizeOptionsForGroup(group, nodes).map((option) => (
+                      <button
+                        key={option.mode}
+                        {...helpTargetProps("graph.group.organize", {
+                          label: option.label,
+                        })}
+                        className="graph-group__mode"
+                        data-testid={`graph-group-organize-${group.id}-${option.mode}`}
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onApplyOrganizeMode(group.id, option.mode);
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </ViewportPortal>
+  );
+}
+
+export function GraphCanvas({
+  repoPath,
+  graph,
+  isLoading = false,
+  errorMessage,
+  activeNodeId,
   graphFilters,
+  graphSettings,
   highlightGraphPath,
   showEdgeLabels,
   onSelectNode,
-  onNavigateUp,
-  onNavigateRoot,
-  onExpandDepth,
-  onReduceDepth,
+  onActivateNode,
+  onInspectNode,
+  onSelectBreadcrumb,
+  onSelectLevel,
   onToggleGraphFilter,
+  onToggleGraphSetting,
   onToggleGraphPathHighlight,
   onToggleEdgeLabels,
+  onNavigateOut,
+  onClearSelection,
+  createModeState = "inactive",
+  createModeCanvasEnabled = false,
+  createModeControlEdgeEnabled = false,
+  createModeHint,
+  onToggleCreateMode = () => {},
+  onCreateIntent = () => {},
 }: {
-  graph?: GraphNeighborhood;
+  repoPath?: string;
+  graph?: GraphView;
+  isLoading?: boolean;
+  errorMessage?: string | null;
   activeNodeId?: string;
-  currentNodeLabel?: string;
-  canNavigateUp: boolean;
-  canNavigateRoot: boolean;
-  graphDepth: number;
   graphFilters: GraphFilters;
+  graphSettings: GraphSettings;
   highlightGraphPath: boolean;
   showEdgeLabels: boolean;
   onSelectNode: (nodeId: string, kind: GraphNodeKind) => void;
-  onNavigateUp: () => void;
-  onNavigateRoot: () => void;
-  onExpandDepth: () => void;
-  onReduceDepth: () => void;
+  onActivateNode: (nodeId: string, kind: GraphNodeKind) => void;
+  onInspectNode: (nodeId: string, kind: GraphNodeKind) => void;
+  onSelectBreadcrumb: (breadcrumb: GraphBreadcrumbDto) => void;
+  onSelectLevel: (level: GraphAbstractionLevel) => void;
   onToggleGraphFilter: (key: keyof GraphFilters) => void;
+  onToggleGraphSetting: (key: keyof GraphSettings) => void;
   onToggleGraphPathHighlight: () => void;
   onToggleEdgeLabels: () => void;
+  onNavigateOut: () => void;
+  onClearSelection: () => void;
+  createModeState?: CreateModeState;
+  createModeCanvasEnabled?: boolean;
+  createModeControlEdgeEnabled?: boolean;
+  createModeHint?: string;
+  onToggleCreateMode?: () => void;
+  onCreateIntent?: (intent: GraphCreateIntent) => void;
 }) {
-  const [controlsExpanded, setControlsExpanded] = useState(false);
+  const { setTransientHelpTarget } = useWorkspaceHelp();
+  const blueprint = useMemo(
+    () => (graph ? buildBlueprintPresentation(graph) : undefined),
+    [graph],
+  );
+  const denseGraph = (graph?.nodes.length ?? 0) > 12;
+  const fitViewOptions = useMemo(
+    () => !graph
+      ? undefined
+      : graph.level === "flow"
+        ? { padding: 0.1, minZoom: 0.4, maxZoom: 1.08 }
+        : graph.level === "symbol"
+          ? { padding: 0.08, minZoom: denseGraph ? 0.34 : 0.44, maxZoom: 1.2 }
+          : { padding: 0.08, minZoom: denseGraph ? 0.3 : 0.4, maxZoom: 1.14 },
+    [denseGraph, graph],
+  );
+  const graphNodeIds = useMemo(
+    () => new Set(graph?.nodes.map((node) => node.id) ?? []),
+    [graph],
+  );
+  const viewKey = graph ? graphLayoutViewKey(graph) : undefined;
+  const hydrationGenerationRef = useRef(0);
+  const panelRef = useRef<HTMLElement>(null);
+  const reactFlowInstanceRef = useRef<ReactFlowInstance<GraphCanvasNode, GraphCanvasEdge> | null>(null);
+  const graphHotkeyActiveRef = useRef(false);
+  const skipNextSelectionSyncRef = useRef(false);
+  const shiftPressedRef = useRef(false);
+  const createModeActive = createModeState !== "inactive";
+  const createModeReady = createModeState === "active";
+  const [nodes, setNodes] = useState<GraphCanvasNode[]>([]);
+  const [groups, setGroups] = useState<StoredGraphGroup[]>([]);
+  const [selectedSemanticNodeIds, setSelectedSemanticNodeIds] = useState<string[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>(undefined);
+  const [editingGroupId, setEditingGroupId] = useState<string | undefined>(undefined);
+  const [organizeGroupId, setOrganizeGroupId] = useState<string | undefined>(undefined);
+  const [editingGroupTitle, setEditingGroupTitle] = useState(DEFAULT_GROUP_TITLE);
+  const [marqueeSelectionActive, setMarqueeSelectionActive] = useState(false);
+  const [layoutUndo, setLayoutUndo] = useState<
+    | {
+        viewKey: string;
+        layout: StoredGraphLayout;
+      }
+    | undefined
+  >(undefined);
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | undefined>(undefined);
+  const [hoveredPortEdgeIds, setHoveredPortEdgeIds] = useState<string[]>([]);
+  const panModeActive = useKeyPress("Space");
+  const [pointerInsidePanel, setPointerInsidePanel] = useState(false);
+  const [panPointerDragging, setPanPointerDragging] = useState(false);
+  const selectedRerouteNodes = useMemo(
+    () => nodes.filter((node) => isRerouteCanvasNode(node) && Boolean(node.selected)),
+    [nodes],
+  );
+  const selectedRerouteCount = selectedRerouteNodes.length;
+  const { groupByNodeId, memberNodeIdsByGroupId } = useMemo(
+    () => buildGroupMembership(groups),
+    [groups],
+  );
+  const groupedNodeIds = useMemo(
+    () => new Set(sortNodeIds(groupByNodeId.keys())),
+    [groupByNodeId],
+  );
+  const semanticSelection = useMemo(
+    () => sortNodeIds(selectedSemanticNodeIds.filter((nodeId) => graphNodeIds.has(nodeId))),
+    [graphNodeIds, selectedSemanticNodeIds],
+  );
+  const semanticSelectionFromNodes = useMemo(
+    () => sortNodeIds(
+      nodes
+        .filter((node) => isSemanticCanvasNode(node) && Boolean(node.selected))
+        .map((node) => node.id),
+    ),
+    [nodes],
+  );
+  const effectiveSemanticSelection = semanticSelection.length
+    ? semanticSelection
+    : semanticSelectionFromNodes;
+  const effectiveSemanticSelectionKey = effectiveSemanticSelection.join("\0");
+  const selectedGroupMemberNodeIds = useMemo(
+    () => new Set(selectedGroupId ? memberNodeIdsByGroupId.get(selectedGroupId) ?? [] : []),
+    [memberNodeIdsByGroupId, selectedGroupId],
+  );
+  const selectionPreviewNodeIds = useMemo(
+    () => (!graph
+      ? []
+      : resolveSelectionPreviewNodeIds({
+          activeNodeId,
+          effectiveSemanticSelection,
+          graphNodeIds,
+          marqueeSelectionActive,
+          selectedGroupId,
+          selectedRerouteCount,
+        })),
+    [
+      activeNodeId,
+      effectiveSemanticSelectionKey,
+      graph,
+      graphNodeIds,
+      marqueeSelectionActive,
+      selectedGroupId,
+      selectedRerouteCount,
+    ],
+  );
+  const selectionPreviewNodeIdsKey = selectionPreviewNodeIds.join("\0");
+  const selectedPreviewNodeIds = useMemo(
+    () => new Set(selectionPreviewNodeIds),
+    [selectionPreviewNodeIdsKey],
+  );
+  const selectedNodeId = !graph
+    ? ""
+    : resolveSelectionPreviewNodeId({
+        activeNodeId,
+        effectiveSemanticSelection,
+        graphNodeIds,
+        marqueeSelectionActive,
+        selectedGroupId,
+        selectedRerouteCount,
+      });
+  const highlightedEdgeIds = useMemo(
+    () => new Set(
+      hoveredPortEdgeIds.length
+        ? hoveredPortEdgeIds
+        : hoveredEdgeId
+          ? [hoveredEdgeId]
+          : [],
+    ),
+    [hoveredEdgeId, hoveredPortEdgeIds],
+  );
+  const hoverActive = highlightedEdgeIds.size > 0;
+  const selectedConnectedEdgeIds = useMemo(
+    () =>
+      new Set(
+        (graph?.edges ?? [])
+          .filter((edge) => selectedPreviewNodeIds.has(edge.source) || selectedPreviewNodeIds.has(edge.target))
+          .map((edge) => edge.id),
+      ),
+    [graph?.edges, selectedPreviewNodeIds],
+  );
+  const selectedRelatedNodeIds = useMemo(() => {
+    const related = new Set<string>();
+    if (!selectionPreviewNodeIds.length) {
+      return related;
+    }
 
-  if (!graph) {
+    selectionPreviewNodeIds.forEach((nodeId) => {
+      related.add(nodeId);
+    });
+    (graph?.edges ?? []).forEach((edge) => {
+      if (selectedPreviewNodeIds.has(edge.source) || selectedPreviewNodeIds.has(edge.target)) {
+        related.add(edge.source);
+        related.add(edge.target);
+      }
+    });
+    return related;
+  }, [graph?.edges, selectionPreviewNodeIdsKey, selectedPreviewNodeIds]);
+  const selectionContextActive = selectionPreviewNodeIds.length > 0;
+  const canPinNodes = graph?.level === "flow";
+
+  const clearLocalSelection = () => {
+    setSelectedSemanticNodeIds([]);
+    setSelectedGroupId(undefined);
+    setOrganizeGroupId(undefined);
+    setNodes((current) =>
+      current.some((node) => node.selected)
+        ? current.map((node) => (node.selected ? { ...node, selected: false } : node))
+        : current,
+    );
+  };
+
+  const requestCreateIntent = (
+    clientPosition: { x: number; y: number },
+    flowPosition: { x: number; y: number },
+    anchorEdgeId?: string,
+    anchorLabel?: string,
+  ) => {
+    const panelBounds = panelRef.current?.getBoundingClientRect();
+    onCreateIntent({
+      anchorEdgeId,
+      anchorLabel,
+      flowPosition,
+      panelPosition: {
+        x: panelBounds ? clientPosition.x - panelBounds.left : clientPosition.x,
+        y: panelBounds ? clientPosition.y - panelBounds.top : clientPosition.y,
+      },
+    });
+  };
+
+  const screenToFlowPosition = useCallback((clientPosition: { x: number; y: number }) => (
+    reactFlowInstanceRef.current?.screenToFlowPosition(clientPosition)
+    ?? { x: clientPosition.x, y: clientPosition.y }
+  ), []);
+  const createEdgeTriggers = useMemo(() => {
+    if (!graph || !(createModeReady && createModeControlEdgeEnabled && graph.level === "flow")) {
+      return [];
+    }
+
+    const nodeLookup = new Map(nodes.map((node) => [node.id, node] as const));
+    return graph.edges
+      .filter((edge) => edge.kind === "controls")
+      .map((edge) => {
+        const sourceNode = nodeLookup.get(edge.source);
+        const targetNode = nodeLookup.get(edge.target);
+        if (
+          !sourceNode
+          || !targetNode
+          || !isSemanticCanvasNode(sourceNode)
+          || !isSemanticCanvasNode(targetNode)
+        ) {
+          return null;
+        }
+
+        const sourceCenter = nodeCenter(sourceNode);
+        const targetCenter = nodeCenter(targetNode);
+        const deltaX = targetCenter.x - sourceCenter.x;
+        const deltaY = targetCenter.y - sourceCenter.y;
+        const pathLabel = controlEdgePathLabel(edge);
+        const buttonLabel = flowCreateLaneLabel(pathLabel, sourceNode.data.kind);
+        const distance = Math.hypot(deltaX, deltaY);
+        return {
+          edgeId: edge.id,
+          buttonLabel,
+          ariaLabel: flowCreateLaneAriaLabel(buttonLabel),
+          edgeLabel: pathLabel || undefined,
+          x: (sourceCenter.x + targetCenter.x) / 2,
+          y: (sourceCenter.y + targetCenter.y) / 2,
+          angle: distance > 0 ? (Math.atan2(deltaY, deltaX) * 180) / Math.PI : 0,
+          length: Math.max(108, Math.min(distance * 0.68, 228)),
+        };
+      })
+      .filter((trigger): trigger is FlowCreateLaneTrigger => trigger !== null);
+  }, [createModeControlEdgeEnabled, createModeReady, graph, nodes]);
+
+  const persistCurrentLayout = (
+    nextNodes: GraphCanvasNode[],
+    nextGroups: StoredGraphGroup[] = groups,
+  ) => {
+    void writeStoredGraphLayout(repoPath, viewKey, persistGraphLayout(nextNodes, nextGroups));
+  };
+
+  const persistCurrentCanvasState = () => {
+    hydrationGenerationRef.current += 1;
+    setNodes((current) => {
+      persistCurrentLayout(current, groups);
+      return current;
+    });
+  };
+
+  const selectGroup = (groupId: string) => {
+    setSelectedGroupId(groupId);
+    setOrganizeGroupId((current) => (current === groupId ? current : undefined));
+    setSelectedSemanticNodeIds([]);
+    setNodes((current) =>
+      current.some((node) => node.selected)
+        ? current.map((node) => (node.selected ? { ...node, selected: false } : node))
+        : current,
+    );
+  };
+
+  const beginGroupTitleEditing = (groupId: string) => {
+    const group = groups.find((candidate) => candidate.id === groupId);
+    if (!group) {
+      return;
+    }
+    selectGroup(groupId);
+    setOrganizeGroupId(undefined);
+    setEditingGroupId(groupId);
+    setEditingGroupTitle(group.title);
+  };
+
+  const finishGroupTitleEditing = (
+    groupId: string,
+    mode: "save" | "cancel",
+  ) => {
+    if (editingGroupId !== groupId) {
+      return;
+    }
+
+    if (mode === "cancel") {
+      setEditingGroupId(undefined);
+      setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+      return;
+    }
+
+    const nextGroups = renameGraphGroup(groups, groupId, editingGroupTitle);
+    hydrationGenerationRef.current += 1;
+    setGroups(nextGroups);
+    persistCurrentLayout(nodes, nextGroups);
+    setEditingGroupId(undefined);
+    setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+  };
+
+  const toggleOrganizeGroup = (groupId: string) => {
+    selectGroup(groupId);
+    setEditingGroupId(undefined);
+    setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+    setOrganizeGroupId((current) => (current === groupId ? undefined : groupId));
+  };
+
+  const applyOrganizeGroup = (groupId: string, mode: GroupOrganizeMode) => {
+    if (!graph || !viewKey) {
+      return;
+    }
+
+    const group = groups.find((candidate) => candidate.id === groupId);
+    if (!group) {
+      setOrganizeGroupId(undefined);
+      return;
+    }
+
+    const groupMemberNodeIds = new Set(group.memberNodeIds);
+    const graphNodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
+    const groupNodes = nodes.flatMap((node) => {
+      if (!isSemanticCanvasNode(node) || !groupMemberNodeIds.has(node.id)) {
+        return [];
+      }
+
+      const graphNode = graphNodesById.get(node.id);
+      return [{
+        id: node.id,
+        kind: node.data.kind,
+        x: node.position.x,
+        y: node.position.y,
+        width: semanticNodeDimension(node, "width"),
+        height: semanticNodeDimension(node, "height"),
+        metadata: graphNode?.metadata ?? {},
+      }];
+    });
+
+    setOrganizeGroupId(undefined);
+    if (groupNodes.length < 2) {
+      return;
+    }
+
+    const result = organizeGroupedNodes({
+      mode,
+      nodes: groupNodes,
+      edges: graph.edges,
+    });
+    if (!result.changed) {
+      return;
+    }
+
+    const previousLayout = persistGraphLayout(nodes, groups);
+    const nextNodes = nodes.map((node) => {
+      if (!isSemanticCanvasNode(node) || !groupMemberNodeIds.has(node.id)) {
+        return node;
+      }
+
+      const nextPosition = result.positions[node.id];
+      if (!nextPosition) {
+        return node;
+      }
+
+      return {
+        ...node,
+        position: nextPosition,
+      };
+    });
+
+    hydrationGenerationRef.current += 1;
+    setSelectedGroupId(groupId);
+    setSelectedSemanticNodeIds([]);
+    setNodes(nextNodes);
+    setLayoutUndo({
+      viewKey,
+      layout: previousLayout,
+    });
+    persistCurrentLayout(nextNodes, groups);
+  };
+
+  const togglePinnedNodes = (nodeIds: string[]) => {
+    if (!canPinNodes || !nodeIds.length) {
+      return;
+    }
+
+    hydrationGenerationRef.current += 1;
+    setLayoutUndo(undefined);
+    setNodes((current) => {
+      const targetNodeIds = expandGroupedNodeIds(nodeIds, groupByNodeId, memberNodeIdsByGroupId);
+      const semanticNodesById = new Map(
+        current
+          .filter(isSemanticCanvasNode)
+          .map((node) => [node.id, node] as const),
+      );
+      const nextPinnedByNodeId = new Map<string, boolean>();
+      const nextPinnedByGroupId = new Map<string, boolean>();
+
+      targetNodeIds.forEach((targetNodeId) => {
+        const groupId = groupByNodeId.get(targetNodeId);
+        if (!groupId) {
+          const targetNode = semanticNodesById.get(targetNodeId);
+          if (targetNode) {
+            nextPinnedByNodeId.set(targetNodeId, !targetNode.data.isPinned);
+          }
+          return;
+        }
+
+        if (!nextPinnedByGroupId.has(groupId)) {
+          const memberNodeIds = memberNodeIdsByGroupId.get(groupId) ?? [targetNodeId];
+          const shouldPin = memberNodeIds.some((memberNodeId) => (
+            !semanticNodesById.get(memberNodeId)?.data.isPinned
+          ));
+          nextPinnedByGroupId.set(groupId, shouldPin);
+        }
+      });
+
+      const next = current.map((node) => {
+        if (!isSemanticCanvasNode(node)) {
+          return node;
+        }
+
+        const groupId = groupByNodeId.get(node.id);
+        const nextPinned = groupId
+          ? nextPinnedByGroupId.get(groupId)
+          : nextPinnedByNodeId.get(node.id);
+        if (nextPinned === undefined) {
+          return node;
+        }
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            isPinned: nextPinned,
+            actions: (node.data.actions ?? []).map((action) =>
+              action.id === "pin"
+                ? {
+                    ...action,
+                    label: nextPinned ? "Unpin" : "Pin",
+                    helpId: pinActionHelpId(nextPinned),
+                  }
+                : action,
+            ),
+          },
+        };
+      });
+      persistCurrentLayout(next);
+      return next;
+    });
+  };
+  const togglePinnedNode = (nodeId: string) => {
+    togglePinnedNodes([nodeId]);
+  };
+
+  const createGroupFromSelection = () => {
+    const { changed, nextGroupId, nextGroups } = mergeGroupsForSelection(
+      groups,
+      effectiveSemanticSelection,
+    );
+    if (!changed || !nextGroupId) {
+      return;
+    }
+
+    hydrationGenerationRef.current += 1;
+    setLayoutUndo(undefined);
+    setNodes((current) =>
+      current.some((node) => node.selected)
+        ? current.map((node) => (node.selected ? { ...node, selected: false } : node))
+        : current,
+    );
+    setGroups(nextGroups);
+    setSelectedSemanticNodeIds([]);
+    setSelectedGroupId(nextGroupId);
+    setOrganizeGroupId(undefined);
+    setEditingGroupId(nextGroupId);
+    setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+    persistCurrentLayout(nodes, nextGroups);
+  };
+
+  const ungroupSelection = () => {
+    const { changed, nextGroups, removedGroupIds } = ungroupGroupsForSelection(
+      groups,
+      effectiveSemanticSelection,
+      selectedGroupId,
+    );
+    if (!changed) {
+      return;
+    }
+
+    hydrationGenerationRef.current += 1;
+    setLayoutUndo(undefined);
+    setGroups(nextGroups);
+    if (selectedGroupId && removedGroupIds.includes(selectedGroupId)) {
+      setSelectedGroupId(undefined);
+    }
+    if (organizeGroupId && removedGroupIds.includes(organizeGroupId)) {
+      setOrganizeGroupId(undefined);
+    }
+    if (editingGroupId && removedGroupIds.includes(editingGroupId)) {
+      setEditingGroupId(undefined);
+      setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+    }
+    persistCurrentLayout(nodes, nextGroups);
+  };
+
+  const ungroupGroup = async (groupId: string, title: string) => {
+    const confirmed = await confirmDialog(
+      `Ungroup "${title}"?`,
+      {
+        title: "Ungroup nodes",
+        kind: "warning",
+        okLabel: "Ungroup",
+        cancelLabel: "Cancel",
+      },
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const { changed, nextGroups, removedGroupIds } = ungroupGroupsForSelection(groups, [], groupId);
+    if (!changed) {
+      return;
+    }
+
+    hydrationGenerationRef.current += 1;
+    setLayoutUndo(undefined);
+    setGroups(nextGroups);
+    if (selectedGroupId && removedGroupIds.includes(selectedGroupId)) {
+      setSelectedGroupId(undefined);
+    }
+    if (organizeGroupId && removedGroupIds.includes(organizeGroupId)) {
+      setOrganizeGroupId(undefined);
+    }
+    if (editingGroupId && removedGroupIds.includes(editingGroupId)) {
+      setEditingGroupId(undefined);
+      setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+    }
+    persistCurrentLayout(nodes, nextGroups);
+  };
+
+  const removeSelectedReroutes = () => {
+    hydrationGenerationRef.current += 1;
+    setLayoutUndo(undefined);
+    setNodes((current) => {
+      const selectedIds = new Set(
+        current
+          .filter((node) => isRerouteCanvasNode(node) && Boolean(node.selected))
+          .map((node) => node.id),
+      );
+      if (!selectedIds.size) {
+        return current;
+      }
+
+      const next = normalizeRerouteNodeOrders(
+        current.filter((node) => !selectedIds.has(node.id)),
+      );
+      persistCurrentLayout(next, groups);
+      return next;
+    });
+  };
+
+  const handleFitView = () => {
+    const fitViewButton = panelRef.current?.querySelector<HTMLButtonElement>(
+      ".react-flow__controls-fitview",
+    );
+    if (!fitViewButton) {
+      return false;
+    }
+
+    fitViewButton.click();
+    return true;
+  };
+
+  const handleGraphShortcutKey = (event: {
+    key: string;
+    altKey: boolean;
+    ctrlKey: boolean;
+    defaultPrevented: boolean;
+    metaKey: boolean;
+    shiftKey: boolean;
+    target: EventTarget | null;
+    preventDefault: () => void;
+  }) => {
+    if (event.defaultPrevented) {
+      return;
+    }
+
+    if (shouldHandleCreateModeKey(event)) {
+      event.preventDefault();
+      onToggleCreateMode();
+      return;
+    }
+
+    if (shouldHandleFitViewKey(event)) {
+      if (!handleFitView()) {
+        return;
+      }
+
+      event.preventDefault();
+      return;
+    }
+
+    if (selectedRerouteCount && shouldHandleRerouteDeleteKey(event)) {
+      event.preventDefault();
+      removeSelectedReroutes();
+      return;
+    }
+
+    if (shouldHandleUngroupKey(event)) {
+      event.preventDefault();
+      ungroupSelection();
+      return;
+    }
+
+    if (shouldHandleGroupKey(event)) {
+      event.preventDefault();
+      createGroupFromSelection();
+      return;
+    }
+
+    if (selectedGroupId && shouldHandlePinKey(event) && canPinNodes) {
+      event.preventDefault();
+      togglePinnedNodes(memberNodeIdsByGroupId.get(selectedGroupId) ?? []);
+      return;
+    }
+
+    if (selectedNodeId && shouldHandlePinKey(event) && canPinNodes) {
+      event.preventDefault();
+      togglePinnedNodes([selectedNodeId]);
+      return;
+    }
+
+    if (!shouldHandleNavigateOutKey(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    onNavigateOut();
+  };
+
+  useEffect(() => {
+    const panel = panelRef.current;
+
+    const handleFocusIn = (event: FocusEvent) => {
+      graphHotkeyActiveRef.current = Boolean(
+        panelRef.current && event.target instanceof Node && panelRef.current.contains(event.target),
+      );
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      graphHotkeyActiveRef.current = Boolean(
+        panelRef.current && event.target instanceof Node && panelRef.current.contains(event.target),
+      );
+    };
+
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      const panelContainsTarget = Boolean(
+        panelRef.current
+        && event.target instanceof Node
+        && panelRef.current.contains(event.target),
+      );
+      const panelContainsFocus = Boolean(
+        panelRef.current
+        && document.activeElement instanceof Node
+        && panelRef.current.contains(document.activeElement),
+      );
+
+      if (
+        !(graphHotkeyActiveRef.current || panelContainsTarget || panelContainsFocus)
+        || (!shouldHandleFitViewKey(event)
+          && !shouldHandleCreateModeKey(event)
+          && !shouldHandleNavigateOutKey(event)
+          && !shouldHandleRerouteDeleteKey(event)
+          && !shouldHandlePinKey(event)
+          && !shouldHandleGroupKey(event)
+          && !shouldHandleUngroupKey(event))
+      ) {
+        return;
+      }
+
+      handleGraphShortcutKey(event);
+    };
+
+    const handlePanelKeyDown = (event: KeyboardEvent) => {
+      if (
+        !shouldHandleFitViewKey(event)
+        && !shouldHandleCreateModeKey(event)
+        && !shouldHandleNavigateOutKey(event)
+        && !shouldHandleRerouteDeleteKey(event)
+        && !shouldHandlePinKey(event)
+        && !shouldHandleGroupKey(event)
+        && !shouldHandleUngroupKey(event)
+      ) {
+        return;
+      }
+
+      handleGraphShortcutKey(event);
+    };
+
+    window.addEventListener("focusin", handleFocusIn);
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleWindowKeyDown, true);
+    panel?.addEventListener("keydown", handlePanelKeyDown);
+    return () => {
+      window.removeEventListener("focusin", handleFocusIn);
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleWindowKeyDown, true);
+      panel?.removeEventListener("keydown", handlePanelKeyDown);
+    };
+  }, [
+    canPinNodes,
+    createGroupFromSelection,
+    memberNodeIdsByGroupId,
+    onNavigateOut,
+    selectedGroupId,
+    selectedNodeId,
+    selectedRerouteCount,
+    onToggleCreateMode,
+    togglePinnedNodes,
+    ungroupSelection,
+    fitViewOptions,
+  ]);
+
+  useEffect(() => {
+    const handlePointerUp = () => {
+      setPanPointerDragging(false);
+    };
+
+    window.addEventListener("pointerup", handlePointerUp, true);
+    return () => window.removeEventListener("pointerup", handlePointerUp, true);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Shift") {
+        shiftPressedRef.current = true;
+      }
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "Shift") {
+        shiftPressedRef.current = false;
+      }
+    };
+
+    const handleBlur = () => {
+      shiftPressedRef.current = false;
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const showPanCursor = panModeActive && (pointerInsidePanel || panPointerDragging);
+    document.body.classList.toggle("graph-pan-cursor-active", showPanCursor && !panPointerDragging);
+    document.body.classList.toggle("graph-pan-cursor-dragging", showPanCursor && panPointerDragging);
+
+    return () => {
+      document.body.classList.remove("graph-pan-cursor-active");
+      document.body.classList.remove("graph-pan-cursor-dragging");
+    };
+  }, [panModeActive, panPointerDragging, pointerInsidePanel]);
+
+  useEffect(() => {
+    if (!selectedRerouteCount) {
+      return;
+    }
+    onClearSelection();
+  }, [onClearSelection, selectedRerouteCount]);
+
+  useEffect(() => {
+    if (!createModeActive) {
+      return;
+    }
+    clearLocalSelection();
+  }, [createModeActive]);
+
+  useEffect(() => {
+    if (!graph || !viewKey) {
+      setNodes([]);
+      setGroups([]);
+      setSelectedSemanticNodeIds([]);
+      setSelectedGroupId(undefined);
+      setEditingGroupId(undefined);
+      setOrganizeGroupId(undefined);
+      setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+      setMarqueeSelectionActive(false);
+      return;
+    }
+
+    const generation = hydrationGenerationRef.current + 1;
+    hydrationGenerationRef.current = generation;
+    const emptyLayout: StoredGraphLayout = {
+      nodes: {},
+      reroutes: [],
+      pinnedNodeIds: [],
+      groups: [],
+    };
+    const initialNodes = buildCanvasNodes(
+      graph,
+      EMPTY_STRING_SET,
+      emptyLayout,
+      EMPTY_STRING_SET,
+      false,
+      EMPTY_STRING_SET,
+      EMPTY_STRING_SET,
+      false,
+      EMPTY_STRING_SET,
+      EMPTY_STRING_SET,
+      canPinNodes,
+      togglePinnedNode,
+      onActivateNode,
+      onInspectNode,
+      setHoveredPortEdgeIds,
+      () => setHoveredPortEdgeIds([]),
+    );
+    setNodes(initialNodes);
+    setGroups([]);
+    setSelectedSemanticNodeIds([]);
+    setSelectedGroupId(undefined);
+    setEditingGroupId(undefined);
+    setOrganizeGroupId(undefined);
+    setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+
+    let cancelled = false;
+    void readStoredGraphLayout(repoPath, viewKey).then((savedLayout) => {
+      if (cancelled || hydrationGenerationRef.current !== generation) {
+        return;
+      }
+
+      if (graph.level === "flow" && storedLayoutIsEmpty(savedLayout)) {
+        const initialLayoutResult = layoutFlowGraph(
+          toFlowLayoutNodes(initialNodes, graph),
+          graph.edges,
+        );
+        const initializedLayout: StoredGraphLayout = {
+          nodes: initialLayoutResult.positions,
+          reroutes: [],
+          pinnedNodeIds: [],
+          groups: [],
+        };
+        setNodes(
+          buildCanvasNodes(
+            graph,
+            EMPTY_STRING_SET,
+            initializedLayout,
+            EMPTY_STRING_SET,
+            false,
+            EMPTY_STRING_SET,
+            EMPTY_STRING_SET,
+            false,
+            EMPTY_STRING_SET,
+            EMPTY_STRING_SET,
+            canPinNodes,
+            togglePinnedNode,
+            onActivateNode,
+            onInspectNode,
+            setHoveredPortEdgeIds,
+            () => setHoveredPortEdgeIds([]),
+          ),
+        );
+        setGroups([]);
+        void writeStoredGraphLayout(repoPath, viewKey, initializedLayout);
+        return;
+      }
+
+      const normalizedGroups = normalizeStoredGroups(savedLayout.groups, graphNodeIds);
+      const normalizedLayout: StoredGraphLayout = {
+        ...savedLayout,
+        groups: normalizedGroups,
+      };
+
+      setNodes(
+        buildCanvasNodes(
+          graph,
+          EMPTY_STRING_SET,
+          normalizedLayout,
+          EMPTY_STRING_SET,
+          false,
+          EMPTY_STRING_SET,
+          EMPTY_STRING_SET,
+          false,
+          new Set(normalizedGroups.flatMap((group) => group.memberNodeIds)),
+          EMPTY_STRING_SET,
+          canPinNodes,
+          togglePinnedNode,
+          onActivateNode,
+          onInspectNode,
+          setHoveredPortEdgeIds,
+          () => setHoveredPortEdgeIds([]),
+        ),
+      );
+      setGroups(normalizedGroups);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    graph,
+    canPinNodes,
+    onActivateNode,
+    onInspectNode,
+    repoPath,
+    graphNodeIds,
+    viewKey,
+  ]);
+
+  useEffect(() => {
+    if (!graph) {
+      return;
+    }
+    setNodes((current) =>
+      applyNodeDecorations(
+        current,
+        graph,
+        selectedPreviewNodeIds,
+        highlightedEdgeIds,
+        hoverActive,
+        selectedRelatedNodeIds,
+        selectedConnectedEdgeIds,
+        selectionContextActive,
+        groupedNodeIds,
+        selectedGroupMemberNodeIds,
+        canPinNodes,
+        togglePinnedNode,
+        onActivateNode,
+        onInspectNode,
+        setHoveredPortEdgeIds,
+        () => setHoveredPortEdgeIds([]),
+      ),
+    );
+  }, [
+    graph,
+    highlightedEdgeIds,
+    hoverActive,
+    canPinNodes,
+    onActivateNode,
+    onInspectNode,
+    selectedConnectedEdgeIds,
+    groupedNodeIds,
+    selectedPreviewNodeIds,
+    selectedGroupMemberNodeIds,
+    selectedRelatedNodeIds,
+    selectionContextActive,
+  ]);
+
+  useEffect(() => {
+    if (selectedGroupId && !groups.some((group) => group.id === selectedGroupId)) {
+      setSelectedGroupId(undefined);
+    }
+    if (organizeGroupId && !groups.some((group) => group.id === organizeGroupId)) {
+      setOrganizeGroupId(undefined);
+    }
+    if (editingGroupId && !groups.some((group) => group.id === editingGroupId)) {
+      setEditingGroupId(undefined);
+      setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+    }
+  }, [editingGroupId, groups, organizeGroupId, selectedGroupId]);
+
+  useEffect(() => {
+    setLayoutUndo(undefined);
+  }, [viewKey]);
+
+  useEffect(() => {
+    setHoveredEdgeId(undefined);
+    setHoveredPortEdgeIds([]);
+    setTransientHelpTarget(null);
+  }, [setTransientHelpTarget, viewKey]);
+
+  useEffect(() => () => {
+    setTransientHelpTarget(null);
+  }, [setTransientHelpTarget]);
+
+  const handleNodesChange = (changes: NodeChange<GraphCanvasNode>[]) => {
+    setNodes((current) =>
+      applyGroupedPositionChanges(
+        current,
+        changes,
+        groupByNodeId,
+        memberNodeIdsByGroupId,
+      ),
+    );
+  };
+
+  const handleNodeDragStop = () => {
+    setLayoutUndo(undefined);
+    persistCurrentCanvasState();
+  };
+
+  const handleSelectionDragStop = () => {
+    setLayoutUndo(undefined);
+    persistCurrentCanvasState();
+  };
+
+  const handleDeclutter = () => {
+    if (!graph || !viewKey || !nodes.length) {
+      return;
+    }
+
+    const previousLayout = persistGraphLayout(nodes, groups);
+    const result = graph.level === "flow"
+      ? layoutFlowGraph(toFlowLayoutNodes(nodes, graph), graph.edges, semanticPinnedNodeIds(nodes))
+      : declutterGraphLayout(
+          toDeclutterNodes(nodes.filter(isSemanticCanvasNode)),
+          graph.edges,
+        );
+    if (!result.changed) {
+      return;
+    }
+
+    const nextNodes = applyGroupedLayoutPositions(
+      nodes,
+      result.positions,
+      memberNodeIdsByGroupId,
+      groupByNodeId,
+    );
+
+    hydrationGenerationRef.current += 1;
+    setNodes(nextNodes);
+    setLayoutUndo({
+      viewKey,
+      layout: previousLayout,
+    });
+    persistCurrentLayout(nextNodes, groups);
+  };
+
+  const handleUndoLayout = () => {
+    if (!viewKey || !layoutUndo || layoutUndo.viewKey !== viewKey) {
+      return;
+    }
+
+    hydrationGenerationRef.current += 1;
+    setNodes((current) => applyStoredLayout(current, layoutUndo.layout));
+    setGroups(layoutUndo.layout.groups ?? []);
+    setOrganizeGroupId(undefined);
+    void writeStoredGraphLayout(repoPath, viewKey, layoutUndo.layout);
+    setLayoutUndo(undefined);
+  };
+
+  const handleInsertReroute = (
+    logicalEdgeId: string,
+    segmentIndex: number,
+    position: { x: number; y: number },
+  ) => {
+    if (!viewKey) {
+      return;
+    }
+
+    hydrationGenerationRef.current += 1;
+    setLayoutUndo(undefined);
+    setNodes((current) => {
+      const edgeReroutes = current
+        .filter(
+          (node): node is RerouteCanvasNode =>
+            isRerouteCanvasNode(node) && node.data.logicalEdgeId === logicalEdgeId,
+        )
+        .sort((left, right) => left.data.order - right.data.order || left.id.localeCompare(right.id));
+      const insertAt = Math.max(0, Math.min(segmentIndex, edgeReroutes.length));
+      const next = normalizeRerouteNodeOrders([
+        ...current.map((node) => {
+          if (
+            !isRerouteCanvasNode(node)
+            || node.data.logicalEdgeId !== logicalEdgeId
+            || node.data.order < insertAt
+          ) {
+            return node;
+          }
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              order: node.data.order + 1,
+            },
+          };
+        }),
+        {
+          id: rerouteNodeId(createRerouteId(logicalEdgeId)),
+          type: "reroute",
+          position,
+          draggable: true,
+          selectable: true,
+          className: buildRerouteShellClassName(
+            logicalEdgeId,
+            highlightedEdgeIds,
+            hoverActive,
+            selectedConnectedEdgeIds,
+            selectionContextActive,
+          ),
+          data: {
+            kind: "reroute",
+            logicalEdgeId,
+            order: insertAt,
+          },
+        } satisfies RerouteCanvasNode,
+      ]);
+      persistCurrentLayout(next, groups);
+      return next;
+    });
+  };
+
+  const groupBounds = useMemo(
+    () => buildGraphGroupBoundsList(groups, nodes),
+    [groups, nodes],
+  );
+
+  const handlePreviewGroupMove = (
+    groupId: string,
+    delta: { x: number; y: number },
+    basePositions: Map<string, { x: number; y: number }>,
+  ) => {
+    setSelectedGroupId(groupId);
+    setOrganizeGroupId((current) => (current === groupId ? current : undefined));
+    setSelectedSemanticNodeIds([]);
+    setLayoutUndo(undefined);
+    setNodes((current) =>
+      applyMemberNodeDelta(
+        current,
+        memberNodeIdsByGroupId.get(groupId) ?? [],
+        delta,
+        basePositions,
+      ),
+    );
+  };
+
+  const handleGroupMoveEnd = () => {
+    persistCurrentCanvasState();
+  };
+
+  if (!graph || !blueprint || !fitViewOptions || !viewKey) {
+    const emptyStateTitle = errorMessage
+      ? "Unable to open graph"
+      : isLoading
+        ? "Loading graph"
+        : "Blueprint canvas";
+    const emptyStateBody = errorMessage
+      ?? (isLoading
+        ? "Building the current graph view."
+        : "Index a repo to open the architecture map. Modules appear first, then symbols and flow only when you drill down.");
     return (
       <section className="content-panel graph-panel">
         <EmptyState
-          title="Seed the graph"
-          body="Open a repo and the graph becomes the workspace. Select a file or symbol to focus its neighborhood."
+          title={emptyStateTitle}
+          body={emptyStateBody}
         />
       </section>
     );
   }
 
-  const selectedNodeId = activeNodeId ?? graph.rootNodeId;
-  const nodes = graph.nodes.map((node) => ({
-    id: node.id,
-    position: { x: node.x, y: node.y },
-    data: {
-      kind: node.kind,
-      label: (
-        <div className={`graph-node graph-node--${node.kind}`}>
-          <span className="graph-node__kind">{node.kind}</span>
-          <strong>{node.label}</strong>
-          <span>{node.subtitle}</span>
-        </div>
-      ),
+  const edges = buildCanvasEdges({
+    blueprint,
+    createModeControlEdgeEnabled: createModeReady && createModeControlEdgeEnabled,
+    graph,
+    highlightedEdgeIds,
+    hoverActive,
+    nodes,
+    onEdgeHoverEnd: () => {
+      setHoveredEdgeId(undefined);
+      setTransientHelpTarget(null);
     },
-    draggable: false,
-    selectable: true,
-    className: node.id === selectedNodeId ? "graph-node-shell is-active" : "graph-node-shell",
-  }));
-
-  const edges = graph.edges.map((edge) => {
-    const connected = edge.source === selectedNodeId || edge.target === selectedNodeId;
-    const highlighted = highlightGraphPath && connected;
-    return {
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      label: showEdgeLabels ? edge.label : undefined,
-      animated: highlighted,
-      style: {
-        stroke: highlighted ? "var(--accent-strong)" : "var(--line-strong)",
-        strokeWidth: highlighted ? 2.1 : 1.1,
-      },
-      labelShowBg: Boolean(showEdgeLabels && edge.label),
-      labelBgPadding: [5, 9] as [number, number],
-      labelBgBorderRadius: 999,
-      labelBgStyle: {
-        fill: highlighted ? "var(--surface-strong)" : "var(--surface-solid)",
-        stroke: highlighted ? "var(--accent-strong)" : "var(--line-strong)",
-        strokeWidth: 1,
-        opacity: highlighted ? 0.96 : 0.88,
-      },
-      labelStyle: {
-        fill: highlighted ? "var(--text)" : "var(--text-muted)",
-        fontSize: 11,
-        fontWeight: 600,
-      },
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: highlighted ? "var(--accent-strong)" : "var(--line-strong)",
-      },
-    };
+    onEdgeHoverStart: (logicalEdgeId, logicalEdgeKind, logicalEdgeLabel) => {
+      setHoveredEdgeId(logicalEdgeId);
+      setTransientHelpTarget({
+        id: helpIdForGraphEdgeKind(logicalEdgeKind),
+        args: {
+          label: logicalEdgeLabel,
+        },
+      });
+    },
+    onInsertReroute: handleInsertReroute,
+    selectedConnectedEdgeIds,
+    selectionContextActive,
+    showEdgeLabels,
+    highlightGraphPath,
   });
 
   return (
-    <section className="content-panel graph-panel">
-      <ReactFlow
+    <section
+      ref={panelRef}
+      {...helpTargetProps("graph.canvas")}
+      aria-label="Graph canvas"
+      className={`content-panel graph-panel${panModeActive ? " is-pan-active" : ""}${createModeActive ? " is-create-mode" : ""}`}
+      data-create-mode={createModeState}
+      role="region"
+      tabIndex={0}
+      onFocusCapture={() => {
+        graphHotkeyActiveRef.current = true;
+      }}
+      onPointerOverCapture={() => {
+        setPointerInsidePanel(true);
+      }}
+      onPointerOutCapture={(event) => {
+        const nextTarget = event.relatedTarget;
+        if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+          setPointerInsidePanel(false);
+        }
+      }}
+      onPointerDownCapture={(event) => {
+        setPointerInsidePanel(true);
+        if (!isEditableEventTarget(event.target)) {
+          panelRef.current?.focus();
+        }
+        if (panModeActive && event.button === 0) {
+          setPanPointerDragging(true);
+        }
+      }}
+      onKeyDown={(event) => {
+        handleGraphShortcutKey(event);
+      }}
+    >
+      <ReactFlow<GraphCanvasNode, GraphCanvasEdge>
+        key={viewKey}
         fitView
+        fitViewOptions={fitViewOptions}
+        proOptions={{ hideAttribution: true }}
+        onInit={(instance) => {
+          reactFlowInstanceRef.current = instance;
+        }}
         nodes={nodes}
         edges={edges}
-        nodesDraggable={false}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        onNodesChange={handleNodesChange}
+        onNodeDragStop={handleNodeDragStop}
+        onSelectionDragStop={handleSelectionDragStop}
+        onSelectionStart={() => {
+          setMarqueeSelectionActive(true);
+        }}
+        onSelectionEnd={() => {
+          setMarqueeSelectionActive(false);
+        }}
+        onSelectionChange={({ nodes: selectedNodes }) => {
+          if (skipNextSelectionSyncRef.current) {
+            skipNextSelectionSyncRef.current = false;
+            return;
+          }
+
+          const nextSelectedSemanticNodeIds = sortNodeIds(
+            selectedNodes
+              .filter(isSemanticCanvasNode)
+              .map((node) => node.id),
+          );
+          const hasLocalNodeSelection = nextSelectedSemanticNodeIds.length > 0
+            || selectedNodes.some(isRerouteCanvasNode);
+
+          setSelectedSemanticNodeIds((current) =>
+            sameNodeIds(current, nextSelectedSemanticNodeIds)
+              ? current
+              : nextSelectedSemanticNodeIds,
+          );
+          if (hasLocalNodeSelection && selectedGroupId) {
+            setSelectedGroupId(undefined);
+          }
+          if (hasLocalNodeSelection && organizeGroupId) {
+            setOrganizeGroupId(undefined);
+          }
+        }}
+        nodesDraggable
         nodesConnectable={false}
-        onNodeClick={(_, node) =>
-          onSelectNode(
-            node.id,
-            (node.data as { kind: GraphNodeKind }).kind,
-          )
-        }
+        selectionKeyCode={null}
+        multiSelectionKeyCode={["Meta", "Control", "Shift"]}
+        selectionOnDrag={!panModeActive && !createModeActive}
+        selectionMode={SelectionMode.Partial}
+        paneClickDistance={4}
+        minZoom={MIN_GRAPH_ZOOM}
+        maxZoom={MAX_GRAPH_ZOOM}
+        zoomOnScroll={false}
+        panOnScroll
+        panOnScrollMode={PanOnScrollMode.Free}
+        zoomActivationKeyCode="Alt"
+        panOnDrag={panModeActive}
+        onNodeClick={(event, node) => {
+          if (createModeActive) {
+            if (createModeReady && createModeCanvasEnabled) {
+              requestCreateIntent(
+                { x: event.clientX, y: event.clientY },
+                screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+              );
+            }
+            return;
+          }
+
+          if (isRerouteCanvasNode(node)) {
+            setSelectedGroupId(undefined);
+            setOrganizeGroupId(undefined);
+            setSelectedSemanticNodeIds([]);
+            setNodes((current) =>
+              current.map((currentNode) => ({
+                ...currentNode,
+                selected: currentNode.id === node.id,
+              })),
+            );
+            onClearSelection();
+            return;
+          }
+
+          const toggleSelectionModifier = event.metaKey || event.ctrlKey;
+          const shiftSelectionModifier = event.shiftKey || shiftPressedRef.current;
+          const additiveSelection = (
+            toggleSelectionModifier
+            || shiftSelectionModifier
+          );
+          const shiftOnlySelection = shiftSelectionModifier && !toggleSelectionModifier;
+          const wasSelectedBeforeClick = selectedSemanticNodeIds.includes(node.id);
+          skipNextSelectionSyncRef.current = additiveSelection;
+          setSelectedGroupId(undefined);
+          setOrganizeGroupId(undefined);
+          setNodes((current) =>
+            current.map((currentNode) => {
+              if (isRerouteCanvasNode(currentNode)) {
+                return currentNode.selected
+                  ? { ...currentNode, selected: false }
+                  : currentNode;
+              }
+
+              if (currentNode.id === node.id) {
+                return {
+                  ...currentNode,
+                  selected: additiveSelection
+                    ? shiftOnlySelection
+                      ? true
+                      : !wasSelectedBeforeClick
+                    : true,
+                };
+              }
+
+              return additiveSelection
+                ? currentNode
+                : {
+                    ...currentNode,
+                    selected: false,
+                  };
+            }),
+          );
+          setSelectedSemanticNodeIds((current) => {
+            if (!additiveSelection) {
+              return [node.id];
+            }
+
+            if (shiftOnlySelection) {
+              return sortNodeIds(new Set([...current, node.id]));
+            }
+
+            const next = new Set(current);
+            if (next.has(node.id)) {
+              next.delete(node.id);
+            } else {
+              next.add(node.id);
+            }
+            return sortNodeIds(next);
+          });
+          onSelectNode(node.id, node.data.kind);
+        }}
+        onNodeDoubleClick={(_, node) => {
+          if (createModeActive) {
+            return;
+          }
+          if (isRerouteCanvasNode(node)) {
+            return;
+          }
+          node.data.onDefaultAction?.();
+        }}
+        onPaneClick={(event) => {
+          if (createModeActive) {
+            if (createModeReady && createModeCanvasEnabled) {
+              requestCreateIntent(
+                { x: event.clientX, y: event.clientY },
+                screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+              );
+            }
+            return;
+          }
+          clearLocalSelection();
+          onClearSelection();
+        }}
       >
-        <Controls showInteractive={false} />
-        <Background gap={28} size={1} color="var(--line-strong)" />
-        <Panel position="top-left">
-          <div
-            className={`graph-hud${controlsExpanded ? " is-expanded" : " is-collapsed"}`}
-          >
-            <div className="graph-hud__bar">
-              <div className="graph-hud__focus">
-                <span className="window-bar__eyebrow">Graph</span>
-                <strong>{currentNodeLabel ?? "Current focus"}</strong>
-              </div>
-              <div className="graph-hud__actions">
-                {canNavigateUp || canNavigateRoot ? (
-                  <div className="graph-hud__nav">
-                    {canNavigateUp ? (
-                      <button className="ghost-button" type="button" onClick={onNavigateUp}>
-                        Up
-                      </button>
-                    ) : null}
-                    {canNavigateRoot ? (
-                      <button className="ghost-button" type="button" onClick={onNavigateRoot}>
-                        Root
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
-                <button
-                  className={`graph-hud__toggle${controlsExpanded ? " is-active" : ""}`}
-                  type="button"
-                  onClick={() => setControlsExpanded((current) => !current)}
+        <GraphGroupLayer
+          groupBounds={groupBounds}
+          nodes={nodes}
+          selectedGroupId={selectedGroupId}
+          editingGroupId={editingGroupId}
+          organizeGroupId={organizeGroupId}
+          editingGroupTitle={editingGroupTitle}
+          onChangeEditingGroupTitle={setEditingGroupTitle}
+          onApplyOrganizeMode={applyOrganizeGroup}
+          onFinishGroupTitleEditing={finishGroupTitleEditing}
+          onGroupMoveEnd={handleGroupMoveEnd}
+          onPreviewGroupMove={handlePreviewGroupMove}
+          onSelectGroup={selectGroup}
+          onStartEditingGroup={beginGroupTitleEditing}
+          onToggleOrganizeGroup={toggleOrganizeGroup}
+          onUngroupGroup={ungroupGroup}
+        />
+        {createEdgeTriggers.length ? (
+          <ViewportPortal>
+            {createEdgeTriggers.map((trigger) => (
+              <button
+                key={trigger.edgeId}
+                aria-label={trigger.ariaLabel}
+                className="graph-edge__create-trigger"
+                data-testid={`graph-edge:${trigger.edgeId}`}
+                style={{
+                  left: `${trigger.x}px`,
+                  top: `${trigger.y}px`,
+                  width: `${trigger.length}px`,
+                  transform: `translate(-50%, -50%) rotate(${trigger.angle}deg)`,
+                }}
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  requestCreateIntent(
+                    { x: event.clientX, y: event.clientY },
+                    { x: trigger.x, y: trigger.y },
+                    trigger.edgeId,
+                    trigger.edgeLabel,
+                  );
+                }}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+              >
+                <span
+                  className="graph-edge__create-trigger-copy"
+                  style={{
+                    transform: `rotate(${-trigger.angle}deg)`,
+                  }}
                 >
-                  {controlsExpanded ? "Hide controls" : "Graph controls"}
-                </button>
-              </div>
-            </div>
-
-            {controlsExpanded ? (
-              <div className="graph-hud__panel">
-                <div className="graph-hud__section">
-                  <span className="window-bar__eyebrow">Depth</span>
-                  <div className="graph-depth">
-                    <button className="ghost-button" type="button" onClick={onReduceDepth}>
-                      Less
-                    </button>
-                    <span className="graph-depth__value">{graphDepth}</span>
-                    <button className="ghost-button" type="button" onClick={onExpandDepth}>
-                      More
-                    </button>
-                  </div>
-                </div>
-
-                <div className="graph-hud__section">
-                  <span className="window-bar__eyebrow">Layers</span>
-                  <div className="graph-filters">
-                    <button
-                      className={`toggle-button${graphFilters.includeCalls ? " is-active" : ""}`}
-                      type="button"
-                      onClick={() => onToggleGraphFilter("includeCalls")}
-                    >
-                      Calls
-                    </button>
-                    <button
-                      className={`toggle-button${graphFilters.includeImports ? " is-active" : ""}`}
-                      type="button"
-                      onClick={() => onToggleGraphFilter("includeImports")}
-                    >
-                      Imports
-                    </button>
-                    <button
-                      className={`toggle-button${graphFilters.includeDefines ? " is-active" : ""}`}
-                      type="button"
-                      onClick={() => onToggleGraphFilter("includeDefines")}
-                    >
-                      Defines
-                    </button>
-                    <button
-                      className={`toggle-button${highlightGraphPath ? " is-active" : ""}`}
-                      type="button"
-                      onClick={onToggleGraphPathHighlight}
-                    >
-                      Path
-                    </button>
-                    <button
-                      className={`toggle-button${showEdgeLabels ? " is-active" : ""}`}
-                      type="button"
-                      onClick={onToggleEdgeLabels}
-                    >
-                      Labels
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </Panel>
+                  <span className="graph-edge__create-trigger-icon">+</span>
+                  <span>{trigger.buttonLabel}</span>
+                </span>
+              </button>
+            ))}
+          </ViewportPortal>
+        ) : null}
+        <Controls showInteractive={false} />
+        <Background gap={32} size={1} color={createModeActive ? "var(--accent-strong)" : "var(--line-strong)"} />
       </ReactFlow>
+
+      {createModeActive ? (
+        <>
+          <div aria-hidden="true" className="graph-create-mode__tint" />
+          <div className="graph-create-mode__badge" data-testid="graph-create-mode-badge">
+            Create mode
+          </div>
+          <div className="graph-create-mode__watermark" data-testid="graph-create-mode-watermark">
+            CREATE MODE
+          </div>
+          {createModeHint ? (
+            <div className="graph-create-mode__hint" data-testid="graph-create-mode-hint">
+              {createModeHint}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
+      <GraphToolbar
+        graph={graph}
+        graphFilters={graphFilters}
+        graphSettings={graphSettings}
+        highlightGraphPath={highlightGraphPath}
+        showEdgeLabels={showEdgeLabels}
+        canUndoLayout={Boolean(layoutUndo && layoutUndo.viewKey === viewKey)}
+        onSelectLevel={onSelectLevel}
+        onDeclutter={handleDeclutter}
+        onFitView={handleFitView}
+        onToggleGraphFilter={onToggleGraphFilter}
+        onToggleGraphSetting={onToggleGraphSetting}
+        onToggleGraphPathHighlight={onToggleGraphPathHighlight}
+        onToggleEdgeLabels={onToggleEdgeLabels}
+        onUndoLayout={handleUndoLayout}
+      />
     </section>
   );
+}
+
+function applyNodeDecorations(
+  nodes: GraphCanvasNode[],
+  graph: GraphView,
+  selectedNodeIds: Set<string>,
+  highlightedEdgeIds: Set<string>,
+  hoverActive: boolean,
+  selectedRelatedNodeIds: Set<string>,
+  selectedConnectedEdgeIds: Set<string>,
+  selectionContextActive: boolean,
+  groupedNodeIds: Set<string>,
+  selectedGroupMemberNodeIds: Set<string>,
+  canPinNodes: boolean,
+  onTogglePinned: (nodeId: string) => void,
+  onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
+  onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
+  onPortHoverStart: (edgeIds: string[]) => void,
+  onPortHoverEnd: () => void,
+) {
+  const graphNodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const blueprint = buildBlueprintPresentation(graph);
+
+  return nodes.map((node) => {
+    if (isRerouteCanvasNode(node)) {
+      return {
+        ...node,
+        className: buildRerouteShellClassName(
+          node.data.logicalEdgeId,
+          highlightedEdgeIds,
+          hoverActive,
+          selectedConnectedEdgeIds,
+          selectionContextActive,
+        ),
+      };
+    }
+
+    const graphNode = graphNodeById.get(node.id);
+    if (!graphNode) {
+      return node;
+    }
+
+    const nextClassName = buildNodeShellClassName(
+      node.id,
+      selectedNodeIds,
+      selectedRelatedNodeIds,
+      selectionContextActive,
+      groupedNodeIds,
+      selectedGroupMemberNodeIds,
+    );
+    const ports = blueprint.nodePorts.get(node.id) ?? { inputs: [], outputs: [] };
+    const actions: BlueprintNodeData["actions"] = [];
+
+    if (isEnterableGraphNodeKind(graphNode.kind)) {
+      actions.push({
+        id: "enter",
+        label: "Enter",
+        helpId: "graph.node.action.enter",
+        onAction: () => onActivateNode(graphNode.id, graphNode.kind),
+      });
+    }
+
+    if (isInspectableGraphNodeKind(graphNode.kind)) {
+      actions.push({
+        id: "inspect",
+        label: "Inspect",
+        helpId: "graph.node.action.inspect",
+        onAction: () => onInspectNode(graphNode.id, graphNode.kind),
+      });
+    }
+
+    if (canPinNodes) {
+      actions.push({
+        id: "pin",
+        label: node.data.isPinned ? "Unpin" : "Pin",
+        helpId: pinActionHelpId(Boolean(node.data.isPinned)),
+        onAction: () => onTogglePinned(graphNode.id),
+      });
+    }
+
+    return {
+      ...node,
+      className: nextClassName,
+      data: {
+        ...node.data,
+        kind: graphNode.kind,
+        label: moduleDisplayLabel(graphNode),
+        summary: nodeSummary(graphNode),
+        isPinned: node.data.isPinned,
+        inputPorts: decorateNodePorts(
+          ports.inputs,
+          highlightedEdgeIds,
+          hoverActive,
+          onPortHoverStart,
+          onPortHoverEnd,
+        ),
+        outputPorts: decorateNodePorts(
+          ports.outputs,
+          highlightedEdgeIds,
+          hoverActive,
+          onPortHoverStart,
+          onPortHoverEnd,
+        ),
+        actions,
+        onDefaultAction: actions[0]?.onAction,
+      },
+    };
+  });
 }

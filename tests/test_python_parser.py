@@ -61,3 +61,43 @@ class PythonParserTests(unittest.TestCase):
             self.assertEqual(len(parsed.diagnostics), 1)
             self.assertEqual(parsed.diagnostics[0].code, "syntax_error")
             self.assertEqual(parsed.symbols, ())
+
+    def test_extracts_top_level_enums_and_direct_class_attributes_without_locals(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "import enum\n"
+                        "from helpers import helper\n\n"
+                        "READY = helper()\n"
+                        "LIMIT: int = 3\n\n"
+                        "class Mode(enum.IntFlag):\n"
+                        "    FAST = 1\n\n"
+                        "class Service:\n"
+                        "    enabled = True\n\n"
+                        "    def run(self):\n"
+                        "        local_value = READY\n"
+                        "        return local_value\n"
+                    ),
+                },
+            )
+
+            module = discover_python_modules(root).modules[0]
+            parsed = PythonModuleParser().parse_module(module)
+
+            qualnames = {symbol.qualname: symbol.kind.value for symbol in parsed.symbols}
+            self.assertEqual(
+                qualnames,
+                {
+                    "READY": "variable",
+                    "LIMIT": "variable",
+                    "Mode": "enum",
+                    "Service": "class",
+                    "Service.enabled": "variable",
+                    "Service.run": "method",
+                },
+            )
+            self.assertNotIn("Mode.FAST", qualnames)
+            self.assertNotIn("local_value", qualnames)
