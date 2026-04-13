@@ -17,6 +17,13 @@ export interface BlueprintEdgeData extends Record<string, unknown> {
   segmentIndex: number;
   labelOffsetX?: number;
   labelOffsetY?: number;
+  onClick?: (
+    logicalEdgeId: string,
+    logicalEdgeKind: GraphEdgeKind,
+    position: { x: number; y: number },
+    clientPosition: { x: number; y: number },
+    logicalEdgeLabel?: string,
+  ) => void;
   onHoverStart?: (
     logicalEdgeId: string,
     logicalEdgeKind: GraphEdgeKind,
@@ -124,6 +131,28 @@ export const BlueprintEdge = memo(function BlueprintEdge({
     edgeData.onInsertReroute(edgeData.logicalEdgeId, edgeData.segmentIndex, position);
   };
 
+  const handleClick = (event: ReactMouseEvent<SVGPathElement>) => {
+    if (!edgeData?.onClick) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    edgeData.onClick(
+      edgeData.logicalEdgeId,
+      edgeData.logicalEdgeKind,
+      screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      }),
+      {
+        x: event.clientX,
+        y: event.clientY,
+      },
+      edgeData.logicalEdgeLabel,
+    );
+  };
+
   const labelText = typeof label === "string" ? label : undefined;
   const labelCount = typeof edgeData?.labelCount === "number" && edgeData.labelCount > 1
     ? edgeData.labelCount
@@ -146,11 +175,12 @@ export const BlueprintEdge = memo(function BlueprintEdge({
       <BaseEdge id={id} markerEnd={markerEnd} path={edgePath} style={style} />
       <path
         d={edgePath}
-        data-testid={`graph-edge:${id}`}
+        data-testid={`graph-edge-hitarea:${id}`}
         className="graph-edge__interaction"
         fill="none"
         stroke="transparent"
         strokeWidth={20}
+        onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onMouseEnter={handleHoverStart}
         onMouseLeave={() => edgeData?.onHoverEnd?.()}

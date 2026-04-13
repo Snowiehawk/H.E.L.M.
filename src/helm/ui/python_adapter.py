@@ -118,9 +118,25 @@ class PythonRepoAdapter:
         parsed: ParsedModule,
         symbol: SymbolDef,
     ) -> GraphView:
-        symbol_id = symbol.symbol_id
-
         source = Path(parsed.module.file_path).read_text(encoding="utf-8")
+        return self._build_code_derived_function_flow_view(
+            symbol_node=symbol_node,
+            parsed=parsed,
+            symbol=symbol,
+            source=source,
+            import_error=None,
+        )
+
+    def _build_code_derived_function_flow_view(
+        self,
+        *,
+        symbol_node: GraphNode,
+        parsed: ParsedModule,
+        symbol: SymbolDef,
+        source: str,
+        import_error: str | None,
+    ) -> GraphView:
+        symbol_id = symbol.symbol_id
         tree = ast.parse(source, filename=parsed.module.file_path)
         function_node = _find_ast_symbol(tree, symbol.qualname)
         if not isinstance(function_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -155,7 +171,7 @@ class PythonRepoAdapter:
             )
             definitions[argument.arg] = param_id
 
-        _, statement_index = _append_statement_block(
+        _append_statement_block(
             statements=function_node.body,
             symbol_id=symbol_id,
             pending_links=[_PendingControlLink(source_id=previous_control_id)],
@@ -165,6 +181,7 @@ class PythonRepoAdapter:
             statement_index=0,
         )
 
+        diagnostics = [import_error] if import_error else []
         return GraphView(
             root_node_id=entry_id,
             target_id=symbol_id,
@@ -185,6 +202,12 @@ class PythonRepoAdapter:
                 ),
             ),
             truncated=False,
+            flow_state={
+                "editable": False,
+                "sync_state": "import_error" if diagnostics else "clean",
+                "diagnostics": diagnostics,
+                "document": None,
+            },
         )
 
     def _build_class_flow_view(
@@ -316,6 +339,8 @@ class PythonRepoAdapter:
             reparsed_relative_paths=reparsed,
             changed_node_ids=result.changed_node_ids,
             warnings=result.warnings,
+            flow_sync_state=result.flow_sync_state,
+            diagnostics=result.diagnostics,
         )
         return {"edit": enriched.to_dict(), "payload": self.build_payload()}
 
@@ -1022,25 +1047,6 @@ def _symbol_source_order(symbol: SymbolDef) -> tuple[int, int, str]:
         return (10**9, 10**9, symbol.qualname)
     return (symbol.span.start_line, symbol.span.start_column, symbol.qualname)
 
-
-def _find_ast_symbol(tree: ast.AST, qualname: str) -> ast.AST | None:
-    parts = qualname.split(".")
-    candidates: list[ast.AST] = list(getattr(tree, "body", []))
-    current: ast.AST | None = None
-    for part in parts:
-        current = None
-        next_candidates: list[ast.AST] = []
-        for candidate in candidates:
-            if isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and candidate.name == part:
-                current = candidate
-                next_candidates = list(getattr(candidate, "body", []))
-                break
-        if current is None:
-            return None
-        candidates = next_candidates
-    return current
-
-
 @dataclass(frozen=True)
 class _PendingControlLink:
     source_id: str
@@ -1267,6 +1273,24 @@ def _source_metadata_for_ast_node(node: ast.AST) -> dict[str, int]:
         "source_end_line": end_line,
         "source_end_column": end_column,
     }
+
+
+def _find_ast_symbol(tree: ast.AST, qualname: str) -> ast.AST | None:
+    parts = qualname.split(".")
+    candidates: list[ast.AST] = list(getattr(tree, "body", []))
+    current: ast.AST | None = None
+    for part in parts:
+        current = None
+        next_candidates: list[ast.AST] = []
+        for candidate in candidates:
+            if isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and candidate.name == part:
+                current = candidate
+                next_candidates = list(getattr(candidate, "body", []))
+                break
+        if current is None:
+            return None
+        candidates = next_candidates
+    return current
 
 
 def _names_used(statement: ast.stmt) -> set[str]:

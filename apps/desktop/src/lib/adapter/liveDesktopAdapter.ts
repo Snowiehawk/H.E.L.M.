@@ -5,6 +5,7 @@ import type {
   DesktopAdapter,
   EditableNodeSource,
   FileContents,
+  FlowGraphDocument,
   GraphAbstractionLevel,
   GraphActionDto,
   GraphBreadcrumbDto,
@@ -142,7 +143,8 @@ interface RawGraphViewNode {
     | "call"
     | "branch"
     | "loop"
-    | "return";
+    | "return"
+    | "exit";
   label: string;
   subtitle?: string | null;
   metadata: Record<string, unknown>;
@@ -178,6 +180,32 @@ interface RawGraphView {
     available_levels: GraphAbstractionLevel[];
   } | null;
   truncated: boolean;
+  flow_state?: {
+    editable: boolean;
+    sync_state: "clean" | "draft" | "import_error";
+    diagnostics: string[];
+    document?: {
+      symbol_id: string;
+      relative_path: string;
+      qualname: string;
+      nodes: Array<{
+        id: string;
+        kind: "entry" | "assign" | "call" | "branch" | "loop" | "return" | "exit";
+        payload: Record<string, unknown>;
+      }>;
+      edges: Array<{
+        id: string;
+        source_id: string;
+        source_handle: string;
+        target_id: string;
+        target_handle: string;
+      }>;
+      sync_state: "clean" | "draft" | "import_error";
+      diagnostics: string[];
+      source_hash?: string | null;
+      editable: boolean;
+    } | null;
+  } | null;
 }
 
 interface RawBackendHealth {
@@ -199,14 +227,18 @@ interface RawEditResult {
     imported_module?: string | null;
     imported_name?: string | null;
     alias?: string | null;
+    anchor_edge_id?: string | null;
     body?: string | null;
     content?: string | null;
+    flow_graph?: Record<string, unknown> | null;
   };
   summary: string;
   touched_relative_paths: string[];
   reparsed_relative_paths: string[];
   changed_node_ids: string[];
   warnings: string[];
+  flow_sync_state?: "clean" | "draft" | "import_error" | null;
+  diagnostics?: string[];
 }
 
 interface RawApplyEditResponse {
@@ -1149,8 +1181,32 @@ function toRawEditRequest(request: StructuralEditRequest) {
     imported_module: request.importedModule,
     imported_name: request.importedName,
     alias: request.alias,
+    anchor_edge_id: request.anchorEdgeId,
     body: request.body,
     content: request.content,
+    flow_graph: request.flowGraph
+      ? {
+          symbol_id: request.flowGraph.symbolId,
+          relative_path: request.flowGraph.relativePath,
+          qualname: request.flowGraph.qualname,
+          nodes: request.flowGraph.nodes.map((node) => ({
+            id: node.id,
+            kind: node.kind,
+            payload: node.payload,
+          })),
+          edges: request.flowGraph.edges.map((edge) => ({
+            id: edge.id,
+            source_id: edge.sourceId,
+            source_handle: edge.sourceHandle,
+            target_id: edge.targetId,
+            target_handle: edge.targetHandle,
+          })),
+          sync_state: request.flowGraph.syncState,
+          diagnostics: request.flowGraph.diagnostics,
+          source_hash: request.flowGraph.sourceHash ?? null,
+          editable: request.flowGraph.editable,
+        }
+      : undefined,
   };
 }
 
@@ -1162,6 +1218,8 @@ function toStructuralEditResult(raw: RawEditResult): StructuralEditResult {
     reparsedRelativePaths: raw.reparsed_relative_paths,
     changedNodeIds: raw.changed_node_ids,
     warnings: raw.warnings,
+    flowSyncState: raw.flow_sync_state ?? null,
+    diagnostics: raw.diagnostics ?? [],
   };
 }
 
@@ -1226,6 +1284,42 @@ function layoutGraphView(raw: RawGraphView): GraphView {
         } satisfies GraphFocusDto)
       : undefined,
     truncated: raw.truncated,
+    flowState: raw.flow_state
+      ? {
+          editable: raw.flow_state.editable,
+          syncState: raw.flow_state.sync_state,
+          diagnostics: raw.flow_state.diagnostics,
+          document: raw.flow_state.document
+            ? toFlowGraphDocument(raw.flow_state.document)
+            : undefined,
+        }
+      : undefined,
+  };
+}
+
+function toFlowGraphDocument(
+  raw: NonNullable<NonNullable<RawGraphView["flow_state"]>["document"]>,
+): FlowGraphDocument {
+  return {
+    symbolId: raw.symbol_id,
+    relativePath: raw.relative_path,
+    qualname: raw.qualname,
+    nodes: raw.nodes.map((node) => ({
+      id: node.id,
+      kind: node.kind,
+      payload: node.payload,
+    })),
+    edges: raw.edges.map((edge) => ({
+      id: edge.id,
+      sourceId: edge.source_id,
+      sourceHandle: edge.source_handle,
+      targetId: edge.target_id,
+      targetHandle: edge.target_handle,
+    })),
+    syncState: raw.sync_state,
+    diagnostics: raw.diagnostics,
+    sourceHash: raw.source_hash,
+    editable: raw.editable,
   };
 }
 

@@ -6,11 +6,25 @@ import type {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { CommandPalette } from "../components/CommandPalette";
-import { GraphCanvas } from "../components/graph/GraphCanvas";
+import {
+  GraphCanvas,
+  type CreateModeState,
+  type GraphCreateIntent,
+} from "../components/graph/GraphCanvas";
+import {
+  graphLayoutNodeKey,
+  readStoredGraphLayout,
+  writeStoredGraphLayout,
+} from "../components/graph/graphLayoutPersistence";
 import { DesktopWindow } from "../components/layout/DesktopWindow";
 import { SidebarPane } from "../components/panes/SidebarPane";
 import { ThemeCycleButton } from "../components/shared/ThemeCycleButton";
 import { BlueprintInspector } from "../components/workspace/BlueprintInspector";
+import {
+  GraphCreateComposer,
+  type GraphCreateComposerState,
+  type GraphCreateComposerSubmit,
+} from "../components/workspace/GraphCreateComposer";
 import {
   BlueprintInspectorDrawer,
   type BlueprintInspectorDrawerAction,
@@ -439,17 +453,22 @@ export function WorkspaceScreen() {
   const [inspectorDrawerHeight, setInspectorDrawerHeight] = useState(readStoredInspectorDrawerHeight);
   const [explorerSidebarWidth, setExplorerSidebarWidth] = useState(readStoredExplorerSidebarWidth);
   const [isSavingSource, setIsSavingSource] = useState(false);
-  const [isCreatingFunction, setIsCreatingFunction] = useState(false);
+  const [createModeState, setCreateModeState] = useState<CreateModeState>("inactive");
+  const [createComposer, setCreateComposer] = useState<GraphCreateComposerState | undefined>(undefined);
+  const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
   const [inspectorDirty, setInspectorDirty] = useState(false);
   const [inspectorActionError, setInspectorActionError] = useState<string | null>(null);
-  const [createFunctionError, setCreateFunctionError] = useState<string | null>(null);
+  const [createModeError, setCreateModeError] = useState<string | null>(null);
   const inspectorSpaceTapRef = useRef<{ startedAt: number; cancelled: boolean } | null>(null);
   const workspaceLayoutRef = useRef<HTMLDivElement>(null);
   const [workspaceLayoutWidth, setWorkspaceLayoutWidth] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth : 1280,
   );
   const [dismissedPeekNodeId, setDismissedPeekNodeId] = useState<string | undefined>(undefined);
+  const [pendingCreatedNodeId, setPendingCreatedNodeId] = useState<string | undefined>(undefined);
   const inspectorDraftContentRef = useRef<string | undefined>(undefined);
+  const saveInspectorDraftRef = useRef<(targetId: string, draftContent: string) => Promise<void>>(async () => {});
+  const createModeContextKeyRef = useRef<string | undefined>(undefined);
   const [graphPathRevealError, setGraphPathRevealError] = useState<string | null>(null);
   const repoSession = useUiStore((state) => state.repoSession);
   const graphTargetId = useUiStore((state) => state.graphTargetId);
@@ -491,6 +510,10 @@ export function WorkspaceScreen() {
       inspectorDraftContentRef.current = undefined;
       setInspectorDirty(false);
       setDismissedPeekNodeId(undefined);
+      setCreateModeState("inactive");
+      setCreateComposer(undefined);
+      setCreateModeError(null);
+      setPendingCreatedNodeId(undefined);
     }
   }, [repoSession]);
 
@@ -620,6 +643,11 @@ export function WorkspaceScreen() {
     queryKey: ["symbol", inspectorTargetId],
     queryFn: () => adapter.getSymbol(inspectorTargetId as string),
     enabled: Boolean(inspectorTargetId && inspectorTargetId.startsWith("symbol:")),
+  });
+  const flowOwnerSymbolQuery = useQuery({
+    queryKey: ["flow-owner-symbol", graphTargetId],
+    queryFn: () => adapter.getSymbol(graphTargetId as string),
+    enabled: Boolean(activeLevel === "flow" && graphTargetId?.startsWith("symbol:")),
   });
 
   useEffect(() => {
@@ -886,7 +914,10 @@ export function WorkspaceScreen() {
     setRevealedSource(source);
   };
 
-  const handleApplyEdit = async (request: StructuralEditRequest) => {
+  const handleApplyEdit = async (
+    request: StructuralEditRequest,
+    options?: { preserveView?: boolean },
+  ) => {
     const result = await adapter.applyStructuralEdit(request);
     setInspectorPanelMode("expanded");
     setLastEdit(result);
@@ -898,38 +929,24 @@ export function WorkspaceScreen() {
       queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
     ]);
 
+    if (options?.preserveView) {
+      return result;
+    }
+
     const changedSymbolId = result.changedNodeIds.find((nodeId) => nodeId.startsWith("symbol:"));
     if (changedSymbolId) {
       focusGraph(changedSymbolId, "symbol");
-      return;
+      return result;
     }
     const changedModuleId = result.changedNodeIds.find((nodeId) => nodeId.startsWith("module:"));
     if (changedModuleId) {
       focusGraph(changedModuleId, "module");
-      return;
+      return result;
     }
     if (graphTargetId) {
       focusGraph(graphTargetId, activeLevel);
     }
-  };
-
-  const handleCreateFunction = async (relativePath: string, newName: string) => {
-    setCreateFunctionError(null);
-    setIsCreatingFunction(true);
-    try {
-      await handleApplyEdit({
-        kind: "create_symbol",
-        relativePath,
-        newName,
-        symbolKind: "function",
-      });
-    } catch (reason) {
-      setCreateFunctionError(
-        reason instanceof Error ? reason.message : "Unable to create the function right now.",
-      );
-    } finally {
-      setIsCreatingFunction(false);
-    }
+    return result;
   };
 
   const handleSaveNodeSource = async (targetId: string, content: string) => {
@@ -964,6 +981,13 @@ export function WorkspaceScreen() {
     });
   }, []);
 
+  const handleSaveInspectorDraft = useCallback(async (
+    targetId: string,
+    draftContent: string,
+  ) => {
+    await saveInspectorDraftRef.current(targetId, draftContent);
+  }, []);
+
   const handleOpenBlueprint = (symbolId: string) => {
     setInspectorActionError(null);
     setInspectorTargetId(symbolId);
@@ -981,6 +1005,271 @@ export function WorkspaceScreen() {
     }
   }, [adapter]);
 
+  const clearSelectionState = useCallback(() => {
+    selectNode(undefined);
+    setInspectorTargetId(undefined);
+    setInspectorSnapshot(undefined);
+    inspectorDraftContentRef.current = undefined;
+    setInspectorDirty(false);
+    setRevealedSource(undefined);
+    setDismissedPeekNodeId(undefined);
+  }, [selectNode, setRevealedSource]);
+
+  const requestClearSelectionState = useCallback(async () => {
+    const draftContent = inspectorDraftContentRef.current;
+    if (inspectorDirty && inspectorTargetId && draftContent !== undefined) {
+      const shouldSave = window.confirm(
+        "Save your changes before clearing the selection? Click OK to save or Cancel to discard.",
+      );
+      if (shouldSave) {
+        try {
+          await saveInspectorDraftRef.current(inspectorTargetId, draftContent);
+        } catch {
+          return false;
+        }
+      }
+    }
+
+    clearSelectionState();
+    return true;
+  }, [
+    clearSelectionState,
+    inspectorDirty,
+    inspectorTargetId,
+  ]);
+
+  const currentModulePath = useMemo(
+    () => [...(graphQuery.data?.breadcrumbs ?? [])]
+      .reverse()
+      .find((breadcrumb) => breadcrumb.level === "module")?.subtitle ?? undefined,
+    [graphQuery.data?.breadcrumbs],
+  );
+  const flowOwnerKind = flowOwnerSymbolQuery.data?.kind;
+  const flowCreateEnabled =
+    activeLevel === "flow"
+    && (
+      flowOwnerKind === "function"
+      || flowOwnerKind === "async_function"
+      || flowOwnerKind === "method"
+      || flowOwnerKind === "async_method"
+    );
+  const createModeCanvasEnabled =
+    activeLevel === "repo"
+    || ((activeLevel === "module" || activeLevel === "symbol") && Boolean(currentModulePath));
+  const createModeHint =
+    createModeState === "inactive"
+      ? undefined
+      : activeLevel === "repo"
+        ? "Click the graph to place a new Python module."
+        : activeLevel === "module" || activeLevel === "symbol"
+          ? currentModulePath
+            ? `Click the graph to create a function or class in ${currentModulePath}.`
+            : "Create mode needs a concrete module target in this view."
+          : flowCreateEnabled
+            ? "Click an insertion lane to add a node on that control-flow path."
+            : "Create mode only writes inside function or method flows in v1.";
+  const createModeContextKey = [
+    activeLevel,
+    graphTargetId ?? "",
+    currentModulePath ?? "",
+    flowOwnerKind ?? "",
+  ].join("|");
+
+  const handleExitCreateMode = useCallback(() => {
+    setCreateComposer(undefined);
+    setCreateModeError(null);
+    setCreateModeState("inactive");
+  }, []);
+
+  const handleOpenCreateComposer = useCallback((intent: GraphCreateIntent) => {
+    setCreateModeError(null);
+    const composerAnchor = {
+      x: intent.panelPosition.x,
+      y: intent.panelPosition.y,
+    };
+    if (activeLevel === "repo") {
+      setCreateComposer({
+        id: `${Date.now()}:repo`,
+        kind: "repo",
+        anchor: composerAnchor,
+        flowPosition: intent.flowPosition,
+      });
+      setCreateModeState("composing");
+      return;
+    }
+
+    if ((activeLevel === "module" || activeLevel === "symbol") && currentModulePath) {
+      setCreateComposer({
+        id: `${Date.now()}:symbol`,
+        kind: "symbol",
+        anchor: composerAnchor,
+        flowPosition: intent.flowPosition,
+        targetModulePath: currentModulePath,
+      });
+      setCreateModeState("composing");
+      return;
+    }
+
+    if (activeLevel === "flow" && intent.anchorEdgeId && flowCreateEnabled) {
+      setCreateComposer({
+        id: `${Date.now()}:flow`,
+        kind: "flow",
+        anchor: composerAnchor,
+        flowPosition: intent.flowPosition,
+        anchorEdgeId: intent.anchorEdgeId,
+        anchorLabel: intent.anchorLabel,
+        ownerLabel: flowOwnerSymbolQuery.data?.qualname ?? graphQuery.data?.focus?.label ?? "Flow",
+      });
+      setCreateModeState("composing");
+    }
+  }, [
+    activeLevel,
+    currentModulePath,
+    flowCreateEnabled,
+    flowOwnerSymbolQuery.data?.qualname,
+    graphQuery.data?.focus?.label,
+  ]);
+
+  const handleToggleCreateMode = useCallback(async () => {
+    if (createModeState !== "inactive") {
+      handleExitCreateMode();
+      return;
+    }
+
+    const cleared = await requestClearSelectionState();
+    if (!cleared) {
+      return;
+    }
+
+    setCreateModeError(null);
+    setCreateComposer(undefined);
+    setCreateModeState("active");
+  }, [
+    createModeState,
+    handleExitCreateMode,
+    requestClearSelectionState,
+  ]);
+
+  const seedCreatedNodeLayout = useCallback(async (
+    nodeId: string,
+    nodeKind: GraphNodeKind | undefined,
+    composerState: GraphCreateComposerState,
+    override: { targetId: string; level: GraphAbstractionLevel } | undefined = undefined,
+  ) => {
+    if (!repoSession?.path) {
+      return;
+    }
+
+    const targetId = override?.targetId ?? graphTargetId;
+    const level = override?.level ?? activeLevel;
+    if (!targetId) {
+      return;
+    }
+
+    const viewKey = level === "repo" ? "repo|repo-root" : `${level}|${targetId}`;
+    const nextLayout = level === "flow"
+      ? {
+          nodes: {},
+          reroutes: [],
+          pinnedNodeIds: [],
+          groups: [],
+        }
+      : await readStoredGraphLayout(repoSession.path, viewKey);
+    nextLayout.nodes[graphLayoutNodeKey(nodeId, nodeKind)] = {
+      x: composerState.flowPosition.x,
+      y: composerState.flowPosition.y,
+    };
+    await writeStoredGraphLayout(repoSession.path, viewKey, nextLayout);
+  }, [
+    activeLevel,
+    graphTargetId,
+    repoSession?.path,
+  ]);
+
+  saveInspectorDraftRef.current = async (targetId: string, draftContent: string) => {
+    await handleSaveNodeSource(targetId, draftContent);
+  };
+
+  const handleCreateSubmit = useCallback(async (payload: GraphCreateComposerSubmit) => {
+    if (!createComposer) {
+      return;
+    }
+
+    setCreateModeError(null);
+    setIsSubmittingCreate(true);
+    try {
+      let request: StructuralEditRequest;
+      let createdNodeKind: GraphNodeKind | undefined;
+      let nextFocus: { targetId: string; level: GraphAbstractionLevel } | undefined;
+
+      if (payload.kind === "repo") {
+        request = {
+          kind: "create_module",
+          relativePath: payload.relativePath,
+          content: payload.content,
+        };
+        createdNodeKind = "module";
+      } else if (payload.kind === "symbol" && createComposer.kind === "symbol") {
+        request = {
+          kind: "create_symbol",
+          relativePath: createComposer.targetModulePath,
+          newName: payload.newName,
+          symbolKind: payload.symbolKind,
+          body: payload.body,
+        };
+        createdNodeKind = payload.symbolKind;
+        if (activeLevel === "symbol" && graphTargetId?.startsWith("symbol:")) {
+          const moduleTarget = moduleIdFromSymbolId(graphTargetId);
+          if (moduleTarget) {
+            nextFocus = { targetId: moduleTarget, level: "module" };
+          }
+        }
+      } else if (
+        payload.kind === "flow"
+        && createComposer.kind === "flow"
+        && graphTargetId?.startsWith("symbol:")
+      ) {
+        request = {
+          kind: "insert_flow_statement",
+          targetId: graphTargetId,
+          anchorEdgeId: createComposer.anchorEdgeId,
+          content: payload.content,
+        };
+        createdNodeKind = payload.flowNodeKind;
+      } else {
+        throw new Error("Create-mode context no longer matches the requested action.");
+      }
+
+      const result = await handleApplyEdit(request, { preserveView: true });
+      const changedNodeId = result.changedNodeIds[0];
+      if (changedNodeId) {
+        await seedCreatedNodeLayout(changedNodeId, createdNodeKind, createComposer, nextFocus);
+        selectNode(changedNodeId);
+        setPendingCreatedNodeId(changedNodeId);
+      }
+
+      if (nextFocus) {
+        focusGraph(nextFocus.targetId, nextFocus.level);
+      }
+      setCreateComposer(undefined);
+      setCreateModeState("active");
+    } catch (reason) {
+      setCreateModeError(
+        reason instanceof Error ? reason.message : "Unable to create from the current graph context.",
+      );
+    } finally {
+      setIsSubmittingCreate(false);
+    }
+  }, [
+    activeLevel,
+    createComposer,
+    focusGraph,
+    graphTargetId,
+    handleApplyEdit,
+    seedCreatedNodeLayout,
+    selectNode,
+  ]);
+
   const requestInspectorClose = useCallback(async () => {
     const draftContent = inspectorDraftContentRef.current;
     if (inspectorDirty && inspectorTargetId && draftContent !== undefined) {
@@ -989,7 +1278,7 @@ export function WorkspaceScreen() {
       );
       if (shouldSave) {
         try {
-          await handleSaveNodeSource(inspectorTargetId, draftContent);
+          await handleSaveInspectorDraft(inspectorTargetId, draftContent);
         } catch {
           return false;
         }
@@ -1005,7 +1294,7 @@ export function WorkspaceScreen() {
     setDismissedPeekNodeId(selectedGraphNode?.id ?? inspectorTargetId);
     return true;
   }, [
-    handleSaveNodeSource,
+    handleSaveInspectorDraft,
     inspectorDirty,
     inspectorTargetId,
     selectedGraphNode?.id,
@@ -1026,9 +1315,9 @@ export function WorkspaceScreen() {
     setInspectorPanelMode("expanded");
   }, [inspectorSnapshot, previewInspectorNode, selectedGraphNode]);
 
-  const handleClearGraphSelection = () => {
-    selectNode(undefined);
-  };
+  const handleClearGraphSelection = useCallback(async () => {
+    await requestClearSelectionState();
+  }, [requestClearSelectionState]);
 
   const handleExplorerSidebarResize = useCallback((nextWidth: number) => {
     setExplorerSidebarWidth(clampExplorerSidebarWidth(nextWidth, workspaceLayoutWidth));
@@ -1149,15 +1438,53 @@ export function WorkspaceScreen() {
     overviewQuery.data?.modules,
     repoSession,
   ]);
-  const currentModulePath = useMemo(
-    () => [...(graphQuery.data?.breadcrumbs ?? [])]
-      .reverse()
-      .find((breadcrumb) => breadcrumb.level === "module")?.subtitle ?? undefined,
-    [graphQuery.data?.breadcrumbs],
-  );
   useEffect(() => {
-    setCreateFunctionError(null);
-  }, [activeLevel, currentModulePath, graphTargetId, inspectorPanelMode, inspectorTargetId, selectedGraphNode?.id]);
+    const previousContextKey = createModeContextKeyRef.current;
+    createModeContextKeyRef.current = createModeContextKey;
+    setCreateModeError(null);
+    if (previousContextKey && previousContextKey !== createModeContextKey) {
+      setCreateComposer(undefined);
+      setCreateModeState((current) => (current === "inactive" ? current : "active"));
+    }
+  }, [createModeContextKey]);
+  useEffect(() => {
+    if (createModeState === "inactive") {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== "Escape"
+        || event.altKey
+        || event.ctrlKey
+        || event.metaKey
+        || event.shiftKey
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      if (createModeState === "composing") {
+        setCreateComposer(undefined);
+        setCreateModeError(null);
+        setCreateModeState("active");
+        return;
+      }
+
+      handleExitCreateMode();
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [createModeState, handleExitCreateMode]);
+  useEffect(() => {
+    if (!pendingCreatedNodeId || !graphQuery.data?.nodes.some((node) => node.id === pendingCreatedNodeId)) {
+      return;
+    }
+
+    selectNode(pendingCreatedNodeId);
+    setPendingCreatedNodeId(undefined);
+  }, [graphQuery.data, pendingCreatedNodeId, selectNode]);
   const emptyInspectorCreateTargetPath =
     inspectorPanelMode === "expanded"
     && !inspectorNode
@@ -1168,7 +1495,9 @@ export function WorkspaceScreen() {
     ? { label: "Saving", tone: "warning" as const }
     : inspectorDirty
       ? { label: "Unsaved", tone: "accent" as const }
-      : { label: effectiveInspectorNode?.kind ?? activeLevel, tone: "default" as const };
+      : createModeState !== "inactive"
+        ? { label: "create", tone: "accent" as const }
+        : { label: effectiveInspectorNode?.kind ?? activeLevel, tone: "default" as const };
   const graphContextPath = graphPathItems.map((item) => item.label).join(" / ");
   const graphContextTitle =
     graphQuery.data?.focus?.label
@@ -1487,7 +1816,29 @@ export function WorkspaceScreen() {
                     onToggleEdgeLabels={toggleEdgeLabels}
                     onNavigateOut={handleNavigateGraphOut}
                     onClearSelection={() => void handleClearGraphSelection()}
+                    createModeState={createModeState}
+                    createModeCanvasEnabled={createModeCanvasEnabled}
+                    createModeControlEdgeEnabled={flowCreateEnabled}
+                    createModeHint={createModeHint}
+                    onToggleCreateMode={() => {
+                      void handleToggleCreateMode();
+                    }}
+                    onCreateIntent={handleOpenCreateComposer}
                   />
+                  {createComposer ? (
+                    <GraphCreateComposer
+                      key={createComposer.id}
+                      composer={createComposer}
+                      error={createModeError}
+                      isSubmitting={isSubmittingCreate}
+                      onCancel={() => {
+                        setCreateComposer(undefined);
+                        setCreateModeError(null);
+                        setCreateModeState("active");
+                      }}
+                      onSubmit={handleCreateSubmit}
+                    />
+                  ) : null}
                 </div>
 
                 {effectiveInspectorDrawerMode !== "hidden" ? (
@@ -1531,10 +1882,10 @@ export function WorkspaceScreen() {
                         lastEdit={lastEdit}
                         isSavingSource={isSavingSource}
                         createFunctionTargetPath={emptyInspectorCreateTargetPath}
-                        createFunctionError={createFunctionError}
-                        isCreatingFunction={isCreatingFunction}
+                        createFunctionError={createModeError}
+                        isCreatingFunction={isSubmittingCreate}
                         highlightRange={inspectorHighlightRange}
-                        onCreateFunction={handleCreateFunction}
+                        onCreateFunction={undefined}
                         onSaveSource={handleSaveNodeSource}
                         onEditorStateChange={handleInspectorEditorStateChange}
                         onDismissSource={() => setRevealedSource(undefined)}

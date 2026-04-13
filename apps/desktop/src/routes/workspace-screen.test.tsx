@@ -226,8 +226,8 @@ describe("WorkspaceScreen", () => {
 
     const expandedDrawer = await screen.findByTestId("blueprint-inspector-drawer");
     expect(expandedDrawer).toHaveAttribute("data-mode", "expanded");
-    expect(within(expandedDrawer).getByRole("heading", { name: "build_graph_summary" })).toBeInTheDocument();
-    expect(within(expandedDrawer).getByText(/Declaration editor/i)).toBeInTheDocument();
+    expect(within(expandedDrawer).getByRole("heading", { name: /Nothing selected/i })).toBeInTheDocument();
+    expect(within(expandedDrawer).queryByText(/Declaration editor/i)).not.toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("updates the active inspector target when another inspectable node is selected while visible", async () => {
@@ -294,7 +294,192 @@ describe("WorkspaceScreen", () => {
     expect(await screen.findByText(/Declaration editor/i)).toBeInTheDocument();
   });
 
-  it("creates a function from the empty inspector in module view and focuses it", async () => {
+  it("enters create mode from the graph, clears sticky inspector selection, and shows the mode chrome", async () => {
+    const user = userEvent.setup();
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+    expect(await screen.findByRole("heading", { name: "build_graph_summary" })).toBeInTheDocument();
+
+    (graphPanel as HTMLElement).focus();
+    fireEvent.keyDown(graphPanel as HTMLElement, { key: "c" });
+
+    expect(await screen.findByTestId("graph-create-mode-badge")).toHaveTextContent(/Create mode/i);
+    expect(screen.getByTestId("graph-create-mode-watermark")).toHaveTextContent("CREATE MODE");
+    expect(screen.getByText("Click the graph to create a function or class in src/helm/ui/api.py.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Nothing selected/i })).toBeInTheDocument();
+    expect(useUiStore.getState().activeNodeId).toBeUndefined();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("does not enter create mode while typing in the inspector editor", async () => {
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+
+    const editor = await screen.findByRole("textbox", { name: /Function source editor/i });
+    fireEvent.keyDown(editor, { key: "c" });
+
+    expect(screen.queryByTestId("graph-create-mode-badge")).not.toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("prompts for unsaved changes before entering create mode and saves when confirmed", async () => {
+    const adapter = new MockDesktopAdapter();
+    const saveSpy = vi.spyOn(adapter, "saveNodeSource");
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+
+    fireEvent.change(await screen.findByRole("textbox", { name: /Function source editor/i }), {
+      target: { value: "def build_graph_summary(graph):\n    return GraphSummary(repo_path='.', module_count=1)\n" },
+    });
+
+    (graphPanel as HTMLElement).focus();
+    fireEvent.keyDown(graphPanel as HTMLElement, { key: "c" });
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalled();
+      expect(saveSpy).toHaveBeenCalled();
+    });
+    expect(await screen.findByTestId("graph-create-mode-badge")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Nothing selected/i })).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("prompts for unsaved changes before entering create mode and discards when declined", async () => {
+    const adapter = new MockDesktopAdapter();
+    const saveSpy = vi.spyOn(adapter, "saveNodeSource");
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+
+    fireEvent.change(await screen.findByRole("textbox", { name: /Function source editor/i }), {
+      target: { value: "def build_graph_summary(graph):\n    return GraphSummary(repo_path='.', module_count=2)\n" },
+    });
+
+    (graphPanel as HTMLElement).focus();
+    fireEvent.keyDown(graphPanel as HTMLElement, { key: "c" });
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalled();
+      expect(saveSpy).not.toHaveBeenCalled();
+    });
+    expect(await screen.findByTestId("graph-create-mode-badge")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Nothing selected/i })).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("creates a module from repo view create mode and selects it", async () => {
+    const user = userEvent.setup();
+    const repoSession = buildRepoSession();
+    setGraphFocusForTest({
+      targetId: repoSession.id,
+      level: "repo",
+      activeNodeId: undefined,
+      activeSymbolId: undefined,
+    });
+
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    await waitFor(() =>
+      expect((graphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
+    );
+    const graphPane = (graphPanel as HTMLElement).querySelector(".react-flow__pane");
+
+    (graphPanel as HTMLElement).focus();
+    fireEvent.keyDown(graphPanel as HTMLElement, { key: "c" });
+    expect(await screen.findByText("Click the graph to place a new Python module.")).toBeInTheDocument();
+
+    await user.click(graphPane as HTMLElement);
+
+    expect(await screen.findByRole("heading", { name: /Create module/i })).toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: /Module path/i }), "pkg/new_module.py");
+    await user.type(screen.getByRole("textbox", { name: /Module starter source/i }), "VALUE = 1");
+    await user.click(screen.getByRole("button", { name: /Create module/i }));
+
+    await waitFor(() => {
+      expect(useUiStore.getState().activeLevel).toBe("repo");
+      expect(useUiStore.getState().activeNodeId).toBe("module:pkg.new_module");
+    });
+    expect(screen.getByText("pkg")).toBeInTheDocument();
+    expect(screen.getByTestId("graph-create-mode-badge")).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("creates a function from module view create mode and keeps create mode active", async () => {
     const user = userEvent.setup();
     setGraphFocusForTest({
       targetId: "module:helm.ui.api",
@@ -314,26 +499,31 @@ describe("WorkspaceScreen", () => {
       </AppProviders>,
     );
 
-    await user.click(await screen.findByTestId("blueprint-inspector-drawer-toggle"));
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    await waitFor(() =>
+      expect((graphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
+    );
+    const graphPane = (graphPanel as HTMLElement).querySelector(".react-flow__pane");
 
-    expect(await screen.findByRole("heading", { name: /Create function/i })).toBeInTheDocument();
+    (graphPanel as HTMLElement).focus();
+    fireEvent.keyDown(graphPanel as HTMLElement, { key: "c" });
+    await user.click(graphPane as HTMLElement);
+
+    expect(await screen.findByRole("heading", { name: /Create symbol/i })).toBeInTheDocument();
     expect(screen.getByText("src/helm/ui/api.py")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Create function/i })).toBeDisabled();
-
-    await user.type(screen.getByRole("textbox", { name: /Function name/i }), "build_issue_one");
+    await user.type(screen.getByRole("textbox", { name: /Symbol name/i }), "build_issue_one");
     await user.click(screen.getByRole("button", { name: /Create function/i }));
 
-    expect(await screen.findByRole("heading", { name: "build_issue_one" })).toBeInTheDocument();
-    expect(await screen.findByText(/Declaration editor/i)).toBeInTheDocument();
-    expect(
-      (await screen.findByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement).value,
-    ).toContain("def build_issue_one()");
-    expect(
-      within(screen.getByRole("navigation", { name: /Graph path/i })).getByText("build_issue_one"),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(useUiStore.getState().activeLevel).toBe("module");
+      expect(useUiStore.getState().activeNodeId).toBe("symbol:helm.ui.api:build_issue_one");
+    });
+    expect(screen.getAllByText("build_issue_one").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("graph-create-mode-badge")).toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
-  it("uses the parent module path when creating a function from empty symbol view", async () => {
+  it("uses the parent module path when creating a class from symbol view create mode", async () => {
     const user = userEvent.setup();
     const adapter = new MockDesktopAdapter();
     const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
@@ -355,28 +545,103 @@ describe("WorkspaceScreen", () => {
       </AppProviders>,
     );
 
-    await user.click(await screen.findByTestId("blueprint-inspector-drawer-toggle"));
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    await waitFor(() =>
+      expect((graphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
+    );
+    const graphPane = (graphPanel as HTMLElement).querySelector(".react-flow__pane");
 
-    expect(await screen.findByRole("heading", { name: /Create function/i })).toBeInTheDocument();
+    (graphPanel as HTMLElement).focus();
+    fireEvent.keyDown(graphPanel as HTMLElement, { key: "c" });
+    await user.click(graphPane as HTMLElement);
+
+    expect(await screen.findByRole("heading", { name: /Create symbol/i })).toBeInTheDocument();
     expect(screen.getByText("src/helm/ui/api.py")).toBeInTheDocument();
-
-    await user.type(screen.getByRole("textbox", { name: /Function name/i }), "build_symbol_helper");
-    await user.click(screen.getByRole("button", { name: /Create function/i }));
+    await user.selectOptions(screen.getByRole("combobox", { name: /Symbol type/i }), "class");
+    await user.type(screen.getByRole("textbox", { name: /Symbol name/i }), "GraphBuilder");
+    await user.click(screen.getByRole("button", { name: /Create class/i }));
 
     await waitFor(() =>
       expect(editSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           kind: "create_symbol",
           relativePath: "src/helm/ui/api.py",
-          newName: "build_symbol_helper",
-          symbolKind: "function",
+          newName: "GraphBuilder",
+          symbolKind: "class",
         }),
       ),
     );
-    expect(await screen.findByRole("heading", { name: "build_symbol_helper" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(useUiStore.getState().activeNodeId).toBe("symbol:helm.ui.api:GraphBuilder");
+    });
+    expect(useUiStore.getState().activeLevel).toBe("module");
+    expect(screen.getAllByText("GraphBuilder").length).toBeGreaterThan(0);
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
-  it("keeps repo-level empty inspector informational without a create form", async () => {
+  it("opens the flow composer from a create-mode insertion lane and inserts a flow node on the clicked path", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 240,
+      bottom: 96,
+      width: 240,
+      height: 96,
+      toJSON: () => ({}),
+    }) as DOMRect);
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+    expect(await screen.findByRole("heading", { name: /Internal flow/i })).toBeInTheDocument();
+    expect((await graph.findAllByText("module_summaries")).length).toBeGreaterThan(0);
+
+    (graphPanel as HTMLElement).focus();
+    fireEvent.keyDown(graphPanel as HTMLElement, { key: "c" });
+    expect(await screen.findByTestId("graph-create-mode-badge")).toBeInTheDocument();
+    expect(screen.getByTestId("graph-create-mode-hint")).toHaveTextContent(
+      "Click an insertion lane to add a node on that control-flow path.",
+    );
+
+    const insertLane = await screen.findByTestId(
+      "graph-edge:controls:flow:symbol:helm.ui.api:build_graph_summary:entry->flow:symbol:helm.ui.api:build_graph_summary:assign:modules",
+    );
+    expect(insertLane).toHaveTextContent("+First step");
+
+    await user.click(
+      insertLane,
+    );
+
+    expect(await screen.findByRole("heading", { name: /Insert flow node/i })).toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: /Flow statement/i }), "helper = rank_modules(graph)");
+    await user.click(screen.getByRole("button", { name: /Insert node/i }));
+
+    expect((await screen.findAllByText("helper")).length).toBeGreaterThan(0);
+    expect(useUiStore.getState().activeLevel).toBe("flow");
+    expect(useUiStore.getState().activeNodeId).toBe("flow:symbol:helm.ui.api:build_graph_summary:created:1");
+    expect(screen.getByTestId("graph-create-mode-badge")).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("shows create mode as unavailable in class flow and does not open the composer", async () => {
     const user = userEvent.setup();
     const router = createMemoryRouter(
       [{ path: "/workspace", element: <WorkspaceScreen /> }],
@@ -389,40 +654,29 @@ describe("WorkspaceScreen", () => {
       </AppProviders>,
     );
 
-    await user.click(await screen.findByTestId("blueprint-inspector-drawer-toggle"));
-
-    expect(await screen.findByRole("heading", { name: /Nothing selected/i })).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: /Function name/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/Select a graph node, then inspect or enter it explicitly from the canvas\./i)).toBeInTheDocument();
-  });
-
-  it("keeps flow-level empty inspector informational without a create form", async () => {
-    const user = userEvent.setup();
-    setGraphFocusForTest({
-      targetId: "symbol:helm.ui.api:build_graph_summary",
-      level: "flow",
-      activeNodeId: undefined,
-      activeSymbolId: "symbol:helm.ui.api:build_graph_summary",
-    });
-
-    const router = createMemoryRouter(
-      [{ path: "/workspace", element: <WorkspaceScreen /> }],
-      { initialEntries: ["/workspace"] },
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const classNode = (await graph.findByText("GraphSummary")).closest(".graph-node");
+    expect(classNode).not.toBeNull();
+    fireEvent.click(within(classNode as HTMLElement).getByText("Inspect"));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+    expect(await graph.findByText("repo_path")).toBeInTheDocument();
+    await waitFor(() =>
+      expect((graphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
     );
+    const graphPane = (graphPanel as HTMLElement).querySelector(".react-flow__pane");
 
-    render(
-      <AppProviders adapter={new MockDesktopAdapter()}>
-        <RouterProvider router={router} />
-      </AppProviders>,
-    );
+    (graphPanel as HTMLElement).focus();
+    fireEvent.keyDown(graphPanel as HTMLElement, { key: "c" });
 
-    await user.click(await screen.findByTestId("blueprint-inspector-drawer-toggle"));
+    expect(await screen.findByText("Create mode only writes inside function or method flows in v1.")).toBeInTheDocument();
+    await user.click(graphPane as HTMLElement);
+    expect(screen.queryByTestId("graph-create-composer")).not.toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
 
-    expect(await screen.findByRole("heading", { name: /Nothing selected/i })).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: /Function name/i })).not.toBeInTheDocument();
-  });
-
-  it("renders backend validation errors inline in the empty inspector create form", async () => {
+  it("closes the create composer with Escape before exiting create mode", async () => {
     const user = userEvent.setup();
     setGraphFocusForTest({
       targetId: "module:helm.ui.api",
@@ -442,17 +696,28 @@ describe("WorkspaceScreen", () => {
       </AppProviders>,
     );
 
-    await user.click(await screen.findByTestId("blueprint-inspector-drawer-toggle"));
-    await user.type(
-      await screen.findByRole("textbox", { name: /Function name/i }),
-      "build_graph_summary",
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    await waitFor(() =>
+      expect((graphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
     );
-    await user.click(screen.getByRole("button", { name: /Create function/i }));
+    const graphPane = (graphPanel as HTMLElement).querySelector(".react-flow__pane");
 
-    expect(
-      await screen.findByText("Top-level symbol 'build_graph_summary' already exists in src/helm/ui/api.py."),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Create function/i })).toBeInTheDocument();
+    (graphPanel as HTMLElement).focus();
+    fireEvent.keyDown(graphPanel as HTMLElement, { key: "c" });
+    await user.click(graphPane as HTMLElement);
+    expect(await screen.findByTestId("graph-create-composer")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByTestId("graph-create-composer")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("graph-create-mode-badge")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByTestId("graph-create-mode-badge")).not.toBeInTheDocument(),
+    );
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("navigates one layer out with Backspace from flow to symbol", async () => {

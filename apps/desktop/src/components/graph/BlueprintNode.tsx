@@ -21,6 +21,7 @@ export interface BlueprintNodeData extends Record<string, unknown> {
   label: string;
   summary?: string;
   isPinned?: boolean;
+  connectable?: boolean;
   inputPorts: BlueprintNodePort[];
   outputPorts: BlueprintNodePort[];
   actions?: Array<{
@@ -35,9 +36,11 @@ export interface BlueprintNodeData extends Record<string, unknown> {
 function PortList({
   direction,
   ports,
+  connectable = false,
 }: {
   direction: "input" | "output";
   ports: BlueprintNodePort[];
+  connectable?: boolean;
 }) {
   return (
     <div
@@ -83,7 +86,7 @@ function PortList({
                 ].filter(Boolean).join(" ")}
                 type="target"
                 position={Position.Left}
-                isConnectable={false}
+                isConnectable={port.kind === "control" && connectable}
               />
             ) : null}
             {direction === "input" ? badge : null}
@@ -100,7 +103,7 @@ function PortList({
                 ].filter(Boolean).join(" ")}
                 type="source"
                 position={Position.Right}
-                isConnectable={false}
+                isConnectable={port.kind === "control" && connectable}
               />
             ) : null}
           </div>
@@ -123,7 +126,11 @@ export const BlueprintNode = memo(function BlueprintNode({
       })}
       className={`graph-node graph-node--${blueprintData.kind}${blueprintData.isPinned ? " graph-node--pinned" : ""}`}
     >
-      <PortList direction="input" ports={blueprintData.inputPorts} />
+      <PortList
+        direction="input"
+        ports={blueprintData.inputPorts}
+        connectable={blueprintData.connectable}
+      />
 
       <div className="graph-node__body">
         <div className="graph-node__header">
@@ -163,7 +170,11 @@ export const BlueprintNode = memo(function BlueprintNode({
         ) : null}
       </div>
 
-      <PortList direction="output" ports={blueprintData.outputPorts} />
+      <PortList
+        direction="output"
+        ports={blueprintData.outputPorts}
+        connectable={blueprintData.connectable}
+      />
     </div>
   );
 });

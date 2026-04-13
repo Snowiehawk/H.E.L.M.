@@ -208,6 +208,280 @@ class EditorIntegrationTests(unittest.TestCase):
                     inbound_dependency_count=inbound,
                 )
 
+    def test_create_module_creates_python_file_and_validates_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": "def helper():\n    return 'ok'\n",
+                },
+            )
+
+            parsed_modules, _, inbound = parse_repo(root)
+            create_result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "create_module",
+                        "relative_path": "pkg/tools.py",
+                        "content": "def run():\n    return 1",
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertIn("Created module pkg/tools.py", create_result.summary)
+            self.assertEqual(create_result.changed_node_ids, ("module:pkg.tools",))
+            self.assertEqual(
+                (root / "pkg" / "tools.py").read_text(encoding="utf-8"),
+                "def run():\n    return 1\n",
+            )
+
+            with self.assertRaisesRegex(ValueError, "Python source file ending in '.py'"):
+                apply_structural_edit(
+                    root,
+                    serialize_edit_request(
+                        {
+                            "kind": "create_module",
+                            "relative_path": "pkg/tools.txt",
+                        }
+                    ),
+                    parsed_modules=parsed_modules,
+                    inbound_dependency_count=inbound,
+                )
+
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                apply_structural_edit(
+                    root,
+                    serialize_edit_request(
+                        {
+                            "kind": "create_module",
+                            "relative_path": "pkg/tools.py",
+                        }
+                    ),
+                    parsed_modules=parsed_modules,
+                    inbound_dependency_count=inbound,
+                )
+
+    def test_insert_flow_statement_supports_entry_and_linear_paths(self) -> None:
+        cases = (
+            {
+                "name": "entry",
+                "anchor_edge_id": (
+                    "controls:flow:symbol:service:run:entry"
+                    "->flow:symbol:service:run:statement:0"
+                ),
+                "content": "helper = 1",
+                "expected_snippet": (
+                    "def run():\n"
+                    "    helper = 1\n"
+                    "    current = 1\n"
+                    "    return current\n"
+                ),
+                "expected_changed_id": "flow:symbol:service:run:statement:0",
+            },
+            {
+                "name": "linear",
+                "anchor_edge_id": (
+                    "controls:flow:symbol:service:run:statement:0"
+                    "->flow:symbol:service:run:statement:1"
+                ),
+                "content": "helper = current + 1",
+                "expected_snippet": (
+                    "def run():\n"
+                    "    current = 1\n"
+                    "    helper = current + 1\n"
+                    "    return current\n"
+                ),
+                "expected_changed_id": "flow:symbol:service:run:statement:1",
+            },
+        )
+
+        for case in cases:
+            with self.subTest(path=case["name"]):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    root = Path(tmp_dir)
+                    write_repo_files(
+                        root,
+                        {
+                            "service.py": (
+                                "def run():\n"
+                                "    current = 1\n"
+                                "    return current\n"
+                            ),
+                        },
+                    )
+
+                    parsed_modules, _, inbound = parse_repo(root)
+                    result = apply_structural_edit(
+                        root,
+                        serialize_edit_request(
+                            {
+                                "kind": "insert_flow_statement",
+                                "target_id": "symbol:service:run",
+                                "anchor_edge_id": case["anchor_edge_id"],
+                                "content": case["content"],
+                            }
+                        ),
+                        parsed_modules=parsed_modules,
+                        inbound_dependency_count=inbound,
+                    )
+
+                    self.assertEqual(result.changed_node_ids, (case["expected_changed_id"],))
+                    self.assertEqual(
+                        (root / "service.py").read_text(encoding="utf-8"),
+                        case["expected_snippet"],
+                    )
+
+    def test_insert_flow_statement_supports_branch_true_and_false_paths(self) -> None:
+        cases = (
+            {
+                "name": "true",
+                "anchor_edge_id": (
+                    "controls:flow:symbol:service:run:statement:0"
+                    "->flow:symbol:service:run:statement:1:true"
+                ),
+                "content": "helper = 1",
+                "expected_snippet": (
+                    "def run(flag):\n"
+                    "    if flag:\n"
+                    "        helper = 1\n"
+                    "        return 1\n"
+                    "    return 0\n"
+                ),
+                "expected_changed_id": "flow:symbol:service:run:statement:1",
+            },
+            {
+                "name": "false",
+                "anchor_edge_id": (
+                    "controls:flow:symbol:service:run:statement:0"
+                    "->flow:symbol:service:run:statement:2:false"
+                ),
+                "content": "helper = 0",
+                "expected_snippet": (
+                    "def run(flag):\n"
+                    "    if flag:\n"
+                    "        return 1\n"
+                    "    else:\n"
+                    "        helper = 0\n"
+                    "    return 0\n"
+                ),
+                "expected_changed_id": "flow:symbol:service:run:statement:2",
+            },
+        )
+
+        for case in cases:
+            with self.subTest(path=case["name"]):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    root = Path(tmp_dir)
+                    write_repo_files(
+                        root,
+                        {
+                            "service.py": (
+                                "def run(flag):\n"
+                                "    if flag:\n"
+                                "        return 1\n"
+                                "    return 0\n"
+                            ),
+                        },
+                    )
+
+                    parsed_modules, _, inbound = parse_repo(root)
+                    result = apply_structural_edit(
+                        root,
+                        serialize_edit_request(
+                            {
+                                "kind": "insert_flow_statement",
+                                "target_id": "symbol:service:run",
+                                "anchor_edge_id": case["anchor_edge_id"],
+                                "content": case["content"],
+                            }
+                        ),
+                        parsed_modules=parsed_modules,
+                        inbound_dependency_count=inbound,
+                    )
+
+                    self.assertEqual(result.changed_node_ids, (case["expected_changed_id"],))
+                    self.assertEqual(
+                        (root / "service.py").read_text(encoding="utf-8"),
+                        case["expected_snippet"],
+                    )
+
+    def test_insert_flow_statement_supports_loop_body_and_exit_paths(self) -> None:
+        cases = (
+            {
+                "name": "body",
+                "anchor_edge_id": (
+                    "controls:flow:symbol:service:run:statement:0"
+                    "->flow:symbol:service:run:statement:1:body"
+                ),
+                "content": "head = items[0]",
+                "expected_snippet": (
+                    "def run(items):\n"
+                    "    while items:\n"
+                    "        head = items[0]\n"
+                    "        items = items[1:]\n"
+                    "    return len(items)\n"
+                ),
+                "expected_changed_id": "flow:symbol:service:run:statement:1",
+            },
+            {
+                "name": "exit",
+                "anchor_edge_id": (
+                    "controls:flow:symbol:service:run:statement:0"
+                    "->flow:symbol:service:run:statement:2:exit"
+                ),
+                "content": "remaining = len(items)",
+                "expected_snippet": (
+                    "def run(items):\n"
+                    "    while items:\n"
+                    "        items = items[1:]\n"
+                    "    remaining = len(items)\n"
+                    "    return len(items)\n"
+                ),
+                "expected_changed_id": "flow:symbol:service:run:statement:2",
+            },
+        )
+
+        for case in cases:
+            with self.subTest(path=case["name"]):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    root = Path(tmp_dir)
+                    write_repo_files(
+                        root,
+                        {
+                            "service.py": (
+                                "def run(items):\n"
+                                "    while items:\n"
+                                "        items = items[1:]\n"
+                                "    return len(items)\n"
+                            ),
+                        },
+                    )
+
+                    parsed_modules, _, inbound = parse_repo(root)
+                    result = apply_structural_edit(
+                        root,
+                        serialize_edit_request(
+                            {
+                                "kind": "insert_flow_statement",
+                                "target_id": "symbol:service:run",
+                                "anchor_edge_id": case["anchor_edge_id"],
+                                "content": case["content"],
+                            }
+                        ),
+                        parsed_modules=parsed_modules,
+                        inbound_dependency_count=inbound,
+                    )
+
+                    self.assertEqual(result.changed_node_ids, (case["expected_changed_id"],))
+                    self.assertEqual(
+                        (root / "service.py").read_text(encoding="utf-8"),
+                        case["expected_snippet"],
+                    )
+
     def test_add_and_remove_import_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

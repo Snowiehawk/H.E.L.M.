@@ -316,6 +316,63 @@ class PythonRepoAdapterTests(unittest.TestCase):
             }
             self.assertIn("build_blueprint", symbol_names)
 
+    def test_apply_edit_create_module_returns_changed_module_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": "def helper():\n    return 'ok'\n",
+                },
+            )
+
+            adapter = PythonRepoAdapter.scan(root)
+            response = adapter.apply_edit(
+                serialize_edit_request(
+                    {
+                        "kind": "create_module",
+                        "relative_path": "pkg/tools.py",
+                        "content": "def run():\n    return 1",
+                    }
+                )
+            )
+
+            self.assertEqual(response["edit"]["changed_node_ids"], ["module:pkg.tools"])
+            self.assertEqual(response["payload"]["summary"]["module_count"], 2)
+
+    def test_apply_edit_insert_flow_statement_returns_changed_flow_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "def run():\n"
+                        "    current = 1\n"
+                        "    return current\n"
+                    ),
+                },
+            )
+
+            adapter = PythonRepoAdapter.scan(root)
+            response = adapter.apply_edit(
+                serialize_edit_request(
+                    {
+                        "kind": "insert_flow_statement",
+                        "target_id": "symbol:service:run",
+                        "anchor_edge_id": (
+                            "controls:flow:symbol:service:run:statement:0"
+                            "->flow:symbol:service:run:statement:1"
+                        ),
+                        "content": "helper = current + 1",
+                    }
+                )
+            )
+
+            self.assertEqual(response["edit"]["changed_node_ids"], ["flow:symbol:service:run:statement:1"])
+            flow = adapter.get_flow_view("symbol:service:run")
+            self.assertIn("helper = current + 1", {node.label for node in flow.nodes})
+
     def test_module_view_surfaces_top_level_enums_and_variables_without_flow_actions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

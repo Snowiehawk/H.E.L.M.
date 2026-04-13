@@ -208,8 +208,8 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.canvas": () => ({
     title: "Graph canvas",
-    description: "Main blueprint workspace. Click empty space to clear selection, drag to marquee-select, move nodes directly on the canvas, and group selected nodes together.",
-    shortcut: "F fits view · Cmd/Ctrl + G groups · Cmd/Ctrl + Shift + G ungroups · Tap Space toggles inspector · Hold Space to pan · Alt/Option + scroll to zoom · Backspace to go out",
+    description: "Main blueprint workspace. Click empty space to clear selection, drag to marquee-select, move nodes directly on the canvas, or press C to enter create mode and place new graph-backed code.",
+    shortcut: "C toggles create mode · Esc exits create mode · F fits view · Cmd/Ctrl + G groups · Cmd/Ctrl + Shift + G ungroups · Tap Space toggles inspector · Hold Space to pan · Alt/Option + scroll to zoom · Backspace to go out",
   }),
   "graph.toolbar.drag": () => ({
     title: "Move graph controls",

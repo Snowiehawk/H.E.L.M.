@@ -1562,6 +1562,54 @@ button {
   cursor: cell;
 }
 
+.graph-edge__create-trigger {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px dashed color-mix(in srgb, var(--accent-strong) 52%, white 10%);
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent), color-mix(in srgb, var(--surface-solid) 94%, transparent), color-mix(in srgb, var(--accent) 10%, transparent));
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(14px);
+  cursor: copy;
+  z-index: 4;
+}
+
+.graph-edge__create-trigger:hover,
+.graph-edge__create-trigger:focus-visible {
+  border-color: var(--accent-strong);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--surface-solid) 96%, transparent), color-mix(in srgb, var(--accent) 16%, transparent));
+  color: var(--text);
+}
+
+.graph-edge__create-trigger-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.graph-edge__create-trigger-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  line-height: 1;
+}
+
 .graph-controls {
   width: 220px;
   display: grid;
@@ -2285,6 +2333,17 @@ button {
   cursor: grabbing !important;
 }
 
+.graph-panel.is-create-mode .react-flow__pane,
+.graph-panel.is-create-mode .react-flow__pane.draggable,
+.graph-panel.is-create-mode .react-flow__node,
+.graph-panel.is-create-mode .react-flow__node *,
+.graph-panel.is-create-mode .react-flow__edge,
+.graph-panel.is-create-mode .react-flow__edge *,
+.graph-panel.is-create-mode .graph-group,
+.graph-panel.is-create-mode .graph-group * {
+  cursor: copy !important;
+}
+
 body.graph-pan-cursor-active,
 body.graph-pan-cursor-active * {
   cursor: grab !important;
@@ -2494,6 +2553,7 @@ body.graph-pan-cursor-dragging * {
 .blueprint-graph-shell__canvas {
   min-height: 0;
   flex: 1 1 auto;
+  position: relative;
 }
 
 .blueprint-graph-shell__canvas > .graph-panel {
@@ -2502,6 +2562,98 @@ body.graph-pan-cursor-dragging * {
   border: 1px solid var(--line);
   border-radius: 20px;
   background: color-mix(in srgb, var(--surface) 32%, transparent);
+}
+
+.graph-create-mode__tint {
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 18%, transparent), transparent 32%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, transparent), color-mix(in srgb, var(--surface) 18%, transparent));
+  pointer-events: none;
+  z-index: 2;
+}
+
+.graph-create-mode__badge {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  z-index: 3;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-strong) 54%, white 12%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: var(--shadow-card);
+}
+
+.graph-create-mode__watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  font-size: clamp(2.4rem, 4vw, 4.6rem);
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--accent-strong) 10%, white 90%);
+  opacity: 0.18;
+  pointer-events: none;
+  user-select: none;
+}
+
+.graph-create-mode__hint {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 3;
+  max-width: min(420px, calc(100% - 36px));
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line) 58%);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-solid) 90%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: var(--shadow-card);
+}
+
+.graph-create-composer {
+  position: absolute;
+  z-index: 4;
+  width: min(360px, calc(100% - 24px));
+  transform: translate(14px, 14px);
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line) 58%);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-strong) 96%, transparent), color-mix(in srgb, var(--surface-solid) 94%, transparent));
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(18px);
+}
+
+.graph-create-composer__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.graph-create-composer__header h3 {
+  margin: 4px 0 0;
+}
+
+.graph-create-composer__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .blueprint-inspector-drawer {

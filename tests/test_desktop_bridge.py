@@ -129,3 +129,57 @@ class DesktopBridgeTests(unittest.TestCase):
                 response["edit"]["changed_node_ids"],
                 ["symbol:service:build_issue_one"],
             )
+
+    def test_apply_edit_to_payload_create_module_returns_changed_module_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            write_repo_files(root, {"service.py": "def helper():\n    return 'ok'\n"})
+
+            response = apply_edit_to_payload(
+                root,
+                json.dumps(
+                    {
+                        "kind": "create_module",
+                        "relative_path": "pkg/tools.py",
+                        "content": "def run():\n    return 1",
+                    }
+                ),
+            )
+
+            self.assertEqual(response["edit"]["changed_node_ids"], ["module:pkg.tools"])
+            self.assertEqual(response["payload"]["summary"]["module_count"], 2)
+
+    def test_apply_edit_to_payload_insert_flow_statement_returns_changed_flow_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "def run():\n"
+                        "    current = 1\n"
+                        "    return current\n"
+                    ),
+                },
+            )
+
+            response = apply_edit_to_payload(
+                root,
+                json.dumps(
+                    {
+                        "kind": "insert_flow_statement",
+                        "target_id": "symbol:service:run",
+                        "anchor_edge_id": (
+                            "controls:flow:symbol:service:run:statement:0"
+                            "->flow:symbol:service:run:statement:1"
+                        ),
+                        "content": "helper = current + 1",
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                response["edit"]["changed_node_ids"],
+                ["flow:symbol:service:run:statement:1"],
+            )
+            self.assertIn("helper = current + 1", (root / "service.py").read_text(encoding="utf-8"))

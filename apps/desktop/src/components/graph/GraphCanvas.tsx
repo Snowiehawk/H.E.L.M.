@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -15,6 +15,7 @@ import {
   type Node,
   type NodeChange,
   type NodeTypes,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import type {
@@ -97,6 +98,23 @@ type SemanticCanvasNode = Node<BlueprintNodeData, "blueprint">;
 type RerouteCanvasNode = Node<RerouteNodeData, "reroute">;
 type GraphCanvasNode = SemanticCanvasNode | RerouteCanvasNode;
 type GraphCanvasEdge = Edge<BlueprintEdgeData, "blueprint">;
+export type CreateModeState = "inactive" | "active" | "composing";
+export interface GraphCreateIntent {
+  anchorEdgeId?: string;
+  anchorLabel?: string;
+  flowPosition: { x: number; y: number };
+  panelPosition: { x: number; y: number };
+}
+type FlowCreateLaneTrigger = {
+  edgeId: string;
+  buttonLabel: string;
+  ariaLabel: string;
+  edgeLabel: string | undefined;
+  x: number;
+  y: number;
+  angle: number;
+  length: number;
+};
 type EdgeLabelSegment = {
   id: string;
   label: string;
@@ -1198,6 +1216,24 @@ function shouldHandlePinKey(event: {
   );
 }
 
+function shouldHandleCreateModeKey(event: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  target: EventTarget | null;
+}) {
+  return !(
+    event.key.toLowerCase() !== "c"
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || event.shiftKey
+    || isEditableEventTarget(event.target)
+  );
+}
+
 function shouldHandleFitViewKey(event: {
   key: string;
   altKey: boolean;
@@ -1257,6 +1293,47 @@ function nodeCenter(node: GraphCanvasNode) {
     x: node.position.x + width / 2,
     y: node.position.y + height / 2,
   };
+}
+
+function controlEdgePathLabel(edge: GraphView["edges"][number]) {
+  const directLabel = typeof edge.label === "string" ? edge.label.trim() : "";
+  if (directLabel) {
+    return directLabel;
+  }
+
+  const metadataLabel = edge.metadata ?? {};
+  const rawPathLabel = (
+    (typeof metadataLabel["path_label"] === "string" && metadataLabel["path_label"])
+    || (typeof metadataLabel["pathLabel"] === "string" && metadataLabel["pathLabel"])
+    || (typeof metadataLabel["path_key"] === "string" && metadataLabel["path_key"])
+    || (typeof metadataLabel["pathKey"] === "string" && metadataLabel["pathKey"])
+  );
+  return typeof rawPathLabel === "string" ? rawPathLabel.trim() : "";
+}
+
+function titleCaseLabel(value: string) {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b([a-z])/g, (_, letter: string) => letter.toUpperCase());
+}
+
+function flowCreateLaneLabel(pathLabel: string, sourceKind: GraphNodeKind) {
+  if (pathLabel) {
+    return titleCaseLabel(pathLabel);
+  }
+  return sourceKind === "entry" ? "First step" : "Insert";
+}
+
+function flowCreateLaneAriaLabel(label: string) {
+  if (label === "Insert") {
+    return "Insert here";
+  }
+  if (label === "First step") {
+    return "Insert first step";
+  }
+  return `Insert on ${label.toLowerCase()} path`;
 }
 
 function rerouteHandleId(
@@ -1450,6 +1527,7 @@ export function collapseDuplicateEdgeLabels(labelSegments: EdgeLabelSegment[]) {
 
 function buildCanvasEdges({
   blueprint,
+  createModeControlEdgeEnabled,
   graph,
   highlightedEdgeIds,
   hoverActive,
@@ -1463,6 +1541,7 @@ function buildCanvasEdges({
   highlightGraphPath,
 }: {
   blueprint: ReturnType<typeof buildBlueprintPresentation>;
+  createModeControlEdgeEnabled: boolean;
   graph: GraphView;
   highlightedEdgeIds: Set<string>;
   hoverActive: boolean;
@@ -1495,12 +1574,15 @@ function buildCanvasEdges({
       : selectionContextActive
         ? selectionHighlighted
         : highlightGraphPath && connected;
+    const createHighlighted = createModeControlEdgeEnabled && edge.kind === "controls";
     const dimmed = hoverActive
       ? !edgeHovered
       : selectionContextActive
         ? !selectionHighlighted
         : false;
-    const stroke = buildEdgeStroke(edge.kind, highlighted);
+    const stroke = createHighlighted
+      ? "var(--accent-strong)"
+      : buildEdgeStroke(edge.kind, highlighted);
     const segmentCount = reroutes.length + 1;
     const labelSegmentIndex = Math.floor(segmentCount / 2);
 
@@ -1542,12 +1624,19 @@ function buildCanvasEdges({
           onInsertReroute,
         },
         label,
-        animated: highlighted && (edge.kind === "calls" || edge.kind === "controls"),
+        animated: (highlighted || createHighlighted) && (edge.kind === "calls" || edge.kind === "controls"),
         style: {
           stroke,
-          strokeWidth: highlighted ? 2.8 : edge.kind === "data" ? 1.8 : edge.kind === "contains" ? 1 : 1.2,
+          strokeWidth:
+            highlighted || createHighlighted
+              ? 2.8
+              : edge.kind === "data"
+                ? 1.8
+                : edge.kind === "contains"
+                  ? 1
+                  : 1.2,
           strokeDasharray: edge.kind === "data" ? "8 6" : edge.kind === "controls" ? "0" : undefined,
-          opacity: dimmed ? 0.18 : highlighted ? 1 : selectionContextActive ? 0.92 : 0.84,
+          opacity: dimmed ? 0.18 : highlighted || createHighlighted ? 1 : selectionContextActive ? 0.92 : 0.84,
         },
         labelShowBg: false,
         labelBgPadding: [5, 9] as [number, number],
@@ -1602,6 +1691,7 @@ function buildCanvasEdges({
         segmentIndex: edgeData.segmentIndex,
         onHoverStart: edgeData.onHoverStart,
         onHoverEnd: edgeData.onHoverEnd,
+        onClick: edgeData.onClick,
         onInsertReroute: edgeData.onInsertReroute,
         labelOffsetX: offset?.x ?? 0,
         labelOffsetY: offset?.y ?? 0,
@@ -1857,6 +1947,12 @@ export function GraphCanvas({
   onToggleEdgeLabels,
   onNavigateOut,
   onClearSelection,
+  createModeState = "inactive",
+  createModeCanvasEnabled = false,
+  createModeControlEdgeEnabled = false,
+  createModeHint,
+  onToggleCreateMode = () => {},
+  onCreateIntent = () => {},
 }: {
   repoPath?: string;
   graph?: GraphView;
@@ -1878,6 +1974,12 @@ export function GraphCanvas({
   onToggleEdgeLabels: () => void;
   onNavigateOut: () => void;
   onClearSelection: () => void;
+  createModeState?: CreateModeState;
+  createModeCanvasEnabled?: boolean;
+  createModeControlEdgeEnabled?: boolean;
+  createModeHint?: string;
+  onToggleCreateMode?: () => void;
+  onCreateIntent?: (intent: GraphCreateIntent) => void;
 }) {
   const { setTransientHelpTarget } = useWorkspaceHelp();
   const blueprint = useMemo(
@@ -1902,9 +2004,12 @@ export function GraphCanvas({
   const viewKey = graph ? graphLayoutViewKey(graph) : undefined;
   const hydrationGenerationRef = useRef(0);
   const panelRef = useRef<HTMLElement>(null);
+  const reactFlowInstanceRef = useRef<ReactFlowInstance<GraphCanvasNode, GraphCanvasEdge> | null>(null);
   const graphHotkeyActiveRef = useRef(false);
   const skipNextSelectionSyncRef = useRef(false);
   const shiftPressedRef = useRef(false);
+  const createModeActive = createModeState !== "inactive";
+  const createModeReady = createModeState === "active";
   const [nodes, setNodes] = useState<GraphCanvasNode[]>([]);
   const [groups, setGroups] = useState<StoredGraphGroup[]>([]);
   const [selectedSemanticNodeIds, setSelectedSemanticNodeIds] = useState<string[]>([]);
@@ -2044,6 +2149,69 @@ export function GraphCanvas({
         : current,
     );
   };
+
+  const requestCreateIntent = (
+    clientPosition: { x: number; y: number },
+    flowPosition: { x: number; y: number },
+    anchorEdgeId?: string,
+    anchorLabel?: string,
+  ) => {
+    const panelBounds = panelRef.current?.getBoundingClientRect();
+    onCreateIntent({
+      anchorEdgeId,
+      anchorLabel,
+      flowPosition,
+      panelPosition: {
+        x: panelBounds ? clientPosition.x - panelBounds.left : clientPosition.x,
+        y: panelBounds ? clientPosition.y - panelBounds.top : clientPosition.y,
+      },
+    });
+  };
+
+  const screenToFlowPosition = useCallback((clientPosition: { x: number; y: number }) => (
+    reactFlowInstanceRef.current?.screenToFlowPosition(clientPosition)
+    ?? { x: clientPosition.x, y: clientPosition.y }
+  ), []);
+  const createEdgeTriggers = useMemo(() => {
+    if (!graph || !(createModeReady && createModeControlEdgeEnabled && graph.level === "flow")) {
+      return [];
+    }
+
+    const nodeLookup = new Map(nodes.map((node) => [node.id, node] as const));
+    return graph.edges
+      .filter((edge) => edge.kind === "controls")
+      .map((edge) => {
+        const sourceNode = nodeLookup.get(edge.source);
+        const targetNode = nodeLookup.get(edge.target);
+        if (
+          !sourceNode
+          || !targetNode
+          || !isSemanticCanvasNode(sourceNode)
+          || !isSemanticCanvasNode(targetNode)
+        ) {
+          return null;
+        }
+
+        const sourceCenter = nodeCenter(sourceNode);
+        const targetCenter = nodeCenter(targetNode);
+        const deltaX = targetCenter.x - sourceCenter.x;
+        const deltaY = targetCenter.y - sourceCenter.y;
+        const pathLabel = controlEdgePathLabel(edge);
+        const buttonLabel = flowCreateLaneLabel(pathLabel, sourceNode.data.kind);
+        const distance = Math.hypot(deltaX, deltaY);
+        return {
+          edgeId: edge.id,
+          buttonLabel,
+          ariaLabel: flowCreateLaneAriaLabel(buttonLabel),
+          edgeLabel: pathLabel || undefined,
+          x: (sourceCenter.x + targetCenter.x) / 2,
+          y: (sourceCenter.y + targetCenter.y) / 2,
+          angle: distance > 0 ? (Math.atan2(deltaY, deltaX) * 180) / Math.PI : 0,
+          length: Math.max(108, Math.min(distance * 0.68, 228)),
+        };
+      })
+      .filter((trigger): trigger is FlowCreateLaneTrigger => trigger !== null);
+  }, [createModeControlEdgeEnabled, createModeReady, graph, nodes]);
 
   const persistCurrentLayout = (
     nextNodes: GraphCanvasNode[],
@@ -2390,6 +2558,12 @@ export function GraphCanvas({
       return;
     }
 
+    if (shouldHandleCreateModeKey(event)) {
+      event.preventDefault();
+      onToggleCreateMode();
+      return;
+    }
+
     if (shouldHandleFitViewKey(event)) {
       if (!handleFitView()) {
         return;
@@ -2467,6 +2641,7 @@ export function GraphCanvas({
       if (
         !(graphHotkeyActiveRef.current || panelContainsTarget || panelContainsFocus)
         || (!shouldHandleFitViewKey(event)
+          && !shouldHandleCreateModeKey(event)
           && !shouldHandleNavigateOutKey(event)
           && !shouldHandleRerouteDeleteKey(event)
           && !shouldHandlePinKey(event)
@@ -2482,6 +2657,7 @@ export function GraphCanvas({
     const handlePanelKeyDown = (event: KeyboardEvent) => {
       if (
         !shouldHandleFitViewKey(event)
+        && !shouldHandleCreateModeKey(event)
         && !shouldHandleNavigateOutKey(event)
         && !shouldHandleRerouteDeleteKey(event)
         && !shouldHandlePinKey(event)
@@ -2512,6 +2688,7 @@ export function GraphCanvas({
     selectedGroupId,
     selectedNodeId,
     selectedRerouteCount,
+    onToggleCreateMode,
     togglePinnedNodes,
     ungroupSelection,
     fitViewOptions,
@@ -2574,6 +2751,13 @@ export function GraphCanvas({
     }
     onClearSelection();
   }, [onClearSelection, selectedRerouteCount]);
+
+  useEffect(() => {
+    if (!createModeActive) {
+      return;
+    }
+    clearLocalSelection();
+  }, [createModeActive]);
 
   useEffect(() => {
     if (!graph || !viewKey) {
@@ -2949,6 +3133,7 @@ export function GraphCanvas({
 
   const edges = buildCanvasEdges({
     blueprint,
+    createModeControlEdgeEnabled: createModeReady && createModeControlEdgeEnabled,
     graph,
     highlightedEdgeIds,
     hoverActive,
@@ -2978,7 +3163,8 @@ export function GraphCanvas({
       ref={panelRef}
       {...helpTargetProps("graph.canvas")}
       aria-label="Graph canvas"
-      className={`content-panel graph-panel${panModeActive ? " is-pan-active" : ""}`}
+      className={`content-panel graph-panel${panModeActive ? " is-pan-active" : ""}${createModeActive ? " is-create-mode" : ""}`}
+      data-create-mode={createModeState}
       role="region"
       tabIndex={0}
       onFocusCapture={() => {
@@ -3011,6 +3197,9 @@ export function GraphCanvas({
         fitView
         fitViewOptions={fitViewOptions}
         proOptions={{ hideAttribution: true }}
+        onInit={(instance) => {
+          reactFlowInstanceRef.current = instance;
+        }}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -3054,7 +3243,7 @@ export function GraphCanvas({
         nodesConnectable={false}
         selectionKeyCode={null}
         multiSelectionKeyCode={["Meta", "Control", "Shift"]}
-        selectionOnDrag={!panModeActive}
+        selectionOnDrag={!panModeActive && !createModeActive}
         selectionMode={SelectionMode.Partial}
         paneClickDistance={4}
         minZoom={MIN_GRAPH_ZOOM}
@@ -3065,6 +3254,16 @@ export function GraphCanvas({
         zoomActivationKeyCode="Alt"
         panOnDrag={panModeActive}
         onNodeClick={(event, node) => {
+          if (createModeActive) {
+            if (createModeReady && createModeCanvasEnabled) {
+              requestCreateIntent(
+                { x: event.clientX, y: event.clientY },
+                screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+              );
+            }
+            return;
+          }
+
           if (isRerouteCanvasNode(node)) {
             setSelectedGroupId(undefined);
             setOrganizeGroupId(undefined);
@@ -3137,12 +3336,24 @@ export function GraphCanvas({
           onSelectNode(node.id, node.data.kind);
         }}
         onNodeDoubleClick={(_, node) => {
+          if (createModeActive) {
+            return;
+          }
           if (isRerouteCanvasNode(node)) {
             return;
           }
           node.data.onDefaultAction?.();
         }}
-        onPaneClick={() => {
+        onPaneClick={(event) => {
+          if (createModeActive) {
+            if (createModeReady && createModeCanvasEnabled) {
+              requestCreateIntent(
+                { x: event.clientX, y: event.clientY },
+                screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+              );
+            }
+            return;
+          }
           clearLocalSelection();
           onClearSelection();
         }}
@@ -3164,9 +3375,68 @@ export function GraphCanvas({
           onToggleOrganizeGroup={toggleOrganizeGroup}
           onUngroupGroup={ungroupGroup}
         />
+        {createEdgeTriggers.length ? (
+          <ViewportPortal>
+            {createEdgeTriggers.map((trigger) => (
+              <button
+                key={trigger.edgeId}
+                aria-label={trigger.ariaLabel}
+                className="graph-edge__create-trigger"
+                data-testid={`graph-edge:${trigger.edgeId}`}
+                style={{
+                  left: `${trigger.x}px`,
+                  top: `${trigger.y}px`,
+                  width: `${trigger.length}px`,
+                  transform: `translate(-50%, -50%) rotate(${trigger.angle}deg)`,
+                }}
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  requestCreateIntent(
+                    { x: event.clientX, y: event.clientY },
+                    { x: trigger.x, y: trigger.y },
+                    trigger.edgeId,
+                    trigger.edgeLabel,
+                  );
+                }}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+              >
+                <span
+                  className="graph-edge__create-trigger-copy"
+                  style={{
+                    transform: `rotate(${-trigger.angle}deg)`,
+                  }}
+                >
+                  <span className="graph-edge__create-trigger-icon">+</span>
+                  <span>{trigger.buttonLabel}</span>
+                </span>
+              </button>
+            ))}
+          </ViewportPortal>
+        ) : null}
         <Controls showInteractive={false} />
-        <Background gap={32} size={1} color="var(--line-strong)" />
+        <Background gap={32} size={1} color={createModeActive ? "var(--accent-strong)" : "var(--line-strong)"} />
       </ReactFlow>
+
+      {createModeActive ? (
+        <>
+          <div aria-hidden="true" className="graph-create-mode__tint" />
+          <div className="graph-create-mode__badge" data-testid="graph-create-mode-badge">
+            Create mode
+          </div>
+          <div className="graph-create-mode__watermark" data-testid="graph-create-mode-watermark">
+            CREATE MODE
+          </div>
+          {createModeHint ? (
+            <div className="graph-create-mode__hint" data-testid="graph-create-mode-hint">
+              {createModeHint}
+            </div>
+          ) : null}
+        </>
+      ) : null}
 
       <GraphToolbar
         graph={graph}

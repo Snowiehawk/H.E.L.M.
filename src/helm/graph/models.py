@@ -44,6 +44,7 @@ class GraphViewNodeKind(str, Enum):
     BRANCH = "branch"
     LOOP = "loop"
     RETURN = "return"
+    EXIT = "exit"
 
 
 class GraphViewEdgeKind(str, Enum):
@@ -275,6 +276,7 @@ class GraphView:
     breadcrumbs: tuple[GraphBreadcrumb, ...] = field(default_factory=tuple)
     focus: GraphFocus | None = None
     truncated: bool = False
+    flow_state: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -286,4 +288,5 @@ class GraphView:
             "breadcrumbs": [breadcrumb.to_dict() for breadcrumb in self.breadcrumbs],
             "focus": self.focus.to_dict() if self.focus is not None else None,
             "truncated": self.truncated,
+            "flow_state": self.flow_state,
         }

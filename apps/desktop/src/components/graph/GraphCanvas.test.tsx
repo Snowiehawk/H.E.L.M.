@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GraphView } from "../../lib/adapter";
+import type { FlowGraphDocument, GraphView } from "../../lib/adapter";
 import {
   WorkspaceHelpBox,
   WorkspaceHelpProvider,
@@ -137,6 +137,171 @@ const baseGraph: GraphView = {
   truncated: false,
 };
 
+const labeledPathGraph: GraphView = {
+  rootNodeId: "symbol:workflow:run",
+  targetId: "symbol:workflow:run",
+  level: "flow",
+  nodes: [
+    {
+      id: "entry:workflow",
+      kind: "entry",
+      label: "Entry",
+      subtitle: "run",
+      x: 0,
+      y: 220,
+      metadata: {},
+      availableActions: [],
+    },
+    {
+      id: "branch:workflow",
+      kind: "branch",
+      label: "if ready",
+      subtitle: "If",
+      x: 220,
+      y: 220,
+      metadata: {},
+      availableActions: [],
+    },
+    {
+      id: "return:true",
+      kind: "return",
+      label: "return ready",
+      subtitle: "Return",
+      x: 460,
+      y: 110,
+      metadata: {},
+      availableActions: [],
+    },
+    {
+      id: "return:false",
+      kind: "return",
+      label: "return pending",
+      subtitle: "Return",
+      x: 460,
+      y: 330,
+      metadata: {},
+      availableActions: [],
+    },
+    {
+      id: "loop:workflow",
+      kind: "loop",
+      label: "while items",
+      subtitle: "While",
+      x: 220,
+      y: 540,
+      metadata: {},
+      availableActions: [],
+    },
+    {
+      id: "assign:body",
+      kind: "assign",
+      label: "head = items[0]",
+      subtitle: "Assign",
+      x: 470,
+      y: 450,
+      metadata: {},
+      availableActions: [],
+    },
+    {
+      id: "return:exit",
+      kind: "return",
+      label: "return len(items)",
+      subtitle: "Return",
+      x: 470,
+      y: 640,
+      metadata: {},
+      availableActions: [],
+    },
+  ],
+  edges: [
+    {
+      id: "controls:entry->branch",
+      kind: "controls",
+      source: "entry:workflow",
+      target: "branch:workflow",
+    },
+    {
+      id: "controls:branch->true:true",
+      kind: "controls",
+      source: "branch:workflow",
+      target: "return:true",
+      label: "true",
+      metadata: {
+        path_key: "true",
+        path_label: "true",
+      },
+    },
+    {
+      id: "controls:branch->false:false",
+      kind: "controls",
+      source: "branch:workflow",
+      target: "return:false",
+      label: "false",
+      metadata: {
+        path_key: "false",
+        path_label: "false",
+      },
+    },
+    {
+      id: "controls:entry->loop",
+      kind: "controls",
+      source: "entry:workflow",
+      target: "loop:workflow",
+    },
+    {
+      id: "controls:loop->body:body",
+      kind: "controls",
+      source: "loop:workflow",
+      target: "assign:body",
+      label: "body",
+      metadata: {
+        path_key: "body",
+        path_label: "body",
+      },
+    },
+    {
+      id: "controls:loop->exit:exit",
+      kind: "controls",
+      source: "loop:workflow",
+      target: "return:exit",
+      label: "exit",
+      metadata: {
+        path_key: "exit",
+        path_label: "exit",
+      },
+    },
+  ],
+  breadcrumbs: [
+    {
+      nodeId: "repo:/workspace/workflow",
+      level: "repo",
+      label: "Workflow",
+    },
+    {
+      nodeId: "module:workflow",
+      level: "module",
+      label: "workflow.py",
+    },
+    {
+      nodeId: "symbol:workflow:run",
+      level: "symbol",
+      label: "run",
+    },
+    {
+      nodeId: "flow:symbol:workflow:run",
+      level: "flow",
+      label: "Flow",
+    },
+  ],
+  focus: {
+    targetId: "symbol:workflow:run",
+    level: "flow",
+    label: "run",
+    availableLevels: ["symbol", "flow"],
+  },
+  truncated: false,
+};
+
 const originalLayout: StoredGraphLayout = {
   nodes: {
     "entry:calculate": { x: 0, y: 150 },
@@ -147,6 +312,262 @@ const originalLayout: StoredGraphLayout = {
   reroutes: [],
   pinnedNodeIds: [],
   groups: [],
+};
+
+const labeledPathLayout: StoredGraphLayout = {
+  nodes: {
+    "entry:workflow": { x: 0, y: 220 },
+    "branch:workflow": { x: 220, y: 220 },
+    "return:true": { x: 460, y: 110 },
+    "return:false": { x: 460, y: 330 },
+    "loop:workflow": { x: 220, y: 540 },
+    "assign:body": { x: 470, y: 450 },
+    "return:exit": { x: 470, y: 640 },
+  },
+  reroutes: [],
+  pinnedNodeIds: [],
+  groups: [],
+};
+
+const visualFlowDocument: FlowGraphDocument = {
+  symbolId: "symbol:calculator:calculate",
+  relativePath: "calculator.py",
+  qualname: "calculate",
+  editable: true,
+  syncState: "clean",
+  diagnostics: [],
+  nodes: [
+    { id: "entry:calculate", kind: "entry", payload: {} },
+    { id: "assign:calculate", kind: "assign", payload: { source: "value = prepare()" } },
+    { id: "return:done", kind: "return", payload: { expression: "value" } },
+  ],
+  edges: [
+    {
+      id: "controls:entry:calculate:start->assign:calculate:in",
+      sourceId: "entry:calculate",
+      sourceHandle: "start",
+      targetId: "assign:calculate",
+      targetHandle: "in",
+    },
+    {
+      id: "controls:assign:calculate:next->return:done:in",
+      sourceId: "assign:calculate",
+      sourceHandle: "next",
+      targetId: "return:done",
+      targetHandle: "in",
+    },
+  ],
+};
+
+const visualFlowGraph: GraphView = {
+  ...baseGraph,
+  nodes: [
+    {
+      id: "entry:calculate",
+      kind: "entry",
+      label: "Entry",
+      subtitle: "calculate",
+      x: 0,
+      y: 150,
+      metadata: {
+        flow_visual: true,
+      },
+      availableActions: [],
+    },
+    {
+      id: "assign:calculate",
+      kind: "assign",
+      label: "value = prepare()",
+      subtitle: "assignment",
+      x: 240,
+      y: 150,
+      metadata: {
+        flow_visual: true,
+      },
+      availableActions: [],
+    },
+    {
+      id: "return:done",
+      kind: "return",
+      label: "return value",
+      subtitle: "return",
+      x: 520,
+      y: 150,
+      metadata: {
+        flow_visual: true,
+      },
+      availableActions: [],
+    },
+  ],
+  edges: [
+    {
+      id: "controls:entry:calculate:start->assign:calculate:in",
+      kind: "controls",
+      source: "entry:calculate",
+      target: "assign:calculate",
+      metadata: {
+        source_handle: "start",
+        target_handle: "in",
+      },
+    },
+    {
+      id: "controls:assign:calculate:next->return:done:in",
+      kind: "controls",
+      source: "assign:calculate",
+      target: "return:done",
+      metadata: {
+        source_handle: "next",
+        target_handle: "in",
+      },
+    },
+  ],
+};
+
+const branchLoopVisualDocument: FlowGraphDocument = {
+  symbolId: "symbol:workflow:run",
+  relativePath: "workflow.py",
+  qualname: "run",
+  editable: true,
+  syncState: "clean",
+  diagnostics: [],
+  nodes: [
+    { id: "entry:workflow", kind: "entry", payload: {} },
+    { id: "branch:workflow", kind: "branch", payload: { condition: "ready" } },
+    { id: "return:true", kind: "return", payload: { expression: "ready" } },
+    { id: "return:false", kind: "return", payload: { expression: "pending" } },
+    { id: "loop:workflow", kind: "loop", payload: { header: "while items" } },
+    { id: "assign:body", kind: "assign", payload: { source: "head = items[0]" } },
+    { id: "return:exit", kind: "return", payload: { expression: "len(items)" } },
+  ],
+  edges: [
+    {
+      id: "controls:entry:workflow:start->branch:workflow:in",
+      sourceId: "entry:workflow",
+      sourceHandle: "start",
+      targetId: "branch:workflow",
+      targetHandle: "in",
+    },
+    {
+      id: "controls:branch:workflow:true->return:true:in",
+      sourceId: "branch:workflow",
+      sourceHandle: "true",
+      targetId: "return:true",
+      targetHandle: "in",
+    },
+    {
+      id: "controls:branch:workflow:false->return:false:in",
+      sourceId: "branch:workflow",
+      sourceHandle: "false",
+      targetId: "return:false",
+      targetHandle: "in",
+    },
+    {
+      id: "controls:entry:workflow:start->loop:workflow:in",
+      sourceId: "entry:workflow",
+      sourceHandle: "start",
+      targetId: "loop:workflow",
+      targetHandle: "in",
+    },
+    {
+      id: "controls:loop:workflow:body->assign:body:in",
+      sourceId: "loop:workflow",
+      sourceHandle: "body",
+      targetId: "assign:body",
+      targetHandle: "in",
+    },
+    {
+      id: "controls:loop:workflow:after->return:exit:in",
+      sourceId: "loop:workflow",
+      sourceHandle: "after",
+      targetId: "return:exit",
+      targetHandle: "in",
+    },
+  ],
+};
+
+const branchLoopVisualGraph: GraphView = {
+  ...labeledPathGraph,
+  nodes: labeledPathGraph.nodes.map((node) => ({
+    ...node,
+    metadata: {
+      ...node.metadata,
+      flow_visual: true,
+    },
+  })),
+  edges: [
+    {
+      id: "controls:entry:workflow:start->branch:workflow:in",
+      kind: "controls",
+      source: "entry:workflow",
+      target: "branch:workflow",
+      metadata: {
+        source_handle: "start",
+        target_handle: "in",
+      },
+    },
+    {
+      id: "controls:branch:workflow:true->return:true:in",
+      kind: "controls",
+      source: "branch:workflow",
+      target: "return:true",
+      label: "true",
+      metadata: {
+        source_handle: "true",
+        target_handle: "in",
+        path_key: "true",
+        path_label: "true",
+      },
+    },
+    {
+      id: "controls:branch:workflow:false->return:false:in",
+      kind: "controls",
+      source: "branch:workflow",
+      target: "return:false",
+      label: "false",
+      metadata: {
+        source_handle: "false",
+        target_handle: "in",
+        path_key: "false",
+        path_label: "false",
+      },
+    },
+    {
+      id: "controls:entry:workflow:start->loop:workflow:in",
+      kind: "controls",
+      source: "entry:workflow",
+      target: "loop:workflow",
+      metadata: {
+        source_handle: "start",
+        target_handle: "in",
+      },
+    },
+    {
+      id: "controls:loop:workflow:body->assign:body:in",
+      kind: "controls",
+      source: "loop:workflow",
+      target: "assign:body",
+      label: "body",
+      metadata: {
+        source_handle: "body",
+        target_handle: "in",
+        path_key: "body",
+        path_label: "body",
+      },
+    },
+    {
+      id: "controls:loop:workflow:after->return:exit:in",
+      kind: "controls",
+      source: "loop:workflow",
+      target: "return:exit",
+      label: "after",
+      metadata: {
+        source_handle: "after",
+        target_handle: "in",
+        path_key: "after",
+        path_label: "after",
+      },
+    },
+  ],
 };
 
 const flowGroup = {
@@ -1009,6 +1430,97 @@ describe("GraphCanvas", () => {
     await user.click(pane as HTMLElement);
 
     expect(onClearSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the create-mode chrome and opens a canvas create intent from the pane", async () => {
+    const onCreateIntent = vi.fn();
+    const user = userEvent.setup();
+
+    renderGraphCanvas({
+      graph: moduleGraph,
+      activeNodeId: undefined,
+      createModeState: "active",
+      createModeCanvasEnabled: true,
+      createModeHint: "Click the graph to create a symbol.",
+      onCreateIntent,
+    });
+
+    expect(await screen.findByTestId("graph-create-mode-badge")).toHaveTextContent(/Create mode/i);
+    expect(screen.getByTestId("graph-create-mode-watermark")).toHaveTextContent("CREATE MODE");
+    expect(screen.getByTestId("graph-create-mode-hint")).toHaveTextContent("Click the graph to create a symbol.");
+
+    const pane = document.querySelector(".react-flow__pane");
+    expect(pane).not.toBeNull();
+    await user.click(pane as HTMLElement);
+
+    await waitFor(() =>
+      expect(onCreateIntent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          flowPosition: expect.objectContaining({
+            x: expect.any(Number),
+            y: expect.any(Number),
+          }),
+          panelPosition: expect.objectContaining({
+            x: expect.any(Number),
+            y: expect.any(Number),
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("renders explicit flow insertion triggers in create mode and opens a flow create intent", async () => {
+    const onCreateIntent = vi.fn();
+    const user = userEvent.setup();
+
+    renderGraphCanvas({
+      graph: baseGraph,
+      activeNodeId: undefined,
+      createModeState: "active",
+      createModeControlEdgeEnabled: true,
+      createModeHint: "Click a control-flow edge to insert a node on that path.",
+      onCreateIntent,
+    });
+
+    const insertTrigger = await screen.findByTestId("graph-edge:controls:entry:left");
+    expect(insertTrigger).toHaveTextContent("+First step");
+
+    await user.click(insertTrigger);
+
+    await waitFor(() =>
+      expect(onCreateIntent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          anchorEdgeId: "controls:entry:left",
+          panelPosition: expect.objectContaining({
+            x: expect.any(Number),
+            y: expect.any(Number),
+          }),
+          flowPosition: expect.objectContaining({
+            x: expect.any(Number),
+            y: expect.any(Number),
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("renders labeled flow insertion lanes for branch and loop paths", async () => {
+    readStoredGraphLayoutMock.mockResolvedValueOnce(labeledPathLayout);
+
+    renderGraphCanvas({
+      graph: labeledPathGraph,
+      activeNodeId: undefined,
+      createModeState: "active",
+      createModeControlEdgeEnabled: true,
+      createModeHint: "Click an insertion lane to add a node on that control-flow path.",
+      onCreateIntent: vi.fn(),
+    });
+
+    expect(await screen.findByTestId("graph-edge:controls:entry->branch")).toHaveTextContent("+First step");
+    expect(screen.getByTestId("graph-edge:controls:branch->true:true")).toHaveTextContent("+True");
+    expect(screen.getByTestId("graph-edge:controls:branch->false:false")).toHaveTextContent("+False");
+    expect(screen.getByTestId("graph-edge:controls:loop->body:body")).toHaveTextContent("+Body");
+    expect(screen.getByTestId("graph-edge:controls:loop->exit:exit")).toHaveTextContent("+Exit");
   });
 
   it("merges touched groups into one flat group when regrouping a selection", () => {

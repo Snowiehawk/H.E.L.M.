@@ -31,8 +31,10 @@ def serialize_edit_request(payload: str | dict[str, Any]) -> StructuralEditReque
         imported_module=_optional_string(raw, "imported_module"),
         imported_name=_optional_string(raw, "imported_name"),
         alias=_optional_string(raw, "alias"),
+        anchor_edge_id=_optional_string(raw, "anchor_edge_id"),
         body=_optional_string(raw, "body"),
         content=_optional_string(raw, "content"),
+        flow_graph=_optional_mapping(raw, "flow_graph"),
     )
     _validate_request(request)
     return request
@@ -47,8 +49,20 @@ def _optional_string(raw: dict[str, Any], key: str) -> str | None:
     return value
 
 
+def _optional_mapping(raw: dict[str, Any], key: str) -> dict[str, Any] | None:
+    value = raw.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError(f"Edit request field '{key}' must be an object when provided.")
+    return dict(value)
+
+
 def _validate_request(request: StructuralEditRequest) -> None:
-    if request.kind == StructuralEditKind.RENAME_SYMBOL:
+    if request.kind == StructuralEditKind.CREATE_MODULE:
+        if not request.relative_path:
+            raise ValueError("create_module requires 'relative_path'.")
+    elif request.kind == StructuralEditKind.RENAME_SYMBOL:
         if not request.target_id or not request.new_name:
             raise ValueError("rename_symbol requires 'target_id' and 'new_name'.")
     elif request.kind == StructuralEditKind.CREATE_SYMBOL:
@@ -73,3 +87,11 @@ def _validate_request(request: StructuralEditRequest) -> None:
     elif request.kind == StructuralEditKind.REPLACE_SYMBOL_SOURCE:
         if not request.target_id or request.content is None:
             raise ValueError("replace_symbol_source requires 'target_id' and 'content'.")
+    elif request.kind == StructuralEditKind.INSERT_FLOW_STATEMENT:
+        if not request.target_id or not request.anchor_edge_id or request.content is None:
+            raise ValueError(
+                "insert_flow_statement requires 'target_id', 'anchor_edge_id', and 'content'."
+            )
+    elif request.kind == StructuralEditKind.REPLACE_FLOW_GRAPH:
+        if not request.target_id or request.flow_graph is None:
+            raise ValueError("replace_flow_graph requires 'target_id' and 'flow_graph'.")

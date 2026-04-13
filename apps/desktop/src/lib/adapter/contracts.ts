@@ -24,7 +24,8 @@ export type GraphNodeKind =
   | "call"
   | "branch"
   | "loop"
-  | "return";
+  | "return"
+  | "exit";
 export type GraphEdgeKind =
   | "contains"
   | "imports"
@@ -33,13 +34,59 @@ export type GraphEdgeKind =
   | "controls"
   | "data";
 export type StructuralEditKind =
+  | "create_module"
   | "rename_symbol"
   | "create_symbol"
   | "delete_symbol"
   | "move_symbol"
   | "add_import"
   | "remove_import"
-  | "replace_symbol_source";
+  | "replace_symbol_source"
+  | "insert_flow_statement"
+  | "replace_flow_graph";
+
+export type FlowSyncState = "clean" | "draft" | "import_error";
+export type FlowVisualNodeKind =
+  | "entry"
+  | "assign"
+  | "call"
+  | "branch"
+  | "loop"
+  | "return"
+  | "exit";
+
+export interface FlowGraphNode {
+  id: string;
+  kind: FlowVisualNodeKind;
+  payload: Record<string, unknown>;
+}
+
+export interface FlowGraphEdge {
+  id: string;
+  sourceId: string;
+  sourceHandle: string;
+  targetId: string;
+  targetHandle: string;
+}
+
+export interface FlowGraphDocument {
+  symbolId: string;
+  relativePath: string;
+  qualname: string;
+  nodes: FlowGraphNode[];
+  edges: FlowGraphEdge[];
+  syncState: FlowSyncState;
+  diagnostics: string[];
+  sourceHash?: string | null;
+  editable: boolean;
+}
+
+export interface FlowViewState {
+  editable: boolean;
+  syncState: FlowSyncState;
+  diagnostics: string[];
+  document?: FlowGraphDocument | null;
+}
 
 export interface RepoSession {
   id: string;
@@ -202,6 +249,7 @@ export interface GraphView {
   breadcrumbs: GraphBreadcrumbDto[];
   focus?: GraphFocusDto | null;
   truncated: boolean;
+  flowState?: FlowViewState | null;
 }
 
 export type GraphNeighborhood = GraphView;
@@ -253,8 +301,10 @@ export interface StructuralEditRequest {
   importedModule?: string;
   importedName?: string;
   alias?: string;
+  anchorEdgeId?: string;
   body?: string;
   content?: string;
+  flowGraph?: FlowGraphDocument;
 }
 
 export interface StructuralEditResult {
@@ -268,14 +318,18 @@ export interface StructuralEditResult {
     imported_module?: string | null;
     imported_name?: string | null;
     alias?: string | null;
+    anchor_edge_id?: string | null;
     body?: string | null;
     content?: string | null;
+    flow_graph?: Record<string, unknown> | null;
   };
   summary: string;
   touchedRelativePaths: string[];
   reparsedRelativePaths: string[];
   changedNodeIds: string[];
   warnings: string[];
+  flowSyncState?: FlowSyncState | null;
+  diagnostics: string[];
 }
 
 export interface OverviewMetric {

@@ -2,8 +2,12 @@ import type {
   BackendStatus,
   EditableNodeSource,
   FileContents,
+  FlowGraphDocument,
+  FlowSyncState,
+  FlowVisualNodeKind,
   GraphActionDto,
   GraphAbstractionLevel,
+  GraphNodeKind,
   GraphSymbolNodeKind,
   GraphView,
   OverviewData,
@@ -46,6 +50,20 @@ export interface MockWorkspaceState {
   primarySummarySymbolName: string;
   uiApiImports: string[];
   uiApiExtraSymbols: Array<{ name: string; kind: "function" | "class" }>;
+  extraModules: Array<{
+    moduleName: string;
+    relativePath: string;
+    content: string;
+  }>;
+  flowInsertionsBySymbolId: Record<string, Array<{
+    nodeId: string;
+    kind: "assign" | "call" | "return" | "branch" | "loop";
+    label: string;
+    subtitle: string;
+    anchorEdgeId: string;
+    content: string;
+  }>>;
+  flowDocumentsBySymbolId: Record<string, FlowGraphDocument>;
   editedSources: Record<string, string>;
 }
 
@@ -110,6 +128,9 @@ export function createMockWorkspaceState(): MockWorkspaceState {
       "from helm.graph.models import RepoGraph",
     ],
     uiApiExtraSymbols: [],
+    extraModules: [],
+    flowInsertionsBySymbolId: {},
+    flowDocumentsBySymbolId: {},
     editedSources: {},
   };
 }
@@ -130,15 +151,326 @@ function graphSummaryToPayloadSymbolId() {
   return symbolId("helm.ui.api", "GraphSummary.to_payload");
 }
 
+function moduleId(moduleName: string): string {
+  return `module:${moduleName}`;
+}
+
+function cloneFlowDocument(document: FlowGraphDocument): FlowGraphDocument {
+  return {
+    ...document,
+    diagnostics: [...document.diagnostics],
+    nodes: document.nodes.map((node) => ({
+      ...node,
+      payload: { ...node.payload },
+    })),
+    edges: document.edges.map((edge) => ({ ...edge })),
+  };
+}
+
+function flowDocumentEdge(
+  sourceId: string,
+  sourceHandle: string,
+  targetId: string,
+  targetHandle = "in",
+) {
+  return {
+    id: `controls:${sourceId}:${sourceHandle}->${targetId}:${targetHandle}`,
+    sourceId,
+    sourceHandle,
+    targetId,
+    targetHandle,
+  };
+}
+
+function defaultMockFlowDocument(
+  state: MockWorkspaceState,
+  symbol: SymbolDetails,
+): FlowGraphDocument {
+  const entryId = `flow:${symbol.nodeId}:entry`;
+  if (symbol.nodeId === symbolId("helm.ui.api", state.primarySummarySymbolName)) {
+    const assignId = `flow:${symbol.nodeId}:assign:modules`;
+    const callId = `flow:${symbol.nodeId}:call:rank`;
+    const returnId = `flow:${symbol.nodeId}:return`;
+    return {
+      symbolId: symbol.nodeId,
+      relativePath: symbol.filePath,
+      qualname: symbol.qualname,
+      editable: true,
+      syncState: "clean",
+      diagnostics: [],
+      sourceHash: null,
+      nodes: [
+        { id: entryId, kind: "entry", payload: {} },
+        { id: assignId, kind: "assign", payload: { source: "module_summaries = collect_module_stats(graph)" } },
+        { id: callId, kind: "call", payload: { source: "sorted(module_summaries, key=score_module)" } },
+        { id: returnId, kind: "return", payload: { expression: "GraphSummary(...)" } },
+      ],
+      edges: [
+        flowDocumentEdge(entryId, "start", assignId),
+        flowDocumentEdge(assignId, "next", callId),
+        flowDocumentEdge(callId, "next", returnId),
+      ],
+    };
+  }
+
+  if (symbol.nodeId === graphSummaryToPayloadSymbolId()) {
+    const returnId = `flow:${symbol.nodeId}:return`;
+    return {
+      symbolId: symbol.nodeId,
+      relativePath: symbol.filePath,
+      qualname: symbol.qualname,
+      editable: true,
+      syncState: "clean",
+      diagnostics: [],
+      sourceHash: null,
+      nodes: [
+        { id: entryId, kind: "entry", payload: {} },
+        { id: returnId, kind: "return", payload: { expression: "{'repo_path': self.repo_path}" } },
+      ],
+      edges: [
+        flowDocumentEdge(entryId, "start", returnId),
+      ],
+    };
+  }
+
+  const returnId = `flow:${symbol.nodeId}:return`;
+  return {
+    symbolId: symbol.nodeId,
+    relativePath: symbol.filePath,
+    qualname: symbol.qualname,
+    editable: true,
+    syncState: "clean",
+    diagnostics: [],
+    sourceHash: null,
+    nodes: [
+      { id: entryId, kind: "entry", payload: {} },
+      { id: returnId, kind: "return", payload: { expression: "" } },
+    ],
+    edges: [
+      flowDocumentEdge(entryId, "start", returnId),
+    ],
+  };
+}
+
+function getMockFlowDocument(
+  state: MockWorkspaceState,
+  symbol: SymbolDetails,
+): FlowGraphDocument {
+  const existing = state.flowDocumentsBySymbolId[symbol.nodeId];
+  if (existing) {
+    return cloneFlowDocument(existing);
+  }
+  const created = defaultMockFlowDocument(state, symbol);
+  state.flowDocumentsBySymbolId[symbol.nodeId] = cloneFlowDocument(created);
+  return cloneFlowDocument(created);
+}
+
+function mockVisualFlowNodeLabel(kind: FlowVisualNodeKind, payload: Record<string, unknown>) {
+  if (kind === "entry") {
+    return "Entry";
+  }
+  if (kind === "exit") {
+    return "Exit";
+  }
+  if (kind === "assign" || kind === "call") {
+    const source = typeof payload.source === "string" ? payload.source.trim() : "";
+    return source || kind;
+  }
+  if (kind === "branch") {
+    const condition = typeof payload.condition === "string" ? payload.condition.trim() : "";
+    return condition ? `if ${condition}` : "if ...";
+  }
+  if (kind === "loop") {
+    const header = typeof payload.header === "string" ? payload.header.trim() : "";
+    return header || "loop";
+  }
+  const expression = typeof payload.expression === "string" ? payload.expression.trim() : "";
+  return expression ? `return ${expression}` : "return";
+}
+
+function mockVisualFlowNodeSubtitle(kind: FlowVisualNodeKind, payload: Record<string, unknown>, symbol: SymbolDetails) {
+  if (kind === "entry") {
+    return symbol.qualname;
+  }
+  if (kind === "exit") {
+    return "terminal path";
+  }
+  if (kind === "assign") {
+    return "assignment";
+  }
+  if (kind === "call") {
+    return "call";
+  }
+  if (kind === "branch") {
+    return "conditional branch";
+  }
+  if (kind === "loop") {
+    return "loop";
+  }
+  return "return";
+}
+
+function mockVisualFlowNodePosition(nodeId: string, kind: FlowVisualNodeKind, index: number) {
+  if (nodeId.endsWith(":entry")) {
+    return { x: 0, y: 180 };
+  }
+  if (nodeId.includes(":assign:modules")) {
+    return { x: 470, y: 80 };
+  }
+  if (nodeId.includes(":call:rank")) {
+    return { x: 720, y: 80 };
+  }
+  if (nodeId.endsWith(":return")) {
+    return { x: 970, y: 180 };
+  }
+
+  const column = Math.max(1, index);
+  return {
+    x: 260 + column * 220,
+    y: kind === "branch" || kind === "loop" ? 120 : 180,
+  };
+}
+
+function validateMockFlowDocument(document: FlowGraphDocument): { syncState: FlowSyncState; diagnostics: string[] } {
+  const diagnostics: string[] = [];
+  const incomingByTarget = new Map<string, number>();
+  const outgoingBySource = new Map<string, string[]>();
+  document.edges.forEach((edge) => {
+    incomingByTarget.set(edge.targetId, (incomingByTarget.get(edge.targetId) ?? 0) + 1);
+    outgoingBySource.set(edge.sourceId, [...(outgoingBySource.get(edge.sourceId) ?? []), edge.sourceHandle]);
+  });
+
+  document.nodes.forEach((node) => {
+    if (node.kind !== "entry" && (incomingByTarget.get(node.id) ?? 0) === 0) {
+      diagnostics.push(`${node.id} is disconnected.`);
+    }
+    if (node.kind === "assign" || node.kind === "call") {
+      const source = typeof node.payload.source === "string" ? node.payload.source.trim() : "";
+      if (!source) {
+        diagnostics.push(`${node.id} needs source code.`);
+      }
+    }
+    if (node.kind === "branch") {
+      const condition = typeof node.payload.condition === "string" ? node.payload.condition.trim() : "";
+      if (!condition) {
+        diagnostics.push(`${node.id} needs a condition.`);
+      }
+      if (!(outgoingBySource.get(node.id) ?? []).includes("true")) {
+        diagnostics.push(`${node.id} needs a true branch.`);
+      }
+    }
+    if (node.kind === "loop") {
+      const header = typeof node.payload.header === "string" ? node.payload.header.trim() : "";
+      if (!header) {
+        diagnostics.push(`${node.id} needs a loop header.`);
+      }
+      if (!(outgoingBySource.get(node.id) ?? []).includes("body")) {
+        diagnostics.push(`${node.id} needs a body path.`);
+      }
+    }
+  });
+
+  return {
+    syncState: diagnostics.length ? "draft" : "clean",
+    diagnostics,
+  };
+}
+
+function buildMockVisualFlowView(
+  session: RepoSession,
+  state: MockWorkspaceState,
+  symbol: SymbolDetails,
+): GraphView {
+  const document = getMockFlowDocument(state, symbol);
+  return {
+    rootNodeId: document.nodes[0]?.id ?? `flow:${symbol.nodeId}:entry`,
+    targetId: symbol.nodeId,
+    level: "flow",
+    truncated: false,
+    breadcrumbs: [
+      { nodeId: session.id, level: "repo", label: session.name, subtitle: "Architecture map" },
+      { nodeId: `module:${symbol.moduleName}`, level: "module", label: symbol.moduleName, subtitle: symbol.filePath },
+      { nodeId: symbol.nodeId, level: "symbol", label: symbol.name, subtitle: symbol.qualname },
+      { nodeId: `flow:${symbol.nodeId}`, level: "flow", label: "Flow", subtitle: symbol.qualname },
+    ],
+    focus: {
+      targetId: symbol.nodeId,
+      level: "flow",
+      label: symbol.name,
+      subtitle: "Visual flow graph",
+      availableLevels: ["repo", "module", "symbol", "flow"],
+    },
+    nodes: document.nodes.map((flowNode, index) => {
+      const position = mockVisualFlowNodePosition(flowNode.id, flowNode.kind, index);
+      return node(
+        flowNode.id,
+        flowNode.kind === "exit" ? "exit" : flowNode.kind,
+        mockVisualFlowNodeLabel(flowNode.kind, flowNode.payload),
+        mockVisualFlowNodeSubtitle(flowNode.kind, flowNode.payload, symbol),
+        position.x,
+        position.y,
+        {
+          flow_visual: true,
+          flow_order: index,
+          ...sourceSpanMetadataForTargetId(flowNode.id, state),
+        },
+      );
+    }),
+    edges: document.edges.map((flowEdge) =>
+      edge(
+        flowEdge.id,
+        "controls",
+        flowEdge.sourceId,
+        flowEdge.targetId,
+        flowEdge.sourceHandle,
+        {
+          source_handle: flowEdge.sourceHandle,
+          target_handle: flowEdge.targetHandle,
+          path_label: flowEdge.sourceHandle,
+        },
+      ),
+    ),
+    flowState: {
+      editable: true,
+      syncState: document.syncState,
+      diagnostics: [...document.diagnostics],
+      document: cloneFlowDocument(document),
+    },
+  };
+}
+
+function moduleNameFromRelativePath(relativePath: string): string {
+  return relativePath.replace(/\.py$/i, "").split("/").filter(Boolean).join(".");
+}
+
+function mockModulePosition(index: number) {
+  const column = Math.floor(index / 4);
+  const row = index % 4;
+  return {
+    x: 640 + column * 280,
+    y: 60 + row * 150,
+  };
+}
+
 export function buildOverview(
   session: RepoSession,
   state: MockWorkspaceState,
 ): OverviewData {
   const searchResults = buildSearchResults(state);
+  const extraOverviewModules = state.extraModules.map((module, index) => ({
+    id: `module-row:extra:${module.moduleName}:${index}`,
+    moduleId: moduleId(module.moduleName),
+    moduleName: module.moduleName,
+    relativePath: module.relativePath,
+    symbolCount: 0,
+    importCount: 0,
+    callCount: 0,
+    outline: [],
+  }));
   return {
     repo: session,
     metrics: [
-      { label: "Modules", value: "3" },
+      { label: "Modules", value: String(3 + state.extraModules.length) },
       { label: "Symbols", value: String(8 + state.uiApiExtraSymbols.length) },
       { label: "Calls", value: "3", tone: "accent" },
       { label: "Diagnostics", value: "0" },
@@ -146,7 +478,7 @@ export function buildOverview(
     modules: [
       {
         id: "module-row:cli",
-        moduleId: "module:helm.cli",
+        moduleId: moduleId("helm.cli"),
         moduleName: "helm.cli",
         relativePath: "src/helm/cli.py",
         symbolCount: 1,
@@ -165,7 +497,7 @@ export function buildOverview(
       },
       {
         id: "module-row:ui",
-        moduleId: "module:helm.ui.api",
+        moduleId: moduleId("helm.ui.api"),
         moduleName: "helm.ui.api",
         relativePath: "src/helm/ui/api.py",
         symbolCount: 6 + state.uiApiExtraSymbols.length,
@@ -208,7 +540,7 @@ export function buildOverview(
       },
       {
         id: "module-row:models",
-        moduleId: "module:helm.graph.models",
+        moduleId: moduleId("helm.graph.models"),
         moduleName: "helm.graph.models",
         relativePath: "src/helm/graph/models.py",
         symbolCount: 1,
@@ -225,6 +557,7 @@ export function buildOverview(
           },
         ],
       },
+      ...extraOverviewModules,
     ],
     hotspots: [
       {
@@ -268,33 +601,33 @@ export function buildOverview(
 export function buildSearchResults(state: MockWorkspaceState): SearchResult[] {
   const results: SearchResult[] = [
     {
-      id: "module:helm.cli",
+      id: moduleId("helm.cli"),
       kind: "module",
       title: "helm.cli",
       subtitle: "src/helm/cli.py",
       score: 0.95,
       filePath: "src/helm/cli.py",
-      nodeId: "module:helm.cli",
+      nodeId: moduleId("helm.cli"),
       level: "module",
     },
     {
-      id: "module:helm.ui.api",
+      id: moduleId("helm.ui.api"),
       kind: "module",
       title: "helm.ui.api",
       subtitle: "src/helm/ui/api.py",
       score: 0.99,
       filePath: "src/helm/ui/api.py",
-      nodeId: "module:helm.ui.api",
+      nodeId: moduleId("helm.ui.api"),
       level: "module",
     },
     {
-      id: "module:helm.graph.models",
+      id: moduleId("helm.graph.models"),
       kind: "module",
       title: "helm.graph.models",
       subtitle: "src/helm/graph/models.py",
       score: 0.92,
       filePath: "src/helm/graph/models.py",
-      nodeId: "module:helm.graph.models",
+      nodeId: moduleId("helm.graph.models"),
       level: "module",
     },
     {
@@ -375,8 +708,32 @@ export function buildSearchResults(state: MockWorkspaceState): SearchResult[] {
     subtitle: "Raw source utility",
     score: 0.35,
     filePath: "src/helm/ui/api.py",
-    nodeId: "module:helm.ui.api",
+    nodeId: moduleId("helm.ui.api"),
     level: "module",
+  });
+
+  state.extraModules.forEach((module, index) => {
+    const moduleNodeId = moduleId(module.moduleName);
+    results.push({
+      id: moduleNodeId,
+      kind: "module",
+      title: module.moduleName,
+      subtitle: module.relativePath,
+      score: 0.62 - index * 0.01,
+      filePath: module.relativePath,
+      nodeId: moduleNodeId,
+      level: "module",
+    });
+    results.push({
+      id: `file:${module.relativePath}`,
+      kind: "file",
+      title: module.relativePath,
+      subtitle: "Created in graph create mode",
+      score: 0.26 - index * 0.01,
+      filePath: module.relativePath,
+      nodeId: moduleNodeId,
+      level: "module",
+    });
   });
 
   return results;
@@ -384,7 +741,7 @@ export function buildSearchResults(state: MockWorkspaceState): SearchResult[] {
 
 export function buildFiles(state: MockWorkspaceState): Record<string, FileContents> {
   const searchResults = buildSearchResults(state);
-  return {
+  const files: Record<string, FileContents> = {
     "src/helm/cli.py": {
       path: "src/helm/cli.py",
       language: "python",
@@ -412,6 +769,19 @@ export function buildFiles(state: MockWorkspaceState): Record<string, FileConten
       content: `from dataclasses import dataclass\n\n\n@dataclass(frozen=True)\nclass RepoGraph:\n    root_path: str\n    repo_id: str\n    nodes: dict[str, object]\n    edges: tuple[object, ...]\n`,
     },
   };
+
+  state.extraModules.forEach((module) => {
+    files[module.relativePath] = {
+      path: module.relativePath,
+      language: "python",
+      lineCount: module.content.split("\n").length,
+      sizeBytes: new TextEncoder().encode(module.content).length,
+      linkedSymbols: searchResults.filter((result) => result.filePath === module.relativePath),
+      content: module.content,
+    };
+  });
+
+  return files;
 }
 
 export function buildSymbols(state: MockWorkspaceState): Record<string, SymbolDetails> {
@@ -724,6 +1094,23 @@ export function buildGraphView(
 ): GraphView {
   const primarySymbolId = symbolId("helm.ui.api", state.primarySummarySymbolName);
   const symbols = buildSymbols(state);
+  const extraRepoModuleNodes = state.extraModules.map((module, index) => {
+    const position = mockModulePosition(index);
+    return node(
+      moduleId(module.moduleName),
+      "module",
+      module.moduleName,
+      module.relativePath,
+      position.x,
+      position.y,
+      {
+        symbolCount: 0,
+        importCount: 0,
+        callCount: 0,
+      },
+      moduleActions(),
+    );
+  });
   if (level === "flow") {
     const symbol = symbols[targetId] ?? symbols[primarySymbolId];
     return symbol.kind === "class"
@@ -736,7 +1123,7 @@ export function buildGraphView(
     return buildMockSymbolView(session, state, symbols, symbolIdValue);
   }
 
-  if (level === "module" && targetId === "module:helm.ui.api") {
+  if (level === "module" && targetId === moduleId("helm.ui.api")) {
     const extraNodes = state.uiApiExtraSymbols.map((symbol, index) =>
       node(
         symbolId("helm.ui.api", symbol.name),
@@ -750,30 +1137,30 @@ export function buildGraphView(
       ),
     );
     return {
-      rootNodeId: "module:helm.ui.api",
-      targetId: "module:helm.ui.api",
+      rootNodeId: moduleId("helm.ui.api"),
+      targetId: moduleId("helm.ui.api"),
       level: "module",
       truncated: false,
       breadcrumbs: [
         { nodeId: session.id, level: "repo", label: session.name, subtitle: "Architecture map" },
-        { nodeId: "module:helm.ui.api", level: "module", label: "helm.ui.api", subtitle: "src/helm/ui/api.py" },
+        { nodeId: moduleId("helm.ui.api"), level: "module", label: "helm.ui.api", subtitle: "src/helm/ui/api.py" },
       ],
       focus: {
-        targetId: "module:helm.ui.api",
+        targetId: moduleId("helm.ui.api"),
         level: "module",
         label: "helm.ui.api",
         subtitle: "Architecture slice",
         availableLevels: ["repo", "module"],
       },
       nodes: [
-        node("module:helm.ui.api", "module", "helm.ui.api", "src/helm/ui/api.py", 0, 220, {
+        node(moduleId("helm.ui.api"), "module", "helm.ui.api", "src/helm/ui/api.py", 0, 220, {
           symbolCount: 6 + state.uiApiExtraSymbols.length,
           importCount: 1,
           callCount: 1,
         }, moduleActions()),
-        node("module:helm.cli", "module", "helm.cli", "src/helm/cli.py", 310, 60),
-        node("module:helm.graph.models", "module", "helm.graph.models", "src/helm/graph/models.py", 310, 360),
-        node("module:rich.console", "module", "rich.console", "External dependency", 310, 500, {
+        node(moduleId("helm.cli"), "module", "helm.cli", "src/helm/cli.py", 310, 60),
+        node(moduleId("helm.graph.models"), "module", "helm.graph.models", "src/helm/graph/models.py", 310, 360),
+        node(moduleId("rich.console"), "module", "rich.console", "External dependency", 310, 500, {
           isExternal: true,
         }),
         node(graphSummarySymbolId(), "class", "GraphSummary", "helm.ui.api.GraphSummary", 700, 40, {
@@ -788,15 +1175,95 @@ export function buildGraphView(
         ...extraNodes,
       ],
       edges: [
-        edge("imports:cli-ui", "imports", "module:helm.cli", "module:helm.ui.api", "1 import"),
-        edge("imports:ui-models", "imports", "module:helm.ui.api", "module:helm.graph.models", "1 import"),
-        edge("imports:ui-rich", "imports", "module:helm.ui.api", "module:rich.console", "1 import"),
-        edge("defines:ui-summary-class", "defines", "module:helm.ui.api", graphSummarySymbolId()),
-        edge("defines:ui-primary", "defines", "module:helm.ui.api", primarySymbolId),
-        edge("defines:ui-export", "defines", "module:helm.ui.api", symbolId("helm.ui.api", "build_export_payload")),
+        edge("imports:cli-ui", "imports", moduleId("helm.cli"), moduleId("helm.ui.api"), "1 import"),
+        edge("imports:ui-models", "imports", moduleId("helm.ui.api"), moduleId("helm.graph.models"), "1 import"),
+        edge("imports:ui-rich", "imports", moduleId("helm.ui.api"), moduleId("rich.console"), "1 import"),
+        edge("defines:ui-summary-class", "defines", moduleId("helm.ui.api"), graphSummarySymbolId()),
+        edge("defines:ui-primary", "defines", moduleId("helm.ui.api"), primarySymbolId),
+        edge("defines:ui-export", "defines", moduleId("helm.ui.api"), symbolId("helm.ui.api", "build_export_payload")),
         ...extraNodes.map((symbolNode, index) =>
-          edge(`defines:ui-extra:${index}`, "defines", "module:helm.ui.api", symbolNode.id),
+          edge(`defines:ui-extra:${index}`, "defines", moduleId("helm.ui.api"), symbolNode.id),
         ),
+      ],
+    };
+  }
+
+  const extraModule = state.extraModules.find((module) => moduleId(module.moduleName) === targetId);
+  if (level === "module" && extraModule) {
+    return {
+      rootNodeId: moduleId(extraModule.moduleName),
+      targetId: moduleId(extraModule.moduleName),
+      level: "module",
+      truncated: false,
+      breadcrumbs: [
+        { nodeId: session.id, level: "repo", label: session.name, subtitle: "Architecture map" },
+        {
+          nodeId: moduleId(extraModule.moduleName),
+          level: "module",
+          label: extraModule.moduleName,
+          subtitle: extraModule.relativePath,
+        },
+      ],
+      focus: {
+        targetId: moduleId(extraModule.moduleName),
+        level: "module",
+        label: extraModule.moduleName,
+        subtitle: "Architecture slice",
+        availableLevels: ["repo", "module"],
+      },
+      nodes: [
+        node(
+          moduleId(extraModule.moduleName),
+          "module",
+          extraModule.moduleName,
+          extraModule.relativePath,
+          0,
+          200,
+          {
+            symbolCount: 0,
+            importCount: 0,
+            callCount: 0,
+          },
+          moduleActions(),
+        ),
+      ],
+      edges: [],
+    };
+  }
+
+  if (level === "repo") {
+    return {
+      rootNodeId: session.id,
+      targetId: session.id,
+      level: "repo",
+      truncated: false,
+      breadcrumbs: [{ nodeId: session.id, level: "repo", label: session.name, subtitle: "Architecture map" }],
+      focus: {
+        targetId: session.id,
+        level: "repo",
+        label: session.name,
+        subtitle: "Architecture map",
+        availableLevels: ["repo", "module"],
+      },
+      nodes: [
+        node(session.id, "repo", session.name, "Architecture map", 0, 180),
+        node(moduleId("helm.cli"), "module", "helm.cli", "src/helm/cli.py", 320, 40),
+        node(moduleId("helm.ui.api"), "module", "helm.ui.api", "src/helm/ui/api.py", 320, 210, {
+          symbolCount: 6 + state.uiApiExtraSymbols.length,
+          importCount: 1,
+          callCount: 1,
+        }, moduleActions()),
+        node(moduleId("helm.graph.models"), "module", "helm.graph.models", "src/helm/graph/models.py", 320, 380),
+        node(moduleId("rich.console"), "module", "rich.console", "External dependency", 320, 550, {
+          isExternal: true,
+        }),
+        ...extraRepoModuleNodes,
+      ],
+      edges: [
+        edge("imports:cli-ui", "imports", moduleId("helm.cli"), moduleId("helm.ui.api"), "1 import"),
+        edge("imports:ui-models", "imports", moduleId("helm.ui.api"), moduleId("helm.graph.models"), "1 import"),
+        edge("imports:ui-rich", "imports", moduleId("helm.ui.api"), moduleId("rich.console"), "1 import"),
+        edge("calls:cli-ui", "calls", moduleId("helm.cli"), moduleId("helm.ui.api"), "1 call"),
       ],
     };
   }
@@ -816,22 +1283,23 @@ export function buildGraphView(
     },
     nodes: [
       node(session.id, "repo", session.name, "Architecture map", 0, 180),
-      node("module:helm.cli", "module", "helm.cli", "src/helm/cli.py", 320, 40),
-      node("module:helm.ui.api", "module", "helm.ui.api", "src/helm/ui/api.py", 320, 210, {
+      node(moduleId("helm.cli"), "module", "helm.cli", "src/helm/cli.py", 320, 40),
+      node(moduleId("helm.ui.api"), "module", "helm.ui.api", "src/helm/ui/api.py", 320, 210, {
         symbolCount: 6 + state.uiApiExtraSymbols.length,
         importCount: 1,
         callCount: 1,
       }, moduleActions()),
-      node("module:helm.graph.models", "module", "helm.graph.models", "src/helm/graph/models.py", 320, 380),
-      node("module:rich.console", "module", "rich.console", "External dependency", 320, 550, {
+      node(moduleId("helm.graph.models"), "module", "helm.graph.models", "src/helm/graph/models.py", 320, 380),
+      node(moduleId("rich.console"), "module", "rich.console", "External dependency", 320, 550, {
         isExternal: true,
       }),
+      ...extraRepoModuleNodes,
     ],
     edges: [
-      edge("imports:cli-ui", "imports", "module:helm.cli", "module:helm.ui.api", "1 import"),
-      edge("imports:ui-models", "imports", "module:helm.ui.api", "module:helm.graph.models", "1 import"),
-      edge("imports:ui-rich", "imports", "module:helm.ui.api", "module:rich.console", "1 import"),
-      edge("calls:cli-ui", "calls", "module:helm.cli", "module:helm.ui.api", "1 call"),
+      edge("imports:cli-ui", "imports", moduleId("helm.cli"), moduleId("helm.ui.api"), "1 import"),
+      edge("imports:ui-models", "imports", moduleId("helm.ui.api"), moduleId("helm.graph.models"), "1 import"),
+      edge("imports:ui-rich", "imports", moduleId("helm.ui.api"), moduleId("rich.console"), "1 import"),
+      edge("calls:cli-ui", "calls", moduleId("helm.cli"), moduleId("helm.ui.api"), "1 call"),
     ],
   };
 }
@@ -846,17 +1314,19 @@ function buildMockSymbolView(
   const symbolParts = symbolIdValue.split(":");
   const fallbackSymbolLabel = symbolParts[symbolParts.length - 1] ?? "Symbol";
   const symbolLabel = symbol?.name ?? fallbackSymbolLabel;
-  const moduleId = symbol ? `module:${symbol.moduleName}` : "module:helm.ui.api";
+  const moduleIdValue = symbol ? moduleId(symbol.moduleName) : moduleId("helm.ui.api");
   const moduleLabel = symbol?.moduleName ?? "helm.ui.api";
   const modulePath = symbol?.filePath ?? "src/helm/ui/api.py";
   const flowEnabled = symbol ? flowEnabledForSymbol(symbol) : true;
   const symbolNodeKind = graphNodeKindForSymbolKind(symbol?.kind ?? "function");
   const nodes: GraphView["nodes"] = [
-    node(moduleId, "module", moduleLabel, modulePath, 0, 160, {
+    node(moduleIdValue, "module", moduleLabel, modulePath, 0, 160, {
       symbolCount:
         symbol?.moduleName === "helm.ui.api"
           ? 6 + state.uiApiExtraSymbols.length
-          : 1,
+          : state.extraModules.some((module) => module.moduleName === symbol?.moduleName)
+            ? 0
+            : 1,
       importCount: symbol?.moduleName === "helm.ui.api" ? state.uiApiImports.length : 0,
       callCount: symbol?.moduleName === "helm.ui.api" ? 1 : 0,
     }),
@@ -865,7 +1335,7 @@ function buildMockSymbolView(
     }, symbolActions(mockSymbolEditable(symbol), flowEnabled)),
   ];
   const edges: GraphView["edges"] = [
-    edge(`defines:${moduleId}:${symbolIdValue}`, "defines", moduleId, symbolIdValue),
+    edge(`defines:${moduleIdValue}:${symbolIdValue}`, "defines", moduleIdValue, symbolIdValue),
   ];
 
   if (symbol?.nodeId === graphSummarySymbolId()) {
@@ -903,7 +1373,7 @@ function buildMockSymbolView(
     truncated: false,
     breadcrumbs: [
       { nodeId: session.id, level: "repo", label: session.name, subtitle: "Architecture map" },
-      { nodeId: moduleId, level: "module", label: moduleLabel, subtitle: modulePath },
+      { nodeId: moduleIdValue, level: "module", label: moduleLabel, subtitle: modulePath },
       { nodeId: symbolIdValue, level: "symbol", label: symbolLabel, subtitle: symbol?.qualname ?? symbolIdValue.replace("symbol:", "").replace(/:/g, ".") },
     ],
     focus: {
@@ -913,6 +1383,63 @@ function buildMockSymbolView(
       subtitle: "Semantic node",
       availableLevels: flowEnabled ? ["repo", "module", "symbol", "flow"] : ["repo", "module", "symbol"],
     },
+    nodes,
+    edges,
+  };
+}
+
+function applyMockFlowInsertions(
+  view: GraphView,
+  state: MockWorkspaceState,
+  symbolIdValue: string,
+): GraphView {
+  const insertions = state.flowInsertionsBySymbolId[symbolIdValue] ?? [];
+  if (!insertions.length) {
+    return view;
+  }
+
+  const nodes = [...view.nodes];
+  const edges = [...view.edges];
+  insertions.forEach((insertion, index) => {
+    const edgeIndex = edges.findIndex(
+      (edgeCandidate) => edgeCandidate.id === insertion.anchorEdgeId && edgeCandidate.kind === "controls",
+    );
+    if (edgeIndex < 0) {
+      return;
+    }
+
+    const anchorEdge = edges[edgeIndex];
+    edges.splice(edgeIndex, 1);
+    const sourceNode = nodes.find((nodeCandidate) => nodeCandidate.id === anchorEdge.source);
+    const targetNode = nodes.find((nodeCandidate) => nodeCandidate.id === anchorEdge.target);
+    const anchorIndex = insertions
+      .slice(0, index)
+      .filter((candidate) => candidate.anchorEdgeId === insertion.anchorEdgeId)
+      .length;
+
+    nodes.push(
+      node(
+        insertion.nodeId,
+        insertion.kind,
+        insertion.label,
+        insertion.subtitle,
+        sourceNode && targetNode
+          ? (sourceNode.x + targetNode.x) / 2 + anchorIndex * 28
+          : 320 + index * 180,
+        sourceNode && targetNode
+          ? (sourceNode.y + targetNode.y) / 2 + anchorIndex * 36
+          : 180,
+        sourceSpanMetadataForTargetId(insertion.nodeId, state),
+      ),
+    );
+    edges.push(
+      edge(controlEdgeId(anchorEdge.source, insertion.nodeId), "controls", anchorEdge.source, insertion.nodeId, anchorEdge.label),
+      edge(controlEdgeId(insertion.nodeId, anchorEdge.target), "controls", insertion.nodeId, anchorEdge.target),
+    );
+  });
+
+  return {
+    ...view,
     nodes,
     edges,
   };
@@ -932,7 +1459,7 @@ function buildMockFunctionFlowView(
   ];
 
   if (symbol.nodeId === symbolId("helm.ui.api", state.primarySummarySymbolName)) {
-    return {
+    return applyMockFlowInsertions({
       rootNodeId: entryId,
       targetId: symbol.nodeId,
       level: "flow",
@@ -954,19 +1481,19 @@ function buildMockFunctionFlowView(
         node(`flow:${symbol.nodeId}:return`, "return", "return GraphSummary(...)", "emit blueprint summary", 970, 180, sourceSpanMetadataForTargetId(`flow:${symbol.nodeId}:return`, state)),
       ],
       edges: [
-        edge(`controls:${entryId}:assign`, "controls", entryId, `flow:${symbol.nodeId}:assign:modules`),
-        edge(`controls:${symbol.nodeId}:assign:rank`, "controls", `flow:${symbol.nodeId}:assign:modules`, `flow:${symbol.nodeId}:call:rank`),
-        edge(`controls:${symbol.nodeId}:rank:return`, "controls", `flow:${symbol.nodeId}:call:rank`, `flow:${symbol.nodeId}:return`),
+        edge(controlEdgeId(entryId, `flow:${symbol.nodeId}:assign:modules`), "controls", entryId, `flow:${symbol.nodeId}:assign:modules`),
+        edge(controlEdgeId(`flow:${symbol.nodeId}:assign:modules`, `flow:${symbol.nodeId}:call:rank`), "controls", `flow:${symbol.nodeId}:assign:modules`, `flow:${symbol.nodeId}:call:rank`),
+        edge(controlEdgeId(`flow:${symbol.nodeId}:call:rank`, `flow:${symbol.nodeId}:return`), "controls", `flow:${symbol.nodeId}:call:rank`, `flow:${symbol.nodeId}:return`),
         edge(`data:${symbol.nodeId}:graph:assign`, "data", `flow:${symbol.nodeId}:param:graph`, `flow:${symbol.nodeId}:assign:modules`, "graph"),
         edge(`data:${symbol.nodeId}:top:rank`, "data", `flow:${symbol.nodeId}:param:top_n`, `flow:${symbol.nodeId}:call:rank`, "top_n"),
         edge(`data:${symbol.nodeId}:assign:rank`, "data", `flow:${symbol.nodeId}:assign:modules`, `flow:${symbol.nodeId}:call:rank`, "module_summaries"),
         edge(`data:${symbol.nodeId}:rank:return`, "data", `flow:${symbol.nodeId}:call:rank`, `flow:${symbol.nodeId}:return`, "ranked_modules"),
       ],
-    };
+    }, state, symbol.nodeId);
   }
 
   if (symbol.nodeId === graphSummaryToPayloadSymbolId()) {
-    return {
+    return applyMockFlowInsertions({
       rootNodeId: entryId,
       targetId: symbol.nodeId,
       level: "flow",
@@ -985,13 +1512,13 @@ function buildMockFunctionFlowView(
         node(`flow:${symbol.nodeId}:return`, "return", "return {...}", "emit payload map", 500, 180, sourceSpanMetadataForTargetId(`flow:${symbol.nodeId}:return`)),
       ],
       edges: [
-        edge(`controls:${entryId}:return`, "controls", entryId, `flow:${symbol.nodeId}:return`),
+        edge(controlEdgeId(entryId, `flow:${symbol.nodeId}:return`), "controls", entryId, `flow:${symbol.nodeId}:return`),
         edge(`data:${symbol.nodeId}:self:return`, "data", `flow:${symbol.nodeId}:param:self`, `flow:${symbol.nodeId}:return`, "self"),
       ],
-    };
+    }, state, symbol.nodeId);
   }
 
-  return {
+  return applyMockFlowInsertions({
     rootNodeId: entryId,
     targetId: symbol.nodeId,
     level: "flow",
@@ -1009,9 +1536,9 @@ function buildMockFunctionFlowView(
       node(`flow:${symbol.nodeId}:return`, "return", "return", "complete operation", 320, 180),
     ],
     edges: [
-      edge(`controls:${entryId}:return`, "controls", entryId, `flow:${symbol.nodeId}:return`),
+      edge(controlEdgeId(entryId, `flow:${symbol.nodeId}:return`), "controls", entryId, `flow:${symbol.nodeId}:return`),
     ],
-  };
+  }, state, symbol.nodeId);
 }
 
 function buildMockClassFlowView(
@@ -1070,7 +1597,7 @@ export function buildRevealedSource(
     return buildEditableNodeSource(state, targetId);
   }
   const files = buildFiles(state);
-  if (targetId === "module:helm.ui.api") {
+  if (targetId === moduleId("helm.ui.api")) {
     return {
       targetId,
       title: "helm.ui.api",
@@ -1079,6 +1606,20 @@ export function buildRevealedSource(
       endLine: files["src/helm/ui/api.py"].lineCount,
       content: files["src/helm/ui/api.py"].content,
     };
+  }
+
+  if (targetId.startsWith("module:")) {
+    const matchingModule = state.extraModules.find((module) => moduleId(module.moduleName) === targetId);
+    if (matchingModule) {
+      return {
+        targetId,
+        title: matchingModule.moduleName,
+        path: matchingModule.relativePath,
+        startLine: 1,
+        endLine: files[matchingModule.relativePath].lineCount,
+        content: files[matchingModule.relativePath].content,
+      };
+    }
   }
 
   return {
@@ -1140,6 +1681,7 @@ export function applyMockEdit(
         reparsedRelativePaths: ["src/helm/ui/api.py"],
         changedNodeIds: [symbolId("helm.ui.api", request.newName)],
         warnings: [],
+        diagnostics: [],
       };
     }
   }
@@ -1162,6 +1704,80 @@ export function applyMockEdit(
       reparsedRelativePaths: ["src/helm/ui/api.py"],
       changedNodeIds: [symbolId("helm.ui.api", request.newName)],
       warnings: [],
+      diagnostics: [],
+    };
+  }
+
+  if (request.kind === "create_module" && request.relativePath) {
+    validateMockCreateModuleRequest(state, request.relativePath);
+    const relativePath = request.relativePath.trim();
+    const moduleName = moduleNameFromRelativePath(relativePath);
+    state.extraModules.push({
+      moduleName,
+      relativePath,
+      content: normalizedMockModuleContent(request.content),
+    });
+    return {
+      request: {
+        kind: "create_module",
+        relative_path: relativePath,
+        content: request.content,
+      },
+      summary: `Created module ${moduleName}.`,
+      touchedRelativePaths: [relativePath],
+      reparsedRelativePaths: [relativePath],
+      changedNodeIds: [moduleId(moduleName)],
+      warnings: [],
+      diagnostics: [],
+    };
+  }
+
+  if (
+    request.kind === "insert_flow_statement"
+    && request.targetId
+    && request.anchorEdgeId
+    && request.content
+  ) {
+    const symbols = buildSymbols(state);
+    const symbol = symbols[request.targetId];
+    if (!symbol || (symbol.kind !== "function" && symbol.kind !== "class")) {
+      throw new Error("Mock flow insertion is only available for seeded functions and methods.");
+    }
+
+    const currentFlow = buildGraphView(buildRepoSession(defaultRepoPath), state, request.targetId, "flow");
+    if (!currentFlow.edges.some((edgeCandidate) => (
+      edgeCandidate.id === request.anchorEdgeId && edgeCandidate.kind === "controls"
+    ))) {
+      throw new Error(`Unknown control-flow anchor '${request.anchorEdgeId}'.`);
+    }
+
+    const nextIndex = (state.flowInsertionsBySymbolId[request.targetId] ?? []).length;
+    const kind = mockFlowNodeKindFromContent(request.content);
+    const nodeId = `flow:${request.targetId}:created:${nextIndex + 1}`;
+    state.flowInsertionsBySymbolId[request.targetId] = [
+      ...(state.flowInsertionsBySymbolId[request.targetId] ?? []),
+      {
+        nodeId,
+        kind,
+        label: mockFlowNodeLabel(kind, request.content),
+        subtitle: mockFlowNodeSubtitle(kind, request.content),
+        anchorEdgeId: request.anchorEdgeId,
+        content: request.content,
+      },
+    ];
+    return {
+      request: {
+        kind: "insert_flow_statement",
+        target_id: request.targetId,
+        anchor_edge_id: request.anchorEdgeId,
+        content: request.content,
+      },
+      summary: `Inserted ${kind} node into ${symbol.name}.`,
+      touchedRelativePaths: [symbol.filePath],
+      reparsedRelativePaths: [symbol.filePath],
+      changedNodeIds: [nodeId],
+      warnings: [],
+      diagnostics: [],
     };
   }
 
@@ -1183,6 +1799,7 @@ export function applyMockEdit(
       reparsedRelativePaths: ["src/helm/ui/api.py"],
       changedNodeIds: ["module:helm.ui.api"],
       warnings: [],
+      diagnostics: [],
     };
   }
 
@@ -1199,6 +1816,7 @@ export function applyMockEdit(
       reparsedRelativePaths: ["src/helm/ui/api.py"],
       changedNodeIds: ["module:helm.ui.api"],
       warnings: [],
+      diagnostics: [],
     };
   }
 
@@ -1215,6 +1833,7 @@ export function applyMockEdit(
       reparsedRelativePaths: ["src/helm/ui/api.py"],
       changedNodeIds: [request.targetId],
       warnings: ["This edit is simulated in the mock adapter."],
+      diagnostics: [],
     };
   }
 
@@ -1231,13 +1850,34 @@ export function applyMockEdit(
       alias: request.alias,
       body: request.body,
       content: request.content,
+      anchor_edge_id: request.anchorEdgeId,
     },
     summary: `Mock adapter acknowledged ${request.kind}.`,
     touchedRelativePaths: request.relativePath ? [request.relativePath] : [],
     reparsedRelativePaths: request.relativePath ? [request.relativePath] : [],
     changedNodeIds: request.targetId ? [request.targetId] : [],
     warnings: ["This edit is simulated in the mock adapter."],
+    diagnostics: [],
   };
+}
+
+function validateMockCreateModuleRequest(
+  state: MockWorkspaceState,
+  relativePath: string,
+) {
+  const normalized = relativePath.trim();
+  if (!normalized || normalized.startsWith("/") || normalized.includes("\\")) {
+    throw new Error("Module path must be a relative Python file path.");
+  }
+  if (!normalized.endsWith(".py")) {
+    throw new Error("Module path must end with .py.");
+  }
+  if (normalized.split("/").some((segment) => segment === "." || segment === ".." || segment.length === 0)) {
+    throw new Error("Module path must stay within the repo.");
+  }
+  if (buildFiles(state)[normalized]) {
+    throw new Error(`Module '${normalized}' already exists.`);
+  }
 }
 
 function validateMockCreateSymbolRequest(
@@ -1266,6 +1906,61 @@ function validateMockCreateSymbolRequest(
   if (existing) {
     throw new Error(`Top-level symbol '${newName}' already exists in ${relativePath}.`);
   }
+}
+
+function normalizedMockModuleContent(content?: string) {
+  const trimmed = content?.trimEnd();
+  return trimmed && trimmed.length > 0
+    ? `${trimmed}\n`
+    : "";
+}
+
+function mockFlowNodeKindFromContent(content: string): "assign" | "call" | "return" | "branch" | "loop" {
+  const normalized = content.trim();
+  if (normalized.startsWith("if ")) {
+    return "branch";
+  }
+  if (normalized.startsWith("for ") || normalized.startsWith("while ")) {
+    return "loop";
+  }
+  if (normalized.startsWith("return")) {
+    return "return";
+  }
+  if (normalized.includes("=")) {
+    return "assign";
+  }
+  return "call";
+}
+
+function mockFlowNodeLabel(
+  kind: "assign" | "call" | "return" | "branch" | "loop",
+  content: string,
+) {
+  const header = content.trim().split("\n")[0]?.trim() ?? content.trim();
+  if (!header) {
+    return kind;
+  }
+  if (kind === "assign") {
+    return header.split("=")[0]?.trim() || "assign";
+  }
+  return header;
+}
+
+function mockFlowNodeSubtitle(
+  kind: "assign" | "call" | "return" | "branch" | "loop",
+  content: string,
+) {
+  const header = content.trim().split("\n")[0]?.trim() ?? content.trim();
+  if (!header) {
+    return kind;
+  }
+  if (kind === "branch") {
+    return "conditional branch";
+  }
+  if (kind === "loop") {
+    return "loop body";
+  }
+  return header;
 }
 
 function buildCliSource(state: MockWorkspaceState): string {
@@ -1424,6 +2119,7 @@ function edge(
   source: string,
   target: string,
   label?: string,
+  metadata: Record<string, unknown> = {},
 ) {
   return {
     id,
@@ -1431,8 +2127,12 @@ function edge(
     source,
     target,
     label,
-    metadata: {},
+    metadata,
   };
+}
+
+function controlEdgeId(source: string, target: string, pathKey?: string) {
+  return `controls:${source}->${target}${pathKey ? `:${pathKey}` : ""}`;
 }
 
 function moduleActions() {

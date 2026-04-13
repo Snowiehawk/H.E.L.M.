@@ -68,6 +68,7 @@ const DEFAULT_NODE_SIZES: Record<GraphNodeKind, { width: number; height: number 
   branch: { width: 280, height: 110 },
   loop: { width: 260, height: 108 },
   return: { width: 240, height: 96 },
+  exit: { width: 190, height: 94 },
 };
 
 function metadataNumber(node: FlowLayoutNode, key: string): number | undefined {

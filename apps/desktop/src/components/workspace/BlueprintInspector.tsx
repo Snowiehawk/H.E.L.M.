@@ -57,7 +57,6 @@ export function BlueprintInspector({
 }) {
   const [draftSource, setDraftSource] = useState("");
   const [sourceError, setSourceError] = useState<string | null>(null);
-  const [createFunctionName, setCreateFunctionName] = useState("");
   const selectedRelativePath = relativePathForNode(selectedNode);
   const selectedSummary = selectionSummary(selectedNode);
   const nodePath = editableSource?.path ?? selectedRelativePath ?? symbol?.filePath;
@@ -76,17 +75,11 @@ export function BlueprintInspector({
   const dirty = canEditInline && draftSource !== editableSource?.content;
   const topLevel = metadataBoolean(selectedNode, "top_level");
   const inspectorClassName = `pane pane--inspector blueprint-inspector${revealedSource ? " blueprint-inspector--with-revealed-source" : ""}`;
-  const trimmedCreateFunctionName = createFunctionName.trim();
-  const canCreateFunction = Boolean(createFunctionTargetPath && onCreateFunction);
 
   useEffect(() => {
     setDraftSource(editableSource?.content ?? "");
     setSourceError(null);
   }, [editableSource?.targetId, editableSource?.content]);
-
-  useEffect(() => {
-    setCreateFunctionName("");
-  }, [createFunctionTargetPath, selectedNode?.id]);
 
   useEffect(() => {
     if (canEditInline) {
@@ -114,14 +107,6 @@ export function BlueprintInspector({
     setSourceError(null);
   };
 
-  const handleCreateFunction = async () => {
-    if (!createFunctionTargetPath || !onCreateFunction || !trimmedCreateFunctionName) {
-      return;
-    }
-
-    await onCreateFunction(createFunctionTargetPath, trimmedCreateFunctionName);
-  };
-
   if (!selectedNode) {
     return (
       <aside className="pane pane--inspector blueprint-inspector">
@@ -129,7 +114,7 @@ export function BlueprintInspector({
           <div className="sidebar-card__header">
             <div>
               <span className="window-bar__eyebrow">Inspector</span>
-              <h2>{canCreateFunction ? "Create function" : "Nothing selected"}</h2>
+              <h2>Nothing selected</h2>
             </div>
             <button
               {...helpTargetProps("inspector.toggle")}
@@ -140,48 +125,14 @@ export function BlueprintInspector({
               Collapse
             </button>
           </div>
-          {canCreateFunction ? (
-            <>
-              <div className="info-card">
-                <strong>{createFunctionTargetPath}</strong>
-                <p>Create a top-level function in this module, then continue editing it here.</p>
-              </div>
-              <form
-                className="blueprint-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void handleCreateFunction();
-                }}
-              >
-                <label className="blueprint-field">
-                  <span className="blueprint-field__label">
-                    <strong>Function name</strong>
-                  </span>
-                  <input
-                    aria-label="Function name"
-                    autoComplete="off"
-                    placeholder="build_helper"
-                    spellCheck={false}
-                    type="text"
-                    value={createFunctionName}
-                    onChange={(event) => setCreateFunctionName(event.target.value)}
-                  />
-                </label>
-                {createFunctionError ? <p className="error-copy">{createFunctionError}</p> : null}
-                <div className="blueprint-inspector__editor-actions">
-                  <button
-                    className="primary-button"
-                    type="submit"
-                    disabled={!trimmedCreateFunctionName || isCreatingFunction}
-                  >
-                    {isCreatingFunction ? "Creating..." : "Create function"}
-                  </button>
-                </div>
-              </form>
-            </>
-          ) : (
-            <p>Select a graph node, then inspect or enter it explicitly from the canvas.</p>
-          )}
+          <p>Select a graph node to inspect it, or press <strong>C</strong> in the graph to enter create mode.</p>
+          {createFunctionTargetPath ? (
+            <div className="info-card">
+              <strong>{createFunctionTargetPath}</strong>
+              <p>Module and symbol views can create new declarations directly from the graph.</p>
+            </div>
+          ) : null}
+          {createFunctionError ? <p className="error-copy">{createFunctionError}</p> : null}
         </section>
       </aside>
     );
