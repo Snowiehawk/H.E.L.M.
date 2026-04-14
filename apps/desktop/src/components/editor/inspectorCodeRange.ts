@@ -79,13 +79,12 @@ export function normalizeHighlightRange(
 }
 
 function toModelColumn(
-  absoluteLine: number,
+  _absoluteLine: number,
   absoluteColumn: number,
-  absoluteSnippetStartLine: number,
+  _absoluteSnippetStartLine: number,
   snippetStartColumn: number,
 ) {
-  const baseColumn = absoluteLine === absoluteSnippetStartLine ? snippetStartColumn : 0;
-  return absoluteColumn - baseColumn + 1;
+  return absoluteColumn - snippetStartColumn + 1;
 }
 
 function clampRangeColumn(

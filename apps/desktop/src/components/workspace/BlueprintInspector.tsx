@@ -85,11 +85,11 @@ export function BlueprintInspector({
     symbolFilePath: symbol?.filePath,
     metadata: selectedNode?.metadata,
   });
+  const editableNodeKind = editableSource?.nodeKind ?? selectedNode?.kind;
   const canEditInline = Boolean(
     selectedNode
     && editableSource
-    && editableSource.editable
-    && (selectedNode.kind === "function" || selectedNode.kind === "variable"),
+    && editableSource.editable,
   );
   const dirty = canEditInline && draftSource !== editableSource?.content;
   const topLevel = metadataBoolean(selectedNode, "top_level");
@@ -263,7 +263,7 @@ export function BlueprintInspector({
         <div className="info-card">
           <strong>{selectedNode.label}</strong>
           {selectedSummary ? <p>{selectedSummary}</p> : null}
-          {topLevel === false ? (
+          {topLevel === false && editableSource?.editable === false ? (
             <p className="muted-copy">This symbol is nested and not editable inline in v1.</p>
           ) : null}
         </div>
@@ -307,18 +307,14 @@ export function BlueprintInspector({
             <>
               <div className="blueprint-field blueprint-field--editor">
                 <span className="blueprint-field__label">
-                  <strong>{selectedNode.kind === "function" ? "Function source" : "Variable source"}</strong>
+                  <strong>{editableEditorTitle(editableNodeKind)}</strong>
                   <StatusPill tone={draftStale ? "warning" : dirty ? "accent" : "default"}>
                     {draftStale ? "Stale" : dirty ? "Unsaved" : "Synced"}
                   </StatusPill>
                 </span>
                 <div {...helpTargetProps("inspector.editor")}>
                   <InspectorCodeSurface
-                    ariaLabel={
-                      selectedNode.kind === "function"
-                        ? "Function source editor"
-                        : "Variable source editor"
-                    }
+                    ariaLabel={editableEditorAriaLabel(editableNodeKind)}
                     className="blueprint-editor"
                     dataTestId="inspector-inline-editor"
                     height="clamp(280px, 34vh, 420px)"
@@ -730,4 +726,24 @@ export function BlueprintInspector({
       ) : null}
     </aside>
   );
+}
+
+function editableEditorTitle(nodeKind: GraphNodeDto["kind"] | undefined) {
+  if (nodeKind === "class") {
+    return "Class source";
+  }
+  if (nodeKind === "variable") {
+    return "Variable source";
+  }
+  return "Function source";
+}
+
+function editableEditorAriaLabel(nodeKind: GraphNodeDto["kind"] | undefined) {
+  if (nodeKind === "class") {
+    return "Class source editor";
+  }
+  if (nodeKind === "variable") {
+    return "Variable source editor";
+  }
+  return "Function source editor";
 }

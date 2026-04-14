@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 
 from helm.editor import apply_backend_undo, apply_structural_edit
+from helm.editor.declaration_support import resolve_declaration_edit_support
 from helm.editor.models import (
     BackendUndoResult,
     BackendUndoTransaction,
@@ -443,20 +444,15 @@ class PythonRepoAdapter:
             raise ValueError("Editable source is only available for symbols.")
 
         _, symbol = self._require_symbol(target_id)
-        editable = (
-            symbol.parent_symbol_id is None
-            and symbol.kind in {SymbolKind.FUNCTION, SymbolKind.ASYNC_FUNCTION, SymbolKind.VARIABLE}
-        )
-        reason = (
-            None
-            if editable
-            else "Inline editing currently supports only top-level functions and variables."
+        support = resolve_declaration_edit_support(
+            symbol,
+            lookup_symbol=self._lookup_symbol,
         )
         payload = self._source_payload_for_node(node, target_id=target_id, exact=True)
         payload.update(
             {
-                "editable": editable,
-                "reason": reason,
+                "editable": support.editable,
+                "reason": support.reason,
                 "node_kind": _graph_view_kind_for_symbol(symbol.kind).value,
             }
         )
@@ -1109,7 +1105,7 @@ class PythonRepoAdapter:
         elif exact:
             start_line = node.span.start_line
             end_line = node.span.end_line
-            snippet = content[node.span.start_offset : node.span.end_offset]
+            snippet = _exact_source_snippet(content, node.span)
         else:
             start_line = node.span.start_line
             end_line = node.span.end_line
@@ -1144,6 +1140,13 @@ class PythonRepoAdapter:
         symbol_kind = symbol.kind.value.replace("_", " ")
         module_name = node.module_name or "module"
         return f"{symbol_kind} · {module_name}"
+
+    def _lookup_symbol(self, symbol_id: str) -> SymbolDef | None:
+        for parsed in self.parsed_modules:
+            for symbol in parsed.symbols:
+                if symbol.symbol_id == symbol_id:
+                    return symbol
+        return None
 
 
 def _normalized_filters(filters: dict[str, bool] | None) -> dict[str, bool]:
@@ -1421,6 +1424,37 @@ def _source_metadata_for_ast_node(node: ast.AST) -> dict[str, int]:
         "source_end_line": end_line,
         "source_end_column": end_column,
     }
+
+
+def _exact_source_snippet(content: str, span: SourceSpan) -> str:
+    line_starts = _line_start_offsets(content)
+    start_offset = line_starts[max(min(span.start_line - 1, len(line_starts) - 1), 0)]
+    raw = content[start_offset : span.end_offset]
+    if span.start_column <= 0:
+        return raw
+    return _strip_base_indentation(raw, span.start_column)
+
+
+def _line_start_offsets(content: str) -> list[int]:
+    offsets = [0]
+    for index, character in enumerate(content):
+        if character == "\n":
+            offsets.append(index + 1)
+    return offsets
+
+
+def _strip_base_indentation(snippet: str, base_indent: int) -> str:
+    if base_indent <= 0:
+        return snippet
+
+    prefix = " " * base_indent
+    stripped_lines: list[str] = []
+    for line in snippet.splitlines(keepends=True):
+        if line.startswith(prefix):
+            stripped_lines.append(line[base_indent:])
+        else:
+            stripped_lines.append(line)
+    return "".join(stripped_lines)
 
 
 def _find_ast_symbol(tree: ast.AST, qualname: str) -> ast.AST | None:

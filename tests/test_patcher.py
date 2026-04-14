@@ -612,6 +612,177 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertEqual(undo_result.focus_target.target_id, "symbol:service:run")
             self.assertEqual(undo_result.focus_target.level, "symbol")
 
+    def test_replace_symbol_source_supports_whole_class_replacement_with_attributes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "# before class\n"
+                        "@decorator\n"
+                        "class Service(\n"
+                        "    Base,\n"
+                        "):\n"
+                        "    \"\"\"Original docstring.\"\"\"\n"
+                        "    enabled: bool = True\n\n"
+                        "    def run(self) -> bool:\n"
+                        "        return self.enabled\n\n"
+                        "# after class\n"
+                        "def helper() -> bool:\n"
+                        "    return True\n"
+                    ),
+                },
+            )
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_symbol_source",
+                        "target_id": "symbol:service:Service",
+                        "content": (
+                            "@decorator\n"
+                            "class Service(\n"
+                            "    Base,\n"
+                            "):\n"
+                            "    \"\"\"Updated docstring.\"\"\"\n"
+                            "    enabled: bool = False\n\n"
+                            "    def run(self) -> bool:\n"
+                            "        return self.enabled\n"
+                        ),
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertEqual(result.changed_node_ids, ("symbol:service:Service",))
+            self.assertEqual(
+                (root / "service.py").read_text(encoding="utf-8"),
+                (
+                    "# before class\n"
+                    "@decorator\n"
+                    "class Service(\n"
+                    "    Base,\n"
+                    "):\n"
+                    "    \"\"\"Updated docstring.\"\"\"\n"
+                    "    enabled: bool = False\n\n"
+                    "    def run(self) -> bool:\n"
+                    "        return self.enabled\n\n"
+                    "# after class\n"
+                    "def helper() -> bool:\n"
+                    "    return True\n"
+                ),
+            )
+
+    def test_replace_symbol_source_preserves_nested_method_spacing_comments_and_async_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "class Service:\n"
+                        "    enabled = True\n\n"
+                        "    # before run\n"
+                        "    @trace\n"
+                        "    async def run(\n"
+                        "        self,\n"
+                        "        value: str,\n"
+                        "    ) -> str:\n"
+                        "        \"\"\"Return the current value.\"\"\"\n"
+                        "        return value\n\n"
+                        "    def helper(self) -> bool:\n"
+                        "        return self.enabled\n"
+                    ),
+                },
+            )
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_symbol_source",
+                        "target_id": "symbol:service:Service.run",
+                        "content": (
+                            "@trace\n"
+                            "async def run(\n"
+                            "    self,\n"
+                            "    value: str,\n"
+                            "    fallback: str | None = None,\n"
+                            ") -> str:\n"
+                            "    \"\"\"Return the latest value.\"\"\"\n"
+                            "    return fallback or value\n"
+                        ),
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertEqual(result.changed_node_ids, ("symbol:service:Service.run",))
+            self.assertEqual(result.flow_sync_state, "clean")
+            self.assertTrue((root / FLOW_MODEL_RELATIVE_PATH).exists())
+            self.assertEqual(
+                (root / "service.py").read_text(encoding="utf-8"),
+                (
+                    "class Service:\n"
+                    "    enabled = True\n\n"
+                    "    # before run\n"
+                    "    @trace\n"
+                    "    async def run(\n"
+                    "        self,\n"
+                    "        value: str,\n"
+                    "        fallback: str | None = None,\n"
+                    "    ) -> str:\n"
+                    "        \"\"\"Return the latest value.\"\"\"\n"
+                    "        return fallback or value\n\n"
+                    "    def helper(self) -> bool:\n"
+                    "        return self.enabled\n"
+                ),
+            )
+
+    def test_backend_undo_restores_saved_method_source_and_flow_document(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "class Service:\n"
+                        "    def run(self) -> bool:\n"
+                        "        return True\n"
+                    ),
+                },
+            )
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_symbol_source",
+                        "target_id": "symbol:service:Service.run",
+                        "content": "def run(self) -> bool:\n    return False\n",
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertIn("return False", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertTrue((root / FLOW_MODEL_RELATIVE_PATH).exists())
+
+            undo_result = apply_backend_undo(root, result.undo_transaction)
+
+            self.assertIn("return True", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertFalse((root / FLOW_MODEL_RELATIVE_PATH).exists())
+            self.assertEqual(undo_result.focus_target.target_id, "symbol:service:Service.run")
+            self.assertEqual(undo_result.focus_target.level, "symbol")
+
     def test_backend_undo_restores_inserted_flow_statement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

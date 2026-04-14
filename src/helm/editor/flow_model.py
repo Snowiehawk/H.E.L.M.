@@ -369,6 +369,8 @@ def _import_statement(
         return _ImportedBlock(root_id=node_id, continuation=(node_id, "next"))
 
     if isinstance(statement, ast.Expr):
+        if _is_docstring_expression(statement):
+            return _ImportedBlock(root_id=None, continuation=None)
         if any(isinstance(node, ast.Call) for node in ast.walk(statement)):
             node_id = builder.create_node("call", {"source": ast.unparse(statement)})
             return _ImportedBlock(root_id=node_id, continuation=(node_id, "next"))
@@ -556,6 +558,13 @@ def allowed_flow_input_handles(kind: str) -> tuple[str, ...]:
     if kind in {"entry"}:
         return ()
     return ("in",)
+
+
+def _is_docstring_expression(statement: ast.Expr) -> bool:
+    value = statement.value
+    if isinstance(value, ast.Constant):
+        return isinstance(value.value, str)
+    return isinstance(value, ast.Str)
 
 
 def _validate_node_payload(

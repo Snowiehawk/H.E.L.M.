@@ -1017,6 +1017,7 @@ describe("WorkspaceScreen", () => {
 
     fireEvent.click(within(classNode as HTMLElement).getByText("Inspect"));
 
+    expect(await screen.findByText(/Declaration editor/i)).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /Open File In Default Editor/i })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /Open flow/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Open blueprint/i })).not.toBeInTheDocument();
@@ -1097,9 +1098,11 @@ describe("WorkspaceScreen", () => {
 
     const drawer = await screen.findByTestId("blueprint-inspector-drawer");
     expect(within(drawer).getByRole("heading", { name: "GraphSummary" })).toBeInTheDocument();
-    expect(screen.getByLabelText(/Read-only class source/i)).toHaveTextContent("class GraphSummary");
-    expect(screen.getByTestId("inspector-readonly-source")).toHaveAttribute("data-highlight-start-line", "11");
-    expect(screen.getByTestId("inspector-readonly-source")).toHaveAttribute("data-highlight-end-line", "15");
+    expect(
+      (screen.getByRole("textbox", { name: /Class source editor/i }) as HTMLTextAreaElement).value,
+    ).toContain("class GraphSummary");
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-highlight-start-line", "11");
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-highlight-end-line", "15");
   });
 
   it("navigates one layer out with Backspace from class flow to class blueprint", async () => {
@@ -1429,7 +1432,13 @@ describe("WorkspaceScreen", () => {
 
     const classNode = (await graph.findByText("GraphSummary")).closest(".graph-node");
     expect(classNode).not.toBeNull();
-    fireEvent.click(within(classNode as HTMLElement).getByText("Inspect"));
+    fireEvent.click(within(classNode as HTMLElement).getByText("Enter"));
+
+    expect(await screen.findByText(/Symbol blueprint/i)).toBeInTheDocument();
+
+    const attributeNode = (await graph.findByText("repo_path")).closest(".graph-node");
+    expect(attributeNode).not.toBeNull();
+    fireEvent.click(within(attributeNode as HTMLElement).getByText("Inspect"));
 
     expect(await screen.findByText(/Code details/i)).toBeInTheDocument();
     expect(screen.queryByTestId("inspector-inline-editor")).not.toBeInTheDocument();

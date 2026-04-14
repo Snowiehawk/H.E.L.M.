@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Iterable
 
 from helm._vendor import ensure_vendor_packages
+from helm.editor.declaration_support import require_editable_declaration_support
 from helm.editor.flow_model import (
     FLOW_MODEL_RELATIVE_PATH,
     FlowImportError,
@@ -185,7 +186,6 @@ def _undo_snapshot_paths_for_request(
         StructuralEditKind.RENAME_SYMBOL,
         StructuralEditKind.DELETE_SYMBOL,
         StructuralEditKind.MOVE_SYMBOL,
-        StructuralEditKind.REPLACE_SYMBOL_SOURCE,
     }:
         parsed, symbol = _require_top_level_symbol(context, request.target_id or "")
         paths = [parsed.module.relative_path]
@@ -193,11 +193,12 @@ def _undo_snapshot_paths_for_request(
             destination = _require_module(context, request.destination_relative_path or "")
             if destination.module.relative_path not in paths:
                 paths.append(destination.module.relative_path)
-        if (
-            request.kind == StructuralEditKind.REPLACE_SYMBOL_SOURCE
-            and symbol.kind in {SymbolKind.FUNCTION, SymbolKind.ASYNC_FUNCTION}
-            and FLOW_MODEL_RELATIVE_PATH not in paths
-        ):
+        return tuple(paths)
+
+    if request.kind == StructuralEditKind.REPLACE_SYMBOL_SOURCE:
+        parsed, symbol = _require_symbol(context, request.target_id or "")
+        paths = [parsed.module.relative_path]
+        if _tracks_flow_document(symbol.kind) and FLOW_MODEL_RELATIVE_PATH not in paths:
             paths.append(FLOW_MODEL_RELATIVE_PATH)
         return tuple(paths)
 
@@ -528,36 +529,41 @@ def _replace_symbol_source(
     context: EditContext,
     request: StructuralEditRequest,
 ) -> StructuralEditResult:
-    parsed, symbol = _require_top_level_symbol(context, request.target_id or "")
-    if symbol.kind not in {
-        SymbolKind.FUNCTION,
-        SymbolKind.ASYNC_FUNCTION,
-        SymbolKind.VARIABLE,
-    }:
-        raise ValueError(
-            "Inline source editing only supports top-level functions and variables in v1."
-        )
+    parsed, symbol = _require_symbol(context, request.target_id or "")
+    require_editable_declaration_support(
+        symbol,
+        lookup_symbol=lambda symbol_id: _lookup_symbol_from_context(context, symbol_id),
+    )
 
     source_path = Path(parsed.module.file_path)
     module = cst.parse_module(source_path.read_text(encoding="utf-8"))
     replacement = _parse_replacement_statement(symbol, request.content or "")
-    replaced = False
-    updated_body: list[cst.CSTNode] = []
+    if symbol.kind == SymbolKind.VARIABLE:
+        replaced = False
+        updated_body: list[cst.CSTNode] = []
 
-    for statement in module.body:
-        if _statement_matches_symbol(statement, symbol.name):
-            updated_body.append(_preserve_statement_spacing(statement, replacement))
-            replaced = True
-        else:
-            updated_body.append(statement)
+        for statement in module.body:
+            if _statement_matches_symbol(statement, symbol.name):
+                updated_body.append(_preserve_statement_spacing(statement, replacement))
+                replaced = True
+            else:
+                updated_body.append(statement)
 
-    if not replaced:
-        raise ValueError(f"Unable to find top-level symbol {symbol.qualname} in source.")
+        if not replaced:
+            raise ValueError(f"Unable to find top-level symbol {symbol.qualname} in source.")
 
-    source_path.write_text(module.with_changes(body=updated_body).code, encoding="utf-8")
+        updated_module = module.with_changes(body=updated_body)
+    else:
+        updated_module = _replace_qualname_declaration(
+            module,
+            symbol.qualname.split("."),
+            lambda declaration: replacement,
+        )
+
+    source_path.write_text(updated_module.code, encoding="utf-8")
     flow_sync_state: str | None = None
     diagnostics: tuple[str, ...] = tuple()
-    if symbol.kind in {SymbolKind.FUNCTION, SymbolKind.ASYNC_FUNCTION}:
+    if _tracks_flow_document(symbol.kind):
         flow_sync_state, diagnostics = _sync_flow_document_from_symbol_source(
             context,
             parsed=parsed,
@@ -918,12 +924,26 @@ def _parse_replacement_statement(symbol: SymbolDef, content: str) -> cst.CSTNode
 
     statement = parsed.body[0]
 
-    if symbol.kind in {SymbolKind.FUNCTION, SymbolKind.ASYNC_FUNCTION}:
+    if symbol.kind in {
+        SymbolKind.FUNCTION,
+        SymbolKind.ASYNC_FUNCTION,
+        SymbolKind.METHOD,
+        SymbolKind.ASYNC_METHOD,
+    }:
         if not isinstance(statement, cst.FunctionDef):
             raise ValueError("Function replacements must parse as exactly one top-level function.")
         if statement.name.value != symbol.name:
             raise ValueError(
                 f"Function replacement must keep the original name '{symbol.name}'."
+            )
+        return statement
+
+    if symbol.kind == SymbolKind.CLASS:
+        if not isinstance(statement, cst.ClassDef):
+            raise ValueError("Class replacements must parse as exactly one top-level class.")
+        if statement.name.value != symbol.name:
+            raise ValueError(
+                f"Class replacement must keep the original name '{symbol.name}'."
             )
         return statement
 
@@ -1313,7 +1333,7 @@ def _replace_qualname_in_body(
         if statement.name.value != current_part:
             continue
         if len(qualname_parts) == 1:
-            replacement = updater(statement)
+            replacement = _preserve_statement_spacing(statement, updater(statement))
         else:
             nested_body = _suite_to_block(statement.body).body
             updated_nested_body, replaced = _replace_qualname_in_body(
@@ -1331,6 +1351,25 @@ def _replace_qualname_in_body(
             True,
         )
     return body, False
+
+
+def _lookup_symbol_from_context(
+    context: EditContext,
+    symbol_id: str,
+) -> SymbolDef | None:
+    match = context.parsed_by_symbol_id.get(symbol_id)
+    if match is None:
+        return None
+    return match[1]
+
+
+def _tracks_flow_document(symbol_kind: SymbolKind) -> bool:
+    return symbol_kind in {
+        SymbolKind.FUNCTION,
+        SymbolKind.ASYNC_FUNCTION,
+        SymbolKind.METHOD,
+        SymbolKind.ASYNC_METHOD,
+    }
 
 
 def _insert_statement_into_declaration(

@@ -494,6 +494,77 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertTrue(variable_source["editable"])
             self.assertEqual(variable_source["content"].strip(), "READY = True")
 
+    def test_get_editable_node_source_supports_classes_and_methods_but_blocks_class_attributes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "def traced(func):\n"
+                        "    return func\n\n"
+                        "@traced\n"
+                        "class Service:\n"
+                        "    enabled: bool = True\n\n"
+                        "    @traced\n"
+                        "    async def run(\n"
+                        "        self,\n"
+                        "        value: str,\n"
+                        "    ) -> str:\n"
+                        "        \"\"\"Return a value.\"\"\"\n"
+                        "        return value\n"
+                    ),
+                },
+            )
+
+            adapter = PythonRepoAdapter.scan(root)
+            class_source = adapter.get_editable_node_source("symbol:service:Service")
+            method_source = adapter.get_editable_node_source("symbol:service:Service.run")
+            attribute_source = adapter.get_editable_node_source("symbol:service:Service.enabled")
+
+            self.assertTrue(class_source["editable"])
+            self.assertTrue(method_source["editable"])
+            self.assertFalse(attribute_source["editable"])
+            self.assertEqual(
+                attribute_source["reason"],
+                "Class attribute declarations are not inline editable yet.",
+            )
+            self.assertTrue(class_source["content"].startswith("@traced\nclass Service:"))
+            self.assertTrue(method_source["content"].startswith("@traced\nasync def run("))
+            self.assertIn('"""Return a value."""', method_source["content"])
+            self.assertEqual(method_source["start_column"], 4)
+
+    def test_get_editable_node_source_blocks_enum_declarations_and_enum_methods(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "import enum\n\n"
+                        "class Mode(enum.Enum):\n"
+                        "    FAST = 'fast'\n\n"
+                        "    def label(self) -> str:\n"
+                        "        return self.value\n"
+                    ),
+                },
+            )
+
+            adapter = PythonRepoAdapter.scan(root)
+            enum_source = adapter.get_editable_node_source("symbol:service:Mode")
+            method_source = adapter.get_editable_node_source("symbol:service:Mode.label")
+
+            self.assertFalse(enum_source["editable"])
+            self.assertEqual(
+                enum_source["reason"],
+                "Enum declarations are not inline editable yet.",
+            )
+            self.assertFalse(method_source["editable"])
+            self.assertEqual(
+                method_source["reason"],
+                "Methods inside enum declarations are not inline editable yet.",
+            )
+
     def test_save_node_source_replaces_function_and_variable_declarations(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -523,6 +594,44 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertIn("return False", function_source["content"])
             self.assertEqual(variable_source["content"].strip(), "READY = False")
 
+    def test_save_node_source_replaces_class_and_method_declarations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "class Service:\n"
+                        "    enabled = True\n\n"
+                        "    async def run(self) -> bool:\n"
+                        "        return self.enabled\n"
+                    ),
+                },
+            )
+
+            adapter = PythonRepoAdapter.scan(root)
+            adapter.save_node_source(
+                "symbol:service:Service",
+                (
+                    "class Service:\n"
+                    "    enabled = False\n\n"
+                    "    async def run(self) -> bool:\n"
+                    "        return self.enabled\n"
+                ),
+            )
+            adapter.save_node_source(
+                "symbol:service:Service.run",
+                (
+                    "async def run(self) -> bool:\n"
+                    "    return False\n"
+                ),
+            )
+
+            class_source = adapter.get_editable_node_source("symbol:service:Service")
+            method_source = adapter.get_editable_node_source("symbol:service:Service.run")
+            self.assertIn("enabled = False", class_source["content"])
+            self.assertIn("return False", method_source["content"])
+
     def test_save_node_source_rejects_wrong_declaration_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -549,4 +658,68 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 adapter.save_node_source(
                     "symbol:service:READY",
                     "OTHER = False\n",
+                )
+
+    def test_save_node_source_rejects_wrong_class_and_method_declaration_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "class Service:\n"
+                        "    async def run(self) -> bool:\n"
+                        "        return True\n"
+                    ),
+                },
+            )
+
+            adapter = PythonRepoAdapter.scan(root)
+
+            with self.assertRaisesRegex(ValueError, "original name 'Service'|keep the original name 'Service'"):
+                adapter.save_node_source(
+                    "symbol:service:Service",
+                    "class RenamedService:\n    pass\n",
+                )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "Function replacements must parse as exactly one top-level function.",
+            ):
+                adapter.save_node_source(
+                    "symbol:service:Service.run",
+                    "class Run:\n    pass\n",
+                )
+
+    def test_save_node_source_rejects_blocked_declarations_with_shared_backend_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "import enum\n\n"
+                        "class Mode(enum.Enum):\n"
+                        "    FAST = 'fast'\n\n"
+                        "class Service:\n"
+                        "    enabled = True\n"
+                    ),
+                },
+            )
+
+            adapter = PythonRepoAdapter.scan(root)
+
+            with self.assertRaisesRegex(ValueError, "Enum declarations are not inline editable yet."):
+                adapter.save_node_source(
+                    "symbol:service:Mode",
+                    "class Mode:\n    FAST = 'fast'\n",
+                )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "Class attribute declarations are not inline editable yet.",
+            ):
+                adapter.save_node_source(
+                    "symbol:service:Service.enabled",
+                    "enabled = False\n",
                 )

@@ -207,7 +207,7 @@ class _ModuleVisitor(ast.NodeVisitor):
             name=name,
             kind=kind,
             parent_symbol_id=parent_symbol_id,
-            span=self._span_for(node),
+            span=self._symbol_span_for(node),
         )
         self.symbols.append(symbol)
         return symbol
@@ -235,6 +235,16 @@ class _ModuleVisitor(ast.NodeVisitor):
 
     def _span_for(self, node: ast.AST) -> SourceSpan:
         return _span_for_node(self.module.file_path, self.source, self.line_starts, node)
+
+    def _symbol_span_for(self, node: ast.AST) -> SourceSpan:
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            return _span_for_symbol_node(
+                self.module.file_path,
+                self.source,
+                self.line_starts,
+                node,
+            )
+        return self._span_for(node)
 
     def _record_direct_class_body_symbol(self, statement: ast.stmt) -> None:
         if isinstance(statement, ast.Assign):
@@ -316,6 +326,37 @@ def _span_for_node(file_path: str, source: str, line_starts: list[int], node: as
         end_column=end_column,
         start_offset=min(start_offset, source_length),
         end_offset=min(end_offset, source_length),
+    )
+
+
+def _span_for_symbol_node(
+    file_path: str,
+    source: str,
+    line_starts: list[int],
+    node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef,
+) -> SourceSpan:
+    span = _span_for_node(file_path, source, line_starts, node)
+    if not node.decorator_list:
+        return span
+
+    first_decorator = min(
+        node.decorator_list,
+        key=lambda decorator: (
+            getattr(decorator, "lineno", span.start_line),
+            getattr(decorator, "col_offset", span.start_column),
+        ),
+    )
+    start_line = getattr(first_decorator, "lineno", span.start_line)
+    start_column = max(getattr(first_decorator, "col_offset", span.start_column) - 1, 0)
+    start_offset = _offset_for_position(line_starts, start_line, start_column)
+    return SourceSpan(
+        file_path=file_path,
+        start_line=start_line,
+        start_column=start_column,
+        end_line=span.end_line,
+        end_column=span.end_column,
+        start_offset=min(start_offset, len(source)),
+        end_offset=span.end_offset,
     )
 
 

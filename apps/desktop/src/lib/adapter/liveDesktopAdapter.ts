@@ -838,6 +838,26 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       this.scanCache = buildScanCache(payload, session, this.backendStatus);
       this.currentSession = session;
       rememberRecentRepo(session);
+
+      const currentState = this.jobs.get(jobId)?.state;
+      if (currentState && currentState.status !== "done") {
+        this.updateJob(jobId, {
+          ...currentState,
+          status: "done",
+          stage: "watch_ready",
+          processedModules: payload.graph.report.module_count,
+          totalModules: payload.graph.report.module_count,
+          symbolCount: payload.graph.report.symbol_count,
+          message:
+            this.backendStatus.syncState === "manual_resync_required"
+              ? "Workspace ready. Live sync needs manual reindex."
+              : this.backendStatus.syncState === "synced"
+                ? "Workspace ready. Watching for Python changes."
+                : "Workspace ready",
+          progressPercent: 100,
+          error: undefined,
+        });
+      }
     } catch (reason) {
       const message = toMessage(reason);
       const currentState = this.jobs.get(jobId)?.state;

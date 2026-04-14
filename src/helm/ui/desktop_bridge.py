@@ -114,8 +114,11 @@ def _handle_worker_command(
         return session.build_payload(top_n=top_n, progress=progress.emit if progress else None)
 
     if command == "full-resync":
-        session = _SESSION_MANAGER.ensure_session(repo)
-        return session.full_resync(top_n=top_n, progress=progress.emit if progress else None)
+        return _SESSION_MANAGER.full_resync(
+            repo,
+            top_n=top_n,
+            progress=progress.emit if progress else None,
+        )
 
     session = _SESSION_MANAGER.ensure_session(repo)
     if command == "graph-view":

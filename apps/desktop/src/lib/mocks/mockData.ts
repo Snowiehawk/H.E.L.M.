@@ -1846,6 +1846,7 @@ export function buildEditableNodeSource(
   if (!symbol) {
     throw new Error(`Unknown editable source target: ${targetId}`);
   }
+  const support = mockDeclarationEditSupport(symbol);
 
   const defaultContent = state.editedSources[targetId] ?? defaultSymbolSource(state, symbol);
   const sourceSpan = sourceSpanForTargetId(targetId, state);
@@ -1859,12 +1860,9 @@ export function buildEditableNodeSource(
     startColumn: sourceSpan?.startColumn,
     endColumn: sourceSpan?.endColumn,
     content: defaultContent,
-    editable: mockInlineEditableSymbol(symbol),
+    editable: support.editable,
     nodeKind: graphNodeKindForSymbolKind(symbol.kind),
-    reason:
-      mockInlineEditableSymbol(symbol)
-        ? undefined
-        : "Inline editing currently supports only top-level functions and variables.",
+    reason: support.reason,
   };
 }
 
@@ -2237,6 +2235,15 @@ export function applyMockEdit(
   }
 
   if (request.kind === "replace_symbol_source" && request.targetId && request.content) {
+    const symbols = buildSymbols(state);
+    const symbol = symbols[request.targetId];
+    if (!symbol) {
+      throw new Error(`Unknown editable source target: ${request.targetId}`);
+    }
+    const support = mockDeclarationEditSupport(symbol);
+    if (!support.editable) {
+      throw new Error(support.reason ?? "This declaration is not inline editable yet.");
+    }
     state.editedSources[request.targetId] = request.content;
     return {
       request: {
@@ -2562,14 +2569,47 @@ function mockSymbolEditable(symbol?: SymbolDetails) {
   return Boolean(symbol && symbol.kind === "function" && !symbol.qualname.includes("GraphSummary."));
 }
 
-function mockInlineEditableSymbol(symbol?: SymbolDetails) {
-  return Boolean(
-    symbol
-    && (
-      (symbol.kind === "function" && !symbol.qualname.includes("GraphSummary."))
-      || (symbol.kind === "variable" && !symbol.qualname.includes("GraphSummary."))
-    ),
-  );
+function mockDeclarationEditSupport(symbol?: SymbolDetails) {
+  if (!symbol) {
+    return {
+      editable: false,
+      reason: "This declaration is not inline editable yet.",
+    };
+  }
+  const localQualname = symbol.nodeId.split(":").slice(2).join(":");
+  const nested = localQualname.includes(".");
+
+  if (symbol.kind === "enum") {
+    return {
+      editable: false,
+      reason: "Enum declarations are not inline editable yet.",
+    };
+  }
+
+  if (symbol.kind === "class" || symbol.kind === "function") {
+    return {
+      editable: true,
+      reason: undefined,
+    };
+  }
+
+  if (symbol.kind === "variable") {
+    if (!nested) {
+      return {
+        editable: true,
+        reason: undefined,
+      };
+    }
+    return {
+      editable: false,
+      reason: "Class attribute declarations are not inline editable yet.",
+    };
+  }
+
+  return {
+    editable: false,
+    reason: "This declaration is not inline editable yet.",
+  };
 }
 
 function flowEnabledForSymbol(symbol?: SymbolDetails) {

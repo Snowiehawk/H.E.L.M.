@@ -80,16 +80,39 @@ describe("BlueprintInspector", () => {
     expect(screen.getByLabelText(/Function source editor/i)).toHaveTextContent("def calculate");
   });
 
-  it("shows read-only source immediately for inspectable nodes that are not inline editable", () => {
+  it("renders the inline editor for editable class nodes", () => {
     render(
       <BlueprintInspector
         selectedNode={buildNode({ kind: "class", label: "GraphSummary" })}
         editableSource={buildEditableSource({
-          editable: false,
           nodeKind: "class",
           title: "GraphSummary",
-          content: "class GraphSummary:\n    pass\n",
-          reason: "Classes are inspectable but not inline editable in v1.",
+          content: "class GraphSummary:\n    repo_path: str\n",
+        })}
+        editableSourceLoading={false}
+        isSavingSource={false}
+        onClose={vi.fn()}
+        onDismissSource={vi.fn()}
+        onEditorStateChange={vi.fn()}
+        onSaveSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: /Declaration editor/i })).toBeInTheDocument();
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-read-only", "false");
+    expect(screen.getByLabelText(/Class source editor/i)).toHaveTextContent("class GraphSummary");
+  });
+
+  it("shows read-only source immediately for inspectable nodes that are not inline editable", () => {
+    render(
+      <BlueprintInspector
+        selectedNode={buildNode({ kind: "variable", label: "repo_path" })}
+        editableSource={buildEditableSource({
+          editable: false,
+          nodeKind: "variable",
+          title: "repo_path",
+          content: "repo_path: str\n",
+          reason: "Class attribute declarations are not inline editable yet.",
         })}
         editableSourceLoading={false}
         isSavingSource={false}
@@ -102,8 +125,8 @@ describe("BlueprintInspector", () => {
 
     expect(screen.getByRole("heading", { name: /Code details/i })).toBeInTheDocument();
     expect(screen.getByTestId("inspector-readonly-source")).toHaveAttribute("data-read-only", "true");
-    expect(screen.getByLabelText(/Read-only class source/i)).toHaveTextContent("class GraphSummary");
-    expect(screen.getByText(/Classes are inspectable but not inline editable in v1\./i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Read-only variable source/i)).toHaveTextContent("repo_path: str");
+    expect(screen.getByText(/Class attribute declarations are not inline editable yet\./i)).toBeInTheDocument();
   });
 
   it("passes the selected flow highlight range through to the source surface", () => {

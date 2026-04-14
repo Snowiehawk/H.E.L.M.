@@ -53,8 +53,13 @@ class WorkspaceSession:
     session_version: int = 1
 
     @classmethod
-    def open(cls, repo: str | Path) -> WorkspaceSession:
-        return cls(adapter=PythonRepoAdapter.scan(repo), session_version=1)
+    def open(
+        cls,
+        repo: str | Path,
+        *,
+        progress: ProgressReporter | None = None,
+    ) -> WorkspaceSession:
+        return cls(adapter=PythonRepoAdapter.scan(repo, progress=progress), session_version=1)
 
     @property
     def root_path(self) -> Path:
@@ -252,3 +257,18 @@ class WorkspaceSessionManager:
             session = WorkspaceSession.open(root_path)
             self._sessions[root_path] = session
         return session
+
+    def full_resync(
+        self,
+        repo: str | Path,
+        top_n: int = 24,
+        *,
+        progress: ProgressReporter | None = None,
+    ) -> dict[str, Any]:
+        root_path = Path(repo).resolve().as_posix()
+        session = self._sessions.get(root_path)
+        if session is None:
+            session = WorkspaceSession.open(root_path, progress=progress)
+            self._sessions[root_path] = session
+            return session.build_payload(top_n=top_n, progress=progress)
+        return session.full_resync(top_n=top_n, progress=progress)

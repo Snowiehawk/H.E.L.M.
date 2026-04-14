@@ -55,7 +55,7 @@ describe("normalizeHighlightRange", () => {
 
     expect(range).toEqual({
       startLineNumber: 2,
-      startColumn: 9,
+      startColumn: 5,
       endLineNumber: 5,
       endColumn: 6,
     });
