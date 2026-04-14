@@ -20,6 +20,7 @@ import type {
   StructuralEditRequest,
   StructuralEditResult,
   SymbolDetails,
+  WorkspaceSyncEvent,
 } from "./contracts";
 import {
   applyMockEdit,
@@ -48,6 +49,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
     snapshot: MockWorkspaceState;
     transaction: BackendUndoTransaction;
   }> = [];
+  private workspaceSyncListeners = new Set<(event: WorkspaceSyncEvent) => void>();
 
   async openRepo(path?: string): Promise<RepoSession> {
     await delay(220);
@@ -65,6 +67,13 @@ export class MockDesktopAdapter implements DesktopAdapter {
   async getBackendStatus(): Promise<BackendStatus> {
     await delay(80);
     return mockBackendStatus;
+  }
+
+  subscribeWorkspaceSync(onUpdate: (event: WorkspaceSyncEvent) => void): () => void {
+    this.workspaceSyncListeners.add(onUpdate);
+    return () => {
+      this.workspaceSyncListeners.delete(onUpdate);
+    };
   }
 
   async startIndex(repoPath: string): Promise<{ jobId: string }> {
@@ -262,6 +271,10 @@ export class MockDesktopAdapter implements DesktopAdapter {
   async getOverview(): Promise<OverviewData> {
     await delay(100);
     return buildOverview(this.currentSession, this.workspace);
+  }
+
+  emitWorkspaceSyncForTest(event: WorkspaceSyncEvent) {
+    this.workspaceSyncListeners.forEach((listener) => listener(event));
   }
 }
 

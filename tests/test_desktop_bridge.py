@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ from helm.ui.desktop_bridge import (
     apply_edit_to_payload,
     build_flow_view_payload,
     reveal_source_payload,
+    run_worker,
     scan_repo_to_payload,
 )
 from tests.helpers import write_repo_files
@@ -216,3 +218,75 @@ class DesktopBridgeTests(unittest.TestCase):
                     "level": "module",
                 },
             )
+
+    def test_run_worker_reuses_workspace_session_across_requests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            write_repo_files(root, {"service.py": "def helper():\n    return 'ok'\n"})
+
+            stdin = io.StringIO(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "id": 1,
+                                "command": "scan",
+                                "params": {"repo": str(root)},
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "id": 2,
+                                "command": "apply-edit",
+                                "params": {
+                                    "repo": str(root),
+                                    "request_json": json.dumps(
+                                        {
+                                            "kind": "rename_symbol",
+                                            "target_id": "symbol:service:helper",
+                                            "new_name": "helper_blueprint",
+                                        }
+                                    ),
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "id": 3,
+                                "command": "scan",
+                                "params": {"repo": str(root)},
+                            }
+                        ),
+                        json.dumps({"id": 4, "command": "shutdown", "params": {}}),
+                    ]
+                )
+                + "\n"
+            )
+            stdout = io.StringIO()
+
+            exit_code = run_worker(stdin=stdin, stdout=stdout)
+
+            self.assertEqual(exit_code, 0)
+            responses = [json.loads(line) for line in stdout.getvalue().splitlines()]
+            self.assertEqual(
+                [response["id"] for response in responses],
+                [1, 2, 3, 4],
+            )
+            self.assertEqual(
+                responses[0]["result"]["workspace"]["session_version"],
+                1,
+            )
+            self.assertEqual(
+                responses[1]["result"]["payload"]["workspace"]["session_version"],
+                2,
+            )
+            self.assertEqual(
+                responses[2]["result"]["workspace"]["session_version"],
+                2,
+            )
+            symbol_names = {
+                node["name"]
+                for node in responses[2]["result"]["graph"]["nodes"]
+                if node["kind"] == "symbol"
+            }
+            self.assertIn("helper_blueprint", symbol_names)

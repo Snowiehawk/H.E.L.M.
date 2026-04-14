@@ -8,13 +8,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from helm.editor import serialize_edit_request, serialize_undo_transaction
 from helm.graph.models import GraphAbstractionLevel
-from helm.ui.python_adapter import PythonRepoAdapter
+from helm.ui.workspace_session import WorkspaceSession, WorkspaceSessionManager
+
+_SESSION_MANAGER = WorkspaceSessionManager()
 
 
 def scan_repo_to_payload(repo: str | Path, top_n: int = 24) -> dict[str, Any]:
-    return PythonRepoAdapter.scan(repo).build_payload(top_n=top_n)
+    return WorkspaceSession.open(repo).build_payload(top_n=top_n)
 
 
 def build_graph_view_payload(
@@ -23,40 +24,153 @@ def build_graph_view_payload(
     level: GraphAbstractionLevel,
     filters: dict[str, bool] | None = None,
 ) -> dict[str, Any]:
-    adapter = PythonRepoAdapter.scan(repo)
-    return adapter.get_graph_view(target_id, level, filters).to_dict()
+    session = WorkspaceSession.open(repo)
+    return session.get_graph_view(target_id, level, filters)
 
 
 def build_flow_view_payload(repo: str | Path, symbol_id: str) -> dict[str, Any]:
-    adapter = PythonRepoAdapter.scan(repo)
-    return adapter.get_flow_view(symbol_id).to_dict()
+    session = WorkspaceSession.open(repo)
+    return session.get_flow_view(symbol_id)
 
 
 def apply_edit_to_payload(repo: str | Path, request_payload: str | dict[str, Any]) -> dict[str, Any]:
-    adapter = PythonRepoAdapter.scan(repo)
-    request = serialize_edit_request(request_payload)
-    return adapter.apply_edit(request)
+    session = WorkspaceSession.open(repo)
+    return session.apply_edit(request_payload)
 
 
 def reveal_source_payload(repo: str | Path, target_id: str) -> dict[str, Any]:
-    adapter = PythonRepoAdapter.scan(repo)
-    return adapter.reveal_source(target_id)
+    session = WorkspaceSession.open(repo)
+    return session.reveal_source(target_id)
 
 
 def editable_node_source_payload(repo: str | Path, target_id: str) -> dict[str, Any]:
-    adapter = PythonRepoAdapter.scan(repo)
-    return adapter.get_editable_node_source(target_id)
+    session = WorkspaceSession.open(repo)
+    return session.get_editable_node_source(target_id)
 
 
 def save_node_source_payload(repo: str | Path, target_id: str, content: str) -> dict[str, Any]:
-    adapter = PythonRepoAdapter.scan(repo)
-    return adapter.save_node_source(target_id, content)
+    session = WorkspaceSession.open(repo)
+    return session.save_node_source(target_id, content)
 
 
 def apply_undo_to_payload(repo: str | Path, transaction_payload: str | dict[str, Any]) -> dict[str, Any]:
-    adapter = PythonRepoAdapter.scan(repo)
-    transaction = serialize_undo_transaction(transaction_payload)
-    return adapter.apply_undo(transaction)
+    session = WorkspaceSession.open(repo)
+    return session.apply_undo(transaction_payload)
+
+
+def _handle_worker_command(command: str, params: dict[str, Any]) -> dict[str, Any]:
+    repo = params.get("repo")
+    if not isinstance(repo, str) and command != "shutdown":
+        raise ValueError("Worker command requires a 'repo' string parameter.")
+
+    top_n = params.get("top_n", 24)
+    if not isinstance(top_n, int):
+        raise ValueError("Worker command requires 'top_n' to be an integer.")
+
+    if command == "scan":
+        session = _SESSION_MANAGER.ensure_session(repo)
+        return session.build_payload(top_n=top_n)
+
+    if command == "full-resync":
+        session = _SESSION_MANAGER.ensure_session(repo)
+        return session.full_resync(top_n=top_n)
+
+    session = _SESSION_MANAGER.ensure_session(repo)
+    if command == "graph-view":
+        target_id = params.get("target_id")
+        level = params.get("level")
+        if not isinstance(target_id, str) or not isinstance(level, str):
+            raise ValueError("graph-view requires 'target_id' and 'level' string parameters.")
+        filters = params.get("filters")
+        if filters is not None and not isinstance(filters, dict):
+            raise ValueError("graph-view 'filters' must be an object.")
+        return session.get_graph_view(target_id, GraphAbstractionLevel(level), filters)
+
+    if command == "flow-view":
+        symbol_id = params.get("symbol_id")
+        if not isinstance(symbol_id, str):
+            raise ValueError("flow-view requires a 'symbol_id' string parameter.")
+        return session.get_flow_view(symbol_id)
+
+    if command == "apply-edit":
+        request_json = params.get("request_json")
+        if not isinstance(request_json, str):
+            raise ValueError("apply-edit requires a 'request_json' string parameter.")
+        return session.apply_edit(request_json)
+
+    if command == "reveal-source":
+        target_id = params.get("target_id")
+        if not isinstance(target_id, str):
+            raise ValueError("reveal-source requires a 'target_id' string parameter.")
+        return session.reveal_source(target_id)
+
+    if command == "editable-source":
+        target_id = params.get("target_id")
+        if not isinstance(target_id, str):
+            raise ValueError("editable-source requires a 'target_id' string parameter.")
+        return session.get_editable_node_source(target_id)
+
+    if command == "save-node-source":
+        target_id = params.get("target_id")
+        content = params.get("content")
+        if not isinstance(target_id, str) or not isinstance(content, str):
+            raise ValueError("save-node-source requires 'target_id' and 'content' string parameters.")
+        return session.save_node_source(target_id, content)
+
+    if command == "apply-undo":
+        transaction_json = params.get("transaction_json")
+        if not isinstance(transaction_json, str):
+            raise ValueError("apply-undo requires a 'transaction_json' string parameter.")
+        return session.apply_undo(transaction_json)
+
+    if command == "refresh-paths":
+        relative_paths = params.get("relative_paths", [])
+        if not isinstance(relative_paths, list) or not all(
+            isinstance(path, str) for path in relative_paths
+        ):
+            raise ValueError("refresh-paths requires a 'relative_paths' string list parameter.")
+        return session.refresh_paths(relative_paths, top_n=top_n)
+
+    raise ValueError(f"Unsupported desktop bridge worker command: {command}")
+
+
+def run_worker(stdin: Any = None, stdout: Any = None) -> int:
+    input_stream = stdin or sys.stdin
+    output_stream = stdout or sys.stdout
+
+    for raw_line in input_stream:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        request_id: Any = None
+        try:
+            request = json.loads(line)
+            if not isinstance(request, dict):
+                raise ValueError("Bridge request must be a JSON object.")
+            request_id = request.get("id")
+            command = request.get("command")
+            params = request.get("params", {})
+            if not isinstance(command, str):
+                raise ValueError("Bridge request requires a string 'command'.")
+            if not isinstance(params, dict):
+                raise ValueError("Bridge request 'params' must be a JSON object.")
+            if command == "shutdown":
+                response = {"id": request_id, "ok": True, "result": {"shutdown": True}}
+                output_stream.write(json.dumps(response, sort_keys=True))
+                output_stream.write("\n")
+                output_stream.flush()
+                break
+            result = _handle_worker_command(command, params)
+            response = {"id": request_id, "ok": True, "result": result}
+        except Exception as exc:  # pragma: no cover - defensive protocol guard
+            response = {"id": request_id, "ok": False, "error": str(exc)}
+
+        output_stream.write(json.dumps(response, sort_keys=True))
+        output_stream.write("\n")
+        output_stream.flush()
+
+    return 0
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -110,12 +224,20 @@ def build_argument_parser() -> argparse.ArgumentParser:
     undo_parser = subparsers.add_parser("apply-undo", help="Apply a serialized undo transaction.")
     undo_parser.add_argument("repo", help="Path to the repository root.")
     undo_parser.add_argument("--transaction-json", required=True, help="Serialized undo transaction JSON.")
+
+    subparsers.add_parser(
+        "serve",
+        help="Run the persistent desktop bridge worker on stdin/stdout.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_argument_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "serve":
+        return run_worker()
 
     try:
         if args.command == "scan":

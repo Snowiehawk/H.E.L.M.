@@ -2,6 +2,25 @@ import type { BackendStatus, OverviewData, OverviewModule } from "../../lib/adap
 import { MetricTile } from "../shared/MetricTile";
 import { StatusPill } from "../shared/StatusPill";
 
+function liveSyncLabel(status: BackendStatus | undefined) {
+  if (!status || !status.liveSyncEnabled && status.syncState === "idle") {
+    return "Idle";
+  }
+  if (status.syncState === "syncing") {
+    return "Updating";
+  }
+  if (status.syncState === "synced") {
+    return "Watching";
+  }
+  if (status.syncState === "manual_resync_required") {
+    return "Needs reindex";
+  }
+  if (status.syncState === "error") {
+    return "Error";
+  }
+  return "Idle";
+}
+
 export function OverviewPanel({
   backendStatus,
   overview,
@@ -92,9 +111,16 @@ export function OverviewPanel({
                   : "Not run yet"}
               </strong>
             </div>
+            <div className="metadata-item">
+              <span>Live sync</span>
+              <strong>{liveSyncLabel(backendStatus)}</strong>
+            </div>
           </div>
           <p>{backendStatus?.note ?? "Waiting on backend status."}</p>
           {backendStatus?.lastError ? <p className="error-copy">{backendStatus.lastError}</p> : null}
+          {backendStatus?.lastSyncError && backendStatus.lastSyncError !== backendStatus.lastError ? (
+            <p className="error-copy">{backendStatus.lastSyncError}</p>
+          ) : null}
           <button className="ghost-button" type="button" onClick={onReindex}>
             Reindex From UI
           </button>

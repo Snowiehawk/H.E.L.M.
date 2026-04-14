@@ -124,4 +124,24 @@ describe("BlueprintInspector", () => {
     expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-highlight-start-line", "21");
     expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-highlight-end-line", "21");
   });
+
+  it("marks stale inline drafts as reload-only after outside file changes", () => {
+    render(
+      <BlueprintInspector
+        selectedNode={buildNode()}
+        editableSource={buildEditableSource()}
+        editableSourceLoading={false}
+        draftStale
+        isSavingSource={false}
+        onClose={vi.fn()}
+        onDismissSource={vi.fn()}
+        onEditorStateChange={vi.fn()}
+        onSaveSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Draft is stale/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Save/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Reload from Disk/i })).toBeEnabled();
+  });
 });

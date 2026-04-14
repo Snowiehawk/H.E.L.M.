@@ -1,5 +1,11 @@
 export type IndexStatus = "queued" | "running" | "done" | "error";
 export type BackendMode = "mock" | "live";
+export type WorkspaceSyncState =
+  | "idle"
+  | "syncing"
+  | "synced"
+  | "error"
+  | "manual_resync_required";
 export type ThemeMode = "system" | "light" | "dark";
 export type WorkspaceTab = "overview" | "file" | "symbol" | "graph";
 export type SearchResultKind = "module" | "symbol" | "file";
@@ -122,9 +128,31 @@ export interface BackendStatus {
   pythonCommand: string;
   workspaceRoot?: string;
   note: string;
+  liveSyncEnabled: boolean;
+  syncState: WorkspaceSyncState;
+  lastSyncAt?: string;
+  lastSyncError?: string;
   lastScanAt?: string;
   lastScanDurationMs?: number;
   lastError?: string;
+}
+
+export interface WorkspaceSyncSnapshot {
+  repoId: string;
+  defaultFocusNodeId: string;
+  defaultLevel: GraphAbstractionLevel;
+  nodeIds: string[];
+}
+
+export interface WorkspaceSyncEvent {
+  repoPath: string;
+  sessionVersion: number;
+  reason: string;
+  status: WorkspaceSyncState;
+  changedRelativePaths: string[];
+  needsManualResync: boolean;
+  message?: string;
+  snapshot?: WorkspaceSyncSnapshot;
 }
 
 export interface SearchFilters {
@@ -423,6 +451,7 @@ export interface DesktopAdapter {
   openRepo(path?: string): Promise<RepoSession>;
   listRecentRepos(): Promise<RecentRepo[]>;
   getBackendStatus(): Promise<BackendStatus>;
+  subscribeWorkspaceSync(onUpdate: (event: WorkspaceSyncEvent) => void): () => void;
   startIndex(repoPath: string): Promise<{ jobId: string }>;
   subscribeIndexProgress(
     jobId: string,

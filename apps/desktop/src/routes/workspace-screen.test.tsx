@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "../app/AppProviders";
-import { buildRepoSession } from "../lib/mocks/mockData";
+import { buildRepoSession, defaultRepoPath } from "../lib/mocks/mockData";
 import { MockDesktopAdapter } from "../lib/adapter/mockDesktopAdapter";
 import type { GraphAbstractionLevel, SourceRange } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
@@ -989,6 +989,64 @@ describe("WorkspaceScreen", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1));
     expect(saveSpy.mock.calls[0]?.[1]).toContain("# saved note");
     await waitFor(() => expect(screen.getAllByText("Synced").length).toBeGreaterThan(0));
+  });
+
+  it("marks dirty inspector drafts stale after same-file live sync events", async () => {
+    const adapter = new MockDesktopAdapter();
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+
+    const editor = await screen.findByRole("textbox", { name: /Function source editor/i });
+    const originalValue = (editor as HTMLTextAreaElement).value;
+    fireEvent.change(editor, {
+      target: { value: `${originalValue}\n# local draft` },
+    });
+
+    await act(async () => {
+      adapter.emitWorkspaceSyncForTest({
+        repoPath: defaultRepoPath,
+        sessionVersion: 2,
+        reason: "external-change",
+        status: "synced",
+        changedRelativePaths: ["src/helm/ui/api.py"],
+        needsManualResync: false,
+        snapshot: {
+          repoId: `repo:${defaultRepoPath}`,
+          defaultFocusNodeId: "symbol:helm.ui.api:build_graph_summary",
+          defaultLevel: "symbol",
+          nodeIds: [
+            `repo:${defaultRepoPath}`,
+            "module:helm.ui.api",
+            "symbol:helm.ui.api:build_graph_summary",
+          ],
+        },
+      });
+    });
+
+    expect((await screen.findAllByText("Stale")).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Save/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Reload from Disk/i })).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: /Function source editor/i })).toHaveValue(
+      `${originalValue}\n# local draft`,
+    );
   });
 
   it("undoes backend source saves through the shared undo coordinator and refreshes activity feedback", async () => {

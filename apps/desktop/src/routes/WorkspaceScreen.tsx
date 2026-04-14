@@ -42,6 +42,7 @@ import {
 } from "../components/workspace/workspaceHelp";
 import { useDesktopAdapter } from "../lib/adapter";
 import type {
+  BackendStatus,
   BackendUndoTransaction,
   EditableNodeSource,
   GraphAbstractionLevel,
@@ -450,6 +451,29 @@ function buildFallbackGraphPathItems(
   return items;
 }
 
+function workspaceWindowSubtitle(
+  repoPath: string | undefined,
+  syncState: BackendStatus["syncState"] | undefined,
+) {
+  if (!repoPath) {
+    return "Open a local repository to begin.";
+  }
+
+  if (syncState === "syncing") {
+    return `Repo root: ${repoPath} · Live sync updating`;
+  }
+  if (syncState === "manual_resync_required") {
+    return `Repo root: ${repoPath} · Live sync needs reindex`;
+  }
+  if (syncState === "error") {
+    return `Repo root: ${repoPath} · Live sync error`;
+  }
+  if (syncState === "synced") {
+    return `Repo root: ${repoPath} · Live sync on`;
+  }
+  return `Repo root: ${repoPath}`;
+}
+
 export function WorkspaceScreen() {
   const adapter = useDesktopAdapter();
   const navigate = useNavigate();
@@ -465,6 +489,7 @@ export function WorkspaceScreen() {
   const [createComposer, setCreateComposer] = useState<GraphCreateComposerState | undefined>(undefined);
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
   const [inspectorDirty, setInspectorDirty] = useState(false);
+  const [inspectorDraftStale, setInspectorDraftStale] = useState(false);
   const [inspectorActionError, setInspectorActionError] = useState<string | null>(null);
   const [createModeError, setCreateModeError] = useState<string | null>(null);
   const inspectorSpaceTapRef = useRef<{ startedAt: number; cancelled: boolean } | null>(null);
@@ -522,6 +547,7 @@ export function WorkspaceScreen() {
       setInspectorSnapshot(undefined);
       inspectorDraftContentRef.current = undefined;
       setInspectorDirty(false);
+      setInspectorDraftStale(false);
       setInspectorEditableSourceOverride(undefined);
       setInspectorSourceVersion(0);
       setDismissedPeekNodeId(undefined);
@@ -535,6 +561,7 @@ export function WorkspaceScreen() {
 
   useEffect(() => {
     setBackendUndoStack([]);
+    setInspectorDraftStale(false);
   }, [repoSession?.id]);
 
   useEffect(() => {
@@ -742,6 +769,9 @@ export function WorkspaceScreen() {
     inspectorEditableSourceOverride?.targetId === inspectorNode?.id
       ? inspectorEditableSourceOverride
       : editableSourceQuery.data;
+  const inspectorSourcePath =
+    effectiveEditableSource?.path
+    ?? graphNodeRelativePath(inspectorNode?.metadata, inspectorNode?.subtitle);
 
   useEffect(() => {
     if (
@@ -754,6 +784,85 @@ export function WorkspaceScreen() {
   }, [inspectorEditableSourceOverride, inspectorNode?.id]);
 
   const effectiveBackendStatus = overviewQuery.data?.backend ?? backendStatusQuery.data;
+
+  useEffect(() => {
+    if (!inspectorDirty || !inspectorTargetId) {
+      setInspectorDraftStale(false);
+      return;
+    }
+
+    const currentDraft = inspectorDraftContentRef.current;
+    if (
+      effectiveEditableSource?.content !== undefined
+      && currentDraft !== undefined
+      && currentDraft === effectiveEditableSource.content
+    ) {
+      setInspectorDraftStale(false);
+    }
+  }, [effectiveEditableSource?.content, inspectorDirty, inspectorTargetId]);
+
+  useEffect(() => adapter.subscribeWorkspaceSync((event) => {
+    if (!repoSession?.path || event.repoPath !== repoSession.path) {
+      return;
+    }
+
+    const matchingSnapshot = event.snapshot;
+    const liveNodeIds = new Set(matchingSnapshot?.nodeIds ?? []);
+    const sameFileChanged = Boolean(
+      inspectorDirty
+      && inspectorSourcePath
+      && event.changedRelativePaths.includes(inspectorSourcePath),
+    );
+    if (sameFileChanged) {
+      setInspectorDraftStale(true);
+    }
+
+    if (event.status === "synced" && matchingSnapshot) {
+      if (activeNodeId && !liveNodeIds.has(activeNodeId)) {
+        selectNode(undefined);
+      }
+
+      if (graphTargetId && !liveNodeIds.has(graphTargetId)) {
+        const fallbackBreadcrumb = [...(graphQuery.data?.breadcrumbs ?? [])]
+          .reverse()
+          .find((breadcrumb) => breadcrumb.nodeId !== graphTargetId && liveNodeIds.has(breadcrumb.nodeId));
+        if (fallbackBreadcrumb) {
+          focusGraph(fallbackBreadcrumb.nodeId, fallbackBreadcrumb.level);
+        } else if (liveNodeIds.has(matchingSnapshot.defaultFocusNodeId)) {
+          focusGraph(matchingSnapshot.defaultFocusNodeId, matchingSnapshot.defaultLevel);
+        } else {
+          focusGraph(matchingSnapshot.repoId, "repo");
+        }
+      }
+
+      if (inspectorTargetId && !liveNodeIds.has(inspectorTargetId) && !sameFileChanged) {
+        setInspectorTargetId(undefined);
+        setInspectorSnapshot(undefined);
+        setInspectorEditableSourceOverride(undefined);
+      }
+    }
+
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["overview"] }),
+      queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
+      queryClient.invalidateQueries({ queryKey: ["symbol"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
+      queryClient.invalidateQueries({ queryKey: ["editable-node-source"] }),
+      queryClient.invalidateQueries({ queryKey: ["backend-status"] }),
+    ]);
+  }), [
+    activeNodeId,
+    adapter,
+    focusGraph,
+    graphQuery.data?.breadcrumbs,
+    graphTargetId,
+    inspectorDirty,
+    inspectorSourcePath,
+    inspectorTargetId,
+    queryClient,
+    repoSession?.path,
+    selectNode,
+  ]);
 
   const selectSidebarResult = (result: SearchResult) => {
     selectSearchResult(result);
@@ -791,7 +900,9 @@ export function WorkspaceScreen() {
     if (!repoSession) {
       return;
     }
-    await openAndIndexRepo(repoSession.path);
+    resetWorkspace();
+    const { jobId } = await adapter.startIndex(repoSession.path);
+    navigate(`/indexing/${encodeURIComponent(jobId)}`);
   };
 
   const handleGraphSelectNode = (nodeId: string, kind: GraphNodeKind) => {
@@ -1016,6 +1127,12 @@ export function WorkspaceScreen() {
   }, [adapter, queryClient, repoSession?.id]);
 
   const handleSaveNodeSource = async (targetId: string, content: string) => {
+    if (inspectorDraftStale) {
+      throw new Error(
+        "This draft is stale because the file changed outside H.E.L.M. Reload from disk before saving again.",
+      );
+    }
+
     setIsSavingSource(true);
     try {
       const result = await adapter.saveNodeSource(targetId, content);
@@ -1040,6 +1157,7 @@ export function WorkspaceScreen() {
       selectNode(targetId);
       setInspectorTargetId(targetId);
       setInspectorDirty(false);
+      setInspectorDraftStale(false);
       inspectorDraftContentRef.current = content;
       const refreshedSource = await refreshWorkspaceData(targetId);
       setInspectorEditableSourceOverride(refreshedSource);
@@ -1158,6 +1276,7 @@ export function WorkspaceScreen() {
     setInspectorSnapshot(undefined);
     inspectorDraftContentRef.current = undefined;
     setInspectorDirty(false);
+    setInspectorDraftStale(false);
     setInspectorEditableSourceOverride(undefined);
     setInspectorSourceVersion(0);
     setRevealedSource(undefined);
@@ -1167,14 +1286,23 @@ export function WorkspaceScreen() {
   const requestClearSelectionState = useCallback(async () => {
     const draftContent = inspectorDraftContentRef.current;
     if (inspectorDirty && inspectorTargetId && draftContent !== undefined) {
-      const shouldSave = window.confirm(
-        "Save your changes before clearing the selection? Click OK to save or Cancel to discard.",
-      );
-      if (shouldSave) {
-        try {
-          await saveInspectorDraftRef.current(inspectorTargetId, draftContent);
-        } catch {
+      if (inspectorDraftStale) {
+        const shouldDiscard = window.confirm(
+          "This draft is stale because the file changed outside H.E.L.M. Click OK to discard it or Cancel to keep editing.",
+        );
+        if (!shouldDiscard) {
           return false;
+        }
+      } else {
+        const shouldSave = window.confirm(
+          "Save your changes before clearing the selection? Click OK to save or Cancel to discard.",
+        );
+        if (shouldSave) {
+          try {
+            await saveInspectorDraftRef.current(inspectorTargetId, draftContent);
+          } catch {
+            return false;
+          }
         }
       }
     }
@@ -1184,6 +1312,7 @@ export function WorkspaceScreen() {
   }, [
     clearSelectionState,
     inspectorDirty,
+    inspectorDraftStale,
     inspectorTargetId,
   ]);
 
@@ -1422,14 +1551,23 @@ export function WorkspaceScreen() {
   const requestInspectorClose = useCallback(async () => {
     const draftContent = inspectorDraftContentRef.current;
     if (inspectorDirty && inspectorTargetId && draftContent !== undefined) {
-      const shouldSave = window.confirm(
-        "Save your changes before closing the inspector? Click OK to save or Cancel to discard.",
-      );
-      if (shouldSave) {
-        try {
-          await handleSaveInspectorDraft(inspectorTargetId, draftContent);
-        } catch {
+      if (inspectorDraftStale) {
+        const shouldDiscard = window.confirm(
+          "This draft is stale because the file changed outside H.E.L.M. Click OK to discard it or Cancel to keep editing.",
+        );
+        if (!shouldDiscard) {
           return false;
+        }
+      } else {
+        const shouldSave = window.confirm(
+          "Save your changes before closing the inspector? Click OK to save or Cancel to discard.",
+        );
+        if (shouldSave) {
+          try {
+            await handleSaveInspectorDraft(inspectorTargetId, draftContent);
+          } catch {
+            return false;
+          }
         }
       }
     }
@@ -1439,6 +1577,7 @@ export function WorkspaceScreen() {
     setInspectorSnapshot(undefined);
     inspectorDraftContentRef.current = undefined;
     setInspectorDirty(false);
+    setInspectorDraftStale(false);
     setInspectorEditableSourceOverride(undefined);
     setInspectorSourceVersion(0);
     setRevealedSource(undefined);
@@ -1447,6 +1586,7 @@ export function WorkspaceScreen() {
   }, [
     handleSaveInspectorDraft,
     inspectorDirty,
+    inspectorDraftStale,
     inspectorTargetId,
     selectedGraphNode?.id,
     setRevealedSource,
@@ -1799,11 +1939,7 @@ export function WorkspaceScreen() {
     <DesktopWindow
       eyebrow="Blueprint Editor"
       title={repoSession?.name ?? "H.E.L.M."}
-      subtitle={
-        repoSession?.path
-          ? `Repo root: ${repoSession.path}`
-          : "Open a local repository to begin."
-      }
+      subtitle={workspaceWindowSubtitle(repoSession?.path, effectiveBackendStatus?.syncState)}
       actions={<ThemeCycleButton />}
       dense
     >
@@ -2030,6 +2166,7 @@ export function WorkspaceScreen() {
                               ? "Unable to load editable source."
                               : null
                         }
+                        draftStale={inspectorDraftStale}
                         revealedSource={revealedSource}
                         lastActivity={lastActivity}
                         isSavingSource={isSavingSource}

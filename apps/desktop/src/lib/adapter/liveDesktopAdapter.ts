@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
   BackendUndoTransaction,
@@ -30,6 +31,9 @@ import type {
   StructuralEditRequest,
   StructuralEditResult,
   SymbolDetails,
+  WorkspaceSyncEvent,
+  WorkspaceSyncSnapshot,
+  WorkspaceSyncState,
 } from "./contracts";
 
 const RECENT_REPOS_STORAGE_KEY = "helm.desktop.recentRepos";
@@ -117,6 +121,7 @@ interface RawScanPayload {
     default_focus_node_id: string;
     source_hidden_by_default: boolean;
     supported_edit_kinds: string[];
+    session_version?: number;
   };
 }
 
@@ -215,6 +220,28 @@ interface RawBackendHealth {
   python_command: string;
   workspace_root: string;
   note: string;
+  live_sync_enabled: boolean;
+  sync_state: WorkspaceSyncState;
+  last_sync_error?: string | null;
+}
+
+interface RawWorkspaceSyncSnapshot {
+  repo_id: string;
+  default_focus_node_id: string;
+  default_level: GraphAbstractionLevel;
+  node_ids: string[];
+}
+
+interface RawWorkspaceSyncEvent {
+  repo_path: string;
+  session_version: number;
+  reason: string;
+  status: WorkspaceSyncState;
+  changed_relative_paths: string[];
+  needs_manual_resync: boolean;
+  payload?: RawScanPayload | null;
+  snapshot?: RawWorkspaceSyncSnapshot | null;
+  message?: string | null;
 }
 
 interface RawEditResult {
@@ -319,9 +346,42 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     available: false,
     pythonCommand: DEFAULT_PYTHON_COMMAND,
     note: "Waiting for the desktop shell to check the Python bridge.",
+    liveSyncEnabled: false,
+    syncState: "idle",
   };
   private scanCache?: ScanCache;
   private jobs = new Map<string, ScanJob>();
+  private workspaceSyncListeners = new Set<(event: WorkspaceSyncEvent) => void>();
+  private workspaceSyncUnlisten?: Promise<UnlistenFn>;
+
+  constructor() {
+    this.workspaceSyncUnlisten = listen<RawWorkspaceSyncEvent>(
+      "helm://workspace-sync",
+      (event) => {
+        this.handleWorkspaceSync(event.payload);
+      },
+    ).catch(() => () => {});
+  }
+
+  private handleWorkspaceSync(raw: RawWorkspaceSyncEvent) {
+    const nextBackend = backendStatusFromSyncEvent(this.backendStatus, raw);
+    this.backendStatus = nextBackend;
+
+    const normalizedRepoPath = normalizePath(raw.repo_path);
+    if (raw.payload && (!this.currentSession || this.currentSession.path === normalizedRepoPath)) {
+      const session = this.currentSession ?? buildRepoSessionFromPath(normalizedRepoPath);
+      this.scanCache = buildScanCache(raw.payload, session, nextBackend);
+      this.currentSession = session;
+    } else if (this.scanCache) {
+      this.scanCache = {
+        ...this.scanCache,
+        backend: nextBackend,
+      };
+    }
+
+    const event = toWorkspaceSyncEvent(raw);
+    this.workspaceSyncListeners.forEach((listener) => listener(event));
+  }
 
   async openRepo(path?: string): Promise<RepoSession> {
     let resolvedPath = path;
@@ -358,6 +418,9 @@ export class LiveDesktopAdapter implements DesktopAdapter {
         pythonCommand: raw.python_command,
         workspaceRoot: raw.workspace_root,
         note: raw.note,
+        liveSyncEnabled: raw.live_sync_enabled,
+        syncState: raw.sync_state,
+        lastSyncError: raw.last_sync_error ?? undefined,
         lastError: undefined,
       };
     } catch (reason) {
@@ -366,12 +429,22 @@ export class LiveDesktopAdapter implements DesktopAdapter {
         ...this.backendStatus,
         mode: "live",
         available: false,
+        liveSyncEnabled: false,
+        syncState: "error",
         note: "The desktop shell could not reach the Python bridge.",
+        lastSyncError: message,
         lastError: message,
       };
     }
 
     return this.backendStatus;
+  }
+
+  subscribeWorkspaceSync(onUpdate: (event: WorkspaceSyncEvent) => void): () => void {
+    this.workspaceSyncListeners.add(onUpdate);
+    return () => {
+      this.workspaceSyncListeners.delete(onUpdate);
+    };
   }
 
   async startIndex(repoPath: string): Promise<{ jobId: string }> {
@@ -1312,6 +1385,64 @@ function toBackendUndoResult(raw: RawUndoResult) {
         }
       : undefined,
   };
+}
+
+function toWorkspaceSyncEvent(raw: RawWorkspaceSyncEvent): WorkspaceSyncEvent {
+  return {
+    repoPath: normalizePath(raw.repo_path),
+    sessionVersion: raw.session_version,
+    reason: raw.reason,
+    status: raw.status,
+    changedRelativePaths: raw.changed_relative_paths,
+    needsManualResync: raw.needs_manual_resync,
+    message: raw.message ?? undefined,
+    snapshot: raw.snapshot
+      ? {
+          repoId: raw.snapshot.repo_id,
+          defaultFocusNodeId: raw.snapshot.default_focus_node_id,
+          defaultLevel: raw.snapshot.default_level,
+          nodeIds: raw.snapshot.node_ids,
+        }
+      : undefined,
+  };
+}
+
+function backendStatusFromSyncEvent(
+  current: BackendStatus,
+  raw: RawWorkspaceSyncEvent,
+): BackendStatus {
+  const nextState = raw.needs_manual_resync ? "manual_resync_required" : raw.status;
+  const syncing = nextState === "syncing";
+  const synced = nextState === "synced";
+  const liveSyncEnabled = syncing || synced;
+  const nextError = raw.message ?? (synced || syncing ? undefined : current.lastSyncError);
+
+  return {
+    ...current,
+    available: true,
+    liveSyncEnabled,
+    syncState: nextState,
+    lastSyncAt: synced ? new Date().toISOString() : current.lastSyncAt,
+    lastSyncError: nextError,
+    lastError: nextError,
+    note: workspaceSyncNote(nextState),
+  };
+}
+
+function workspaceSyncNote(status: WorkspaceSyncState): string {
+  if (status === "syncing") {
+    return "Applying external repo changes to the live workspace.";
+  }
+  if (status === "synced") {
+    return "Watching the active repo for Python changes.";
+  }
+  if (status === "manual_resync_required") {
+    return "Live sync needs a manual reindex to recover the workspace session.";
+  }
+  if (status === "error") {
+    return "Live sync encountered an error.";
+  }
+  return "Persistent Python bridge is ready. Open a repo to enable live sync.";
 }
 
 function layoutGraphView(raw: RawGraphView): GraphView {

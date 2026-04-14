@@ -1,19 +1,24 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::BTreeMap;
+use serde_json::{json, Value};
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::Mutex;
+use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::path::{Component, Path, PathBuf};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 use tauri::{
     menu::{AboutMetadata, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
-    AppHandle, Emitter, Manager, Wry,
+    AppHandle, Emitter, Manager, State, Wry,
 };
 
 const APP_MENU_EVENT: &str = "helm://app-menu";
+const WORKSPACE_SYNC_EVENT: &str = "helm://workspace-sync";
 const MENU_ID_SHOW_CALLS: &str = "graph-view.show-calls";
 const MENU_ID_SHOW_IMPORTS: &str = "graph-view.show-imports";
 const MENU_ID_SHOW_DEFINES: &str = "graph-view.show-defines";
@@ -23,14 +28,44 @@ const MENU_ID_UNDO: &str = "app.undo";
 const MENU_ID_ZOOM_IN: &str = "app.zoom-in";
 const MENU_ID_ZOOM_OUT: &str = "app.zoom-out";
 const MENU_ID_ZOOM_RESET: &str = "app.zoom-reset";
+const WORKSPACE_SYNC_DEBOUNCE_MS: u64 = 250;
+const WORKSPACE_SYNC_TOP_N: usize = 24;
+const IGNORED_WATCH_DIRS: &[&str] = &[
+    ".cache",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".next",
+    ".parcel-cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".svn",
+    ".turbo",
+    ".vendor",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "coverage",
+    "dist",
+    "env",
+    "node_modules",
+    "vendor",
+    "venv",
+];
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct BackendHealth {
     mode: String,
     python_command: String,
     workspace_root: String,
     available: bool,
     note: String,
+    live_sync_enabled: bool,
+    sync_state: String,
+    last_sync_error: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -92,6 +127,29 @@ struct GraphViewMenuActionPayload {
     action: &'static str,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceSyncSnapshot {
+    repo_id: String,
+    default_focus_node_id: String,
+    default_level: String,
+    node_ids: Vec<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceSyncEventPayload {
+    repo_path: String,
+    session_version: u64,
+    reason: String,
+    status: String,
+    changed_relative_paths: Vec<String>,
+    needs_manual_resync: bool,
+    payload: Option<Value>,
+    snapshot: Option<WorkspaceSyncSnapshot>,
+    message: Option<String>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GraphViewMenuSyncPayload {
@@ -102,8 +160,592 @@ struct GraphViewMenuSyncPayload {
     show_edge_labels: bool,
 }
 
+#[derive(Clone)]
+struct LiveSyncState {
+    live_sync_enabled: bool,
+    sync_state: String,
+    last_sync_error: Option<String>,
+}
+
+impl Default for LiveSyncState {
+    fn default() -> Self {
+        Self {
+            live_sync_enabled: false,
+            sync_state: "idle".to_string(),
+            last_sync_error: None,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct BackendService {
+    bridge: Arc<PersistentPythonBridge>,
+    sync_state: Arc<Mutex<LiveSyncState>>,
+}
+
+impl Default for BackendService {
+    fn default() -> Self {
+        Self {
+            bridge: Arc::new(PersistentPythonBridge::default()),
+            sync_state: Arc::new(Mutex::new(LiveSyncState::default())),
+        }
+    }
+}
+
+impl BackendService {
+    fn request(&self, command: &str, params: Value) -> Result<Value, String> {
+        self.bridge.request(command, params)
+    }
+
+    fn health_snapshot(&self) -> LiveSyncState {
+        self.sync_state
+            .lock()
+            .map(|state| state.clone())
+            .unwrap_or_default()
+    }
+
+    fn mark_synced(&self) {
+        self.update_sync_state(true, "synced", None);
+    }
+
+    fn mark_syncing(&self) {
+        self.update_sync_state(true, "syncing", None);
+    }
+
+    fn mark_manual_resync_required(&self, message: String) {
+        self.update_sync_state(false, "manual_resync_required", Some(message));
+    }
+
+    fn update_sync_state(
+        &self,
+        live_sync_enabled: bool,
+        sync_state: &str,
+        last_sync_error: Option<String>,
+    ) {
+        if let Ok(mut state) = self.sync_state.lock() {
+            state.live_sync_enabled = live_sync_enabled;
+            state.sync_state = sync_state.to_string();
+            state.last_sync_error = last_sync_error;
+        }
+    }
+}
+
+#[derive(Default)]
+struct PersistentPythonBridge {
+    process: Mutex<Option<BridgeProcess>>,
+}
+
+struct BridgeProcess {
+    child: Child,
+    stdin: BufWriter<ChildStdin>,
+    stdout: BufReader<ChildStdout>,
+    next_request_id: u64,
+}
+
+impl Drop for BridgeProcess {
+    fn drop(&mut self) {
+        let shutdown = json!({
+            "id": 0,
+            "command": "shutdown",
+            "params": {},
+        });
+        let _ = serde_json::to_writer(&mut self.stdin, &shutdown);
+        let _ = self.stdin.write_all(b"\n");
+        let _ = self.stdin.flush();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[derive(Deserialize)]
+struct WorkerResponse {
+    id: Option<u64>,
+    ok: bool,
+    result: Option<Value>,
+    error: Option<String>,
+}
+
+impl PersistentPythonBridge {
+    fn request(&self, command: &str, params: Value) -> Result<Value, String> {
+        let mut last_error: Option<String> = None;
+        for _ in 0..2 {
+            let mut process = self
+                .process
+                .lock()
+                .map_err(|_| "Unable to lock the Python bridge state.".to_string())?;
+            if process.is_none() {
+                *process = Some(spawn_bridge_process()?);
+            }
+
+            let result = process
+                .as_mut()
+                .ok_or_else(|| "Python bridge is unavailable.".to_string())
+                .and_then(|bridge| send_bridge_request(bridge, command, params.clone()));
+            match result {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    last_error = Some(err);
+                    *process = None;
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| "Python bridge is unavailable.".to_string()))
+    }
+}
+
+#[derive(Default)]
+struct ActiveRepoWatcher {
+    handle: Mutex<Option<RepoWatcherHandle>>,
+}
+
+struct RepoWatcherHandle {
+    repo_path: String,
+    stop_tx: mpsc::Sender<()>,
+    thread: Option<JoinHandle<()>>,
+    _watcher: RecommendedWatcher,
+}
+
+impl Drop for RepoWatcherHandle {
+    fn drop(&mut self) {
+        let _ = self.stop_tx.send(());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl ActiveRepoWatcher {
+    fn watch_repo(
+        &self,
+        app: &AppHandle<Wry>,
+        service: BackendService,
+        repo_path: &str,
+    ) -> Result<(), String> {
+        let repo_root = PathBuf::from(repo_path);
+        if !repo_root.exists() {
+            return Err(format!(
+                "Repository path does not exist for live sync: {}",
+                repo_root.display()
+            ));
+        }
+
+        let normalized_repo_root = repo_root
+            .canonicalize()
+            .map_err(|err| format!("Unable to resolve {}: {}", repo_root.display(), err))?;
+        let normalized_repo_path = normalize_path(&normalized_repo_root);
+
+        let old_handle = {
+            let mut handle = self
+                .handle
+                .lock()
+                .map_err(|_| "Unable to lock the live repo watcher.".to_string())?;
+            if handle
+                .as_ref()
+                .map(|current| current.repo_path == normalized_repo_path)
+                .unwrap_or(false)
+            {
+                return Ok(());
+            }
+            handle.take()
+        };
+        drop(old_handle);
+
+        let (event_tx, event_rx) = mpsc::channel::<notify::Result<Event>>();
+        let mut watcher = RecommendedWatcher::new(
+            move |result| {
+                let _ = event_tx.send(result);
+            },
+            Config::default(),
+        )
+        .map_err(|err| format!("Unable to start the repo watcher: {}", err))?;
+        watcher
+            .watch(&normalized_repo_root, RecursiveMode::Recursive)
+            .map_err(|err| {
+                format!(
+                    "Unable to watch {}: {}",
+                    normalized_repo_root.display(),
+                    err
+                )
+            })?;
+
+        let (stop_tx, stop_rx) = mpsc::channel::<()>();
+        let thread_app = app.clone();
+        let thread_service = service.clone();
+        let thread_repo_root = normalized_repo_root.clone();
+        let thread_repo_path = normalized_repo_path.clone();
+        let thread = thread::spawn(move || {
+            run_repo_watch_loop(
+                thread_app,
+                thread_service,
+                thread_repo_root,
+                thread_repo_path,
+                event_rx,
+                stop_rx,
+            )
+        });
+
+        let new_handle = RepoWatcherHandle {
+            repo_path: normalized_repo_path,
+            stop_tx,
+            thread: Some(thread),
+            _watcher: watcher,
+        };
+        let old_handle = {
+            let mut handle = self
+                .handle
+                .lock()
+                .map_err(|_| "Unable to lock the live repo watcher.".to_string())?;
+            handle.replace(new_handle)
+        };
+        drop(old_handle);
+        Ok(())
+    }
+}
+
+fn run_repo_watch_loop(
+    app: AppHandle<Wry>,
+    service: BackendService,
+    repo_root: PathBuf,
+    repo_path: String,
+    event_rx: mpsc::Receiver<notify::Result<Event>>,
+    stop_rx: mpsc::Receiver<()>,
+) {
+    let mut pending_relative_paths = BTreeSet::new();
+    loop {
+        if stop_rx.try_recv().is_ok() {
+            break;
+        }
+
+        match event_rx.recv_timeout(Duration::from_millis(WORKSPACE_SYNC_DEBOUNCE_MS)) {
+            Ok(Ok(event)) => {
+                if watch_event_requires_manual_resync(&event) {
+                    let message = "Live sync watcher requested a rescan. Reindex the repo to recover the workspace session.".to_string();
+                    service.mark_manual_resync_required(message.clone());
+                    emit_workspace_sync_event(
+                        &app,
+                        WorkspaceSyncEventPayload {
+                            repo_path: repo_path.clone(),
+                            session_version: 0,
+                            reason: "watcher-rescan".to_string(),
+                            status: "manual_resync_required".to_string(),
+                            changed_relative_paths: Vec::new(),
+                            needs_manual_resync: true,
+                            payload: None,
+                            snapshot: None,
+                            message: Some(message),
+                        },
+                    );
+                    break;
+                }
+                pending_relative_paths.extend(collect_relevant_relative_paths(&repo_root, &event));
+            }
+            Ok(Err(err)) => {
+                let message = format!("Live sync watcher failed: {}", err);
+                service.mark_manual_resync_required(message.clone());
+                emit_workspace_sync_event(
+                    &app,
+                    WorkspaceSyncEventPayload {
+                        repo_path: repo_path.clone(),
+                        session_version: 0,
+                        reason: "watcher-error".to_string(),
+                        status: "manual_resync_required".to_string(),
+                        changed_relative_paths: Vec::new(),
+                        needs_manual_resync: true,
+                        payload: None,
+                        snapshot: None,
+                        message: Some(message),
+                    },
+                );
+                break;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if pending_relative_paths.is_empty() {
+                    continue;
+                }
+
+                let changed_relative_paths =
+                    pending_relative_paths.iter().cloned().collect::<Vec<_>>();
+                pending_relative_paths.clear();
+
+                service.mark_syncing();
+                emit_workspace_sync_event(
+                    &app,
+                    WorkspaceSyncEventPayload {
+                        repo_path: repo_path.clone(),
+                        session_version: 0,
+                        reason: "external-change".to_string(),
+                        status: "syncing".to_string(),
+                        changed_relative_paths: changed_relative_paths.clone(),
+                        needs_manual_resync: false,
+                        payload: None,
+                        snapshot: None,
+                        message: None,
+                    },
+                );
+
+                match service.request(
+                    "refresh-paths",
+                    json!({
+                        "repo": repo_path,
+                        "relative_paths": changed_relative_paths,
+                        "top_n": WORKSPACE_SYNC_TOP_N,
+                    }),
+                ) {
+                    Ok(result) => {
+                        let payload = result.get("payload").cloned();
+                        let session_version = extract_session_version(&result, payload.as_ref());
+                        let changed_relative_paths =
+                            extract_string_vec(result.get("changed_relative_paths"))
+                                .unwrap_or_default();
+                        let snapshot = payload.as_ref().and_then(workspace_sync_snapshot);
+                        service.mark_synced();
+                        emit_workspace_sync_event(
+                            &app,
+                            WorkspaceSyncEventPayload {
+                                repo_path: repo_path.clone(),
+                                session_version,
+                                reason: "external-change".to_string(),
+                                status: "synced".to_string(),
+                                changed_relative_paths,
+                                needs_manual_resync: false,
+                                payload,
+                                snapshot,
+                                message: None,
+                            },
+                        );
+                    }
+                    Err(err) => {
+                        service.mark_manual_resync_required(err.clone());
+                        emit_workspace_sync_event(
+                            &app,
+                            WorkspaceSyncEventPayload {
+                                repo_path: repo_path.clone(),
+                                session_version: 0,
+                                reason: "external-change".to_string(),
+                                status: "manual_resync_required".to_string(),
+                                changed_relative_paths: changed_relative_paths.clone(),
+                                needs_manual_resync: true,
+                                payload: None,
+                                snapshot: None,
+                                message: Some(err),
+                            },
+                        );
+                        break;
+                    }
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+}
+
+fn spawn_bridge_process() -> Result<BridgeProcess, String> {
+    let workspace_root = workspace_root()?;
+    let python_command = resolve_python_command();
+    let python_path = python_path(&workspace_root)?;
+    let mut child = Command::new(&python_command)
+        .current_dir(&workspace_root)
+        .env("PYTHONPATH", python_path)
+        .env("PYTHONUNBUFFERED", "1")
+        .arg("-m")
+        .arg("helm.ui.desktop_bridge")
+        .arg("serve")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|err| format!("Unable to launch {}: {}", python_command, err))?;
+
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "Unable to capture the Python bridge stdin.".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Unable to capture the Python bridge stdout.".to_string())?;
+
+    Ok(BridgeProcess {
+        child,
+        stdin: BufWriter::new(stdin),
+        stdout: BufReader::new(stdout),
+        next_request_id: 1,
+    })
+}
+
+fn send_bridge_request(
+    bridge: &mut BridgeProcess,
+    command: &str,
+    params: Value,
+) -> Result<Value, String> {
+    let request_id = bridge.next_request_id;
+    bridge.next_request_id += 1;
+    let request = json!({
+        "id": request_id,
+        "command": command,
+        "params": params,
+    });
+
+    serde_json::to_writer(&mut bridge.stdin, &request)
+        .map_err(|err| format!("Unable to encode the Python bridge request: {}", err))?;
+    bridge
+        .stdin
+        .write_all(b"\n")
+        .map_err(|err| format!("Unable to write the Python bridge request: {}", err))?;
+    bridge
+        .stdin
+        .flush()
+        .map_err(|err| format!("Unable to flush the Python bridge request: {}", err))?;
+
+    let mut response_line = String::new();
+    let bytes = bridge
+        .stdout
+        .read_line(&mut response_line)
+        .map_err(|err| format!("Unable to read the Python bridge response: {}", err))?;
+    if bytes == 0 {
+        return Err("Python bridge closed unexpectedly.".to_string());
+    }
+
+    let response: WorkerResponse = serde_json::from_str(response_line.trim())
+        .map_err(|err| format!("Unable to decode the Python bridge response: {}", err))?;
+    if response.id != Some(request_id) {
+        return Err("Python bridge response id did not match the request.".to_string());
+    }
+    if response.ok {
+        response
+            .result
+            .ok_or_else(|| "Python bridge returned no result payload.".to_string())
+    } else {
+        Err(response
+            .error
+            .unwrap_or_else(|| "Python bridge returned an unknown error.".to_string()))
+    }
+}
+
+fn collect_relevant_relative_paths(repo_root: &Path, event: &Event) -> BTreeSet<String> {
+    if !is_relevant_watch_event_kind(&event.kind) {
+        return BTreeSet::new();
+    }
+
+    event.paths.iter().fold(BTreeSet::new(), |mut paths, path| {
+        if let Some(relative_path) = normalize_relevant_change_path(repo_root, path) {
+            paths.insert(relative_path);
+        }
+        paths
+    })
+}
+
+fn watch_event_requires_manual_resync(event: &Event) -> bool {
+    event.need_rescan()
+}
+
+fn is_relevant_watch_event_kind(kind: &EventKind) -> bool {
+    matches!(
+        kind,
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+    )
+}
+
+fn normalize_relevant_change_path(repo_root: &Path, path: &Path) -> Option<String> {
+    let absolute_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        repo_root.join(path)
+    };
+    let relative_path = absolute_path.strip_prefix(repo_root).ok()?;
+    if relative_path
+        .components()
+        .any(|component| matches_ignored_watch_dir(component))
+    {
+        return None;
+    }
+
+    let normalized = normalize_path(relative_path);
+    if !normalized.ends_with(".py") {
+        return None;
+    }
+    Some(normalized)
+}
+
+fn matches_ignored_watch_dir(component: Component<'_>) -> bool {
+    let Component::Normal(name) = component else {
+        return false;
+    };
+    let Some(value) = name.to_str() else {
+        return false;
+    };
+    IGNORED_WATCH_DIRS.iter().any(|ignored| value == *ignored)
+}
+
+fn normalize_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn extract_string_vec(value: Option<&Value>) -> Option<Vec<String>> {
+    value.and_then(Value::as_array).map(|items| {
+        items
+            .iter()
+            .filter_map(|item| item.as_str().map(ToOwned::to_owned))
+            .collect()
+    })
+}
+
+fn extract_session_version(result: &Value, payload: Option<&Value>) -> u64 {
+    result
+        .get("session_version")
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            payload
+                .and_then(|payload| payload.get("workspace"))
+                .and_then(|workspace| workspace.get("session_version"))
+                .and_then(Value::as_u64)
+        })
+        .unwrap_or(0)
+}
+
+fn workspace_sync_snapshot(payload: &Value) -> Option<WorkspaceSyncSnapshot> {
+    let graph = payload.get("graph")?;
+    let workspace = payload.get("workspace")?;
+    let repo_id = graph.get("repo_id")?.as_str()?.to_string();
+    let default_focus_node_id = workspace
+        .get("default_focus_node_id")?
+        .as_str()?
+        .to_string();
+    let default_level = workspace.get("default_level")?.as_str()?.to_string();
+    let node_ids = graph
+        .get("nodes")?
+        .as_array()?
+        .iter()
+        .filter_map(|node| node.get("node_id")?.as_str().map(ToOwned::to_owned))
+        .collect();
+
+    Some(WorkspaceSyncSnapshot {
+        repo_id,
+        default_focus_node_id,
+        default_level,
+        node_ids,
+    })
+}
+
+fn emit_workspace_sync_event(app: &AppHandle<Wry>, payload: WorkspaceSyncEventPayload) {
+    let _ = app.emit(WORKSPACE_SYNC_EVENT, payload);
+}
+
+fn backend_note(sync_state: &LiveSyncState) -> String {
+    match sync_state.sync_state.as_str() {
+        "syncing" => "Applying external repo changes to the live workspace.".to_string(),
+        "synced" => "Watching the active repo for Python changes.".to_string(),
+        "manual_resync_required" => {
+            "Live sync needs a manual reindex to recover the workspace session.".to_string()
+        }
+        "error" => "Live sync encountered an error.".to_string(),
+        _ => "Persistent Python bridge is ready. Open a repo to enable live sync.".to_string(),
+    }
+}
+
 #[tauri::command]
-fn backend_health() -> Result<BackendHealth, String> {
+fn backend_health(service: State<'_, BackendService>) -> Result<BackendHealth, String> {
     let workspace_root = workspace_root()?;
     let python_command = resolve_python_command();
     let output = Command::new(&python_command)
@@ -120,89 +762,157 @@ fn backend_health() -> Result<BackendHealth, String> {
         });
     }
 
+    let sync_state = service.health_snapshot();
     Ok(BackendHealth {
         mode: "live".to_string(),
         python_command,
         workspace_root: workspace_root.display().to_string(),
         available: true,
-        note: "Desktop shell is connected to the Python backbone through a Tauri command bridge."
-            .to_string(),
+        note: backend_note(&sync_state),
+        live_sync_enabled: sync_state.live_sync_enabled,
+        sync_state: sync_state.sync_state,
+        last_sync_error: sync_state.last_sync_error,
     })
 }
 
 #[tauri::command]
-fn scan_repo_payload(repo_path: String) -> Result<Value, String> {
-    run_bridge_json(["scan", &repo_path].as_slice())
+fn scan_repo_payload(
+    app: AppHandle<Wry>,
+    service: State<'_, BackendService>,
+    watcher: State<'_, ActiveRepoWatcher>,
+    repo_path: String,
+) -> Result<Value, String> {
+    let payload = service.request(
+        "full-resync",
+        json!({
+            "repo": repo_path,
+            "top_n": WORKSPACE_SYNC_TOP_N,
+        }),
+    )?;
+
+    match watcher.watch_repo(&app, service.inner().clone(), &repo_path) {
+        Ok(()) => service.mark_synced(),
+        Err(err) => service.mark_manual_resync_required(err),
+    }
+
+    Ok(payload)
 }
 
 #[tauri::command]
 fn graph_view(
+    service: State<'_, BackendService>,
     repo_path: String,
     target_id: String,
     level: String,
     filters_json: String,
 ) -> Result<Value, String> {
-    run_bridge_json(
-        [
-            "graph-view",
-            &repo_path,
-            &target_id,
-            &level,
-            "--filters-json",
-            &filters_json,
-        ]
-        .as_slice(),
+    let filters: Value = serde_json::from_str(&filters_json)
+        .map_err(|err| format!("Unable to decode graph filters: {}", err))?;
+    service.request(
+        "graph-view",
+        json!({
+            "repo": repo_path,
+            "target_id": target_id,
+            "level": level,
+            "filters": filters,
+        }),
     )
 }
 
 #[tauri::command]
-fn flow_view(repo_path: String, symbol_id: String) -> Result<Value, String> {
-    run_bridge_json(["flow-view", &repo_path, &symbol_id].as_slice())
+fn flow_view(
+    service: State<'_, BackendService>,
+    repo_path: String,
+    symbol_id: String,
+) -> Result<Value, String> {
+    service.request(
+        "flow-view",
+        json!({
+            "repo": repo_path,
+            "symbol_id": symbol_id,
+        }),
+    )
 }
 
 #[tauri::command]
-fn apply_structural_edit(repo_path: String, request_json: String) -> Result<Value, String> {
-    run_bridge_json(["apply-edit", &repo_path, "--request-json", &request_json].as_slice())
+fn apply_structural_edit(
+    service: State<'_, BackendService>,
+    repo_path: String,
+    request_json: String,
+) -> Result<Value, String> {
+    service.request(
+        "apply-edit",
+        json!({
+            "repo": repo_path,
+            "request_json": request_json,
+        }),
+    )
 }
 
 #[tauri::command]
-fn reveal_source(repo_path: String, target_id: String) -> Result<Value, String> {
-    run_bridge_json(["reveal-source", &repo_path, &target_id].as_slice())
+fn reveal_source(
+    service: State<'_, BackendService>,
+    repo_path: String,
+    target_id: String,
+) -> Result<Value, String> {
+    service.request(
+        "reveal-source",
+        json!({
+            "repo": repo_path,
+            "target_id": target_id,
+        }),
+    )
 }
 
 #[tauri::command]
-fn editable_node_source(repo_path: String, target_id: String) -> Result<Value, String> {
-    run_bridge_json(["editable-source", &repo_path, &target_id].as_slice())
+fn editable_node_source(
+    service: State<'_, BackendService>,
+    repo_path: String,
+    target_id: String,
+) -> Result<Value, String> {
+    service.request(
+        "editable-source",
+        json!({
+            "repo": repo_path,
+            "target_id": target_id,
+        }),
+    )
 }
 
 #[tauri::command]
 fn save_node_source(
+    service: State<'_, BackendService>,
     repo_path: String,
     target_id: String,
     content_json: String,
 ) -> Result<Value, String> {
-    run_bridge_json(
-        [
-            "save-node-source",
-            &repo_path,
-            &target_id,
-            "--content-json",
-            &content_json,
-        ]
-        .as_slice(),
+    let content: Value = serde_json::from_str(&content_json)
+        .map_err(|err| format!("Unable to decode replacement source: {}", err))?;
+    let content = content
+        .as_str()
+        .ok_or_else(|| "Replacement source payload must be a string.".to_string())?;
+    service.request(
+        "save-node-source",
+        json!({
+            "repo": repo_path,
+            "target_id": target_id,
+            "content": content,
+        }),
     )
 }
 
 #[tauri::command]
-fn apply_backend_undo(repo_path: String, transaction_json: String) -> Result<Value, String> {
-    run_bridge_json(
-        [
-            "apply-undo",
-            &repo_path,
-            "--transaction-json",
-            &transaction_json,
-        ]
-        .as_slice(),
+fn apply_backend_undo(
+    service: State<'_, BackendService>,
+    repo_path: String,
+    transaction_json: String,
+) -> Result<Value, String> {
+    service.request(
+        "apply-undo",
+        json!({
+            "repo": repo_path,
+            "transaction_json": transaction_json,
+        }),
     )
 }
 
@@ -335,34 +1045,6 @@ fn sync_graph_view_menu_state(
         .map_err(|err| format!("Unable to decode graph view menu state: {}", err))?;
 
     sync_graph_view_menu_items(state.inner(), &payload)
-}
-
-fn run_bridge_json(args: &[&str]) -> Result<Value, String> {
-    let workspace_root = workspace_root()?;
-    let python_command = resolve_python_command();
-    let python_path = python_path(&workspace_root)?;
-
-    let output = Command::new(&python_command)
-        .current_dir(&workspace_root)
-        .env("PYTHONPATH", python_path)
-        .env("PYTHONUNBUFFERED", "1")
-        .arg("-m")
-        .arg("helm.ui.desktop_bridge")
-        .args(args)
-        .output()
-        .map_err(|err| format!("Unable to launch {}: {}", python_command, err))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
-            format!("Python bridge failed for {:?}", args)
-        } else {
-            stderr
-        });
-    }
-
-    serde_json::from_slice(&output.stdout)
-        .map_err(|err| format!("Unable to decode Python bridge payload: {}", err))
 }
 
 fn python_path(workspace_root: &Path) -> Result<String, String> {
@@ -770,8 +1452,84 @@ fn build_macos_app_menu(
     )
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notify::event::{CreateKind, Flag, ModifyKind, RemoveKind};
+
+    #[test]
+    fn collect_relevant_relative_paths_keeps_python_files_only() {
+        let repo_root = Path::new("/tmp/project");
+        let mut event = Event::new(EventKind::Modify(ModifyKind::Any));
+        event.paths = vec![
+            repo_root.join("src/app.py"),
+            repo_root.join("src/app.ts"),
+            repo_root.join("notes.txt"),
+        ];
+
+        let changed = collect_relevant_relative_paths(repo_root, &event);
+
+        assert_eq!(
+            changed.into_iter().collect::<Vec<_>>(),
+            vec!["src/app.py".to_string()]
+        );
+    }
+
+    #[test]
+    fn collect_relevant_relative_paths_ignores_noise_and_outside_paths() {
+        let repo_root = Path::new("/tmp/project");
+        let mut event = Event::new(EventKind::Create(CreateKind::Any));
+        event.paths = vec![
+            repo_root.join(".git/index"),
+            repo_root.join("node_modules/pkg/index.py"),
+            repo_root.join("src/__pycache__/cached.py"),
+            PathBuf::from("/tmp/elsewhere/service.py"),
+            repo_root.join("src/service.py"),
+        ];
+
+        let changed = collect_relevant_relative_paths(repo_root, &event);
+
+        assert_eq!(
+            changed.into_iter().collect::<Vec<_>>(),
+            vec!["src/service.py".to_string()]
+        );
+    }
+
+    #[test]
+    fn collect_relevant_relative_paths_accepts_removed_python_files() {
+        let repo_root = Path::new("/tmp/project");
+        let mut event = Event::new(EventKind::Remove(RemoveKind::Any));
+        event.paths = vec![repo_root.join("src/deleted_module.py")];
+
+        let changed = collect_relevant_relative_paths(repo_root, &event);
+
+        assert_eq!(
+            changed.into_iter().collect::<Vec<_>>(),
+            vec!["src/deleted_module.py".to_string()]
+        );
+    }
+
+    #[test]
+    fn watch_event_requires_manual_resync_for_rescan_flags() {
+        let mut event = Event::new(EventKind::Modify(ModifyKind::Any));
+        event.attrs.set_flag(Flag::Rescan);
+
+        assert!(watch_event_requires_manual_resync(&event));
+    }
+
+    #[test]
+    fn watch_event_does_not_require_manual_resync_without_rescan_flag() {
+        let event = Event::new(EventKind::Modify(ModifyKind::Any));
+
+        assert!(!watch_event_requires_manual_resync(&event));
+    }
+}
+
 fn main() {
-    let builder = tauri::Builder::default().manage(GraphViewMenuState::default());
+    let builder = tauri::Builder::default()
+        .manage(GraphViewMenuState::default())
+        .manage(BackendService::default())
+        .manage(ActiveRepoWatcher::default());
     #[cfg(target_os = "macos")]
     let builder = builder.menu(|app| {
         let menu_state = app.state::<GraphViewMenuState>();

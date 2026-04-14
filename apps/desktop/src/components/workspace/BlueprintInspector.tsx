@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   EditableNodeSource,
   GraphNodeDto,
@@ -24,6 +24,7 @@ export function BlueprintInspector({
   editableSource,
   editableSourceLoading,
   editableSourceError,
+  draftStale,
   revealedSource,
   lastActivity,
   isSavingSource,
@@ -42,6 +43,7 @@ export function BlueprintInspector({
   editableSource?: EditableNodeSource;
   editableSourceLoading: boolean;
   editableSourceError?: string | null;
+  draftStale?: boolean;
   revealedSource?: RevealedSource;
   lastActivity?: WorkspaceActivity;
   isSavingSource: boolean;
@@ -57,6 +59,7 @@ export function BlueprintInspector({
 }) {
   const [draftSource, setDraftSource] = useState("");
   const [sourceError, setSourceError] = useState<string | null>(null);
+  const previousEditableTargetIdRef = useRef<string | undefined>(undefined);
   const selectedRelativePath = relativePathForNode(selectedNode);
   const selectedSummary = selectionSummary(selectedNode);
   const nodePath = editableSource?.path ?? selectedRelativePath ?? symbol?.filePath;
@@ -77,9 +80,19 @@ export function BlueprintInspector({
   const inspectorClassName = `pane pane--inspector blueprint-inspector${revealedSource ? " blueprint-inspector--with-revealed-source" : ""}`;
 
   useEffect(() => {
-    setDraftSource(editableSource?.content ?? "");
-    setSourceError(null);
-  }, [editableSource?.targetId, editableSource?.content]);
+    const nextTargetId = editableSource?.targetId;
+    if (nextTargetId !== previousEditableTargetIdRef.current) {
+      previousEditableTargetIdRef.current = nextTargetId;
+      setDraftSource(editableSource?.content ?? "");
+      setSourceError(null);
+      return;
+    }
+
+    if (!dirty && !draftStale) {
+      setDraftSource(editableSource?.content ?? "");
+      setSourceError(null);
+    }
+  }, [dirty, draftStale, editableSource?.content, editableSource?.targetId]);
 
   useEffect(() => {
     if (canEditInline) {
@@ -91,6 +104,13 @@ export function BlueprintInspector({
 
   const handleSave = async () => {
     if (!selectedNode || !canEditInline) {
+      return;
+    }
+
+    if (draftStale) {
+      setSourceError(
+        "This draft is stale because the file changed outside H.E.L.M. Reload from disk before saving again.",
+      );
       return;
     }
 
@@ -197,9 +217,11 @@ export function BlueprintInspector({
               {editableSourceLoading
                 ? "loading"
                 : canEditInline
-                  ? dirty
-                    ? "dirty"
-                    : "saved"
+                  ? draftStale
+                    ? "stale"
+                    : dirty
+                      ? "dirty"
+                      : "saved"
                   : editableSource?.editable === false
                     ? "read only"
                     : "ready"}
@@ -220,7 +242,9 @@ export function BlueprintInspector({
               <div className="blueprint-field blueprint-field--editor">
                 <span className="blueprint-field__label">
                   <strong>{selectedNode.kind === "function" ? "Function source" : "Variable source"}</strong>
-                  <StatusPill tone={dirty ? "accent" : "default"}>{dirty ? "Unsaved" : "Synced"}</StatusPill>
+                  <StatusPill tone={draftStale ? "warning" : dirty ? "accent" : "default"}>
+                    {draftStale ? "Stale" : dirty ? "Unsaved" : "Synced"}
+                  </StatusPill>
                 </span>
                 <div {...helpTargetProps("inspector.editor")}>
                   <InspectorCodeSurface
@@ -244,6 +268,16 @@ export function BlueprintInspector({
                 </div>
               </div>
 
+              {draftStale ? (
+                <div className="info-card blueprint-inspector__error-card">
+                  <strong>Draft is stale</strong>
+                  <p>
+                    This file changed outside H.E.L.M. Keep this draft if you need it for reference,
+                    then reload from disk before saving again.
+                  </p>
+                </div>
+              ) : null}
+
               {sourceError ? <p className="error-copy">{sourceError}</p> : null}
 
               <div className="blueprint-inspector__editor-actions">
@@ -251,7 +285,7 @@ export function BlueprintInspector({
                   {...helpTargetProps("inspector.save")}
                   className="primary-button"
                   type="button"
-                  disabled={!dirty || isSavingSource}
+                  disabled={draftStale || !dirty || isSavingSource}
                   onClick={() => void handleSave()}
                 >
                   {isSavingSource ? "Saving..." : "Save"}
@@ -260,10 +294,10 @@ export function BlueprintInspector({
                   {...helpTargetProps("inspector.cancel")}
                   className="ghost-button"
                   type="button"
-                  disabled={!dirty || isSavingSource}
+                  disabled={(!dirty && !draftStale) || isSavingSource}
                   onClick={handleCancel}
                 >
-                  Cancel
+                  {draftStale ? "Reload from Disk" : "Cancel"}
                 </button>
               </div>
             </>

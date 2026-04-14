@@ -43,6 +43,8 @@ export const mockBackendStatus: BackendStatus = {
   mode: "mock",
   available: true,
   pythonCommand: "mock",
+  liveSyncEnabled: false,
+  syncState: "idle",
   note: "Browser-only mode is using seeded data. Run the Tauri shell to exercise the real Python backbone from the UI.",
 };
 
