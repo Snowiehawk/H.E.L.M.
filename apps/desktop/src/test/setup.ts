@@ -49,5 +49,22 @@ class ResizeObserverMock {
   disconnect() {}
 }
 
+if (typeof window.PointerEvent !== "function") {
+  class PointerEventMock extends MouseEvent {
+    pointerId: number;
+    pointerType: string;
+    isPrimary: boolean;
+
+    constructor(type: string, params: PointerEventInit = {}) {
+      super(type, params);
+      this.pointerId = params.pointerId ?? 1;
+      this.pointerType = params.pointerType ?? "mouse";
+      this.isPrimary = params.isPrimary ?? true;
+    }
+  }
+
+  window.PointerEvent = PointerEventMock as typeof PointerEvent;
+}
+
 window.ResizeObserver = ResizeObserverMock;
 HTMLElement.prototype.scrollIntoView = () => {};

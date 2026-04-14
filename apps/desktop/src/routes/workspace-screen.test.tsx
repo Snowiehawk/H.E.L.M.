@@ -11,6 +11,30 @@ import { useUndoStore } from "../store/undoStore";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 
 const WORKSPACE_TEST_TIMEOUT_MS = 15000;
+const EMPTY_STORED_GRAPH_LAYOUT = {
+  nodes: {},
+  reroutes: [],
+  pinnedNodeIds: [],
+  groups: [],
+};
+const GROUPED_SYMBOL_LAYOUT = {
+  ...EMPTY_STORED_GRAPH_LAYOUT,
+  groups: [
+    {
+      id: "group-symbol-summary",
+      title: "Summary nodes",
+      memberNodeIds: [
+        "symbol:helm.ui.api:build_graph_summary",
+        "symbol:helm.ui.api:GraphSummary",
+      ],
+    },
+  ],
+};
+
+const { readStoredGraphLayoutMock, writeStoredGraphLayoutMock } = vi.hoisted(() => ({
+  readStoredGraphLayoutMock: vi.fn(),
+  writeStoredGraphLayoutMock: vi.fn(),
+}));
 
 vi.mock("../components/editor/InspectorCodeSurface", () => ({
   InspectorCodeSurface: ({
@@ -57,6 +81,15 @@ vi.mock("../components/editor/InspectorCodeSurface", () => ({
       </div>
     ),
 }));
+
+vi.mock("../components/graph/graphLayoutPersistence", async () => {
+  const actual = await vi.importActual<typeof import("../components/graph/graphLayoutPersistence")>("../components/graph/graphLayoutPersistence");
+  return {
+    ...actual,
+    readStoredGraphLayout: readStoredGraphLayoutMock,
+    writeStoredGraphLayout: writeStoredGraphLayoutMock,
+  };
+});
 
 function clearLocalStorage() {
   if (typeof window.localStorage?.clear === "function") {
@@ -125,6 +158,10 @@ describe("WorkspaceScreen", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     resetStore();
+    readStoredGraphLayoutMock.mockReset();
+    writeStoredGraphLayoutMock.mockReset();
+    readStoredGraphLayoutMock.mockResolvedValue(EMPTY_STORED_GRAPH_LAYOUT);
+    writeStoredGraphLayoutMock.mockResolvedValue(undefined);
   });
 
   it("resizes the explorer panel and restores the saved width", async () => {
@@ -262,6 +299,48 @@ describe("WorkspaceScreen", () => {
 
     await waitFor(() =>
       expect(within(screen.getByTestId("blueprint-inspector-drawer")).getByRole("heading", { name: "GraphSummary" })).toBeInTheDocument(),
+    );
+  });
+
+  it("updates the inspector when a grouped inspectable node is selected", async () => {
+    readStoredGraphLayoutMock
+      .mockResolvedValueOnce(EMPTY_STORED_GRAPH_LAYOUT)
+      .mockResolvedValueOnce(GROUPED_SYMBOL_LAYOUT);
+
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+
+    const drawer = await screen.findByTestId("blueprint-inspector-drawer");
+    expect(within(drawer).getByRole("heading", { name: "build_graph_summary" })).toBeInTheDocument();
+
+    fireEvent.click(await graph.findByText("GraphSummary"), { ctrlKey: true });
+
+    await waitFor(() =>
+      expect(within(screen.getByTestId("blueprint-inspector-drawer")).getByRole("heading", { name: "GraphSummary" })).toBeInTheDocument(),
+    );
+
+    fireEvent.click(await graph.findByText("build_graph_summary"));
+
+    await waitFor(() =>
+      expect(within(screen.getByTestId("blueprint-inspector-drawer")).getByRole("heading", { name: "build_graph_summary" })).toBeInTheDocument(),
     );
   });
 

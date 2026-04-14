@@ -1738,8 +1738,19 @@ describe("GraphCanvas", () => {
     const groupBox = await screen.findByTestId(`graph-group-${flowGroup.id}`);
     expect(groupBox).toBeInTheDocument();
     expect(await screen.findByTestId("rf__node-entry:calculate")).toHaveClass("is-group-member");
+    fireEvent.pointerDown(within(groupBox).getByTestId(`graph-group-hit-area-${flowGroup.id}-top`), {
+      button: 0,
+      clientX: 96,
+      clientY: 48,
+    });
+    fireEvent.pointerUp(window, {
+      clientX: 96,
+      clientY: 48,
+    });
+    await waitFor(() => expect(groupBox).toHaveClass("is-selected"));
     fireEvent.click(within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Entry"));
     expect(onSelectNode).toHaveBeenCalledWith("entry:calculate", "entry");
+    await waitFor(() => expect(groupBox).not.toHaveClass("is-selected"));
     expect(renameGraphGroup([flowGroup], flowGroup.id, "Control path")).toEqual([
       {
         ...flowGroup,
@@ -1750,6 +1761,39 @@ describe("GraphCanvas", () => {
     expect(renameGraphGroup([flowGroup], flowGroup.id, "   ")).toEqual([
       flowGroup,
     ]);
+  });
+
+  it("selects and drags a group from the boundary band without changing membership", async () => {
+    const groupedLayout = buildStoredLayout({
+      groups: [flowGroup],
+    });
+    readStoredGraphLayoutMock.mockResolvedValueOnce(groupedLayout);
+
+    renderGraphCanvas();
+
+    const groupBox = await screen.findByTestId(`graph-group-${flowGroup.id}`);
+    const topHitArea = within(groupBox).getByTestId(`graph-group-hit-area-${flowGroup.id}-top`);
+
+    fireEvent.pointerDown(topHitArea, {
+      button: 0,
+      clientX: 96,
+      clientY: 48,
+    });
+    await waitFor(() => expect(groupBox).toHaveClass("is-selected"));
+
+    fireEvent.pointerMove(window, {
+      clientX: 176,
+      clientY: 132,
+    });
+    fireEvent.pointerUp(window, {
+      clientX: 176,
+      clientY: 132,
+    });
+
+    await waitFor(() => expect(writeStoredGraphLayoutMock).toHaveBeenCalled());
+    expect(latestPersistedLayout()?.groups).toEqual([flowGroup]);
+    expect(latestPersistedLayout()?.nodes["entry:calculate"]).not.toEqual(groupedLayout.nodes["entry:calculate"]);
+    expect(latestPersistedLayout()?.nodes["branch:left"]).not.toEqual(groupedLayout.nodes["branch:left"]);
   });
 
   it("organizes a group through inline presets and can undo the layout change", async () => {

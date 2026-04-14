@@ -871,12 +871,13 @@ button {
 .graph-group {
   position: absolute;
   z-index: 0;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .graph-group__frame {
   width: 100%;
   height: 100%;
+  pointer-events: none;
   border-radius: 28px;
   border: 1px solid color-mix(in srgb, var(--accent-strong) 32%, var(--line-strong) 68%);
   background:
@@ -891,11 +892,40 @@ button {
     background 160ms ease;
 }
 
+.graph-group__hit-area {
+  position: absolute;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.graph-group__hit-area--top {
+  inset: 0 0 auto 0;
+  height: 24px;
+}
+
+.graph-group__hit-area--right {
+  inset: 24px 0 24px auto;
+  width: 24px;
+}
+
+.graph-group__hit-area--bottom {
+  inset: auto 0 0 0;
+  height: 24px;
+}
+
+.graph-group__hit-area--left {
+  inset: 24px auto 24px 0;
+  width: 24px;
+}
+
 .graph-group__title-anchor {
   position: absolute;
   left: 0;
   top: 0;
   pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
 }
 
 .graph-group__title-row {
@@ -941,6 +971,7 @@ button {
 
 .graph-group__title {
   user-select: none;
+  cursor: text;
 }
 
 .graph-group__action,
@@ -955,6 +986,11 @@ button {
 
 .graph-group__title-input {
   outline: none;
+}
+
+.graph-group__title-anchor:active,
+.graph-group__hit-area:active {
+  cursor: grabbing;
 }
 
 .graph-group.is-selected .graph-group__frame,

@@ -1750,6 +1750,62 @@ function GraphGroupLayer({
   onUngroupGroup: (groupId: string, title: string) => void;
 }) {
   const { screenToFlowPosition } = useReactFlow<GraphCanvasNode, GraphCanvasEdge>();
+  const beginGroupInteraction = (
+    event: {
+      button: number;
+      clientX: number;
+      clientY: number;
+      preventDefault: () => void;
+      stopPropagation: () => void;
+    },
+    group: GraphGroupBounds,
+  ) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    onSelectGroup(group.id);
+
+    const startFlowPosition = screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    const memberNodeIds = new Set(group.memberNodeIds);
+    const basePositions = new Map(
+      nodes
+        .filter((node) => isSemanticCanvasNode(node) && memberNodeIds.has(node.id))
+        .map((node) => [node.id, { x: node.position.x, y: node.position.y }] as const),
+    );
+    let moved = false;
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const currentFlowPosition = screenToFlowPosition({
+        x: moveEvent.clientX,
+        y: moveEvent.clientY,
+      });
+      const delta = {
+        x: currentFlowPosition.x - startFlowPosition.x,
+        y: currentFlowPosition.y - startFlowPosition.y,
+      };
+      if (delta.x || delta.y) {
+        moved = true;
+      }
+      onPreviewGroupMove(group.id, delta, basePositions);
+    };
+
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      if (moved) {
+        onGroupMoveEnd();
+      }
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+  };
 
   return (
     <ViewportPortal>
@@ -1766,59 +1822,62 @@ function GraphGroupLayer({
             width: `${group.width}px`,
             height: `${group.height}px`,
           }}
-          onPointerDown={(event) => {
-            if (event.button !== 0) {
-              return;
-            }
-
-            event.preventDefault();
-            event.stopPropagation();
-            onSelectGroup(group.id);
-
-            const startFlowPosition = screenToFlowPosition({
-              x: event.clientX,
-              y: event.clientY,
-            });
-            const memberNodeIds = new Set(group.memberNodeIds);
-            const basePositions = new Map(
-              nodes
-                .filter((node) => isSemanticCanvasNode(node) && memberNodeIds.has(node.id))
-                .map((node) => [node.id, { x: node.position.x, y: node.position.y }] as const),
-            );
-            let moved = false;
-
-            const handleMove = (moveEvent: PointerEvent) => {
-              const currentFlowPosition = screenToFlowPosition({
-                x: moveEvent.clientX,
-                y: moveEvent.clientY,
-              });
-              const delta = {
-                x: currentFlowPosition.x - startFlowPosition.x,
-                y: currentFlowPosition.y - startFlowPosition.y,
-              };
-              if (delta.x || delta.y) {
-                moved = true;
-              }
-              onPreviewGroupMove(group.id, delta, basePositions);
-            };
-
-            const handleUp = () => {
-              window.removeEventListener("pointermove", handleMove);
-              window.removeEventListener("pointerup", handleUp);
-              if (moved) {
-                onGroupMoveEnd();
-              }
-            };
-
-            window.addEventListener("pointermove", handleMove);
-            window.addEventListener("pointerup", handleUp);
-          }}
         >
           <div className="graph-group__frame" />
           <div
+            data-testid={`graph-group-hit-area-${group.id}-top`}
+            {...helpTargetProps("graph.group.box", {
+              label: group.title,
+            })}
+            aria-hidden="true"
+            className="graph-group__hit-area graph-group__hit-area--top"
+            onPointerDown={(event) => {
+              beginGroupInteraction(event, group);
+            }}
+          />
+          <div
+            data-testid={`graph-group-hit-area-${group.id}-right`}
+            {...helpTargetProps("graph.group.box", {
+              label: group.title,
+            })}
+            aria-hidden="true"
+            className="graph-group__hit-area graph-group__hit-area--right"
+            onPointerDown={(event) => {
+              beginGroupInteraction(event, group);
+            }}
+          />
+          <div
+            data-testid={`graph-group-hit-area-${group.id}-bottom`}
+            {...helpTargetProps("graph.group.box", {
+              label: group.title,
+            })}
+            aria-hidden="true"
+            className="graph-group__hit-area graph-group__hit-area--bottom"
+            onPointerDown={(event) => {
+              beginGroupInteraction(event, group);
+            }}
+          />
+          <div
+            data-testid={`graph-group-hit-area-${group.id}-left`}
+            {...helpTargetProps("graph.group.box", {
+              label: group.title,
+            })}
+            aria-hidden="true"
+            className="graph-group__hit-area graph-group__hit-area--left"
+            onPointerDown={(event) => {
+              beginGroupInteraction(event, group);
+            }}
+          />
+          <div
+            {...helpTargetProps("graph.group.box", {
+              label: group.title,
+            })}
             className="graph-group__title-anchor"
             style={{
               transform: `translate(${GROUP_BOX_PADDING}px, calc(-100% - ${GROUP_TITLE_OFFSET}px))`,
+            }}
+            onPointerDown={(event) => {
+              beginGroupInteraction(event, group);
             }}
           >
             {editingGroupId === group.id ? (
