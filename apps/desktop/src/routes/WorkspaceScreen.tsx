@@ -344,6 +344,10 @@ function moduleIdFromSymbolId(symbolId: string): string | undefined {
   return `module:${moduleName}`;
 }
 
+function moduleNameFromModuleId(moduleId: string): string | undefined {
+  return moduleId.startsWith("module:") ? moduleId.slice("module:".length) : undefined;
+}
+
 function symbolNameFromSymbolId(symbolId: string): string | undefined {
   if (!symbolId.startsWith("symbol:")) {
     return undefined;
@@ -351,6 +355,18 @@ function symbolNameFromSymbolId(symbolId: string): string | undefined {
 
   const parts = symbolId.slice("symbol:".length).split(":");
   return parts[parts.length - 1];
+}
+
+function moduleIdFromRelativePath(relativePath: string): string {
+  return `module:${relativePath.replace(/\.py$/i, "").split("/").filter(Boolean).join(".")}`;
+}
+
+function symbolIdForModuleAndName(moduleId: string, symbolName: string): string | undefined {
+  const moduleName = moduleNameFromModuleId(moduleId);
+  if (!moduleName) {
+    return undefined;
+  }
+  return `symbol:${moduleName}:${symbolName}`;
 }
 
 function relativePathForModuleId(
@@ -1081,25 +1097,75 @@ export function WorkspaceScreen() {
     setInspectorPanelMode("expanded");
     setLastEdit(result);
     setRevealedSource(undefined);
+    setInspectorDirty(false);
+    setInspectorDraftStale(false);
+    inspectorDraftContentRef.current = undefined;
+    setInspectorEditableSourceOverride(undefined);
+    setInspectorSourceVersion((current) => current + 1);
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["overview"] }),
       queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
       queryClient.invalidateQueries({ queryKey: ["symbol"] }),
       queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
+      queryClient.invalidateQueries({ queryKey: ["editable-node-source"] }),
     ]);
 
     if (options?.preserveView) {
       return result;
     }
 
-    const changedSymbolId = result.changedNodeIds.find((nodeId) => nodeId.startsWith("symbol:"));
-    if (changedSymbolId) {
-      focusGraph(changedSymbolId, "symbol");
-      return result;
+    let nextFocusTarget:
+      | { targetId: string; level: GraphAbstractionLevel; pinInspectorTarget?: boolean }
+      | undefined;
+
+    if (request.kind === "rename_symbol" && request.targetId && request.newName) {
+      const moduleTarget = moduleIdFromSymbolId(request.targetId);
+      const renamedSymbolTarget = moduleTarget
+        ? symbolIdForModuleAndName(moduleTarget, request.newName)
+        : undefined;
+      if (renamedSymbolTarget) {
+        nextFocusTarget = { targetId: renamedSymbolTarget, level: "symbol", pinInspectorTarget: true };
+      }
+    } else if (request.kind === "delete_symbol" && request.targetId) {
+      const moduleTarget = moduleIdFromSymbolId(request.targetId);
+      if (moduleTarget) {
+        nextFocusTarget = { targetId: moduleTarget, level: "module", pinInspectorTarget: true };
+      }
+    } else if (request.kind === "move_symbol" && request.destinationRelativePath) {
+      nextFocusTarget = {
+        targetId: moduleIdFromRelativePath(request.destinationRelativePath),
+        level: "module",
+        pinInspectorTarget: true,
+      };
+    } else if (
+      (request.kind === "add_import" || request.kind === "remove_import")
+      && request.relativePath
+    ) {
+      nextFocusTarget = {
+        targetId: moduleIdFromRelativePath(request.relativePath),
+        level: "module",
+        pinInspectorTarget: true,
+      };
     }
-    const changedModuleId = result.changedNodeIds.find((nodeId) => nodeId.startsWith("module:"));
-    if (changedModuleId) {
-      focusGraph(changedModuleId, "module");
+
+    if (!nextFocusTarget) {
+      const changedSymbolId = result.changedNodeIds.find((nodeId) => nodeId.startsWith("symbol:"));
+      if (changedSymbolId) {
+        nextFocusTarget = { targetId: changedSymbolId, level: "symbol", pinInspectorTarget: true };
+      }
+    }
+    if (!nextFocusTarget) {
+      const changedModuleId = result.changedNodeIds.find((nodeId) => nodeId.startsWith("module:"));
+      if (changedModuleId) {
+        nextFocusTarget = { targetId: changedModuleId, level: "module", pinInspectorTarget: true };
+      }
+    }
+
+    if (nextFocusTarget) {
+      setDismissedPeekNodeId(undefined);
+      setInspectorSnapshot(undefined);
+      setInspectorTargetId(nextFocusTarget.pinInspectorTarget ? nextFocusTarget.targetId : undefined);
+      focusGraph(nextFocusTarget.targetId, nextFocusTarget.level);
       return result;
     }
     if (graphTargetId) {
@@ -1321,6 +1387,19 @@ export function WorkspaceScreen() {
       .reverse()
       .find((breadcrumb) => breadcrumb.level === "module")?.subtitle ?? undefined,
     [graphQuery.data?.breadcrumbs],
+  );
+  const currentModuleNode = useMemo(() => {
+    const moduleBreadcrumbId = [...(graphQuery.data?.breadcrumbs ?? [])]
+      .reverse()
+      .find((breadcrumb) => breadcrumb.level === "module")?.nodeId;
+    if (!moduleBreadcrumbId) {
+      return undefined;
+    }
+    return graphQuery.data?.nodes.find((node) => node.id === moduleBreadcrumbId && node.kind === "module");
+  }, [graphQuery.data]);
+  const structuralDestinationModulePaths = useMemo(
+    () => overviewQuery.data?.modules.map((module) => module.relativePath) ?? [],
+    [overviewQuery.data?.modules],
   );
   const flowOwnerKind = flowOwnerSymbolQuery.data?.kind;
   const flowCreateEnabled =
@@ -1776,12 +1855,6 @@ export function WorkspaceScreen() {
     selectNode(pendingCreatedNodeId);
     setPendingCreatedNodeId(undefined);
   }, [graphQuery.data, pendingCreatedNodeId, selectNode]);
-  const emptyInspectorCreateTargetPath =
-    inspectorPanelMode === "expanded"
-    && !inspectorNode
-    && (activeLevel === "module" || activeLevel === "symbol")
-      ? currentModulePath
-      : undefined;
   const inspectorDrawerStatus = isSavingSource
     ? { label: "Saving", tone: "warning" as const }
     : inspectorDirty
@@ -2170,11 +2243,10 @@ export function WorkspaceScreen() {
                         revealedSource={revealedSource}
                         lastActivity={lastActivity}
                         isSavingSource={isSavingSource}
-                        createFunctionTargetPath={emptyInspectorCreateTargetPath}
-                        createFunctionError={createModeError}
-                        isCreatingFunction={isSubmittingCreate}
+                        moduleActionNode={currentModuleNode}
+                        destinationModulePaths={structuralDestinationModulePaths}
                         highlightRange={inspectorHighlightRange}
-                        onCreateFunction={undefined}
+                        onApplyStructuralEdit={handleApplyEdit}
                         onSaveSource={handleSaveNodeSource}
                         onEditorStateChange={handleInspectorEditorStateChange}
                         onDismissSource={() => setRevealedSource(undefined)}

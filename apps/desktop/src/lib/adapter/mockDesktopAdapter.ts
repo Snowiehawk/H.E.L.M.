@@ -114,7 +114,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
         status: "done",
         processedModules: 3,
         totalModules: 3,
-        symbolCount: 5 + this.workspace.uiApiExtraSymbols.length,
+        symbolCount: 5 + this.workspace.uiApiExtraSymbols.length + this.workspace.moduleExtraSymbols.length,
         message: "Blueprint workspace ready",
         progressPercent: 100,
       },

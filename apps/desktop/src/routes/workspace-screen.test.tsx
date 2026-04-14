@@ -154,6 +154,25 @@ function setGraphFocusForTest({
   });
 }
 
+async function seedMockFunctionSymbol(adapter: MockDesktopAdapter, newName: string) {
+  await adapter.applyStructuralEdit({
+    kind: "create_symbol",
+    relativePath: "src/helm/ui/api.py",
+    newName,
+    symbolKind: "function",
+  });
+  return `symbol:helm.ui.api:${newName}`;
+}
+
+async function seedMockModule(adapter: MockDesktopAdapter, relativePath: string) {
+  await adapter.applyStructuralEdit({
+    kind: "create_module",
+    relativePath,
+    content: "",
+  });
+  return `module:${relativePath.replace(/\.py$/, "").replaceAll("/", ".")}`;
+}
+
 describe("WorkspaceScreen", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -1286,6 +1305,211 @@ describe("WorkspaceScreen", () => {
 
     expect(await screen.findByText(/Revealed Source/i)).toBeInTheDocument();
     expect(screen.getByTestId("inspector-revealed-source")).toHaveAttribute("data-read-only", "true");
+  });
+
+  it("shows backend-disabled reasons for structural symbol actions in the expanded inspector", async () => {
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const classNode = (await graph.findByText("GraphSummary")).closest(".graph-node");
+    expect(classNode).not.toBeNull();
+    fireEvent.click(within(classNode as HTMLElement).getByText("Inspect"));
+
+    expect(await screen.findByRole("button", { name: /Rename symbol/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Delete symbol/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Move symbol/i })).toBeDisabled();
+    expect(
+      screen.getAllByText("Only dependency-free top-level symbols are writable in v1.").length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("renames a symbol through the inspector and refreshes the graph in place", async () => {
+    const adapter = new MockDesktopAdapter();
+    const openRepoSpy = vi.spyOn(adapter, "openRepo");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+
+    fireEvent.change(await screen.findByRole("textbox", { name: /New symbol name/i }), {
+      target: { value: "build_graph_projection" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Rename symbol/i }));
+
+    await waitFor(() => {
+      expect(useUiStore.getState().activeLevel).toBe("symbol");
+      expect(useUiStore.getState().activeNodeId).toBe("symbol:helm.ui.api:build_graph_projection");
+    }, { timeout: 4000 });
+    expect(openRepoSpy).not.toHaveBeenCalled();
+    expect(await screen.findByRole("heading", { name: "build_graph_projection" })).toBeInTheDocument();
+  });
+
+  it("deletes a created symbol through the inspector and falls back to the containing module", async () => {
+    const adapter = new MockDesktopAdapter();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await seedMockFunctionSymbol(adapter, "build_issue_cleanup");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const functionNode = (await graph.findByText("build_issue_cleanup")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+    fireEvent.click(await screen.findByRole("button", { name: /Delete symbol/i }));
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalled();
+      expect(useUiStore.getState().activeLevel).toBe("module");
+      expect(useUiStore.getState().activeNodeId).toBe("module:helm.ui.api");
+    }, { timeout: 4000 });
+    expect(screen.queryByRole("heading", { name: "build_issue_cleanup" })).not.toBeInTheDocument();
+  });
+
+  it("moves a created symbol through the inspector and focuses the destination module", async () => {
+    const adapter = new MockDesktopAdapter();
+    await seedMockFunctionSymbol(adapter, "build_issue_moved");
+    await seedMockModule(adapter, "pkg/plan_target.py");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const functionNode = (await graph.findByText("build_issue_moved")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+
+    fireEvent.change(await screen.findByRole("combobox", { name: /Destination module/i }), {
+      target: { value: "pkg/plan_target.py" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Move symbol/i }));
+
+    await waitFor(() => {
+      expect(useUiStore.getState().activeLevel).toBe("module");
+      expect(useUiStore.getState().activeNodeId).toBe("module:pkg.plan_target");
+    }, { timeout: 4000 });
+    expect(await screen.findByText("build_issue_moved")).toBeInTheDocument();
+  });
+
+  it("adds an import through the module inspector", async () => {
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    fireEvent.click(await screen.findByTestId("blueprint-inspector-drawer-toggle"));
+    await screen.findByRole("button", { name: /Add import/i }, { timeout: 3000 });
+
+    fireEvent.change(screen.getByRole("textbox", { name: /^Imported module$/i }), {
+      target: { value: "pathlib" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: /Imported symbol/i }), {
+      target: { value: "Path" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Add import/i }));
+
+    await waitFor(() => {
+      expect(useUiStore.getState().activeLevel).toBe("module");
+      expect(useUiStore.getState().activeNodeId).toBe("module:helm.ui.api");
+    });
+    expect(await screen.findByText("Added import from pathlib import Path.")).toBeInTheDocument();
+  });
+
+  it("removes an import through the module inspector", async () => {
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    fireEvent.click(await screen.findByTestId("blueprint-inspector-drawer-toggle"));
+    await screen.findByRole("button", { name: /Remove import/i }, { timeout: 3000 });
+
+    fireEvent.change(screen.getByRole("textbox", { name: /Imported module to remove/i }), {
+      target: { value: "typing" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Remove import/i }));
+
+    await waitFor(() => {
+      expect(useUiStore.getState().activeLevel).toBe("module");
+      expect(useUiStore.getState().activeNodeId).toBe("module:helm.ui.api");
+    });
+    expect(await screen.findByText("Removed import from src/helm/ui/api.py.")).toBeInTheDocument();
   });
 
   it("prompts on unsaved close and saves when confirmed", async () => {

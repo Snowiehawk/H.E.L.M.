@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type {
   EditableNodeSource,
+  GraphActionDto,
   GraphNodeDto,
   RevealedSource,
   SourceRange,
+  StructuralEditRequest,
   SymbolDetails,
 } from "../../lib/adapter";
 import { isInspectableGraphNodeKind } from "../../lib/adapter";
@@ -18,8 +20,17 @@ import {
 } from "./blueprintInspectorUtils";
 import { helpTargetProps } from "./workspaceHelp";
 
+function graphActionById(
+  node: GraphNodeDto | undefined,
+  actionId: string,
+): GraphActionDto | undefined {
+  return node?.availableActions.find((action) => action.actionId === actionId);
+}
+
 export function BlueprintInspector({
   selectedNode,
+  moduleActionNode,
+  destinationModulePaths,
   symbol,
   editableSource,
   editableSourceLoading,
@@ -28,17 +39,16 @@ export function BlueprintInspector({
   revealedSource,
   lastActivity,
   isSavingSource,
-  createFunctionTargetPath,
-  createFunctionError,
-  isCreatingFunction,
   highlightRange,
-  onCreateFunction,
+  onApplyStructuralEdit,
   onSaveSource,
   onEditorStateChange,
   onDismissSource,
   onClose,
 }: {
   selectedNode?: GraphNodeDto;
+  moduleActionNode?: GraphNodeDto;
+  destinationModulePaths?: string[];
   symbol?: SymbolDetails;
   editableSource?: EditableNodeSource;
   editableSourceLoading: boolean;
@@ -47,11 +57,8 @@ export function BlueprintInspector({
   revealedSource?: RevealedSource;
   lastActivity?: WorkspaceActivity;
   isSavingSource: boolean;
-  createFunctionTargetPath?: string;
-  createFunctionError?: string | null;
-  isCreatingFunction?: boolean;
   highlightRange?: SourceRange;
-  onCreateFunction?: (relativePath: string, newName: string) => Promise<void>;
+  onApplyStructuralEdit?: (request: StructuralEditRequest) => Promise<unknown>;
   onSaveSource: (targetId: string, content: string) => Promise<void>;
   onEditorStateChange: (content?: string, dirty?: boolean) => void;
   onDismissSource: () => void;
@@ -59,9 +66,18 @@ export function BlueprintInspector({
 }) {
   const [draftSource, setDraftSource] = useState("");
   const [sourceError, setSourceError] = useState<string | null>(null);
+  const [structuralActionError, setStructuralActionError] = useState<string | null>(null);
+  const [pendingStructuralActionId, setPendingStructuralActionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [moveDestinationPath, setMoveDestinationPath] = useState("");
+  const [addImportModule, setAddImportModule] = useState("");
+  const [addImportName, setAddImportName] = useState("");
+  const [addImportAlias, setAddImportAlias] = useState("");
+  const [removeImportModule, setRemoveImportModule] = useState("");
   const previousEditableTargetIdRef = useRef<string | undefined>(undefined);
   const selectedRelativePath = relativePathForNode(selectedNode);
   const selectedSummary = selectionSummary(selectedNode);
+  const moduleRelativePath = relativePathForNode(moduleActionNode);
   const nodePath = editableSource?.path ?? selectedRelativePath ?? symbol?.filePath;
   const sourceLanguage = inferInspectorLanguage({
     editablePath: editableSource?.path,
@@ -77,6 +93,26 @@ export function BlueprintInspector({
   );
   const dirty = canEditInline && draftSource !== editableSource?.content;
   const topLevel = metadataBoolean(selectedNode, "top_level");
+  const renameAction = graphActionById(selectedNode, "rename_symbol");
+  const deleteAction = graphActionById(selectedNode, "delete_symbol");
+  const moveAction = graphActionById(selectedNode, "move_symbol");
+  const addImportAction = graphActionById(moduleActionNode, "add_import");
+  const removeImportAction = graphActionById(moduleActionNode, "remove_import");
+  const structuralActionsVisible = Boolean(
+    onApplyStructuralEdit
+    && (renameAction || deleteAction || moveAction || addImportAction || removeImportAction),
+  );
+  const structuralActionsLockedReason = isSavingSource
+    ? "Wait for the current source save to finish before running structural actions."
+    : draftStale
+      ? "Reload or cancel the stale inline draft before running structural actions."
+      : dirty
+        ? "Save or cancel inline source edits before running structural actions."
+        : null;
+  const structuralActionsLocked = Boolean(structuralActionsLockedReason);
+  const sortedDestinationModulePaths = [...new Set(destinationModulePaths ?? [])].sort((left, right) =>
+    left.localeCompare(right),
+  );
   const inspectorClassName = `pane pane--inspector blueprint-inspector${revealedSource ? " blueprint-inspector--with-revealed-source" : ""}`;
 
   useEffect(() => {
@@ -101,6 +137,20 @@ export function BlueprintInspector({
     }
     onEditorStateChange(undefined, false);
   }, [canEditInline, dirty, draftSource, onEditorStateChange]);
+
+  useEffect(() => {
+    setRenameValue(selectedNode?.label ?? "");
+    setMoveDestinationPath("");
+    setStructuralActionError(null);
+  }, [selectedNode?.id, selectedNode?.label]);
+
+  useEffect(() => {
+    setAddImportModule("");
+    setAddImportName("");
+    setAddImportAlias("");
+    setRemoveImportModule("");
+    setStructuralActionError(null);
+  }, [moduleActionNode?.id]);
 
   const handleSave = async () => {
     if (!selectedNode || !canEditInline) {
@@ -127,6 +177,29 @@ export function BlueprintInspector({
     setSourceError(null);
   };
 
+  const runStructuralAction = async (
+    actionId: string,
+    request: StructuralEditRequest,
+    onSuccess?: () => void,
+  ) => {
+    if (!onApplyStructuralEdit) {
+      return;
+    }
+
+    setPendingStructuralActionId(actionId);
+    setStructuralActionError(null);
+    try {
+      await onApplyStructuralEdit(request);
+      onSuccess?.();
+    } catch (reason) {
+      setStructuralActionError(
+        reason instanceof Error ? reason.message : "Unable to apply the requested structural action.",
+      );
+    } finally {
+      setPendingStructuralActionId(null);
+    }
+  };
+
   if (!selectedNode) {
     return (
       <aside className="pane pane--inspector blueprint-inspector">
@@ -146,13 +219,6 @@ export function BlueprintInspector({
             </button>
           </div>
           <p>Select a graph node to inspect it, or press <strong>C</strong> in the graph to enter create mode.</p>
-          {createFunctionTargetPath ? (
-            <div className="info-card">
-              <strong>{createFunctionTargetPath}</strong>
-              <p>Module and symbol views can create new declarations directly from the graph.</p>
-            </div>
-          ) : null}
-          {createFunctionError ? <p className="error-copy">{createFunctionError}</p> : null}
         </section>
       </aside>
     );
@@ -329,6 +395,282 @@ export function BlueprintInspector({
               <p>Source metadata is not available for this node yet.</p>
             </div>
           )}
+        </section>
+      ) : null}
+
+      {structuralActionsVisible ? (
+        <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--structural">
+          <div className="section-header">
+            <h3>Structural Actions</h3>
+            <span>{pendingStructuralActionId ? "working" : "ready"}</span>
+          </div>
+
+          {structuralActionsLockedReason ? (
+            <div className="info-card">
+              <strong>Structural edits paused</strong>
+              <p>{structuralActionsLockedReason}</p>
+            </div>
+          ) : null}
+
+          {(renameAction || deleteAction || moveAction) ? (
+            <div className="blueprint-structural-actions__group">
+              <div className="info-card blueprint-structural-actions__card">
+                <strong>Symbol actions</strong>
+                <p>{selectedNode.label}</p>
+              </div>
+
+              {renameAction ? (
+                <div className="info-card blueprint-structural-actions__card">
+                  <label className="blueprint-field">
+                    <span className="blueprint-field__label">
+                      <strong>Rename</strong>
+                    </span>
+                    <input
+                      aria-label="New symbol name"
+                      type="text"
+                      value={renameValue}
+                      disabled={!renameAction.enabled || structuralActionsLocked || pendingStructuralActionId !== null}
+                      onChange={(event) => setRenameValue(event.target.value)}
+                    />
+                  </label>
+                  <div className="blueprint-inspector__editor-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={
+                        !renameAction.enabled
+                        || structuralActionsLocked
+                        || pendingStructuralActionId !== null
+                        || renameValue.trim().length === 0
+                        || renameValue.trim() === selectedNode.label
+                      }
+                      onClick={() => {
+                        void runStructuralAction("rename_symbol", {
+                          kind: "rename_symbol",
+                          targetId: selectedNode.id,
+                          newName: renameValue.trim(),
+                        });
+                      }}
+                    >
+                      {pendingStructuralActionId === "rename_symbol" ? "Renaming..." : "Rename symbol"}
+                    </button>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      disabled={pendingStructuralActionId !== null}
+                      onClick={() => setRenameValue(selectedNode.label)}
+                    >
+                      Reset
+                    </button>
+                  </div>
+                  {!renameAction.enabled && renameAction.reason ? (
+                    <p className="muted-copy">{renameAction.reason}</p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {deleteAction ? (
+                <div className="info-card blueprint-structural-actions__card">
+                  <strong>Delete</strong>
+                  <p>Remove this symbol from {moduleRelativePath ?? "its module"}.</p>
+                  <div className="blueprint-inspector__editor-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={!deleteAction.enabled || structuralActionsLocked || pendingStructuralActionId !== null}
+                      onClick={() => {
+                        if (!window.confirm(`Delete ${selectedNode.label}? This removes the declaration from the current module.`)) {
+                          return;
+                        }
+                        void runStructuralAction("delete_symbol", {
+                          kind: "delete_symbol",
+                          targetId: selectedNode.id,
+                        });
+                      }}
+                    >
+                      {pendingStructuralActionId === "delete_symbol" ? "Deleting..." : "Delete symbol"}
+                    </button>
+                  </div>
+                  {!deleteAction.enabled && deleteAction.reason ? (
+                    <p className="muted-copy">{deleteAction.reason}</p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {moveAction ? (
+                <div className="info-card blueprint-structural-actions__card">
+                  <label className="blueprint-field">
+                    <span className="blueprint-field__label">
+                      <strong>Move</strong>
+                    </span>
+                    <select
+                      aria-label="Destination module"
+                      value={moveDestinationPath}
+                      disabled={!moveAction.enabled || structuralActionsLocked || pendingStructuralActionId !== null}
+                      onChange={(event) => setMoveDestinationPath(event.target.value)}
+                    >
+                      <option value="">Select destination module</option>
+                      {sortedDestinationModulePaths.map((path) => (
+                        <option key={path} value={path}>{path}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="blueprint-inspector__editor-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={
+                        !moveAction.enabled
+                        || structuralActionsLocked
+                        || pendingStructuralActionId !== null
+                        || moveDestinationPath.length === 0
+                      }
+                      onClick={() => {
+                        void runStructuralAction("move_symbol", {
+                          kind: "move_symbol",
+                          targetId: selectedNode.id,
+                          destinationRelativePath: moveDestinationPath,
+                        });
+                      }}
+                    >
+                      {pendingStructuralActionId === "move_symbol" ? "Moving..." : "Move symbol"}
+                    </button>
+                  </div>
+                  {!sortedDestinationModulePaths.length ? (
+                    <p className="muted-copy">No indexed module destinations are available yet.</p>
+                  ) : null}
+                  {!moveAction.enabled && moveAction.reason ? (
+                    <p className="muted-copy">{moveAction.reason}</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {(addImportAction || removeImportAction) && moduleRelativePath ? (
+            <div className="blueprint-structural-actions__group">
+              <div className="info-card blueprint-structural-actions__card">
+                <strong>Module actions</strong>
+                <p>{moduleRelativePath}</p>
+              </div>
+
+              {addImportAction ? (
+                <div className="info-card blueprint-structural-actions__card">
+                  <label className="blueprint-field">
+                    <span className="blueprint-field__label">
+                      <strong>Add import</strong>
+                    </span>
+                    <input
+                      aria-label="Imported module"
+                      type="text"
+                      value={addImportModule}
+                      disabled={!addImportAction.enabled || structuralActionsLocked || pendingStructuralActionId !== null}
+                      onChange={(event) => setAddImportModule(event.target.value)}
+                    />
+                  </label>
+                  <label className="blueprint-field">
+                    <span className="blueprint-field__label">
+                      <strong>Imported symbol</strong>
+                    </span>
+                    <input
+                      aria-label="Imported symbol"
+                      type="text"
+                      value={addImportName}
+                      disabled={!addImportAction.enabled || structuralActionsLocked || pendingStructuralActionId !== null}
+                      onChange={(event) => setAddImportName(event.target.value)}
+                    />
+                  </label>
+                  <label className="blueprint-field">
+                    <span className="blueprint-field__label">
+                      <strong>Alias</strong>
+                    </span>
+                    <input
+                      aria-label="Import alias"
+                      type="text"
+                      value={addImportAlias}
+                      disabled={!addImportAction.enabled || structuralActionsLocked || pendingStructuralActionId !== null}
+                      onChange={(event) => setAddImportAlias(event.target.value)}
+                    />
+                  </label>
+                  <div className="blueprint-inspector__editor-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={
+                        !addImportAction.enabled
+                        || structuralActionsLocked
+                        || pendingStructuralActionId !== null
+                        || addImportModule.trim().length === 0
+                      }
+                      onClick={() => {
+                        void runStructuralAction("add_import", {
+                          kind: "add_import",
+                          relativePath: moduleRelativePath,
+                          importedModule: addImportModule.trim(),
+                          importedName: addImportName.trim() || undefined,
+                          alias: addImportAlias.trim() || undefined,
+                        }, () => {
+                          setAddImportModule("");
+                          setAddImportName("");
+                          setAddImportAlias("");
+                        });
+                      }}
+                    >
+                      {pendingStructuralActionId === "add_import" ? "Adding..." : "Add import"}
+                    </button>
+                  </div>
+                  {!addImportAction.enabled && addImportAction.reason ? (
+                    <p className="muted-copy">{addImportAction.reason}</p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {removeImportAction ? (
+                <div className="info-card blueprint-structural-actions__card">
+                  <label className="blueprint-field">
+                    <span className="blueprint-field__label">
+                      <strong>Remove import</strong>
+                    </span>
+                    <input
+                      aria-label="Imported module to remove"
+                      type="text"
+                      value={removeImportModule}
+                      disabled={!removeImportAction.enabled || structuralActionsLocked || pendingStructuralActionId !== null}
+                      onChange={(event) => setRemoveImportModule(event.target.value)}
+                    />
+                  </label>
+                  <div className="blueprint-inspector__editor-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={
+                        !removeImportAction.enabled
+                        || structuralActionsLocked
+                        || pendingStructuralActionId !== null
+                        || removeImportModule.trim().length === 0
+                      }
+                      onClick={() => {
+                        void runStructuralAction("remove_import", {
+                          kind: "remove_import",
+                          relativePath: moduleRelativePath,
+                          importedModule: removeImportModule.trim(),
+                        }, () => {
+                          setRemoveImportModule("");
+                        });
+                      }}
+                    >
+                      {pendingStructuralActionId === "remove_import" ? "Removing..." : "Remove import"}
+                    </button>
+                  </div>
+                  {!removeImportAction.enabled && removeImportAction.reason ? (
+                    <p className="muted-copy">{removeImportAction.reason}</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {structuralActionError ? <p className="error-copy">{structuralActionError}</p> : null}
         </section>
       ) : null}
 

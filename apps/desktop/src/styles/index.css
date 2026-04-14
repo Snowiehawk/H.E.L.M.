@@ -746,7 +746,8 @@ button {
 }
 
 .blueprint-field input,
-.blueprint-field textarea {
+.blueprint-field textarea,
+.blueprint-field select {
   width: 100%;
   max-width: 100%;
   padding: 12px 13px;
@@ -2861,8 +2862,11 @@ body.graph-pan-cursor-dragging * {
   grid-row: 2;
 }
 
-.blueprint-inspector__section--last-edit {
-  grid-row: 3;
+.blueprint-inspector__section--structural {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 16px;
+  align-self: start;
 }
 
 .blueprint-inspector__section--editor {
@@ -2898,6 +2902,16 @@ body.graph-pan-cursor-dragging * {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.blueprint-structural-actions__group {
+  display: grid;
+  gap: 12px;
+}
+
+.blueprint-structural-actions__card {
+  display: grid;
+  gap: 12px;
 }
 
 .blueprint-inspector__error-card {

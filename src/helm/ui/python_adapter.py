@@ -835,8 +835,6 @@ class PythonRepoAdapter:
                 "is_external": node.is_external,
             },
             available_actions=(
-                GraphAction("create_function", "Create function"),
-                GraphAction("create_class", "Create class"),
                 GraphAction("add_import", "Add import"),
                 GraphAction("remove_import", "Remove import"),
                 GraphAction("reveal_source", "Reveal source"),
