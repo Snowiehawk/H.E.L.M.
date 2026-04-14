@@ -19,6 +19,7 @@ const MENU_ID_SHOW_IMPORTS: &str = "graph-view.show-imports";
 const MENU_ID_SHOW_DEFINES: &str = "graph-view.show-defines";
 const MENU_ID_HIGHLIGHT_PATH: &str = "graph-view.highlight-path";
 const MENU_ID_SHOW_EDGE_LABELS: &str = "graph-view.show-edge-labels";
+const MENU_ID_UNDO: &str = "app.undo";
 const MENU_ID_ZOOM_IN: &str = "app.zoom-in";
 const MENU_ID_ZOOM_OUT: &str = "app.zoom-out";
 const MENU_ID_ZOOM_RESET: &str = "app.zoom-reset";
@@ -187,6 +188,19 @@ fn save_node_source(
             &target_id,
             "--content-json",
             &content_json,
+        ]
+        .as_slice(),
+    )
+}
+
+#[tauri::command]
+fn apply_backend_undo(repo_path: String, transaction_json: String) -> Result<Value, String> {
+    run_bridge_json(
+        [
+            "apply-undo",
+            &repo_path,
+            "--transaction-json",
+            &transaction_json,
         ]
         .as_slice(),
     )
@@ -657,6 +671,7 @@ fn build_macos_app_menu(
         true,
         Some("CmdOrCtrl+Shift+="),
     )?;
+    let undo = MenuItem::with_id(app, MENU_ID_UNDO, "Undo", true, Some("CmdOrCtrl+Z"))?;
     let zoom_out = MenuItem::with_id(app, MENU_ID_ZOOM_OUT, "Zoom Out", true, Some("CmdOrCtrl+-"))?;
     let zoom_reset = MenuItem::with_id(
         app,
@@ -711,7 +726,7 @@ fn build_macos_app_menu(
                 "Edit",
                 true,
                 &[
-                    &PredefinedMenuItem::undo(app, None)?,
+                    &undo,
                     &PredefinedMenuItem::redo(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::cut(app, None)?,
@@ -766,6 +781,7 @@ fn main() {
     builder
         .on_menu_event(|app, event| {
             let action = match event.id().as_ref() {
+                MENU_ID_UNDO => Some("undo"),
                 MENU_ID_ZOOM_IN => Some("zoom-in"),
                 MENU_ID_ZOOM_OUT => Some("zoom-out"),
                 MENU_ID_ZOOM_RESET => Some("zoom-reset"),
@@ -788,6 +804,7 @@ fn main() {
             graph_view,
             flow_view,
             apply_structural_edit,
+            apply_backend_undo,
             reveal_source,
             editable_node_source,
             save_node_source,

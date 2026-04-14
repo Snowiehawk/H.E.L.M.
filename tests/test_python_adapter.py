@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helm.editor import serialize_edit_request
+from helm.editor import serialize_edit_request, serialize_undo_transaction
 from helm.graph.models import GraphAbstractionLevel
 from helm.ui.python_adapter import PythonRepoAdapter
 from tests.helpers import write_repo_files
@@ -339,6 +339,13 @@ class PythonRepoAdapterTests(unittest.TestCase):
 
             self.assertEqual(response["edit"]["changed_node_ids"], ["module:pkg.tools"])
             self.assertEqual(response["payload"]["summary"]["module_count"], 2)
+            self.assertEqual(
+                response["edit"]["undo_transaction"]["focus_target"],
+                {
+                    "target_id": f"repo:{root.resolve().as_posix()}",
+                    "level": "repo",
+                },
+            )
 
     def test_apply_edit_insert_flow_statement_returns_changed_flow_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -372,6 +379,44 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertEqual(response["edit"]["changed_node_ids"], ["flow:symbol:service:run:statement:1"])
             flow = adapter.get_flow_view("symbol:service:run")
             self.assertIn("helper = current + 1", {node.label for node in flow.nodes})
+
+    def test_apply_undo_restores_backend_state_and_focus_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(root, {"service.py": "def helper():\n    return 'ok'\n"})
+
+            adapter = PythonRepoAdapter.scan(root)
+            edit_response = adapter.apply_edit(
+                serialize_edit_request(
+                    {
+                        "kind": "create_symbol",
+                        "relative_path": "service.py",
+                        "new_name": "build_blueprint",
+                        "symbol_kind": "function",
+                    }
+                )
+            )
+
+            self.assertIn("build_blueprint", (root / "service.py").read_text(encoding="utf-8"))
+
+            undo_response = adapter.apply_undo(
+                serialize_undo_transaction(edit_response["edit"]["undo_transaction"])
+            )
+
+            self.assertNotIn("build_blueprint", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertEqual(
+                undo_response["undo"]["focus_target"],
+                {
+                    "target_id": "module:service",
+                    "level": "module",
+                },
+            )
+            symbol_names = {
+                node["name"]
+                for node in undo_response["payload"]["graph"]["nodes"]
+                if node["kind"] == "symbol"
+            }
+            self.assertNotIn("build_blueprint", symbol_names)
 
     def test_module_view_surfaces_top_level_enums_and_variables_without_flow_actions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -9,6 +9,7 @@ import {
   DesktopAdapter,
 } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
+import { useUndoStore } from "../store/undoStore";
 
 const APP_MENU_EVENT = "helm://app-menu";
 
@@ -129,6 +130,9 @@ function NativeMacMenuBridge() {
     void (async () => {
       const detach = await listen<{ action?: string }>(APP_MENU_EVENT, (event) => {
         switch (event.payload?.action) {
+          case "undo":
+            dispatchGlobalUndo();
+            break;
           case "zoom-in":
             increaseUiScale();
             break;
@@ -206,6 +210,90 @@ function NativeMacMenuBridge() {
   return null;
 }
 
+function isMonacoEditingTarget(target: EventTarget | null) {
+  return target instanceof HTMLElement
+    && Boolean(target.closest(".monaco-editor, .monaco-diff-editor"));
+}
+
+function isNativeTextEditingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (isMonacoEditingTarget(target)) {
+    return false;
+  }
+
+  const editableHost = target.closest(
+    'input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"]',
+  );
+  return editableHost instanceof HTMLElement;
+}
+
+function dispatchNativeBrowserUndo() {
+  const documentWithUndo = document as Document & {
+    execCommand?: (commandId: string) => boolean;
+  };
+  if (typeof documentWithUndo.execCommand === "function") {
+    documentWithUndo.execCommand("undo");
+  }
+}
+
+function dispatchGlobalUndo() {
+  const activeTarget = document.activeElement;
+  if (isNativeTextEditingTarget(activeTarget)) {
+    dispatchNativeBrowserUndo();
+    return;
+  }
+
+  const domain = useUndoStore.getState().getPreferredUndoDomain();
+  if (!domain) {
+    return;
+  }
+
+  void useUndoStore.getState().performUndo();
+}
+
+function GlobalUndoBridge() {
+  const repoSessionId = useUiStore((state) => state.repoSession?.id);
+  const resetUndoSession = useUndoStore((state) => state.resetSession);
+
+  useEffect(() => {
+    resetUndoSession(repoSessionId);
+  }, [repoSessionId, resetUndoSession]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented
+        || !(event.metaKey || event.ctrlKey)
+        || event.altKey
+        || event.shiftKey
+        || event.key.toLowerCase() !== "z"
+      ) {
+        return;
+      }
+
+      if (isNativeTextEditingTarget(event.target)) {
+        return;
+      }
+
+      const domain = useUndoStore.getState().getPreferredUndoDomain();
+      if (!domain) {
+        return;
+      }
+
+      event.preventDefault();
+      void useUndoStore.getState().performUndo();
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, []);
+
+  return null;
+}
+
 export function AppProviders({
   children,
   adapter,
@@ -229,6 +317,7 @@ export function AppProviders({
       <AdapterProvider adapter={resolvedAdapter}>
         <ThemeBridge />
         <UiScaleBridge />
+        <GlobalUndoBridge />
         <NativeMacMenuBridge />
         <div className="app-scale-shell">{children}</div>
       </AdapterProvider>

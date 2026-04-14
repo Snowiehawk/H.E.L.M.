@@ -65,6 +65,8 @@ import {
   type GroupOrganizeMode,
 } from "./groupOrganizeLayout";
 import { EmptyState } from "../shared/EmptyState";
+import { useUiStore } from "../../store/uiStore";
+import { useUndoStore, type UndoEntry } from "../../store/undoStore";
 
 const REROUTE_NODE_PREFIX = "reroute:";
 const REROUTE_NODE_SIZE = 18;
@@ -151,6 +153,12 @@ interface UngroupGroupsForSelectionResult {
   changed: boolean;
   nextGroups: StoredGraphGroup[];
   removedGroupIds: string[];
+}
+
+interface LayoutUndoStackEntry {
+  viewKey: string;
+  layout: StoredGraphLayout;
+  entry: UndoEntry;
 }
 
 function isSemanticCanvasNode(node: GraphCanvasNode): node is SemanticCanvasNode {
@@ -738,6 +746,10 @@ function persistGraphLayout(
       }))
       .sort((left, right) => left.id.localeCompare(right.id)),
   };
+}
+
+function storedLayoutsEqual(left: StoredGraphLayout, right: StoredGraphLayout) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function applyStoredLayout(nodes: GraphCanvasNode[], layout: StoredGraphLayout) {
@@ -2008,6 +2020,7 @@ export function GraphCanvas({
   const graphHotkeyActiveRef = useRef(false);
   const skipNextSelectionSyncRef = useRef(false);
   const shiftPressedRef = useRef(false);
+  const pendingLayoutUndoRef = useRef<LayoutUndoStackEntry | undefined>(undefined);
   const createModeActive = createModeState !== "inactive";
   const createModeReady = createModeState === "active";
   const [nodes, setNodes] = useState<GraphCanvasNode[]>([]);
@@ -2018,15 +2031,10 @@ export function GraphCanvas({
   const [organizeGroupId, setOrganizeGroupId] = useState<string | undefined>(undefined);
   const [editingGroupTitle, setEditingGroupTitle] = useState(DEFAULT_GROUP_TITLE);
   const [marqueeSelectionActive, setMarqueeSelectionActive] = useState(false);
-  const [layoutUndo, setLayoutUndo] = useState<
-    | {
-        viewKey: string;
-        layout: StoredGraphLayout;
-      }
-    | undefined
-  >(undefined);
+  const [layoutUndoStacks, setLayoutUndoStacks] = useState<Record<string, LayoutUndoStackEntry[]>>({});
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | undefined>(undefined);
   const [hoveredPortEdgeIds, setHoveredPortEdgeIds] = useState<string[]>([]);
+  const setLastActivity = useUiStore((state) => state.setLastActivity);
   const panModeActive = useKeyPress("Space");
   const [pointerInsidePanel, setPointerInsidePanel] = useState(false);
   const [panPointerDragging, setPanPointerDragging] = useState(false);
@@ -2046,6 +2054,10 @@ export function GraphCanvas({
   const semanticSelection = useMemo(
     () => sortNodeIds(selectedSemanticNodeIds.filter((nodeId) => graphNodeIds.has(nodeId))),
     [graphNodeIds, selectedSemanticNodeIds],
+  );
+  const currentLayoutUndoStack = useMemo(
+    () => (viewKey ? layoutUndoStacks[viewKey] ?? [] : []),
+    [layoutUndoStacks, viewKey],
   );
   const semanticSelectionFromNodes = useMemo(
     () => sortNodeIds(
@@ -2220,6 +2232,82 @@ export function GraphCanvas({
     void writeStoredGraphLayout(repoPath, viewKey, persistGraphLayout(nextNodes, nextGroups));
   };
 
+  const pushLayoutUndoEntry = (
+    summary: string,
+    previousLayout: StoredGraphLayout,
+    targetViewKey = viewKey,
+  ) => {
+    if (!targetViewKey) {
+      return;
+    }
+
+    setLayoutUndoStacks((current) => ({
+      ...current,
+      [targetViewKey]: [
+        ...(current[targetViewKey] ?? []),
+        {
+          viewKey: targetViewKey,
+          layout: previousLayout,
+          entry: {
+            domain: "layout",
+            summary,
+            createdAt: Date.now(),
+          },
+        },
+      ],
+    }));
+  };
+
+  const capturePendingLayoutUndo = (summary: string) => {
+    if (!viewKey || pendingLayoutUndoRef.current) {
+      return;
+    }
+
+    pendingLayoutUndoRef.current = {
+      viewKey,
+      layout: persistGraphLayout(nodes, groups),
+      entry: {
+        domain: "layout",
+        summary,
+        createdAt: Date.now(),
+      },
+    };
+  };
+
+  const finalizePendingLayoutUndo = () => {
+    const pendingUndo = pendingLayoutUndoRef.current;
+    pendingLayoutUndoRef.current = undefined;
+    if (!pendingUndo || pendingUndo.viewKey !== viewKey) {
+      return;
+    }
+
+    const currentLayout = persistGraphLayout(nodes, groups);
+    if (storedLayoutsEqual(pendingUndo.layout, currentLayout)) {
+      return;
+    }
+
+    pushLayoutUndoEntry(pendingUndo.entry.summary, pendingUndo.layout, pendingUndo.viewKey);
+  };
+
+  const applyLayoutUndoEntry = (layoutUndo: LayoutUndoStackEntry) => {
+    hydrationGenerationRef.current += 1;
+    setNodes((current) => applyStoredLayout(current, layoutUndo.layout));
+    setGroups(layoutUndo.layout.groups ?? []);
+    setOrganizeGroupId(undefined);
+    setEditingGroupId(undefined);
+    setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+    void writeStoredGraphLayout(repoPath, layoutUndo.viewKey, layoutUndo.layout);
+    setLayoutUndoStacks((current) => ({
+      ...current,
+      [layoutUndo.viewKey]: (current[layoutUndo.viewKey] ?? []).slice(0, -1),
+    }));
+    setLastActivity({
+      domain: "layout",
+      kind: "undo",
+      summary: `Undid layout: ${layoutUndo.entry.summary}`,
+    });
+  };
+
   const persistCurrentCanvasState = () => {
     hydrationGenerationRef.current += 1;
     setNodes((current) => {
@@ -2264,12 +2352,17 @@ export function GraphCanvas({
       return;
     }
 
+    const previousLayout = persistGraphLayout(nodes, groups);
     const nextGroups = renameGraphGroup(groups, groupId, editingGroupTitle);
+    const nextLayout = persistGraphLayout(nodes, nextGroups);
     hydrationGenerationRef.current += 1;
     setGroups(nextGroups);
     persistCurrentLayout(nodes, nextGroups);
     setEditingGroupId(undefined);
     setEditingGroupTitle(DEFAULT_GROUP_TITLE);
+    if (!storedLayoutsEqual(previousLayout, nextLayout)) {
+      pushLayoutUndoEntry(`Renamed group ${groupId}.`, previousLayout);
+    }
   };
 
   const toggleOrganizeGroup = (groupId: string) => {
@@ -2344,10 +2437,7 @@ export function GraphCanvas({
     setSelectedGroupId(groupId);
     setSelectedSemanticNodeIds([]);
     setNodes(nextNodes);
-    setLayoutUndo({
-      viewKey,
-      layout: previousLayout,
-    });
+    pushLayoutUndoEntry(`Organized group ${groupId}.`, previousLayout);
     persistCurrentLayout(nextNodes, groups);
   };
 
@@ -2357,8 +2447,10 @@ export function GraphCanvas({
     }
 
     hydrationGenerationRef.current += 1;
-    setLayoutUndo(undefined);
+    let previousLayout: StoredGraphLayout | undefined;
+    let nextLayout: StoredGraphLayout | undefined;
     setNodes((current) => {
+      previousLayout = persistGraphLayout(current, groups);
       const targetNodeIds = expandGroupedNodeIds(nodeIds, groupByNodeId, memberNodeIdsByGroupId);
       const semanticNodesById = new Map(
         current
@@ -2417,9 +2509,17 @@ export function GraphCanvas({
           },
         };
       });
+      nextLayout = persistGraphLayout(next, groups);
       persistCurrentLayout(next);
       return next;
     });
+    if (
+      previousLayout
+      && nextLayout
+      && !storedLayoutsEqual(previousLayout, nextLayout)
+    ) {
+      pushLayoutUndoEntry("Updated pinned layout nodes.", previousLayout);
+    }
   };
   const togglePinnedNode = (nodeId: string) => {
     togglePinnedNodes([nodeId]);
@@ -2434,8 +2534,8 @@ export function GraphCanvas({
       return;
     }
 
+    const previousLayout = persistGraphLayout(nodes, groups);
     hydrationGenerationRef.current += 1;
-    setLayoutUndo(undefined);
     setNodes((current) =>
       current.some((node) => node.selected)
         ? current.map((node) => (node.selected ? { ...node, selected: false } : node))
@@ -2448,6 +2548,7 @@ export function GraphCanvas({
     setEditingGroupId(nextGroupId);
     setEditingGroupTitle(DEFAULT_GROUP_TITLE);
     persistCurrentLayout(nodes, nextGroups);
+    pushLayoutUndoEntry(`Grouped nodes into ${nextGroupId}.`, previousLayout);
   };
 
   const ungroupSelection = () => {
@@ -2460,8 +2561,8 @@ export function GraphCanvas({
       return;
     }
 
+    const previousLayout = persistGraphLayout(nodes, groups);
     hydrationGenerationRef.current += 1;
-    setLayoutUndo(undefined);
     setGroups(nextGroups);
     if (selectedGroupId && removedGroupIds.includes(selectedGroupId)) {
       setSelectedGroupId(undefined);
@@ -2474,6 +2575,7 @@ export function GraphCanvas({
       setEditingGroupTitle(DEFAULT_GROUP_TITLE);
     }
     persistCurrentLayout(nodes, nextGroups);
+    pushLayoutUndoEntry("Ungrouped selected nodes.", previousLayout);
   };
 
   const ungroupGroup = async (groupId: string, title: string) => {
@@ -2495,8 +2597,8 @@ export function GraphCanvas({
       return;
     }
 
+    const previousLayout = persistGraphLayout(nodes, groups);
     hydrationGenerationRef.current += 1;
-    setLayoutUndo(undefined);
     setGroups(nextGroups);
     if (selectedGroupId && removedGroupIds.includes(selectedGroupId)) {
       setSelectedGroupId(undefined);
@@ -2509,12 +2611,15 @@ export function GraphCanvas({
       setEditingGroupTitle(DEFAULT_GROUP_TITLE);
     }
     persistCurrentLayout(nodes, nextGroups);
+    pushLayoutUndoEntry(`Ungrouped ${title}.`, previousLayout);
   };
 
   const removeSelectedReroutes = () => {
     hydrationGenerationRef.current += 1;
-    setLayoutUndo(undefined);
+    let previousLayout: StoredGraphLayout | undefined;
+    let nextLayout: StoredGraphLayout | undefined;
     setNodes((current) => {
+      previousLayout = persistGraphLayout(current, groups);
       const selectedIds = new Set(
         current
           .filter((node) => isRerouteCanvasNode(node) && Boolean(node.selected))
@@ -2527,9 +2632,17 @@ export function GraphCanvas({
       const next = normalizeRerouteNodeOrders(
         current.filter((node) => !selectedIds.has(node.id)),
       );
+      nextLayout = persistGraphLayout(next, groups);
       persistCurrentLayout(next, groups);
       return next;
     });
+    if (
+      previousLayout
+      && nextLayout
+      && !storedLayoutsEqual(previousLayout, nextLayout)
+    ) {
+      pushLayoutUndoEntry("Removed reroute nodes.", previousLayout);
+    }
   };
 
   const handleFitView = () => {
@@ -2943,8 +3056,34 @@ export function GraphCanvas({
   }, [editingGroupId, groups, organizeGroupId, selectedGroupId]);
 
   useEffect(() => {
-    setLayoutUndo(undefined);
+    pendingLayoutUndoRef.current = undefined;
   }, [viewKey]);
+
+  useEffect(() => {
+    setLayoutUndoStacks({});
+    pendingLayoutUndoRef.current = undefined;
+  }, [repoPath]);
+
+  useEffect(() => useUndoStore.getState().registerDomain("layout", {
+    canUndo: () => currentLayoutUndoStack.length > 0,
+    peekEntry: () => currentLayoutUndoStack[currentLayoutUndoStack.length - 1]?.entry,
+    undo: async () => {
+      const layoutUndo = currentLayoutUndoStack[currentLayoutUndoStack.length - 1];
+      if (!layoutUndo) {
+        return {
+          domain: "layout" as const,
+          handled: false,
+        };
+      }
+
+      applyLayoutUndoEntry(layoutUndo);
+      return {
+        domain: "layout" as const,
+        handled: true,
+        summary: layoutUndo.entry.summary,
+      };
+    },
+  }), [applyLayoutUndoEntry, currentLayoutUndoStack]);
 
   useEffect(() => {
     setHoveredEdgeId(undefined);
@@ -2967,13 +3106,21 @@ export function GraphCanvas({
     );
   };
 
+  const handleNodeDragStart = () => {
+    capturePendingLayoutUndo("Moved layout nodes.");
+  };
+
+  const handleSelectionDragStart = () => {
+    capturePendingLayoutUndo("Moved selected layout nodes.");
+  };
+
   const handleNodeDragStop = () => {
-    setLayoutUndo(undefined);
+    finalizePendingLayoutUndo();
     persistCurrentCanvasState();
   };
 
   const handleSelectionDragStop = () => {
-    setLayoutUndo(undefined);
+    finalizePendingLayoutUndo();
     persistCurrentCanvasState();
   };
 
@@ -3002,24 +3149,17 @@ export function GraphCanvas({
 
     hydrationGenerationRef.current += 1;
     setNodes(nextNodes);
-    setLayoutUndo({
-      viewKey,
-      layout: previousLayout,
-    });
+    pushLayoutUndoEntry("Decluttered layout.", previousLayout);
     persistCurrentLayout(nextNodes, groups);
   };
 
   const handleUndoLayout = () => {
+    const layoutUndo = currentLayoutUndoStack[currentLayoutUndoStack.length - 1];
     if (!viewKey || !layoutUndo || layoutUndo.viewKey !== viewKey) {
       return;
     }
 
-    hydrationGenerationRef.current += 1;
-    setNodes((current) => applyStoredLayout(current, layoutUndo.layout));
-    setGroups(layoutUndo.layout.groups ?? []);
-    setOrganizeGroupId(undefined);
-    void writeStoredGraphLayout(repoPath, viewKey, layoutUndo.layout);
-    setLayoutUndo(undefined);
+    applyLayoutUndoEntry(layoutUndo);
   };
 
   const handleInsertReroute = (
@@ -3032,8 +3172,10 @@ export function GraphCanvas({
     }
 
     hydrationGenerationRef.current += 1;
-    setLayoutUndo(undefined);
+    let previousLayout: StoredGraphLayout | undefined;
+    let nextLayout: StoredGraphLayout | undefined;
     setNodes((current) => {
+      previousLayout = persistGraphLayout(current, groups);
       const edgeReroutes = current
         .filter(
           (node): node is RerouteCanvasNode =>
@@ -3078,9 +3220,17 @@ export function GraphCanvas({
           },
         } satisfies RerouteCanvasNode,
       ]);
+      nextLayout = persistGraphLayout(next, groups);
       persistCurrentLayout(next, groups);
       return next;
     });
+    if (
+      previousLayout
+      && nextLayout
+      && !storedLayoutsEqual(previousLayout, nextLayout)
+    ) {
+      pushLayoutUndoEntry(`Inserted reroute on ${logicalEdgeId}.`, previousLayout);
+    }
   };
 
   const groupBounds = useMemo(
@@ -3096,7 +3246,7 @@ export function GraphCanvas({
     setSelectedGroupId(groupId);
     setOrganizeGroupId((current) => (current === groupId ? current : undefined));
     setSelectedSemanticNodeIds([]);
-    setLayoutUndo(undefined);
+    capturePendingLayoutUndo(`Moved group ${groupId}.`);
     setNodes((current) =>
       applyMemberNodeDelta(
         current,
@@ -3108,6 +3258,7 @@ export function GraphCanvas({
   };
 
   const handleGroupMoveEnd = () => {
+    finalizePendingLayoutUndo();
     persistCurrentCanvasState();
   };
 
@@ -3205,7 +3356,9 @@ export function GraphCanvas({
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={handleNodesChange}
+        onNodeDragStart={handleNodeDragStart}
         onNodeDragStop={handleNodeDragStop}
+        onSelectionDragStart={handleSelectionDragStart}
         onSelectionDragStop={handleSelectionDragStop}
         onSelectionStart={() => {
           setMarqueeSelectionActive(true);
@@ -3444,7 +3597,7 @@ export function GraphCanvas({
         graphSettings={graphSettings}
         highlightGraphPath={highlightGraphPath}
         showEdgeLabels={showEdgeLabels}
-        canUndoLayout={Boolean(layoutUndo && layoutUndo.viewKey === viewKey)}
+        canUndoLayout={currentLayoutUndoStack.length > 0}
         onSelectLevel={onSelectLevel}
         onDeclutter={handleDeclutter}
         onFitView={handleFitView}

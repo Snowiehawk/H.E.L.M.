@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from helm.ui.desktop_bridge import (
+    apply_undo_to_payload,
     apply_edit_to_payload,
     build_flow_view_payload,
     reveal_source_payload,
@@ -183,3 +184,35 @@ class DesktopBridgeTests(unittest.TestCase):
                 ["flow:symbol:service:run:statement:1"],
             )
             self.assertIn("helper = current + 1", (root / "service.py").read_text(encoding="utf-8"))
+
+    def test_apply_undo_to_payload_restores_created_symbol(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            write_repo_files(root, {"service.py": "def helper():\n    return 'ok'\n"})
+
+            edit_response = apply_edit_to_payload(
+                root,
+                json.dumps(
+                    {
+                        "kind": "create_symbol",
+                        "relative_path": "service.py",
+                        "new_name": "build_issue_three",
+                        "symbol_kind": "function",
+                    }
+                ),
+            )
+            self.assertIn("build_issue_three", (root / "service.py").read_text(encoding="utf-8"))
+
+            undo_response = apply_undo_to_payload(
+                root,
+                json.dumps(edit_response["edit"]["undo_transaction"]),
+            )
+
+            self.assertNotIn("build_issue_three", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertEqual(
+                undo_response["undo"]["focus_target"],
+                {
+                    "target_id": "module:service",
+                    "level": "module",
+                },
+            )

@@ -68,6 +68,17 @@ function persistUiScale(scale: number) {
   storage.setItem(UI_SCALE_STORAGE_KEY, String(scale));
 }
 
+export type WorkspaceActivityDomain = "backend" | "layout" | "editor";
+export type WorkspaceActivityKind = "mutation" | "undo" | "error";
+
+export interface WorkspaceActivity {
+  domain: WorkspaceActivityDomain;
+  kind: WorkspaceActivityKind;
+  summary: string;
+  touchedRelativePaths?: string[];
+  warnings?: string[];
+}
+
 interface UiState {
   theme: ThemeMode;
   uiScale: number;
@@ -87,6 +98,7 @@ interface UiState {
   showEdgeLabels: boolean;
   revealedSource?: RevealedSource;
   lastEdit?: StructuralEditResult;
+  lastActivity?: WorkspaceActivity;
   setTheme: (theme: ThemeMode) => void;
   setUiScale: (scale: number) => void;
   increaseUiScale: () => void;
@@ -111,6 +123,7 @@ interface UiState {
   toggleEdgeLabels: () => void;
   setRevealedSource: (source?: RevealedSource) => void;
   setLastEdit: (edit?: StructuralEditResult) => void;
+  setLastActivity: (activity?: WorkspaceActivity) => void;
   resetWorkspace: () => void;
 }
 
@@ -171,6 +184,7 @@ export const useUiStore = create<UiState>((set) => ({
       activeLevel: "module",
       revealedSource: undefined,
       lastEdit: undefined,
+      lastActivity: undefined,
       graphDepth: 1,
       graphSettings: defaultGraphSettings,
     }),
@@ -277,7 +291,20 @@ export const useUiStore = create<UiState>((set) => ({
   toggleEdgeLabels: () =>
     set((state) => ({ showEdgeLabels: !state.showEdgeLabels })),
   setRevealedSource: (revealedSource) => set({ revealedSource }),
-  setLastEdit: (lastEdit) => set({ lastEdit }),
+  setLastEdit: (lastEdit) =>
+    set({
+      lastEdit,
+      lastActivity: lastEdit
+        ? {
+            domain: "backend",
+            kind: "mutation",
+            summary: lastEdit.summary,
+            touchedRelativePaths: lastEdit.touchedRelativePaths,
+            warnings: lastEdit.warnings,
+          }
+        : undefined,
+    }),
+  setLastActivity: (lastActivity) => set({ lastActivity }),
   resetWorkspace: () =>
     set({
       sidebarQuery: "",
@@ -294,5 +321,6 @@ export const useUiStore = create<UiState>((set) => ({
       showEdgeLabels: true,
       revealedSource: undefined,
       lastEdit: undefined,
+      lastActivity: undefined,
     }),
 }));

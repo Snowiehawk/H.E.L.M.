@@ -7,8 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from helm.editor import apply_structural_edit
-from helm.editor.models import StructuralEditKind, StructuralEditRequest, StructuralEditResult
+from helm.editor import apply_backend_undo, apply_structural_edit
+from helm.editor.models import (
+    BackendUndoResult,
+    BackendUndoTransaction,
+    StructuralEditKind,
+    StructuralEditRequest,
+    StructuralEditResult,
+)
 from helm.graph import EdgeKind, GraphNode, NodeKind, RepoGraph, build_repo_graph
 from helm.graph.models import (
     GraphAbstractionLevel,
@@ -341,8 +347,20 @@ class PythonRepoAdapter:
             warnings=result.warnings,
             flow_sync_state=result.flow_sync_state,
             diagnostics=result.diagnostics,
+            undo_transaction=result.undo_transaction,
         )
         return {"edit": enriched.to_dict(), "payload": self.build_payload()}
+
+    def apply_undo(self, transaction: BackendUndoTransaction) -> dict[str, Any]:
+        result = apply_backend_undo(self.root_path, transaction)
+        self._reparse_touched_modules(result.restored_relative_paths)
+        enriched = BackendUndoResult(
+            summary=result.summary,
+            restored_relative_paths=result.restored_relative_paths,
+            warnings=result.warnings,
+            focus_target=result.focus_target,
+        )
+        return {"undo": enriched.to_dict(), "payload": self.build_payload()}
 
     def save_node_source(self, target_id: str, content: str) -> dict[str, Any]:
         return self.apply_edit(

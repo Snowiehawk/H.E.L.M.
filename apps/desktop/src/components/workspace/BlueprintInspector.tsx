@@ -4,10 +4,10 @@ import type {
   GraphNodeDto,
   RevealedSource,
   SourceRange,
-  StructuralEditResult,
   SymbolDetails,
 } from "../../lib/adapter";
 import { isInspectableGraphNodeKind } from "../../lib/adapter";
+import type { WorkspaceActivity } from "../../store/uiStore";
 import { InspectorCodeSurface } from "../editor/InspectorCodeSurface";
 import { inferInspectorLanguage } from "../editor/inspectorLanguage";
 import { StatusPill } from "../shared/StatusPill";
@@ -25,7 +25,7 @@ export function BlueprintInspector({
   editableSourceLoading,
   editableSourceError,
   revealedSource,
-  lastEdit,
+  lastActivity,
   isSavingSource,
   createFunctionTargetPath,
   createFunctionError,
@@ -43,7 +43,7 @@ export function BlueprintInspector({
   editableSourceLoading: boolean;
   editableSourceError?: string | null;
   revealedSource?: RevealedSource;
-  lastEdit?: StructuralEditResult;
+  lastActivity?: WorkspaceActivity;
   isSavingSource: boolean;
   createFunctionTargetPath?: string;
   createFunctionError?: string | null;
@@ -298,18 +298,24 @@ export function BlueprintInspector({
         </section>
       ) : null}
 
-      {lastEdit ? (
+      {lastActivity ? (
         <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--last-edit">
           <div className="section-header">
-            <h3>Last Edit</h3>
-            <span>{lastEdit.touchedRelativePaths.length} files</span>
+            <h3>Latest Activity</h3>
+            <span>{lastActivity.domain}</span>
           </div>
           <div className="info-card">
-            <strong>{lastEdit.summary}</strong>
-            <p>
-              Touched: {lastEdit.touchedRelativePaths.join(", ") || "none"}.
-              {lastEdit.warnings.length ? ` Warnings: ${lastEdit.warnings.join(" ")}` : ""}
-            </p>
+            <strong>{lastActivity.summary}</strong>
+            {lastActivity.touchedRelativePaths?.length || lastActivity.warnings?.length ? (
+              <p>
+                {lastActivity.touchedRelativePaths?.length
+                  ? `Touched: ${lastActivity.touchedRelativePaths.join(", ")}.`
+                  : ""}
+                {lastActivity.warnings?.length
+                  ? `${lastActivity.touchedRelativePaths?.length ? " " : ""}Warnings: ${lastActivity.warnings.join(" ")}`
+                  : ""}
+              </p>
+            ) : null}
           </div>
         </section>
       ) : null}

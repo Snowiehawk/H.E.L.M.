@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FlowGraphDocument, GraphView } from "../../lib/adapter";
@@ -20,6 +20,7 @@ import {
   ungroupGroupsForSelection,
 } from "./GraphCanvas";
 import type { StoredGraphLayout } from "./graphLayoutPersistence";
+import { useUndoStore } from "../../store/undoStore";
 
 const { readStoredGraphLayoutMock, writeStoredGraphLayoutMock, confirmDialogMock } = vi.hoisted(() => ({
   readStoredGraphLayoutMock: vi.fn(),
@@ -724,6 +725,7 @@ describe("GraphCanvas", () => {
     readStoredGraphLayoutMock.mockReset();
     writeStoredGraphLayoutMock.mockReset();
     confirmDialogMock.mockReset();
+    useUndoStore.getState().resetSession(undefined);
     readStoredGraphLayoutMock.mockResolvedValue(originalLayout);
     writeStoredGraphLayoutMock.mockResolvedValue(undefined);
     confirmDialogMock.mockResolvedValue(true);
@@ -863,6 +865,54 @@ describe("GraphCanvas", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Undo layout" })).not.toBeInTheDocument(),
     );
+  });
+
+  it("routes layout undo through the shared undo coordinator", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <GraphCanvas
+        repoPath="/workspace/calculator"
+        graph={baseGraph}
+        activeNodeId="entry:calculate"
+        graphFilters={{
+          includeCalls: true,
+          includeDefines: true,
+          includeImports: true,
+        }}
+        graphSettings={{
+          includeExternalDependencies: false,
+        }}
+        highlightGraphPath={false}
+        showEdgeLabels={false}
+        onSelectNode={vi.fn()}
+        onActivateNode={vi.fn()}
+        onInspectNode={vi.fn()}
+        onSelectBreadcrumb={vi.fn()}
+        onSelectLevel={vi.fn()}
+        onToggleGraphFilter={vi.fn()}
+        onToggleGraphSetting={vi.fn()}
+        onToggleGraphPathHighlight={vi.fn()}
+        onToggleEdgeLabels={vi.fn()}
+        onNavigateOut={vi.fn()}
+        onClearSelection={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("region", { name: /Graph canvas/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /calculate/i }));
+    await user.click(screen.getByRole("button", { name: "Declutter" }));
+
+    await waitFor(() => expect(writeStoredGraphLayoutMock).toHaveBeenCalledTimes(1));
+    expect(useUndoStore.getState().getPreferredUndoDomain()).toBe("layout");
+
+    await act(async () => {
+      await useUndoStore.getState().performUndo();
+    });
+
+    await waitFor(() => expect(writeStoredGraphLayoutMock).toHaveBeenCalledTimes(2));
+    expect(writeStoredGraphLayoutMock.mock.calls[1]?.[2]).toEqual(originalLayout);
   });
 
   it("emphasizes the selected node and dims unrelated nodes", async () => {

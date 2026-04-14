@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from helm.editor import serialize_edit_request
+from helm.editor import serialize_edit_request, serialize_undo_transaction
 from helm.graph.models import GraphAbstractionLevel
 from helm.ui.python_adapter import PythonRepoAdapter
 
@@ -51,6 +51,12 @@ def editable_node_source_payload(repo: str | Path, target_id: str) -> dict[str, 
 def save_node_source_payload(repo: str | Path, target_id: str, content: str) -> dict[str, Any]:
     adapter = PythonRepoAdapter.scan(repo)
     return adapter.save_node_source(target_id, content)
+
+
+def apply_undo_to_payload(repo: str | Path, transaction_payload: str | dict[str, Any]) -> dict[str, Any]:
+    adapter = PythonRepoAdapter.scan(repo)
+    transaction = serialize_undo_transaction(transaction_payload)
+    return adapter.apply_undo(transaction)
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -100,6 +106,10 @@ def build_argument_parser() -> argparse.ArgumentParser:
     save_parser.add_argument("repo", help="Path to the repository root.")
     save_parser.add_argument("target_id", help="Target graph node id.")
     save_parser.add_argument("--content-json", required=True, help="Serialized replacement source string.")
+
+    undo_parser = subparsers.add_parser("apply-undo", help="Apply a serialized undo transaction.")
+    undo_parser.add_argument("repo", help="Path to the repository root.")
+    undo_parser.add_argument("--transaction-json", required=True, help="Serialized undo transaction JSON.")
     return parser
 
 
@@ -131,6 +141,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.target_id,
                 json.loads(args.content_json),
             )
+        elif args.command == "apply-undo":
+            payload = apply_undo_to_payload(args.repo, args.transaction_json)
         else:
             raise ValueError(f"Unsupported desktop bridge command: {args.command}")
     except ValueError as exc:

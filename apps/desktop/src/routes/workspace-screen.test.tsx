@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ import { buildRepoSession } from "../lib/mocks/mockData";
 import { MockDesktopAdapter } from "../lib/adapter/mockDesktopAdapter";
 import type { GraphAbstractionLevel, SourceRange } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
+import { useUndoStore } from "../store/undoStore";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 
 const WORKSPACE_TEST_TIMEOUT_MS = 15000;
@@ -67,6 +68,7 @@ function resetStore() {
   const current = useUiStore.getState();
   const repoSession = buildRepoSession();
   clearLocalStorage();
+  useUndoStore.getState().resetSession(undefined);
   useUiStore.setState({
     ...current,
     theme: "system",
@@ -93,6 +95,7 @@ function resetStore() {
     showEdgeLabels: true,
     revealedSource: undefined,
     lastEdit: undefined,
+    lastActivity: undefined,
   });
 }
 
@@ -986,6 +989,66 @@ describe("WorkspaceScreen", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1));
     expect(saveSpy.mock.calls[0]?.[1]).toContain("# saved note");
     await waitFor(() => expect(screen.getAllByText("Synced").length).toBeGreaterThan(0));
+  });
+
+  it("undoes backend source saves through the shared undo coordinator and refreshes activity feedback", async () => {
+    const adapter = new MockDesktopAdapter();
+    const undoSpy = vi.spyOn(adapter, "applyBackendUndo");
+    const editableSourceSpy = vi.spyOn(adapter, "getEditableNodeSource");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+
+    const editor = await screen.findByRole("textbox", { name: /Function source editor/i });
+    const originalValue = (editor as HTMLTextAreaElement).value;
+
+    fireEvent.change(editor, {
+      target: { value: `${originalValue}\n# saved note` },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: /Function source editor/i })).toHaveValue(
+        `${originalValue}\n# saved note`,
+      ),
+    );
+    await waitFor(() => {
+      expect(useUndoStore.getState().getPreferredUndoDomain()).toBe("backend");
+    });
+
+    await act(async () => {
+      await useUndoStore.getState().performUndo();
+    });
+
+    await waitFor(() => expect(undoSpy).toHaveBeenCalledTimes(1));
+    expect(editableSourceSpy).toHaveBeenCalled();
+    await expect(
+      adapter.getEditableNodeSource("symbol:helm.ui.api:build_graph_summary"),
+    ).resolves.toMatchObject({ content: originalValue });
+
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: /Function source editor/i })).toHaveValue(originalValue),
+    );
+    expect(screen.getByText("Latest Activity")).toBeInTheDocument();
+    expect(screen.getByText("backend")).toBeInTheDocument();
+    expect(screen.getByText(/Undid:/i)).toBeInTheDocument();
   });
 
   it("toggles the inspector drawer with a Space tap outside text editing surfaces", async () => {

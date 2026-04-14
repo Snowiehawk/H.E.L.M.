@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
+  BackendUndoTransaction,
   BackendStatus,
   DesktopAdapter,
   EditableNodeSource,
@@ -239,10 +240,39 @@ interface RawEditResult {
   warnings: string[];
   flow_sync_state?: "clean" | "draft" | "import_error" | null;
   diagnostics?: string[];
+  undo_transaction?: {
+    summary: string;
+    request_kind: StructuralEditRequest["kind"];
+    file_snapshots: Array<{
+      relative_path: string;
+      existed: boolean;
+      content?: string | null;
+    }>;
+    changed_node_ids: string[];
+    focus_target?: {
+      target_id: string;
+      level: GraphAbstractionLevel;
+    } | null;
+  } | null;
 }
 
 interface RawApplyEditResponse {
   edit: RawEditResult;
+  payload: RawScanPayload;
+}
+
+interface RawUndoResult {
+  summary: string;
+  restored_relative_paths: string[];
+  warnings: string[];
+  focus_target?: {
+    target_id: string;
+    level: GraphAbstractionLevel;
+  } | null;
+}
+
+interface RawApplyUndoResponse {
+  undo: RawUndoResult;
   payload: RawScanPayload;
 }
 
@@ -544,6 +574,16 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     });
     this.scanCache = buildScanCache(response.payload, cache.session, cache.backend);
     return toStructuralEditResult(response.edit);
+  }
+
+  async applyBackendUndo(transaction: BackendUndoTransaction) {
+    const cache = this.requireScanCache();
+    const response = await invoke<RawApplyUndoResponse>("apply_backend_undo", {
+      repoPath: cache.session.path,
+      transactionJson: JSON.stringify(toRawUndoTransaction(transaction)),
+    });
+    this.scanCache = buildScanCache(response.payload, cache.session, cache.backend);
+    return toBackendUndoResult(response.undo);
   }
 
   async revealSource(targetId: string): Promise<RevealedSource> {
@@ -1210,6 +1250,25 @@ function toRawEditRequest(request: StructuralEditRequest) {
   };
 }
 
+function toRawUndoTransaction(transaction: BackendUndoTransaction) {
+  return {
+    summary: transaction.summary,
+    request_kind: transaction.requestKind,
+    file_snapshots: transaction.fileSnapshots.map((snapshot) => ({
+      relative_path: snapshot.relativePath,
+      existed: snapshot.existed,
+      content: snapshot.content ?? null,
+    })),
+    changed_node_ids: transaction.changedNodeIds,
+    focus_target: transaction.focusTarget
+      ? {
+          target_id: transaction.focusTarget.targetId,
+          level: transaction.focusTarget.level,
+        }
+      : null,
+  };
+}
+
 function toStructuralEditResult(raw: RawEditResult): StructuralEditResult {
   return {
     request: raw.request,
@@ -1220,6 +1279,38 @@ function toStructuralEditResult(raw: RawEditResult): StructuralEditResult {
     warnings: raw.warnings,
     flowSyncState: raw.flow_sync_state ?? null,
     diagnostics: raw.diagnostics ?? [],
+    undoTransaction: raw.undo_transaction
+      ? {
+          summary: raw.undo_transaction.summary,
+          requestKind: raw.undo_transaction.request_kind,
+          fileSnapshots: raw.undo_transaction.file_snapshots.map((snapshot) => ({
+            relativePath: snapshot.relative_path,
+            existed: snapshot.existed,
+            content: snapshot.content ?? undefined,
+          })),
+          changedNodeIds: raw.undo_transaction.changed_node_ids,
+          focusTarget: raw.undo_transaction.focus_target
+            ? {
+                targetId: raw.undo_transaction.focus_target.target_id,
+                level: raw.undo_transaction.focus_target.level,
+              }
+            : undefined,
+        }
+      : undefined,
+  };
+}
+
+function toBackendUndoResult(raw: RawUndoResult) {
+  return {
+    summary: raw.summary,
+    restoredRelativePaths: raw.restored_relative_paths,
+    warnings: raw.warnings,
+    focusTarget: raw.focus_target
+      ? {
+          targetId: raw.focus_target.target_id,
+          level: raw.focus_target.level,
+        }
+      : undefined,
   };
 }
 

@@ -307,6 +307,32 @@ export interface StructuralEditRequest {
   flowGraph?: FlowGraphDocument;
 }
 
+export interface UndoFocusTarget {
+  targetId: string;
+  level: GraphAbstractionLevel;
+}
+
+export interface BackendUndoFileSnapshot {
+  relativePath: string;
+  existed: boolean;
+  content?: string | null;
+}
+
+export interface BackendUndoTransaction {
+  summary: string;
+  requestKind: StructuralEditKind;
+  fileSnapshots: BackendUndoFileSnapshot[];
+  changedNodeIds: string[];
+  focusTarget?: UndoFocusTarget;
+}
+
+export interface BackendUndoResult {
+  summary: string;
+  restoredRelativePaths: string[];
+  warnings: string[];
+  focusTarget?: UndoFocusTarget | null;
+}
+
 export interface StructuralEditResult {
   request: {
     kind: StructuralEditKind;
@@ -330,6 +356,7 @@ export interface StructuralEditResult {
   warnings: string[];
   flowSyncState?: FlowSyncState | null;
   diagnostics: string[];
+  undoTransaction?: BackendUndoTransaction | null;
 }
 
 export interface OverviewMetric {
@@ -417,6 +444,7 @@ export interface DesktopAdapter {
   ): Promise<GraphView>;
   getFlowView(symbolId: string): Promise<GraphView>;
   applyStructuralEdit(request: StructuralEditRequest): Promise<StructuralEditResult>;
+  applyBackendUndo(transaction: BackendUndoTransaction): Promise<BackendUndoResult>;
   revealSource(targetId: string): Promise<RevealedSource>;
   getEditableNodeSource(targetId: string): Promise<EditableNodeSource>;
   saveNodeSource(targetId: string, content: string): Promise<StructuralEditResult>;

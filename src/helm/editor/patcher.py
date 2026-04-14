@@ -21,7 +21,15 @@ from helm.editor.flow_model import (
     with_flow_document_status,
     write_flow_document,
 )
-from helm.editor.models import StructuralEditKind, StructuralEditRequest, StructuralEditResult
+from helm.editor.models import (
+    BackendUndoResult,
+    BackendUndoTransaction,
+    StructuralEditKind,
+    StructuralEditRequest,
+    StructuralEditResult,
+    UndoFileSnapshot,
+    UndoFocusTarget,
+)
 from helm.parser.symbols import ParsedModule, SymbolDef, SymbolKind, make_module_id, make_symbol_id
 
 ensure_vendor_packages()
@@ -84,27 +92,260 @@ def apply_structural_edit(
         inbound_dependency_count=inbound_dependency_count or {},
     )
 
+    undo_snapshot_paths = _undo_snapshot_paths_for_request(context, request)
+    pre_edit_snapshots = _capture_undo_file_snapshots(root_path, undo_snapshot_paths)
+
     if request.kind == StructuralEditKind.CREATE_MODULE:
-        return _create_module(context, request)
-    if request.kind == StructuralEditKind.RENAME_SYMBOL:
-        return _rename_symbol(context, request)
+        result = _create_module(context, request)
+    elif request.kind == StructuralEditKind.RENAME_SYMBOL:
+        result = _rename_symbol(context, request)
+    elif request.kind == StructuralEditKind.CREATE_SYMBOL:
+        result = _create_symbol(context, request)
+    elif request.kind == StructuralEditKind.DELETE_SYMBOL:
+        result = _delete_symbol(context, request)
+    elif request.kind == StructuralEditKind.MOVE_SYMBOL:
+        result = _move_symbol(context, request)
+    elif request.kind == StructuralEditKind.ADD_IMPORT:
+        result = _add_import(context, request)
+    elif request.kind == StructuralEditKind.REMOVE_IMPORT:
+        result = _remove_import(context, request)
+    elif request.kind == StructuralEditKind.REPLACE_SYMBOL_SOURCE:
+        result = _replace_symbol_source(context, request)
+    elif request.kind == StructuralEditKind.INSERT_FLOW_STATEMENT:
+        result = _insert_flow_statement(context, request)
+    elif request.kind == StructuralEditKind.REPLACE_FLOW_GRAPH:
+        result = _replace_flow_graph(context, request)
+    else:
+        raise ValueError(f"Unsupported edit kind: {request.kind.value}")
+
+    return StructuralEditResult(
+        request=result.request,
+        summary=result.summary,
+        touched_relative_paths=result.touched_relative_paths,
+        reparsed_relative_paths=result.reparsed_relative_paths,
+        changed_node_ids=result.changed_node_ids,
+        warnings=result.warnings,
+        flow_sync_state=result.flow_sync_state,
+        diagnostics=result.diagnostics,
+        undo_transaction=BackendUndoTransaction(
+            summary=result.summary,
+            request_kind=request.kind.value,
+            file_snapshots=pre_edit_snapshots,
+            changed_node_ids=result.changed_node_ids,
+            focus_target=_undo_focus_target_for_request(context, request),
+        ),
+    )
+
+
+def apply_backend_undo(
+    root: Path | str,
+    transaction: BackendUndoTransaction,
+) -> BackendUndoResult:
+    """Restore repo files from a serialized undo transaction."""
+
+    root_path = Path(root).resolve()
+    current_snapshots = _capture_undo_file_snapshots(
+        root_path,
+        tuple(snapshot.relative_path for snapshot in transaction.file_snapshots),
+    )
+
+    try:
+        for snapshot in transaction.file_snapshots:
+            _restore_undo_snapshot(root_path, snapshot)
+    except Exception as exc:
+        for snapshot in current_snapshots:
+            _restore_undo_snapshot(root_path, snapshot)
+        raise ValueError(f"Unable to apply backend undo safely: {exc}") from exc
+
+    return BackendUndoResult(
+        summary=f"Undid: {transaction.summary}",
+        restored_relative_paths=tuple(
+            snapshot.relative_path for snapshot in transaction.file_snapshots
+        ),
+        focus_target=transaction.focus_target,
+    )
+
+
+def _undo_snapshot_paths_for_request(
+    context: EditContext,
+    request: StructuralEditRequest,
+) -> tuple[str, ...]:
+    if request.kind == StructuralEditKind.CREATE_MODULE:
+        return (_validated_module_relative_path(request.relative_path or ""),)
+
     if request.kind == StructuralEditKind.CREATE_SYMBOL:
-        return _create_symbol(context, request)
-    if request.kind == StructuralEditKind.DELETE_SYMBOL:
-        return _delete_symbol(context, request)
-    if request.kind == StructuralEditKind.MOVE_SYMBOL:
-        return _move_symbol(context, request)
-    if request.kind == StructuralEditKind.ADD_IMPORT:
-        return _add_import(context, request)
-    if request.kind == StructuralEditKind.REMOVE_IMPORT:
-        return _remove_import(context, request)
-    if request.kind == StructuralEditKind.REPLACE_SYMBOL_SOURCE:
-        return _replace_symbol_source(context, request)
+        parsed = _require_module(context, request.relative_path or "")
+        return (parsed.module.relative_path,)
+
+    if request.kind in {StructuralEditKind.ADD_IMPORT, StructuralEditKind.REMOVE_IMPORT}:
+        parsed = _require_module(context, request.relative_path or "")
+        return (parsed.module.relative_path,)
+
+    if request.kind in {
+        StructuralEditKind.RENAME_SYMBOL,
+        StructuralEditKind.DELETE_SYMBOL,
+        StructuralEditKind.MOVE_SYMBOL,
+        StructuralEditKind.REPLACE_SYMBOL_SOURCE,
+    }:
+        parsed, symbol = _require_top_level_symbol(context, request.target_id or "")
+        paths = [parsed.module.relative_path]
+        if request.kind == StructuralEditKind.MOVE_SYMBOL:
+            destination = _require_module(context, request.destination_relative_path or "")
+            if destination.module.relative_path not in paths:
+                paths.append(destination.module.relative_path)
+        if (
+            request.kind == StructuralEditKind.REPLACE_SYMBOL_SOURCE
+            and symbol.kind in {SymbolKind.FUNCTION, SymbolKind.ASYNC_FUNCTION}
+            and FLOW_MODEL_RELATIVE_PATH not in paths
+        ):
+            paths.append(FLOW_MODEL_RELATIVE_PATH)
+        return tuple(paths)
+
     if request.kind == StructuralEditKind.INSERT_FLOW_STATEMENT:
-        return _insert_flow_statement(context, request)
+        parsed, _ = _require_symbol(context, request.target_id or "")
+        return (parsed.module.relative_path,)
+
     if request.kind == StructuralEditKind.REPLACE_FLOW_GRAPH:
-        return _replace_flow_graph(context, request)
+        parsed, _ = _require_symbol(context, request.target_id or "")
+        return (parsed.module.relative_path, FLOW_MODEL_RELATIVE_PATH)
+
     raise ValueError(f"Unsupported edit kind: {request.kind.value}")
+
+
+def _capture_undo_file_snapshots(
+    root_path: Path,
+    relative_paths: tuple[str, ...],
+) -> tuple[UndoFileSnapshot, ...]:
+    snapshots: list[UndoFileSnapshot] = []
+    seen_relative_paths: set[str] = set()
+    for relative_path in relative_paths:
+        normalized_relative_path = _validated_repo_relative_path(relative_path)
+        if normalized_relative_path in seen_relative_paths:
+            continue
+        seen_relative_paths.add(normalized_relative_path)
+        source_path = _resolve_repo_relative_path(root_path, normalized_relative_path)
+        if source_path.exists():
+            snapshots.append(
+                UndoFileSnapshot(
+                    relative_path=normalized_relative_path,
+                    existed=True,
+                    content=source_path.read_text(encoding="utf-8"),
+                )
+            )
+            continue
+        snapshots.append(
+            UndoFileSnapshot(
+                relative_path=normalized_relative_path,
+                existed=False,
+                content=None,
+            )
+        )
+    return tuple(snapshots)
+
+
+def _restore_undo_snapshot(root_path: Path, snapshot: UndoFileSnapshot) -> None:
+    source_path = _resolve_repo_relative_path(root_path, snapshot.relative_path)
+    if snapshot.existed:
+        if snapshot.content is None:
+            raise ValueError(
+                f"Undo snapshot for '{snapshot.relative_path}' is missing file content."
+            )
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        source_path.write_text(snapshot.content, encoding="utf-8")
+        return
+
+    if source_path.exists():
+        if source_path.is_dir():
+            raise ValueError(
+                f"Undo snapshot expected a file path for '{snapshot.relative_path}', but found a directory."
+            )
+        source_path.unlink()
+        _cleanup_empty_parent_dirs(root_path, source_path.parent)
+
+
+def _cleanup_empty_parent_dirs(root_path: Path, directory: Path) -> None:
+    current = directory
+    while current != root_path and current.exists():
+        try:
+            current.rmdir()
+        except OSError:
+            break
+        current = current.parent
+
+
+def _validated_repo_relative_path(relative_path: str) -> str:
+    raw = relative_path.strip()
+    if not raw:
+        raise ValueError("Repo-relative path cannot be empty.")
+
+    path = PurePosixPath(raw)
+    if path.is_absolute():
+        raise ValueError("Repo-relative paths must be relative to the repo root.")
+    if any(part in {"", ".", ".."} for part in path.parts):
+        raise ValueError("Repo-relative paths must not contain empty, '.', or '..' segments.")
+    return path.as_posix()
+
+
+def _resolve_repo_relative_path(root_path: Path, relative_path: str) -> Path:
+    normalized_relative_path = _validated_repo_relative_path(relative_path)
+    source_path = (root_path / normalized_relative_path).resolve()
+    try:
+        source_path.relative_to(root_path)
+    except ValueError as exc:
+        raise ValueError(
+            f"Repo-relative path '{normalized_relative_path}' escapes the repo root."
+        ) from exc
+    return source_path
+
+
+def _undo_focus_target_for_request(
+    context: EditContext,
+    request: StructuralEditRequest,
+) -> UndoFocusTarget:
+    if request.kind == StructuralEditKind.CREATE_MODULE:
+        return UndoFocusTarget(
+            target_id=f"repo:{context.root_path.as_posix()}",
+            level="repo",
+        )
+
+    if request.kind == StructuralEditKind.CREATE_SYMBOL:
+        parsed = _require_module(context, request.relative_path or "")
+        return UndoFocusTarget(
+            target_id=make_module_id(parsed.module.module_name),
+            level="module",
+        )
+
+    if request.kind in {StructuralEditKind.ADD_IMPORT, StructuralEditKind.REMOVE_IMPORT}:
+        parsed = _require_module(context, request.relative_path or "")
+        return UndoFocusTarget(
+            target_id=make_module_id(parsed.module.module_name),
+            level="module",
+        )
+
+    if request.kind in {
+        StructuralEditKind.RENAME_SYMBOL,
+        StructuralEditKind.DELETE_SYMBOL,
+        StructuralEditKind.MOVE_SYMBOL,
+        StructuralEditKind.REPLACE_SYMBOL_SOURCE,
+    }:
+        return UndoFocusTarget(
+            target_id=request.target_id or "",
+            level="symbol",
+        )
+
+    if request.kind in {
+        StructuralEditKind.INSERT_FLOW_STATEMENT,
+        StructuralEditKind.REPLACE_FLOW_GRAPH,
+    }:
+        return UndoFocusTarget(
+            target_id=request.target_id or "",
+            level="flow",
+        )
+
+    return UndoFocusTarget(
+        target_id=f"repo:{context.root_path.as_posix()}",
+        level="repo",
+    )
 
 
 def _create_module(context: EditContext, request: StructuralEditRequest) -> StructuralEditResult:

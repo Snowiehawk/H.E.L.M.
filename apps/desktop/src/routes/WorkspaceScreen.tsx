@@ -42,6 +42,8 @@ import {
 } from "../components/workspace/workspaceHelp";
 import { useDesktopAdapter } from "../lib/adapter";
 import type {
+  BackendUndoTransaction,
+  EditableNodeSource,
   GraphAbstractionLevel,
   GraphBreadcrumbDto,
   GraphNodeDto,
@@ -58,6 +60,7 @@ import {
   isInspectableGraphNodeKind,
 } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
+import { useUndoStore, type UndoEntry } from "../store/undoStore";
 
 function graphNodeRelativePath(
   metadata: Record<string, unknown> | undefined,
@@ -187,6 +190,11 @@ interface GraphPathItem {
 }
 
 type InspectorPanelMode = "hidden" | "collapsed" | "expanded";
+
+interface BackendUndoHistoryEntry {
+  transaction: BackendUndoTransaction;
+  entry: UndoEntry;
+}
 
 const INSPECTOR_DRAWER_HEIGHT_STORAGE_KEY = "helm.blueprint.inspectorDrawerHeight";
 const EXPLORER_SIDEBAR_WIDTH_STORAGE_KEY = "helm.blueprint.explorerSidebarWidth";
@@ -470,6 +478,10 @@ export function WorkspaceScreen() {
   const saveInspectorDraftRef = useRef<(targetId: string, draftContent: string) => Promise<void>>(async () => {});
   const createModeContextKeyRef = useRef<string | undefined>(undefined);
   const [graphPathRevealError, setGraphPathRevealError] = useState<string | null>(null);
+  const [backendUndoStack, setBackendUndoStack] = useState<BackendUndoHistoryEntry[]>([]);
+  const [inspectorEditableSourceOverride, setInspectorEditableSourceOverride] =
+    useState<EditableNodeSource | undefined>(undefined);
+  const [inspectorSourceVersion, setInspectorSourceVersion] = useState(0);
   const repoSession = useUiStore((state) => state.repoSession);
   const graphTargetId = useUiStore((state) => state.graphTargetId);
   const activeLevel = useUiStore((state) => state.activeLevel);
@@ -481,7 +493,7 @@ export function WorkspaceScreen() {
   const showEdgeLabels = useUiStore((state) => state.showEdgeLabels);
   const sidebarQuery = useUiStore((state) => state.sidebarQuery);
   const revealedSource = useUiStore((state) => state.revealedSource);
-  const lastEdit = useUiStore((state) => state.lastEdit);
+  const lastActivity = useUiStore((state) => state.lastActivity);
   const setSidebarQuery = useUiStore((state) => state.setSidebarQuery);
   const setSession = useUiStore((state) => state.setSession);
   const initializeWorkspace = useUiStore((state) => state.initializeWorkspace);
@@ -494,6 +506,7 @@ export function WorkspaceScreen() {
   const toggleEdgeLabels = useUiStore((state) => state.toggleEdgeLabels);
   const setRevealedSource = useUiStore((state) => state.setRevealedSource);
   const setLastEdit = useUiStore((state) => state.setLastEdit);
+  const setLastActivity = useUiStore((state) => state.setLastActivity);
   const resetWorkspace = useUiStore((state) => state.resetWorkspace);
 
   useEffect(() => {
@@ -509,13 +522,20 @@ export function WorkspaceScreen() {
       setInspectorSnapshot(undefined);
       inspectorDraftContentRef.current = undefined;
       setInspectorDirty(false);
+      setInspectorEditableSourceOverride(undefined);
+      setInspectorSourceVersion(0);
       setDismissedPeekNodeId(undefined);
       setCreateModeState("inactive");
       setCreateComposer(undefined);
       setCreateModeError(null);
       setPendingCreatedNodeId(undefined);
+      setBackendUndoStack([]);
     }
   }, [repoSession]);
+
+  useEffect(() => {
+    setBackendUndoStack([]);
+  }, [repoSession?.id]);
 
   useEffect(() => {
     if (
@@ -718,6 +738,20 @@ export function WorkspaceScreen() {
       && isInspectableGraphNodeKind(inspectorNode.kind),
     ),
   });
+  const effectiveEditableSource =
+    inspectorEditableSourceOverride?.targetId === inspectorNode?.id
+      ? inspectorEditableSourceOverride
+      : editableSourceQuery.data;
+
+  useEffect(() => {
+    if (
+      inspectorEditableSourceOverride
+      && inspectorNode?.id
+      && inspectorEditableSourceOverride.targetId !== inspectorNode.id
+    ) {
+      setInspectorEditableSourceOverride(undefined);
+    }
+  }, [inspectorEditableSourceOverride, inspectorNode?.id]);
 
   const effectiveBackendStatus = overviewQuery.data?.backend ?? backendStatusQuery.data;
 
@@ -919,6 +953,20 @@ export function WorkspaceScreen() {
     options?: { preserveView?: boolean },
   ) => {
     const result = await adapter.applyStructuralEdit(request);
+    const undoTransaction = result.undoTransaction;
+    if (undoTransaction) {
+      setBackendUndoStack((current) => [
+        ...current,
+        {
+          transaction: undoTransaction,
+          entry: {
+            domain: "backend",
+            summary: result.summary,
+            createdAt: Date.now(),
+          },
+        },
+      ]);
+    }
     setInspectorPanelMode("expanded");
     setLastEdit(result);
     setRevealedSource(undefined);
@@ -949,10 +997,42 @@ export function WorkspaceScreen() {
     return result;
   };
 
+  const refreshWorkspaceData = useCallback(async (editableTargetId?: string) => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["overview"] }),
+      queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
+      queryClient.invalidateQueries({ queryKey: ["symbol"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
+      queryClient.invalidateQueries({ queryKey: ["editable-node-source"] }),
+    ]);
+
+    if (editableTargetId) {
+      return queryClient.fetchQuery({
+        queryKey: ["editable-node-source", repoSession?.id, editableTargetId],
+        queryFn: () => adapter.getEditableNodeSource(editableTargetId),
+      });
+    }
+    return undefined;
+  }, [adapter, queryClient, repoSession?.id]);
+
   const handleSaveNodeSource = async (targetId: string, content: string) => {
     setIsSavingSource(true);
     try {
       const result = await adapter.saveNodeSource(targetId, content);
+      const undoTransaction = result.undoTransaction;
+      if (undoTransaction) {
+        setBackendUndoStack((current) => [
+          ...current,
+          {
+            transaction: undoTransaction,
+            entry: {
+              domain: "backend",
+              summary: result.summary,
+              createdAt: Date.now(),
+            },
+          },
+        ]);
+      }
       setDismissedPeekNodeId(undefined);
       setInspectorPanelMode("expanded");
       setLastEdit(result);
@@ -961,17 +1041,84 @@ export function WorkspaceScreen() {
       setInspectorTargetId(targetId);
       setInspectorDirty(false);
       inspectorDraftContentRef.current = content;
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["overview"] }),
-        queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
-        queryClient.invalidateQueries({ queryKey: ["symbol"] }),
-        queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
-        queryClient.invalidateQueries({ queryKey: ["editable-node-source"] }),
-      ]);
+      const refreshedSource = await refreshWorkspaceData(targetId);
+      setInspectorEditableSourceOverride(refreshedSource);
+      setInspectorSourceVersion((current) => current + 1);
     } finally {
       setIsSavingSource(false);
     }
   };
+
+  useEffect(() => useUndoStore.getState().registerDomain("backend", {
+    canUndo: () => backendUndoStack.length > 0,
+    peekEntry: () => backendUndoStack[backendUndoStack.length - 1]?.entry,
+    undo: async () => {
+      const undoEntry = backendUndoStack[backendUndoStack.length - 1];
+      if (!undoEntry) {
+        return {
+          domain: "backend" as const,
+          handled: false,
+        };
+      }
+
+      try {
+        const result = await adapter.applyBackendUndo(undoEntry.transaction);
+        setBackendUndoStack((current) => current.slice(0, -1));
+        setDismissedPeekNodeId(undefined);
+        setInspectorPanelMode("expanded");
+        setLastEdit(undefined);
+        setLastActivity({
+          domain: "backend",
+          kind: "undo",
+          summary: result.summary,
+          touchedRelativePaths: result.restoredRelativePaths,
+          warnings: result.warnings,
+        });
+        setRevealedSource(undefined);
+        setInspectorDirty(false);
+        inspectorDraftContentRef.current = undefined;
+        const refreshedSource = await refreshWorkspaceData(inspectorTargetId);
+        setInspectorEditableSourceOverride(refreshedSource);
+        setInspectorSourceVersion((current) => current + 1);
+
+        if (result.focusTarget) {
+          focusGraph(result.focusTarget.targetId, result.focusTarget.level);
+        } else if (graphTargetId) {
+          focusGraph(graphTargetId, activeLevel);
+        }
+
+        return {
+          domain: "backend" as const,
+          handled: true,
+          summary: result.summary,
+        };
+      } catch (reason) {
+        const summary =
+          reason instanceof Error ? reason.message : "Unable to undo the last backend change.";
+        setLastActivity({
+          domain: "backend",
+          kind: "error",
+          summary,
+        });
+        return {
+          domain: "backend" as const,
+          handled: false,
+          summary,
+        };
+      }
+    },
+  }), [
+    activeLevel,
+    adapter,
+    backendUndoStack,
+    focusGraph,
+    graphTargetId,
+    inspectorTargetId,
+    refreshWorkspaceData,
+    setLastActivity,
+    setLastEdit,
+    setRevealedSource,
+  ]);
 
   const handleInspectorEditorStateChange = useCallback((content?: string, dirty?: boolean) => {
     inspectorDraftContentRef.current = content;
@@ -1011,6 +1158,8 @@ export function WorkspaceScreen() {
     setInspectorSnapshot(undefined);
     inspectorDraftContentRef.current = undefined;
     setInspectorDirty(false);
+    setInspectorEditableSourceOverride(undefined);
+    setInspectorSourceVersion(0);
     setRevealedSource(undefined);
     setDismissedPeekNodeId(undefined);
   }, [selectNode, setRevealedSource]);
@@ -1290,6 +1439,8 @@ export function WorkspaceScreen() {
     setInspectorSnapshot(undefined);
     inspectorDraftContentRef.current = undefined;
     setInspectorDirty(false);
+    setInspectorEditableSourceOverride(undefined);
+    setInspectorSourceVersion(0);
     setRevealedSource(undefined);
     setDismissedPeekNodeId(selectedGraphNode?.id ?? inspectorTargetId);
     return true;
@@ -1867,9 +2018,10 @@ export function WorkspaceScreen() {
                   >
                     {inspectorPanelMode !== "hidden" ? (
                       <BlueprintInspector
+                        key={`inspector:${inspectorNode?.id ?? "none"}:${inspectorSourceVersion}`}
                         selectedNode={inspectorNode}
                         symbol={symbolQuery.data}
-                        editableSource={editableSourceQuery.data}
+                        editableSource={effectiveEditableSource}
                         editableSourceLoading={editableSourceQuery.isFetching}
                         editableSourceError={
                           editableSourceQuery.error instanceof Error
@@ -1879,7 +2031,7 @@ export function WorkspaceScreen() {
                               : null
                         }
                         revealedSource={revealedSource}
-                        lastEdit={lastEdit}
+                        lastActivity={lastActivity}
                         isSavingSource={isSavingSource}
                         createFunctionTargetPath={emptyInspectorCreateTargetPath}
                         createFunctionError={createModeError}

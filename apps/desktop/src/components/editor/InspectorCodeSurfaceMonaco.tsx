@@ -3,6 +3,7 @@ import type { Monaco } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { useUiStore } from "../../store/uiStore";
+import { useUndoStore } from "../../store/undoStore";
 import type { InspectorCodeSurfaceProps } from "./InspectorCodeSurface";
 import {
   ensureHelmMonacoThemes,
@@ -142,6 +143,32 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
     }
     decorationIdsRef.current = editorInstance.deltaDecorations(decorationIdsRef.current, []);
   }, []);
+
+  useEffect(() => {
+    if (readOnly) {
+      return;
+    }
+
+    return useUndoStore.getState().registerDomain("editor", {
+      canUndo: () => Boolean(editorRef.current?.getModel()?.canUndo()),
+      ownsFocus: () => Boolean(editorRef.current?.hasTextFocus()),
+      undo: async () => {
+        const model = editorRef.current?.getModel();
+        if (!model?.canUndo()) {
+          return {
+            domain: "editor" as const,
+            handled: false,
+          };
+        }
+
+        await model.undo();
+        return {
+          domain: "editor" as const,
+          handled: true,
+        };
+      },
+    });
+  }, [readOnly, modelPath]);
 
   return (
     <div

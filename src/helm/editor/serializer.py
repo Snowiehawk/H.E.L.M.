@@ -5,7 +5,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from helm.editor.models import StructuralEditKind, StructuralEditRequest
+from helm.editor.models import (
+    BackendUndoTransaction,
+    StructuralEditKind,
+    StructuralEditRequest,
+    UndoFileSnapshot,
+    UndoFocusTarget,
+)
 
 
 def serialize_edit_request(payload: str | dict[str, Any]) -> StructuralEditRequest:
@@ -40,6 +46,70 @@ def serialize_edit_request(payload: str | dict[str, Any]) -> StructuralEditReque
     return request
 
 
+def serialize_undo_transaction(payload: str | dict[str, Any]) -> BackendUndoTransaction:
+    """Normalize raw undo payloads into typed backend undo transactions."""
+
+    raw = json.loads(payload) if isinstance(payload, str) else dict(payload)
+    summary = _required_string(raw, "summary")
+    request_kind = _required_string(raw, "request_kind")
+    file_snapshots_raw = raw.get("file_snapshots")
+    if not isinstance(file_snapshots_raw, list) or not file_snapshots_raw:
+        raise ValueError("Undo transaction requires a non-empty 'file_snapshots' list.")
+
+    file_snapshots: list[UndoFileSnapshot] = []
+    for index, item in enumerate(file_snapshots_raw):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"Undo transaction file snapshot at index {index} must be an object."
+            )
+        relative_path = _required_string(item, "relative_path")
+        existed = item.get("existed")
+        if not isinstance(existed, bool):
+            raise ValueError(
+                f"Undo transaction file snapshot '{relative_path}' requires boolean 'existed'."
+            )
+        content = item.get("content")
+        if content is not None and not isinstance(content, str):
+            raise ValueError(
+                f"Undo transaction file snapshot '{relative_path}' requires string 'content' when provided."
+            )
+        if existed and content is None:
+            raise ValueError(
+                f"Undo transaction file snapshot '{relative_path}' requires 'content' for existing files."
+            )
+        file_snapshots.append(
+            UndoFileSnapshot(
+                relative_path=relative_path,
+                existed=existed,
+                content=content,
+            )
+        )
+
+    changed_node_ids = raw.get("changed_node_ids") or []
+    if not isinstance(changed_node_ids, list) or any(
+        not isinstance(node_id, str) for node_id in changed_node_ids
+    ):
+        raise ValueError("Undo transaction field 'changed_node_ids' must be a list of strings.")
+
+    focus_target_raw = raw.get("focus_target")
+    focus_target: UndoFocusTarget | None = None
+    if focus_target_raw is not None:
+        if not isinstance(focus_target_raw, dict):
+            raise ValueError("Undo transaction field 'focus_target' must be an object when provided.")
+        focus_target = UndoFocusTarget(
+            target_id=_required_string(focus_target_raw, "target_id"),
+            level=_required_string(focus_target_raw, "level"),
+        )
+
+    return BackendUndoTransaction(
+        summary=summary,
+        request_kind=request_kind,
+        file_snapshots=tuple(file_snapshots),
+        changed_node_ids=tuple(changed_node_ids),
+        focus_target=focus_target,
+    )
+
+
 def _optional_string(raw: dict[str, Any], key: str) -> str | None:
     value = raw.get(key)
     if value is None:
@@ -56,6 +126,13 @@ def _optional_mapping(raw: dict[str, Any], key: str) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         raise ValueError(f"Edit request field '{key}' must be an object when provided.")
     return dict(value)
+
+
+def _required_string(raw: dict[str, Any], key: str) -> str:
+    value = raw.get(key)
+    if not isinstance(value, str):
+        raise ValueError(f"Field '{key}' must be a string.")
+    return value
 
 
 def _validate_request(request: StructuralEditRequest) -> None:

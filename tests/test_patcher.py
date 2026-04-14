@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helm.editor import apply_structural_edit, serialize_edit_request
+from helm.editor import apply_backend_undo, apply_structural_edit, serialize_edit_request
+from helm.editor.flow_model import FLOW_MODEL_RELATIVE_PATH
 from helm.graph import EdgeKind, build_repo_graph
 from helm.parser import PythonModuleParser, discover_python_modules
 from tests.helpers import write_repo_files
@@ -525,3 +526,128 @@ class EditorIntegrationTests(unittest.TestCase):
             )
             self.assertIn("Removed import", remove_result.summary)
             self.assertNotIn("from helpers import helper", (root / "service.py").read_text(encoding="utf-8"))
+
+    def test_undo_transaction_removes_created_module_and_cleans_empty_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(root, {"service.py": "def helper():\n    return 'ok'\n"})
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "create_module",
+                        "relative_path": "pkg/tools.py",
+                        "content": "def run():\n    return 1",
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            undo_result = apply_backend_undo(root, result.undo_transaction)
+
+            self.assertFalse((root / "pkg" / "tools.py").exists())
+            self.assertFalse((root / "pkg").exists())
+            self.assertEqual(undo_result.focus_target.target_id, f"repo:{root.resolve().as_posix()}")
+            self.assertEqual(undo_result.focus_target.level, "repo")
+
+    def test_backend_undo_restores_deleted_symbol_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(root, {"service.py": "def helper():\n    return 'ok'\n"})
+
+            parsed_modules, _, inbound = parse_repo(root)
+            delete_result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "delete_symbol",
+                        "target_id": "symbol:service:helper",
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+            self.assertNotIn("def helper():", (root / "service.py").read_text(encoding="utf-8"))
+
+            undo_result = apply_backend_undo(root, delete_result.undo_transaction)
+
+            self.assertIn("def helper():", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertEqual(undo_result.focus_target.target_id, "symbol:service:helper")
+            self.assertEqual(undo_result.focus_target.level, "symbol")
+
+    def test_backend_undo_restores_saved_function_source_and_flow_document(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": "def run():\n    return True\n",
+                },
+            )
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_symbol_source",
+                        "target_id": "symbol:service:run",
+                        "content": "def run():\n    return False\n",
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertIn("return False", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertTrue((root / FLOW_MODEL_RELATIVE_PATH).exists())
+
+            undo_result = apply_backend_undo(root, result.undo_transaction)
+
+            self.assertIn("return True", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertFalse((root / FLOW_MODEL_RELATIVE_PATH).exists())
+            self.assertEqual(undo_result.focus_target.target_id, "symbol:service:run")
+            self.assertEqual(undo_result.focus_target.level, "symbol")
+
+    def test_backend_undo_restores_inserted_flow_statement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "def run():\n"
+                        "    current = 1\n"
+                        "    return current\n"
+                    ),
+                },
+            )
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "insert_flow_statement",
+                        "target_id": "symbol:service:run",
+                        "anchor_edge_id": (
+                            "controls:flow:symbol:service:run:statement:0"
+                            "->flow:symbol:service:run:statement:1"
+                        ),
+                        "content": "helper = current + 1",
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertIn("helper = current + 1", (root / "service.py").read_text(encoding="utf-8"))
+
+            undo_result = apply_backend_undo(root, result.undo_transaction)
+
+            self.assertNotIn("helper = current + 1", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertEqual(undo_result.focus_target.target_id, "symbol:service:run")
+            self.assertEqual(undo_result.focus_target.level, "flow")

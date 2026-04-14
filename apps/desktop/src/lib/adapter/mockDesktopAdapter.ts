@@ -1,4 +1,6 @@
 import type {
+  BackendUndoResult,
+  BackendUndoTransaction,
   BackendStatus,
   DesktopAdapter,
   EditableNodeSource,
@@ -42,11 +44,16 @@ export class MockDesktopAdapter implements DesktopAdapter {
   readonly isMock = true;
   private currentSession = buildRepoSession(defaultRepoPath);
   private workspace: MockWorkspaceState = createMockWorkspaceState();
+  private backendUndoHistory: Array<{
+    snapshot: MockWorkspaceState;
+    transaction: BackendUndoTransaction;
+  }> = [];
 
   async openRepo(path?: string): Promise<RepoSession> {
     await delay(220);
     this.currentSession = buildRepoSession(path ?? defaultRepoPath);
     this.workspace = createMockWorkspaceState();
+    this.backendUndoHistory = [];
     return this.currentSession;
   }
 
@@ -192,7 +199,30 @@ export class MockDesktopAdapter implements DesktopAdapter {
 
   async applyStructuralEdit(request: StructuralEditRequest): Promise<StructuralEditResult> {
     await delay(120);
-    return applyMockEdit(this.workspace, request);
+    const snapshot = cloneWorkspaceState(this.workspace);
+    const result = applyMockEdit(this.workspace, request);
+    const transaction = buildMockUndoTransaction(result);
+    this.backendUndoHistory.push({ snapshot, transaction });
+    return {
+      ...result,
+      undoTransaction: transaction,
+    };
+  }
+
+  async applyBackendUndo(transaction: BackendUndoTransaction): Promise<BackendUndoResult> {
+    await delay(120);
+    const entry = this.backendUndoHistory.pop();
+    if (!entry) {
+      throw new Error("No backend undo history is available in the mock adapter.");
+    }
+
+    this.workspace = cloneWorkspaceState(entry.snapshot);
+    return {
+      summary: `Undid: ${transaction.summary}`,
+      restoredRelativePaths: transaction.fileSnapshots.map((snapshot) => snapshot.relativePath),
+      warnings: [],
+      focusTarget: transaction.focusTarget,
+    };
   }
 
   async revealSource(targetId: string): Promise<RevealedSource> {
@@ -207,11 +237,18 @@ export class MockDesktopAdapter implements DesktopAdapter {
 
   async saveNodeSource(targetId: string, content: string): Promise<StructuralEditResult> {
     await delay(120);
-    return applyMockEdit(this.workspace, {
+    const snapshot = cloneWorkspaceState(this.workspace);
+    const result = applyMockEdit(this.workspace, {
       kind: "replace_symbol_source",
       targetId,
       content,
     });
+    const transaction = buildMockUndoTransaction(result);
+    this.backendUndoHistory.push({ snapshot, transaction });
+    return {
+      ...result,
+      undoTransaction: transaction,
+    };
   }
 
   async openNodeInDefaultEditor(_targetId: string): Promise<void> {
@@ -226,6 +263,67 @@ export class MockDesktopAdapter implements DesktopAdapter {
     await delay(100);
     return buildOverview(this.currentSession, this.workspace);
   }
+}
+
+function cloneWorkspaceState(state: MockWorkspaceState): MockWorkspaceState {
+  return JSON.parse(JSON.stringify(state)) as MockWorkspaceState;
+}
+
+function buildMockUndoTransaction(result: StructuralEditResult): BackendUndoTransaction {
+  return {
+    summary: result.summary,
+    requestKind: result.request.kind,
+    fileSnapshots: result.touchedRelativePaths.map((relativePath) => ({
+      relativePath,
+      existed: true,
+      content: "",
+    })),
+    changedNodeIds: result.changedNodeIds,
+    focusTarget: inferMockUndoFocusTarget(result),
+  };
+}
+
+function inferMockUndoFocusTarget(
+  result: StructuralEditResult,
+): BackendUndoTransaction["focusTarget"] {
+  if (result.request.kind === "create_module") {
+    return {
+      targetId: buildRepoSession(defaultRepoPath).id,
+      level: "repo",
+    };
+  }
+
+  if (
+    result.request.kind === "create_symbol"
+    || result.request.kind === "add_import"
+    || result.request.kind === "remove_import"
+  ) {
+    const relativePath = result.request.relative_path ?? result.touchedRelativePaths[0];
+    const moduleName = relativePath?.replace(/\.py$/, "").replaceAll("/", ".") ?? "helm.ui.api";
+    return {
+      targetId: `module:${moduleName}`,
+      level: "module",
+    };
+  }
+
+  if (
+    result.request.kind === "insert_flow_statement"
+    || result.request.kind === "replace_flow_graph"
+  ) {
+    return result.request.target_id
+      ? {
+          targetId: result.request.target_id,
+          level: "flow",
+        }
+      : undefined;
+  }
+
+  return result.request.target_id
+    ? {
+        targetId: result.request.target_id,
+        level: "symbol",
+      }
+    : undefined;
 }
 
 function filterGraphView(

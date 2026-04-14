@@ -21,6 +21,66 @@ class StructuralEditKind(str, Enum):
 
 
 @dataclass(frozen=True)
+class UndoFocusTarget:
+    target_id: str
+    level: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "target_id": self.target_id,
+            "level": self.level,
+        }
+
+
+@dataclass(frozen=True)
+class UndoFileSnapshot:
+    relative_path: str
+    existed: bool
+    content: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "relative_path": self.relative_path,
+            "existed": self.existed,
+            "content": self.content,
+        }
+
+
+@dataclass(frozen=True)
+class BackendUndoTransaction:
+    summary: str
+    request_kind: str
+    file_snapshots: tuple[UndoFileSnapshot, ...] = field(default_factory=tuple)
+    changed_node_ids: tuple[str, ...] = field(default_factory=tuple)
+    focus_target: UndoFocusTarget | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "summary": self.summary,
+            "request_kind": self.request_kind,
+            "file_snapshots": [snapshot.to_dict() for snapshot in self.file_snapshots],
+            "changed_node_ids": list(self.changed_node_ids),
+            "focus_target": self.focus_target.to_dict() if self.focus_target else None,
+        }
+
+
+@dataclass(frozen=True)
+class BackendUndoResult:
+    summary: str
+    restored_relative_paths: tuple[str, ...] = field(default_factory=tuple)
+    warnings: tuple[str, ...] = field(default_factory=tuple)
+    focus_target: UndoFocusTarget | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "summary": self.summary,
+            "restored_relative_paths": list(self.restored_relative_paths),
+            "warnings": list(self.warnings),
+            "focus_target": self.focus_target.to_dict() if self.focus_target else None,
+        }
+
+
+@dataclass(frozen=True)
 class StructuralEditRequest:
     kind: StructuralEditKind
     target_id: str | None = None
@@ -64,6 +124,7 @@ class StructuralEditResult:
     warnings: tuple[str, ...] = field(default_factory=tuple)
     flow_sync_state: str | None = None
     diagnostics: tuple[str, ...] = field(default_factory=tuple)
+    undo_transaction: BackendUndoTransaction | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -75,4 +136,9 @@ class StructuralEditResult:
             "warnings": list(self.warnings),
             "flow_sync_state": self.flow_sync_state,
             "diagnostics": list(self.diagnostics),
+            "undo_transaction": (
+                self.undo_transaction.to_dict()
+                if self.undo_transaction is not None
+                else None
+            ),
         }
