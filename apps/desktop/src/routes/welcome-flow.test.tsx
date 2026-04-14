@@ -25,6 +25,7 @@ describe("welcome flow", () => {
     await user.click(screen.getByRole("button", { name: /open local repo/i }));
 
     expect(await screen.findByText(/Preparing the workspace/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Discovering Python modules/i)).toBeInTheDocument();
     expect(await screen.findByText(/Job ID/i)).toBeInTheDocument();
   });
 });

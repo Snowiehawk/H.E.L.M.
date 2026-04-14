@@ -3,9 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "../app/AppProviders";
-import { buildRepoSession, defaultRepoPath } from "../lib/mocks/mockData";
+import { buildRepoSession, defaultRepoPath, mockBackendStatus } from "../lib/mocks/mockData";
 import { MockDesktopAdapter } from "../lib/adapter/mockDesktopAdapter";
-import type { GraphAbstractionLevel, SourceRange } from "../lib/adapter";
+import type {
+  BackendStatus,
+  GraphAbstractionLevel,
+  SourceRange,
+  WorkspaceSyncEvent,
+} from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
 import { useUndoStore } from "../store/undoStore";
 import { WorkspaceScreen } from "./WorkspaceScreen";
@@ -173,6 +178,69 @@ async function seedMockModule(adapter: MockDesktopAdapter, relativePath: string)
   return `module:${relativePath.replace(/\.py$/, "").replaceAll("/", ".")}`;
 }
 
+function workspaceSyncNoteForTest(event: WorkspaceSyncEvent) {
+  if (event.message) {
+    return event.message;
+  }
+  if (event.status === "syncing") {
+    return "Applying external repo changes to the live workspace.";
+  }
+  if (event.status === "synced") {
+    return "Watching the active repo for Python changes.";
+  }
+  if (event.status === "manual_resync_required") {
+    return "Live sync needs a manual reindex to recover the workspace session.";
+  }
+  if (event.status === "error") {
+    return "Live sync encountered an error.";
+  }
+  return mockBackendStatus.note;
+}
+
+class SyncAwareMockDesktopAdapter extends MockDesktopAdapter {
+  private syncListeners = new Set<(event: WorkspaceSyncEvent) => void>();
+  backendStatusCallCount = 0;
+  overviewCallCount = 0;
+  graphViewCallCount = 0;
+  private backendStatusState: BackendStatus = {
+    ...mockBackendStatus,
+  };
+
+  override subscribeWorkspaceSync(onUpdate: (event: WorkspaceSyncEvent) => void): () => void {
+    this.syncListeners.add(onUpdate);
+    return () => {
+      this.syncListeners.delete(onUpdate);
+    };
+  }
+
+  emitWorkspaceSync(event: WorkspaceSyncEvent) {
+    this.backendStatusState = {
+      ...this.backendStatusState,
+      liveSyncEnabled: event.status === "syncing" || event.status === "synced",
+      syncState: event.needsManualResync ? "manual_resync_required" : event.status,
+      note: workspaceSyncNoteForTest(event),
+      lastSyncError: event.needsManualResync ? event.message : undefined,
+      lastError: event.needsManualResync ? event.message : undefined,
+    };
+    this.syncListeners.forEach((listener) => listener(event));
+  }
+
+  override async getBackendStatus() {
+    this.backendStatusCallCount += 1;
+    return this.backendStatusState;
+  }
+
+  override async getOverview() {
+    this.overviewCallCount += 1;
+    return super.getOverview();
+  }
+
+  override async getGraphView(...args: Parameters<MockDesktopAdapter["getGraphView"]>) {
+    this.graphViewCallCount += 1;
+    return super.getGraphView(...args);
+  }
+}
+
 describe("WorkspaceScreen", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -287,6 +355,72 @@ describe("WorkspaceScreen", () => {
     expect(expandedDrawer).toHaveAttribute("data-mode", "expanded");
     expect(within(expandedDrawer).getByRole("heading", { name: /Nothing selected/i })).toBeInTheDocument();
     expect(within(expandedDrawer).queryByText(/Declaration editor/i)).not.toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("keeps sync progress inline and defers heavy refreshes until sync completes", async () => {
+    const adapter = new SyncAwareMockDesktopAdapter();
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    expect(await screen.findByText(/Architecture graph/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(adapter.overviewCallCount).toBeGreaterThan(0);
+      expect(adapter.graphViewCallCount).toBeGreaterThan(0);
+      expect(adapter.backendStatusCallCount).toBeGreaterThan(0);
+    });
+
+    const initialOverviewCallCount = adapter.overviewCallCount;
+    const initialGraphViewCallCount = adapter.graphViewCallCount;
+    const initialBackendStatusCallCount = adapter.backendStatusCallCount;
+
+    act(() => {
+      adapter.emitWorkspaceSync({
+        repoPath: defaultRepoPath,
+        sessionVersion: 2,
+        reason: "external-change",
+        status: "syncing",
+        changedRelativePaths: ["src/helm/ui/api.py"],
+        needsManualResync: false,
+        message: "Parsing src/helm/ui/api.py",
+      });
+    });
+
+    await waitFor(() => {
+      expect(adapter.backendStatusCallCount).toBeGreaterThan(initialBackendStatusCallCount);
+    });
+    expect(adapter.overviewCallCount).toBe(initialOverviewCallCount);
+    expect(adapter.graphViewCallCount).toBe(initialGraphViewCallCount);
+    expect(await screen.findByText(/Parsing src\/helm\/ui\/api\.py/i)).toBeInTheDocument();
+
+    act(() => {
+      adapter.emitWorkspaceSync({
+        repoPath: defaultRepoPath,
+        sessionVersion: 3,
+        reason: "external-change",
+        status: "synced",
+        changedRelativePaths: ["src/helm/ui/api.py"],
+        needsManualResync: false,
+        message: "Watching the active repo for Python changes.",
+        snapshot: {
+          repoId: buildRepoSession().id,
+          defaultFocusNodeId: "symbol:helm.ui.api:build_graph_summary",
+          defaultLevel: "symbol",
+          nodeIds: ["symbol:helm.ui.api:build_graph_summary"],
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(adapter.graphViewCallCount).toBeGreaterThan(initialGraphViewCallCount);
+    });
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("updates the active inspector target when another inspectable node is selected while visible", async () => {

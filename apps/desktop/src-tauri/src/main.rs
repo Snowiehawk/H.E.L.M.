@@ -18,6 +18,7 @@ use tauri::{
 };
 
 const APP_MENU_EVENT: &str = "helm://app-menu";
+const INDEX_PROGRESS_EVENT: &str = "helm://index-progress";
 const WORKSPACE_SYNC_EVENT: &str = "helm://workspace-sync";
 const MENU_ID_SHOW_CALLS: &str = "graph-view.show-calls";
 const MENU_ID_SHOW_IMPORTS: &str = "graph-view.show-imports";
@@ -150,6 +151,36 @@ struct WorkspaceSyncEventPayload {
     message: Option<String>,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IndexProgressEventPayload {
+    job_id: String,
+    repo_path: String,
+    status: String,
+    stage: String,
+    processed_modules: usize,
+    total_modules: usize,
+    symbol_count: usize,
+    message: String,
+    progress_percent: Option<usize>,
+    error: Option<String>,
+}
+
+#[derive(Clone, Deserialize)]
+struct WorkerProgressPayload {
+    stage: String,
+    status: String,
+    message: String,
+    #[serde(default)]
+    processed_modules: usize,
+    #[serde(default)]
+    total_modules: usize,
+    #[serde(default)]
+    symbol_count: usize,
+    progress_percent: Option<usize>,
+    error: Option<String>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GraphViewMenuSyncPayload {
@@ -165,6 +196,7 @@ struct LiveSyncState {
     live_sync_enabled: bool,
     sync_state: String,
     last_sync_error: Option<String>,
+    sync_note: Option<String>,
 }
 
 impl Default for LiveSyncState {
@@ -173,6 +205,7 @@ impl Default for LiveSyncState {
             live_sync_enabled: false,
             sync_state: "idle".to_string(),
             last_sync_error: None,
+            sync_note: None,
         }
     }
 }
@@ -194,7 +227,19 @@ impl Default for BackendService {
 
 impl BackendService {
     fn request(&self, command: &str, params: Value) -> Result<Value, String> {
-        self.bridge.request(command, params)
+        self.request_with_progress(command, params, None::<fn(WorkerProgressPayload)>)
+    }
+
+    fn request_with_progress<F>(
+        &self,
+        command: &str,
+        params: Value,
+        on_progress: Option<F>,
+    ) -> Result<Value, String>
+    where
+        F: FnMut(WorkerProgressPayload),
+    {
+        self.bridge.request(command, params, on_progress)
     }
 
     fn health_snapshot(&self) -> LiveSyncState {
@@ -205,15 +250,15 @@ impl BackendService {
     }
 
     fn mark_synced(&self) {
-        self.update_sync_state(true, "synced", None);
+        self.update_sync_state(true, "synced", None, None);
     }
 
-    fn mark_syncing(&self) {
-        self.update_sync_state(true, "syncing", None);
+    fn mark_syncing_with_note(&self, note: String) {
+        self.update_sync_state(true, "syncing", None, Some(note));
     }
 
     fn mark_manual_resync_required(&self, message: String) {
-        self.update_sync_state(false, "manual_resync_required", Some(message));
+        self.update_sync_state(false, "manual_resync_required", Some(message), None);
     }
 
     fn update_sync_state(
@@ -221,11 +266,13 @@ impl BackendService {
         live_sync_enabled: bool,
         sync_state: &str,
         last_sync_error: Option<String>,
+        sync_note: Option<String>,
     ) {
         if let Ok(mut state) = self.sync_state.lock() {
             state.live_sync_enabled = live_sync_enabled;
             state.sync_state = sync_state.to_string();
             state.last_sync_error = last_sync_error;
+            state.sync_note = sync_note;
         }
     }
 }
@@ -260,13 +307,23 @@ impl Drop for BridgeProcess {
 #[derive(Deserialize)]
 struct WorkerResponse {
     id: Option<u64>,
-    ok: bool,
+    ok: Option<bool>,
+    event: Option<String>,
+    payload: Option<Value>,
     result: Option<Value>,
     error: Option<String>,
 }
 
 impl PersistentPythonBridge {
-    fn request(&self, command: &str, params: Value) -> Result<Value, String> {
+    fn request<F>(
+        &self,
+        command: &str,
+        params: Value,
+        mut on_progress: Option<F>,
+    ) -> Result<Value, String>
+    where
+        F: FnMut(WorkerProgressPayload),
+    {
         let mut last_error: Option<String> = None;
         for _ in 0..2 {
             let mut process = self
@@ -280,7 +337,16 @@ impl PersistentPythonBridge {
             let result = process
                 .as_mut()
                 .ok_or_else(|| "Python bridge is unavailable.".to_string())
-                .and_then(|bridge| send_bridge_request(bridge, command, params.clone()));
+                .and_then(|bridge| {
+                    send_bridge_request(
+                        bridge,
+                        command,
+                        params.clone(),
+                        on_progress
+                            .as_mut()
+                            .map(|callback| callback as &mut dyn FnMut(WorkerProgressPayload)),
+                    )
+                });
             match result {
                 Ok(value) => return Ok(value),
                 Err(err) => {
@@ -468,7 +534,8 @@ fn run_repo_watch_loop(
                     pending_relative_paths.iter().cloned().collect::<Vec<_>>();
                 pending_relative_paths.clear();
 
-                service.mark_syncing();
+                let starting_message = "Preparing incremental refresh".to_string();
+                service.mark_syncing_with_note(starting_message.clone());
                 emit_workspace_sync_event(
                     &app,
                     WorkspaceSyncEventPayload {
@@ -480,16 +547,42 @@ fn run_repo_watch_loop(
                         needs_manual_resync: false,
                         payload: None,
                         snapshot: None,
-                        message: None,
+                        message: Some(starting_message),
                     },
                 );
 
-                match service.request(
+                let progress_app = app.clone();
+                let progress_repo_path = repo_path.clone();
+                let progress_changed_relative_paths = changed_relative_paths.clone();
+                let progress_service = service.clone();
+                match service.request_with_progress(
                     "refresh-paths",
                     json!({
-                        "repo": repo_path,
-                        "relative_paths": changed_relative_paths,
+                        "repo": repo_path.clone(),
+                        "relative_paths": changed_relative_paths.clone(),
                         "top_n": WORKSPACE_SYNC_TOP_N,
+                        "emit_progress": true,
+                    }),
+                    Some(move |progress: WorkerProgressPayload| {
+                        if progress.status == "error" {
+                            return;
+                        }
+
+                        progress_service.mark_syncing_with_note(progress.message.clone());
+                        emit_workspace_sync_event(
+                            &progress_app,
+                            WorkspaceSyncEventPayload {
+                                repo_path: progress_repo_path.clone(),
+                                session_version: 0,
+                                reason: "external-change".to_string(),
+                                status: "syncing".to_string(),
+                                changed_relative_paths: progress_changed_relative_paths.clone(),
+                                needs_manual_resync: false,
+                                payload: None,
+                                snapshot: None,
+                                message: Some(progress.message),
+                            },
+                        );
                     }),
                 ) {
                     Ok(result) => {
@@ -578,6 +671,7 @@ fn send_bridge_request(
     bridge: &mut BridgeProcess,
     command: &str,
     params: Value,
+    mut on_progress: Option<&mut dyn FnMut(WorkerProgressPayload)>,
 ) -> Result<Value, String> {
     let request_id = bridge.next_request_id;
     bridge.next_request_id += 1;
@@ -598,28 +692,45 @@ fn send_bridge_request(
         .flush()
         .map_err(|err| format!("Unable to flush the Python bridge request: {}", err))?;
 
-    let mut response_line = String::new();
-    let bytes = bridge
-        .stdout
-        .read_line(&mut response_line)
-        .map_err(|err| format!("Unable to read the Python bridge response: {}", err))?;
-    if bytes == 0 {
-        return Err("Python bridge closed unexpectedly.".to_string());
-    }
+    loop {
+        let mut response_line = String::new();
+        let bytes = bridge
+            .stdout
+            .read_line(&mut response_line)
+            .map_err(|err| format!("Unable to read the Python bridge response: {}", err))?;
+        if bytes == 0 {
+            return Err("Python bridge closed unexpectedly.".to_string());
+        }
 
-    let response: WorkerResponse = serde_json::from_str(response_line.trim())
-        .map_err(|err| format!("Unable to decode the Python bridge response: {}", err))?;
-    if response.id != Some(request_id) {
-        return Err("Python bridge response id did not match the request.".to_string());
-    }
-    if response.ok {
-        response
-            .result
-            .ok_or_else(|| "Python bridge returned no result payload.".to_string())
-    } else {
-        Err(response
+        let response: WorkerResponse = serde_json::from_str(response_line.trim())
+            .map_err(|err| format!("Unable to decode the Python bridge response: {}", err))?;
+        if response.id != Some(request_id) {
+            return Err("Python bridge response id did not match the request.".to_string());
+        }
+
+        if response.event.as_deref() == Some("progress") {
+            if let Some(callback) = on_progress.as_mut() {
+                let payload = response.payload.ok_or_else(|| {
+                    "Python bridge progress frame was missing a payload.".to_string()
+                })?;
+                let progress: WorkerProgressPayload =
+                    serde_json::from_value(payload).map_err(|err| {
+                        format!("Unable to decode the Python bridge progress frame: {}", err)
+                    })?;
+                callback(progress);
+            }
+            continue;
+        }
+
+        if response.ok == Some(true) {
+            return response
+                .result
+                .ok_or_else(|| "Python bridge returned no result payload.".to_string());
+        }
+
+        return Err(response
             .error
-            .unwrap_or_else(|| "Python bridge returned an unknown error.".to_string()))
+            .unwrap_or_else(|| "Python bridge returned an unknown error.".to_string()));
     }
 }
 
@@ -728,13 +839,39 @@ fn workspace_sync_snapshot(payload: &Value) -> Option<WorkspaceSyncSnapshot> {
     })
 }
 
+fn to_index_progress_event(
+    job_id: &str,
+    repo_path: &str,
+    progress: WorkerProgressPayload,
+) -> IndexProgressEventPayload {
+    IndexProgressEventPayload {
+        job_id: job_id.to_string(),
+        repo_path: repo_path.to_string(),
+        status: progress.status,
+        stage: progress.stage,
+        processed_modules: progress.processed_modules,
+        total_modules: progress.total_modules,
+        symbol_count: progress.symbol_count,
+        message: progress.message,
+        progress_percent: progress.progress_percent,
+        error: progress.error,
+    }
+}
+
+fn emit_index_progress_event(app: &AppHandle<Wry>, payload: IndexProgressEventPayload) {
+    let _ = app.emit(INDEX_PROGRESS_EVENT, payload);
+}
+
 fn emit_workspace_sync_event(app: &AppHandle<Wry>, payload: WorkspaceSyncEventPayload) {
     let _ = app.emit(WORKSPACE_SYNC_EVENT, payload);
 }
 
 fn backend_note(sync_state: &LiveSyncState) -> String {
     match sync_state.sync_state.as_str() {
-        "syncing" => "Applying external repo changes to the live workspace.".to_string(),
+        "syncing" => sync_state
+            .sync_note
+            .clone()
+            .unwrap_or_else(|| "Applying external repo changes to the live workspace.".to_string()),
         "synced" => "Watching the active repo for Python changes.".to_string(),
         "manual_resync_required" => {
             "Live sync needs a manual reindex to recover the workspace session.".to_string()
@@ -781,19 +918,67 @@ fn scan_repo_payload(
     service: State<'_, BackendService>,
     watcher: State<'_, ActiveRepoWatcher>,
     repo_path: String,
+    job_id: String,
 ) -> Result<Value, String> {
-    let payload = service.request(
+    let progress_app = app.clone();
+    let progress_job_id = job_id.clone();
+    let progress_repo_path = repo_path.clone();
+    let payload = service.request_with_progress(
         "full-resync",
         json!({
-            "repo": repo_path,
+            "repo": repo_path.clone(),
             "top_n": WORKSPACE_SYNC_TOP_N,
+            "emit_progress": true,
+        }),
+        Some(move |progress: WorkerProgressPayload| {
+            emit_index_progress_event(
+                &progress_app,
+                to_index_progress_event(&progress_job_id, &progress_repo_path, progress),
+            );
         }),
     )?;
 
-    match watcher.watch_repo(&app, service.inner().clone(), &repo_path) {
-        Ok(()) => service.mark_synced(),
-        Err(err) => service.mark_manual_resync_required(err),
-    }
+    let module_count = payload
+        .get("graph")
+        .and_then(|graph| graph.get("report"))
+        .and_then(|report| report.get("module_count"))
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .unwrap_or(0);
+    let symbol_count = payload
+        .get("graph")
+        .and_then(|graph| graph.get("report"))
+        .and_then(|report| report.get("symbol_count"))
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .unwrap_or(0);
+
+    let watch_ready_message = match watcher.watch_repo(&app, service.inner().clone(), &repo_path) {
+        Ok(()) => {
+            service.mark_synced();
+            "Workspace ready. Watching for Python changes.".to_string()
+        }
+        Err(err) => {
+            service.mark_manual_resync_required(err);
+            "Workspace ready. Live sync needs manual reindex.".to_string()
+        }
+    };
+
+    emit_index_progress_event(
+        &app,
+        IndexProgressEventPayload {
+            job_id,
+            repo_path: repo_path.clone(),
+            status: "done".to_string(),
+            stage: "watch_ready".to_string(),
+            processed_modules: module_count,
+            total_modules: module_count,
+            symbol_count,
+            message: watch_ready_message,
+            progress_percent: Some(100),
+            error: None,
+        },
+    );
 
     Ok(payload)
 }

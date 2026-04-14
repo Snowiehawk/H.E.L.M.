@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invokeMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
 }));
-const workspaceSyncState = vi.hoisted(() => ({
-  callback: undefined as undefined | ((event: { payload: unknown }) => void),
+const eventState = vi.hoisted(() => ({
+  callbacks: new Map<string, (event: { payload: unknown }) => void>(),
 }));
 const { listenMock } = vi.hoisted(() => ({
   listenMock: vi.fn(),
@@ -28,11 +28,11 @@ describe("LiveDesktopAdapter", () => {
   beforeEach(() => {
     invokeMock.mockReset();
     listenMock.mockReset();
-    listenMock.mockImplementation(async (_eventName, callback) => {
-      workspaceSyncState.callback = callback;
+    eventState.callbacks.clear();
+    listenMock.mockImplementation(async (eventName, callback) => {
+      eventState.callbacks.set(String(eventName), callback);
       return vi.fn();
     });
-    workspaceSyncState.callback = undefined;
   });
 
   it("returns cyclic flow views without hanging the renderer", async () => {
@@ -165,7 +165,7 @@ describe("LiveDesktopAdapter", () => {
       openedAt: "2026-04-09T00:00:00.000Z",
     });
 
-    workspaceSyncState.callback?.({
+    eventState.callbacks.get("helm://workspace-sync")?.({
       payload: {
         repo_path: "/workspace/calculator",
         session_version: 2,
@@ -288,5 +288,184 @@ describe("LiveDesktopAdapter", () => {
       }),
     );
     expect(results.some((result) => result.title === "new_helper")).toBe(true);
+  });
+
+  it("updates indexing jobs from backend index progress events", async () => {
+    const adapter = new LiveDesktopAdapter();
+    const states: Array<Record<string, unknown>> = [];
+    let resolveScan: ((value: unknown) => void) | undefined;
+    const payload = {
+      summary: {
+        repo_path: "/workspace/calculator",
+        module_count: 1,
+        symbol_count: 1,
+        import_edge_count: 0,
+        call_edge_count: 0,
+        unresolved_call_count: 0,
+        diagnostic_count: 0,
+        modules: [
+          {
+            module_id: "module:calculator",
+            module_name: "calculator",
+            relative_path: "calculator.py",
+            symbol_count: 1,
+            import_count: 0,
+            outgoing_call_count: 0,
+          },
+        ],
+      },
+      graph: {
+        root_path: "/workspace/calculator",
+        repo_id: "repo:/workspace/calculator",
+        nodes: [
+          {
+            node_id: "repo:/workspace/calculator",
+            kind: "repo",
+            name: "Calculator",
+            display_name: "Calculator",
+            file_path: null,
+            module_name: null,
+            qualname: null,
+            is_external: false,
+            metadata: {},
+          },
+          {
+            node_id: "module:calculator",
+            kind: "module",
+            name: "calculator",
+            display_name: "calculator.py",
+            file_path: "/workspace/calculator/calculator.py",
+            module_name: "calculator",
+            qualname: null,
+            is_external: false,
+            metadata: { relative_path: "calculator.py" },
+          },
+          {
+            node_id: "symbol:calculator:run",
+            kind: "symbol",
+            name: "run",
+            display_name: "run",
+            file_path: "/workspace/calculator/calculator.py",
+            module_name: "calculator",
+            qualname: "run",
+            is_external: false,
+            metadata: { symbol_kind: "function" },
+          },
+        ],
+        edges: [
+          {
+            edge_id: "defines:module:calculator->symbol:calculator:run",
+            kind: "defines",
+            source_id: "module:calculator",
+            target_id: "symbol:calculator:run",
+            metadata: {},
+          },
+        ],
+        diagnostics: [],
+        unresolved_calls: [],
+        report: {
+          module_count: 1,
+          symbol_count: 1,
+          import_edge_count: 0,
+          call_edge_count: 0,
+          unresolved_call_count: 0,
+          diagnostic_count: 0,
+        },
+      },
+      workspace: {
+        language: "python",
+        default_level: "symbol",
+        default_focus_node_id: "symbol:calculator:run",
+        source_hidden_by_default: true,
+        supported_edit_kinds: [],
+        session_version: 1,
+      },
+    };
+
+    invokeMock.mockImplementation(async (command, args) => {
+      if (command === "scan_repo_payload") {
+        return new Promise((resolve) => {
+          resolveScan = resolve;
+        });
+      }
+      if (command === "backend_health") {
+        return {
+          mode: "live",
+          available: true,
+          python_command: "python3",
+          workspace_root: "/workspace",
+          note: "Watching the active repo for Python changes.",
+          live_sync_enabled: true,
+          sync_state: "synced",
+          last_sync_error: null,
+        };
+      }
+      throw new Error(`Unexpected invoke: ${String(command)}`);
+    });
+
+    const { jobId } = await adapter.startIndex("/workspace/calculator");
+    const unsubscribe = adapter.subscribeIndexProgress(jobId, (state) => {
+      states.push(state);
+    });
+
+    eventState.callbacks.get("helm://index-progress")?.({
+      payload: {
+        job_id: jobId,
+        repo_path: "/workspace/calculator",
+        status: "running",
+        stage: "parse",
+        processed_modules: 1,
+        total_modules: 3,
+        symbol_count: 4,
+        message: "Parsed calculator.py",
+        progress_percent: 42,
+      },
+    });
+    eventState.callbacks.get("helm://index-progress")?.({
+      payload: {
+        job_id: jobId,
+        repo_path: "/workspace/calculator",
+        status: "done",
+        stage: "watch_ready",
+        processed_modules: 3,
+        total_modules: 3,
+        symbol_count: 4,
+        message: "Workspace ready. Watching for Python changes.",
+        progress_percent: 100,
+      },
+    });
+    resolveScan?.(payload);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    unsubscribe();
+
+    expect(states[0]).toMatchObject({
+      jobId,
+      repoPath: "/workspace/calculator",
+      status: "queued",
+      stage: "discover",
+    });
+    expect(states).toContainEqual(
+      expect.objectContaining({
+        jobId,
+        status: "running",
+        stage: "parse",
+        processedModules: 1,
+        totalModules: 3,
+        progressPercent: 42,
+      }),
+    );
+    expect(states.at(-1)).toMatchObject({
+      jobId,
+      status: "done",
+      stage: "watch_ready",
+      message: "Workspace ready. Watching for Python changes.",
+      progressPercent: 100,
+    });
+    expect(invokeMock).toHaveBeenCalledWith("scan_repo_payload", {
+      repoPath: "/workspace/calculator",
+      jobId,
+    });
   });
 });

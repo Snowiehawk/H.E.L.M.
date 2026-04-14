@@ -6,12 +6,49 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from helm.graph.models import GraphAbstractionLevel
 from helm.ui.workspace_session import WorkspaceSession, WorkspaceSessionManager
 
 _SESSION_MANAGER = WorkspaceSessionManager()
+
+
+class _WorkerProgressReporter:
+    def __init__(self, request_id: Any, output_stream: TextIO) -> None:
+        self._request_id = request_id
+        self._output_stream = output_stream
+        self._last_payload: dict[str, Any] | None = None
+
+    def emit(self, payload: dict[str, Any]) -> None:
+        self._last_payload = payload
+        self._write_frame(
+            {
+                "id": self._request_id,
+                "event": "progress",
+                "payload": payload,
+            }
+        )
+
+    def emit_error(self, message: str) -> None:
+        previous = self._last_payload or {}
+        self.emit(
+            {
+                "stage": previous.get("stage", "discover"),
+                "status": "error",
+                "message": previous.get("message", "Indexing failed"),
+                "processed_modules": previous.get("processed_modules", 0),
+                "total_modules": previous.get("total_modules", 0),
+                "symbol_count": previous.get("symbol_count", 0),
+                "progress_percent": previous.get("progress_percent", 100),
+                "error": message,
+            }
+        )
+
+    def _write_frame(self, frame: dict[str, Any]) -> None:
+        self._output_stream.write(json.dumps(frame, sort_keys=True))
+        self._output_stream.write("\n")
+        self._output_stream.flush()
 
 
 def scan_repo_to_payload(repo: str | Path, top_n: int = 24) -> dict[str, Any]:
@@ -58,7 +95,12 @@ def apply_undo_to_payload(repo: str | Path, transaction_payload: str | dict[str,
     return session.apply_undo(transaction_payload)
 
 
-def _handle_worker_command(command: str, params: dict[str, Any]) -> dict[str, Any]:
+def _handle_worker_command(
+    command: str,
+    params: dict[str, Any],
+    *,
+    progress: _WorkerProgressReporter | None = None,
+) -> dict[str, Any]:
     repo = params.get("repo")
     if not isinstance(repo, str) and command != "shutdown":
         raise ValueError("Worker command requires a 'repo' string parameter.")
@@ -69,11 +111,11 @@ def _handle_worker_command(command: str, params: dict[str, Any]) -> dict[str, An
 
     if command == "scan":
         session = _SESSION_MANAGER.ensure_session(repo)
-        return session.build_payload(top_n=top_n)
+        return session.build_payload(top_n=top_n, progress=progress.emit if progress else None)
 
     if command == "full-resync":
         session = _SESSION_MANAGER.ensure_session(repo)
-        return session.full_resync(top_n=top_n)
+        return session.full_resync(top_n=top_n, progress=progress.emit if progress else None)
 
     session = _SESSION_MANAGER.ensure_session(repo)
     if command == "graph-view":
@@ -129,7 +171,11 @@ def _handle_worker_command(command: str, params: dict[str, Any]) -> dict[str, An
             isinstance(path, str) for path in relative_paths
         ):
             raise ValueError("refresh-paths requires a 'relative_paths' string list parameter.")
-        return session.refresh_paths(relative_paths, top_n=top_n)
+        return session.refresh_paths(
+            relative_paths,
+            top_n=top_n,
+            progress=progress.emit if progress else None,
+        )
 
     raise ValueError(f"Unsupported desktop bridge worker command: {command}")
 
@@ -144,6 +190,7 @@ def run_worker(stdin: Any = None, stdout: Any = None) -> int:
             continue
 
         request_id: Any = None
+        progress_reporter: _WorkerProgressReporter | None = None
         try:
             request = json.loads(line)
             if not isinstance(request, dict):
@@ -155,15 +202,19 @@ def run_worker(stdin: Any = None, stdout: Any = None) -> int:
                 raise ValueError("Bridge request requires a string 'command'.")
             if not isinstance(params, dict):
                 raise ValueError("Bridge request 'params' must be a JSON object.")
+            if params.get("emit_progress") is True:
+                progress_reporter = _WorkerProgressReporter(request_id, output_stream)
             if command == "shutdown":
                 response = {"id": request_id, "ok": True, "result": {"shutdown": True}}
                 output_stream.write(json.dumps(response, sort_keys=True))
                 output_stream.write("\n")
                 output_stream.flush()
                 break
-            result = _handle_worker_command(command, params)
+            result = _handle_worker_command(command, params, progress=progress_reporter)
             response = {"id": request_id, "ok": True, "result": result}
         except Exception as exc:  # pragma: no cover - defensive protocol guard
+            if progress_reporter is not None:
+                progress_reporter.emit_error(str(exc))
             response = {"id": request_id, "ok": False, "error": str(exc)}
 
         output_stream.write(json.dumps(response, sort_keys=True))

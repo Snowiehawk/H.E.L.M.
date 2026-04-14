@@ -15,6 +15,15 @@ def _graph_node_ids(payload: dict) -> set[str]:
     }
 
 
+def _unique_progress_stages(events: list[dict]) -> list[str]:
+    stages: list[str] = []
+    for event in events:
+        stage = event["stage"]
+        if not stages or stages[-1] != stage:
+            stages.append(stage)
+    return stages
+
+
 class WorkspaceSessionTests(unittest.TestCase):
     def test_session_manager_reuses_sessions_for_the_same_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -96,3 +105,60 @@ class WorkspaceSessionTests(unittest.TestCase):
             self.assertEqual(payload["workspace"]["session_version"], 3)
             self.assertEqual(payload["summary"]["diagnostic_count"], 0)
 
+    def test_full_resync_reports_progress_in_stage_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            write_repo_files(
+                root,
+                {
+                    "alpha.py": "def one():\n    return 1\n",
+                    "beta.py": "def two():\n    return 2\n",
+                },
+            )
+
+            session = WorkspaceSession.open(root)
+            progress_events: list[dict] = []
+
+            payload = session.full_resync(progress=progress_events.append)
+
+            self.assertEqual(payload["workspace"]["session_version"], 2)
+            self.assertEqual(
+                _unique_progress_stages(progress_events),
+                ["discover", "parse", "graph_build", "cache_finalize"],
+            )
+            self.assertEqual(progress_events[-1]["stage"], "cache_finalize")
+            self.assertEqual(progress_events[-1]["symbol_count"], 2)
+            self.assertEqual(progress_events[-1]["progress_percent"], 95)
+
+    def test_refresh_paths_reports_incremental_progress_in_stage_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            module_path = root / "service.py"
+            write_repo_files(
+                root,
+                {
+                    "service.py": "def helper():\n    return 1\n",
+                    "worker.py": "def run():\n    return helper()\n",
+                },
+            )
+
+            session = WorkspaceSession.open(root)
+            module_path.write_text(
+                "def helper():\n    return 1\n\n\ndef helper_blueprint():\n    return helper()\n",
+                encoding="utf-8",
+            )
+            progress_events: list[dict] = []
+
+            refreshed = session.refresh_paths(["service.py"], progress=progress_events.append)
+
+            self.assertEqual(refreshed["reparsed_relative_paths"], ["service.py"])
+            self.assertEqual(
+                _unique_progress_stages(progress_events),
+                ["discover", "parse", "graph_build", "cache_finalize"],
+            )
+            parse_events = [
+                event
+                for event in progress_events
+                if event["stage"] == "parse"
+            ]
+            self.assertTrue(any("service.py" in event["message"] for event in parse_events))

@@ -18,6 +18,7 @@ import type {
   GraphNeighborhood,
   GraphNodeDto,
   GraphView,
+  IndexStage,
   IndexingJobState,
   OverviewData,
   OverviewOutlineItem,
@@ -244,6 +245,19 @@ interface RawWorkspaceSyncEvent {
   message?: string | null;
 }
 
+interface RawIndexProgressEvent {
+  job_id: string;
+  repo_path: string;
+  status: IndexingJobState["status"];
+  stage: IndexStage;
+  processed_modules: number;
+  total_modules: number;
+  symbol_count: number;
+  message: string;
+  progress_percent?: number | null;
+  error?: string | null;
+}
+
 interface RawEditResult {
   request: {
     kind: StructuralEditRequest["kind"];
@@ -320,7 +334,6 @@ interface RawEditableNodeSource {
 interface ScanJob {
   state: IndexingJobState;
   listeners: Set<(state: IndexingJobState) => void>;
-  pulseTimer?: number;
 }
 
 interface ScanCache {
@@ -352,15 +365,26 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   private scanCache?: ScanCache;
   private jobs = new Map<string, ScanJob>();
   private workspaceSyncListeners = new Set<(event: WorkspaceSyncEvent) => void>();
+  private indexProgressUnlisten?: Promise<UnlistenFn>;
   private workspaceSyncUnlisten?: Promise<UnlistenFn>;
 
   constructor() {
+    this.indexProgressUnlisten = listen<RawIndexProgressEvent>(
+      "helm://index-progress",
+      (event) => {
+        this.handleIndexProgress(event.payload);
+      },
+    ).catch(() => () => {});
     this.workspaceSyncUnlisten = listen<RawWorkspaceSyncEvent>(
       "helm://workspace-sync",
       (event) => {
         this.handleWorkspaceSync(event.payload);
       },
     ).catch(() => () => {});
+  }
+
+  private handleIndexProgress(raw: RawIndexProgressEvent) {
+    this.updateJob(raw.job_id, toIndexingJobState(raw));
   }
 
   private handleWorkspaceSync(raw: RawWorkspaceSyncEvent) {
@@ -454,11 +478,12 @@ export class LiveDesktopAdapter implements DesktopAdapter {
         jobId,
         repoPath,
         status: "queued",
+        stage: "discover",
         processedModules: 0,
-        totalModules: 100,
+        totalModules: 0,
         symbolCount: 0,
-        message: "Scheduling Python scan",
-        progressPercent: 4,
+        message: "Waiting for backend indexing to begin",
+        progressPercent: 0,
       },
       listeners: new Set(),
     };
@@ -478,6 +503,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
         jobId,
         repoPath: this.currentSession?.path ?? "",
         status: "error",
+        stage: "discover",
         processedModules: 0,
         totalModules: 0,
         symbolCount: 0,
@@ -795,37 +821,10 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     }
 
     const repoPath = job.state.repoPath;
-    this.updateJob(jobId, {
-      ...job.state,
-      status: "running",
-      processedModules: 12,
-      totalModules: 100,
-      message: "Launching Python repo scan",
-      progressPercent: 12,
-    });
-
-    job.pulseTimer = window.setInterval(() => {
-      const currentJob = this.jobs.get(jobId);
-      if (!currentJob || currentJob.state.status !== "running") {
-        return;
-      }
-
-      const nextPercent = Math.min((currentJob.state.progressPercent ?? 12) + 8, 86);
-      this.updateJob(jobId, {
-        ...currentJob.state,
-        processedModules: nextPercent,
-        totalModules: 100,
-        message:
-          nextPercent < 46
-            ? "Discovering Python modules"
-            : "Building the structural graph",
-        progressPercent: nextPercent,
-      });
-    }, 420);
 
     try {
       const startedAt = Date.now();
-      const payload = await invoke<RawScanPayload>("scan_repo_payload", { repoPath });
+      const payload = await invoke<RawScanPayload>("scan_repo_payload", { repoPath, jobId });
       const completedAt = Date.now();
       const backend = await this.getBackendStatus();
       const session = this.currentSession ?? buildRepoSessionFromPath(repoPath);
@@ -839,33 +838,19 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       this.scanCache = buildScanCache(payload, session, this.backendStatus);
       this.currentSession = session;
       rememberRecentRepo(session);
-
-      window.clearInterval(job.pulseTimer);
-      this.updateJob(jobId, {
-        ...job.state,
-        status: "done",
-        processedModules: payload.graph.report.module_count,
-        totalModules: payload.graph.report.module_count,
-        symbolCount: payload.graph.report.symbol_count,
-        message: "Workspace ready",
-        progressPercent: 100,
-        error: undefined,
-      });
     } catch (reason) {
       const message = toMessage(reason);
+      const currentState = this.jobs.get(jobId)?.state;
       this.backendStatus = {
         ...this.backendStatus,
         lastError: message,
         lastScanAt: new Date().toISOString(),
       };
-      window.clearInterval(job.pulseTimer);
       this.updateJob(jobId, {
-        ...job.state,
+        ...(currentState ?? job.state),
         status: "error",
-        processedModules: 0,
-        totalModules: 0,
-        symbolCount: 0,
-        message: "Scan failed",
+        stage: currentState?.stage ?? "discover",
+        message: currentState?.message ?? "Scan failed",
         progressPercent: 100,
         error: message,
       });
@@ -1407,6 +1392,21 @@ function toWorkspaceSyncEvent(raw: RawWorkspaceSyncEvent): WorkspaceSyncEvent {
   };
 }
 
+function toIndexingJobState(raw: RawIndexProgressEvent): IndexingJobState {
+  return {
+    jobId: raw.job_id,
+    repoPath: normalizePath(raw.repo_path),
+    status: raw.status,
+    stage: raw.stage,
+    processedModules: raw.processed_modules,
+    totalModules: raw.total_modules,
+    symbolCount: raw.symbol_count,
+    message: raw.message,
+    progressPercent: raw.progress_percent ?? undefined,
+    error: raw.error ?? undefined,
+  };
+}
+
 function backendStatusFromSyncEvent(
   current: BackendStatus,
   raw: RawWorkspaceSyncEvent,
@@ -1416,6 +1416,7 @@ function backendStatusFromSyncEvent(
   const synced = nextState === "synced";
   const liveSyncEnabled = syncing || synced;
   const nextError = raw.message ?? (synced || syncing ? undefined : current.lastSyncError);
+  const nextNote = raw.message ?? workspaceSyncNote(nextState);
 
   return {
     ...current,
@@ -1425,7 +1426,7 @@ function backendStatusFromSyncEvent(
     lastSyncAt: synced ? new Date().toISOString() : current.lastSyncAt,
     lastSyncError: nextError,
     lastError: nextError,
-    note: workspaceSyncNote(nextState),
+    note: nextNote,
   };
 }
 

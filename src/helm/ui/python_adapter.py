@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Literal
 
 from helm.editor import apply_backend_undo, apply_structural_edit
 from helm.editor.models import (
@@ -31,6 +31,84 @@ from helm.parser import ParsedModule, PythonModuleParser, SymbolDef, SymbolKind,
 from helm.parser.symbols import SourceSpan
 from helm.ui.api import build_export_payload, build_graph_summary
 
+IndexStage = Literal["discover", "parse", "graph_build", "cache_finalize", "watch_ready"]
+ProgressReporter = Callable[[dict[str, Any]], None]
+
+_STAGE_PROGRESS_RANGES: dict[IndexStage, tuple[int, int]] = {
+    "discover": (4, 18),
+    "parse": (18, 76),
+    "graph_build": (76, 88),
+    "cache_finalize": (88, 95),
+    "watch_ready": (95, 100),
+}
+
+
+def _stage_progress_percent(
+    stage: IndexStage,
+    *,
+    processed_modules: int = 0,
+    total_modules: int = 0,
+) -> int:
+    start, end = _STAGE_PROGRESS_RANGES[stage]
+    if total_modules <= 0:
+        return start
+
+    bounded_progress = min(max(processed_modules / total_modules, 0), 1)
+    return round(start + (end - start) * bounded_progress)
+
+
+def build_progress_update(
+    stage: IndexStage,
+    message: str,
+    *,
+    processed_modules: int = 0,
+    total_modules: int = 0,
+    symbol_count: int = 0,
+    status: str = "running",
+    error: str | None = None,
+) -> dict[str, Any]:
+    progress_percent = 100 if status == "done" else _stage_progress_percent(
+        stage,
+        processed_modules=processed_modules,
+        total_modules=total_modules,
+    )
+    return {
+        "stage": stage,
+        "status": status,
+        "message": message,
+        "processed_modules": processed_modules,
+        "total_modules": total_modules,
+        "symbol_count": symbol_count,
+        "progress_percent": progress_percent,
+        "error": error,
+    }
+
+
+def emit_progress(
+    reporter: ProgressReporter | None,
+    stage: IndexStage,
+    message: str,
+    *,
+    processed_modules: int = 0,
+    total_modules: int = 0,
+    symbol_count: int = 0,
+    status: str = "running",
+    error: str | None = None,
+) -> None:
+    if reporter is None:
+        return
+    reporter(
+        build_progress_update(
+            stage,
+            message,
+            processed_modules=processed_modules,
+            total_modules=total_modules,
+            symbol_count=symbol_count,
+            status=status,
+            error=error,
+        )
+    )
+
 
 @dataclass
 class PythonRepoAdapter:
@@ -40,15 +118,69 @@ class PythonRepoAdapter:
     graph: RepoGraph
 
     @classmethod
-    def scan(cls, repo: str | Path) -> PythonRepoAdapter:
+    def scan(
+        cls,
+        repo: str | Path,
+        *,
+        progress: ProgressReporter | None = None,
+    ) -> PythonRepoAdapter:
         root_path = Path(repo).resolve()
+        emit_progress(
+            progress,
+            "discover",
+            "Discovering Python modules",
+            processed_modules=0,
+            total_modules=0,
+        )
         inventory = discover_python_modules(root_path)
+        total_modules = len(inventory.modules)
+        emit_progress(
+            progress,
+            "discover",
+            f"Discovered {total_modules} Python module{'s' if total_modules != 1 else ''}",
+            processed_modules=total_modules,
+            total_modules=total_modules,
+        )
         parser = PythonModuleParser()
-        parsed_modules = [parser.parse_module(module) for module in inventory.modules]
+        parsed_modules: list[ParsedModule] = []
+        symbol_count = 0
+        for index, module in enumerate(inventory.modules, start=1):
+            parsed_module = parser.parse_module(module)
+            parsed_modules.append(parsed_module)
+            symbol_count += len(parsed_module.symbols)
+            emit_progress(
+                progress,
+                "parse",
+                f"Parsed {module.relative_path}",
+                processed_modules=index,
+                total_modules=total_modules,
+                symbol_count=symbol_count,
+            )
+        emit_progress(
+            progress,
+            "graph_build",
+            "Building the repo graph",
+            processed_modules=total_modules,
+            total_modules=total_modules,
+            symbol_count=symbol_count,
+        )
         graph = build_repo_graph(root_path, parsed_modules)
         return cls(root_path=root_path, inventory=inventory, parsed_modules=parsed_modules, graph=graph)
 
-    def build_payload(self, top_n: int = 24) -> dict[str, Any]:
+    def build_payload(
+        self,
+        top_n: int = 24,
+        *,
+        progress: ProgressReporter | None = None,
+    ) -> dict[str, Any]:
+        emit_progress(
+            progress,
+            "cache_finalize",
+            "Finalizing workspace payload",
+            processed_modules=self.graph.report.module_count,
+            total_modules=self.graph.report.module_count,
+            symbol_count=self.graph.report.symbol_count,
+        )
         summary = build_graph_summary(self.graph, top_n=top_n)
         payload = build_export_payload(self.graph, summary)
         payload["workspace"] = {

@@ -6,6 +6,38 @@ import { StatusPill } from "../components/shared/StatusPill";
 import { useIndexingProgress } from "../lib/adapter/useIndexingProgress";
 import { useUiStore } from "../store/uiStore";
 
+const INDEX_STAGES = [
+  {
+    id: "discover",
+    label: "Discover",
+    description: "Find Python modules in the selected repo.",
+  },
+  {
+    id: "parse",
+    label: "Parse",
+    description: "Parse modules and collect symbol counts.",
+  },
+  {
+    id: "graph_build",
+    label: "Graph Build",
+    description: "Build the structural graph from parsed modules.",
+  },
+  {
+    id: "cache_finalize",
+    label: "Finalize",
+    description: "Prepare the workspace payload for the desktop shell.",
+  },
+  {
+    id: "watch_ready",
+    label: "Watch Ready",
+    description: "Finish setup and hand off to the workspace.",
+  },
+] as const;
+
+function indexStageLabel(stage: (typeof INDEX_STAGES)[number]["id"]) {
+  return INDEX_STAGES.find((item) => item.id === stage)?.label ?? "Discover";
+}
+
 export function IndexingScreen() {
   const { jobId } = useParams();
   const navigate = useNavigate();
@@ -24,8 +56,16 @@ export function IndexingScreen() {
     return () => window.clearTimeout(timer);
   }, [navigate, progress?.status]);
 
-  const totalModules = progress?.totalModules ?? 100;
+  const totalModules = progress?.totalModules ?? 0;
   const processedModules = progress?.processedModules ?? 0;
+  const activeStage = progress?.stage ?? "discover";
+  const activeStageIndex = INDEX_STAGES.findIndex((stage) => stage.id === activeStage);
+  const modulesCopy =
+    totalModules > 0
+      ? `${processedModules}/${totalModules}`
+      : processedModules > 0
+        ? `${processedModules} discovered`
+        : "pending";
   const percentage =
     progress?.progressPercent ??
     (totalModules > 0 ? Math.round((processedModules / totalModules) * 100) : 0);
@@ -60,7 +100,8 @@ export function IndexingScreen() {
 
         <section className="card">
           <div className="progress-copy">
-            <h3>{progress?.message ?? "Scheduling index job"}</h3>
+            <span className="window-bar__eyebrow">{indexStageLabel(activeStage)}</span>
+            <h3>{progress?.message ?? "Waiting for backend indexing updates"}</h3>
             <span>{percentage}% complete</span>
           </div>
           <div className="progress-bar" aria-hidden="true">
@@ -68,10 +109,12 @@ export function IndexingScreen() {
           </div>
           <div className="metadata-grid">
             <div className="metadata-item">
+              <span>Stage</span>
+              <strong>{indexStageLabel(activeStage)}</strong>
+            </div>
+            <div className="metadata-item">
               <span>Modules</span>
-              <strong>
-                {totalModules > 0 ? `${processedModules}/${totalModules}` : "pending"}
-              </strong>
+              <strong>{modulesCopy}</strong>
             </div>
             <div className="metadata-item">
               <span>Symbols</span>
@@ -93,13 +136,23 @@ export function IndexingScreen() {
         <section className="overview-grid">
           <article className="card">
             <div className="section-header">
-              <h3>Stages</h3>
-              <span>Read-only pipeline</span>
+              <h3>Pipeline</h3>
+              <span>Backend-driven progress</span>
             </div>
             <ul className="bullet-list">
-              <li>Queue repo scan and normalize the selected path.</li>
-              <li>Parse modules, collect symbols, and surface progress counts.</li>
-              <li>Resolve graph relationships, then hand off to the workspace.</li>
+              {INDEX_STAGES.map((stage, index) => {
+                const prefix =
+                  index < activeStageIndex
+                    ? "Complete"
+                    : index === activeStageIndex
+                      ? "Current"
+                      : "Next";
+                return (
+                  <li key={stage.id}>
+                    {prefix}: {stage.label}. {stage.description}
+                  </li>
+                );
+              })}
             </ul>
           </article>
           <article className="card">

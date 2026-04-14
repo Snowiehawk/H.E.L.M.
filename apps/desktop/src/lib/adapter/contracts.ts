@@ -1,4 +1,10 @@
 export type IndexStatus = "queued" | "running" | "done" | "error";
+export type IndexStage =
+  | "discover"
+  | "parse"
+  | "graph_build"
+  | "cache_finalize"
+  | "watch_ready";
 export type BackendMode = "mock" | "live";
 export type WorkspaceSyncState =
   | "idle"
@@ -114,6 +120,7 @@ export interface IndexingJobState {
   jobId: string;
   repoPath: string;
   status: IndexStatus;
+  stage: IndexStage;
   processedModules: number;
   totalModules: number;
   symbolCount: number;

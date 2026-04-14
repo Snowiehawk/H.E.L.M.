@@ -17,6 +17,23 @@ from helm.ui.desktop_bridge import (
 from tests.helpers import write_repo_files
 
 
+def _progress_frames(responses: list[dict]) -> list[dict]:
+    return [
+        response["payload"]
+        for response in responses
+        if response.get("event") == "progress"
+    ]
+
+
+def _unique_progress_stages(frames: list[dict]) -> list[str]:
+    stages: list[str] = []
+    for frame in frames:
+        stage = frame["stage"]
+        if not stages or stages[-1] != stage:
+            stages.append(stage)
+    return stages
+
+
 class DesktopBridgeTests(unittest.TestCase):
     def test_scan_repo_to_payload_returns_workspace_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -290,3 +307,79 @@ class DesktopBridgeTests(unittest.TestCase):
                 if node["kind"] == "symbol"
             }
             self.assertIn("helper_blueprint", symbol_names)
+
+    def test_run_worker_full_resync_emits_progress_frames_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            write_repo_files(
+                root,
+                {
+                    "alpha.py": "def one():\n    return 1\n",
+                    "beta.py": "def two():\n    return 2\n",
+                },
+            )
+
+            stdin = io.StringIO(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "id": 1,
+                                "command": "full-resync",
+                                "params": {
+                                    "repo": str(root),
+                                    "emit_progress": True,
+                                },
+                            }
+                        ),
+                        json.dumps({"id": 2, "command": "shutdown", "params": {}}),
+                    ]
+                )
+                + "\n"
+            )
+            stdout = io.StringIO()
+
+            exit_code = run_worker(stdin=stdin, stdout=stdout)
+
+            self.assertEqual(exit_code, 0)
+            responses = [json.loads(line) for line in stdout.getvalue().splitlines()]
+            frames = _progress_frames(responses)
+            self.assertEqual(
+                _unique_progress_stages(frames),
+                ["discover", "parse", "graph_build", "cache_finalize"],
+            )
+            self.assertEqual(responses[-2]["id"], 1)
+            self.assertTrue(responses[-2]["ok"])
+
+    def test_run_worker_emits_stage_scoped_error_progress_before_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            missing_root = Path(tmp_dir) / "missing"
+            stdin = io.StringIO(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "id": 1,
+                                "command": "full-resync",
+                                "params": {
+                                    "repo": str(missing_root),
+                                    "emit_progress": True,
+                                },
+                            }
+                        ),
+                        json.dumps({"id": 2, "command": "shutdown", "params": {}}),
+                    ]
+                )
+                + "\n"
+            )
+            stdout = io.StringIO()
+
+            exit_code = run_worker(stdin=stdin, stdout=stdout)
+
+            self.assertEqual(exit_code, 0)
+            responses = [json.loads(line) for line in stdout.getvalue().splitlines()]
+            frames = _progress_frames(responses)
+            self.assertEqual(frames[-1]["status"], "error")
+            self.assertEqual(frames[-1]["stage"], "discover")
+            self.assertIn("does not exist", frames[-1]["error"])
+            self.assertFalse(responses[-2]["ok"])

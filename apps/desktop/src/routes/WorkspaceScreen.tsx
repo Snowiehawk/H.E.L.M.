@@ -469,20 +469,21 @@ function buildFallbackGraphPathItems(
 
 function workspaceWindowSubtitle(
   repoPath: string | undefined,
-  syncState: BackendStatus["syncState"] | undefined,
+  backendStatus: BackendStatus | undefined,
 ) {
   if (!repoPath) {
     return "Open a local repository to begin.";
   }
 
+  const syncState = backendStatus?.syncState;
   if (syncState === "syncing") {
-    return `Repo root: ${repoPath} · Live sync updating`;
+    return `Repo root: ${repoPath} · ${backendStatus?.note ?? "Live sync updating"}`;
   }
   if (syncState === "manual_resync_required") {
-    return `Repo root: ${repoPath} · Live sync needs reindex`;
+    return `Repo root: ${repoPath} · ${backendStatus?.note ?? "Live sync needs reindex"}`;
   }
   if (syncState === "error") {
-    return `Repo root: ${repoPath} · Live sync error`;
+    return `Repo root: ${repoPath} · ${backendStatus?.note ?? "Live sync error"}`;
   }
   if (syncState === "synced") {
     return `Repo root: ${repoPath} · Live sync on`;
@@ -799,7 +800,12 @@ export function WorkspaceScreen() {
     }
   }, [inspectorEditableSourceOverride, inspectorNode?.id]);
 
-  const effectiveBackendStatus = overviewQuery.data?.backend ?? backendStatusQuery.data;
+  const effectiveBackendStatus = backendStatusQuery.data
+    ? {
+        ...(overviewQuery.data?.backend ?? {}),
+        ...backendStatusQuery.data,
+      }
+    : overviewQuery.data?.backend;
 
   useEffect(() => {
     if (!inspectorDirty || !inspectorTargetId) {
@@ -858,14 +864,22 @@ export function WorkspaceScreen() {
       }
     }
 
-    void Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["overview"] }),
-      queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
-      queryClient.invalidateQueries({ queryKey: ["symbol"] }),
-      queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
-      queryClient.invalidateQueries({ queryKey: ["editable-node-source"] }),
+    const invalidations = [
       queryClient.invalidateQueries({ queryKey: ["backend-status"] }),
-    ]);
+    ];
+    const shouldRefreshWorkspaceData =
+      event.status !== "syncing" || Boolean(event.snapshot) || event.needsManualResync;
+    if (shouldRefreshWorkspaceData) {
+      invalidations.push(
+        queryClient.invalidateQueries({ queryKey: ["overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
+        queryClient.invalidateQueries({ queryKey: ["symbol"] }),
+        queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
+        queryClient.invalidateQueries({ queryKey: ["editable-node-source"] }),
+      );
+    }
+
+    void Promise.all(invalidations);
   }), [
     activeNodeId,
     adapter,
@@ -2012,7 +2026,7 @@ export function WorkspaceScreen() {
     <DesktopWindow
       eyebrow="Blueprint Editor"
       title={repoSession?.name ?? "H.E.L.M."}
-      subtitle={workspaceWindowSubtitle(repoSession?.path, effectiveBackendStatus?.syncState)}
+      subtitle={workspaceWindowSubtitle(repoSession?.path, effectiveBackendStatus)}
       actions={<ThemeCycleButton />}
       dense
     >

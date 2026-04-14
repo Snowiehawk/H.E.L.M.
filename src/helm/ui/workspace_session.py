@@ -10,7 +10,11 @@ from helm.editor import serialize_edit_request, serialize_undo_transaction
 from helm.graph import build_repo_graph
 from helm.graph.models import GraphAbstractionLevel
 from helm.parser import ParsedModule, PythonModuleParser, discover_python_modules
-from helm.ui.python_adapter import PythonRepoAdapter
+from helm.ui.python_adapter import (
+    ProgressReporter,
+    PythonRepoAdapter,
+    emit_progress,
+)
 
 
 def _normalized_relative_paths(paths: Iterable[str]) -> tuple[str, ...]:
@@ -56,8 +60,13 @@ class WorkspaceSession:
     def root_path(self) -> Path:
         return self.adapter.root_path
 
-    def build_payload(self, top_n: int = 24) -> dict[str, Any]:
-        payload = self.adapter.build_payload(top_n=top_n)
+    def build_payload(
+        self,
+        top_n: int = 24,
+        *,
+        progress: ProgressReporter | None = None,
+    ) -> dict[str, Any]:
+        payload = self.adapter.build_payload(top_n=top_n, progress=progress)
         workspace = payload.setdefault("workspace", {})
         workspace["session_version"] = self.session_version
         return payload
@@ -99,25 +108,49 @@ class WorkspaceSession:
         response["payload"] = self.build_payload()
         return response
 
-    def full_resync(self, top_n: int = 24) -> dict[str, Any]:
-        refreshed = PythonRepoAdapter.scan(self.root_path)
+    def full_resync(
+        self,
+        top_n: int = 24,
+        *,
+        progress: ProgressReporter | None = None,
+    ) -> dict[str, Any]:
+        refreshed = PythonRepoAdapter.scan(self.root_path, progress=progress)
         self.adapter = refreshed
         self.session_version += 1
-        return self.build_payload(top_n=top_n)
+        return self.build_payload(top_n=top_n, progress=progress)
 
     def refresh_paths(
         self,
         changed_relative_paths: Iterable[str],
         top_n: int = 24,
+        *,
+        progress: ProgressReporter | None = None,
     ) -> dict[str, Any]:
         normalized_paths = _normalized_relative_paths(changed_relative_paths)
         previous_by_relative = {
             parsed.module.relative_path: parsed for parsed in self.adapter.parsed_modules
         }
+        emit_progress(
+            progress,
+            "discover",
+            "Discovering current Python modules",
+            processed_modules=0,
+            total_modules=0,
+            symbol_count=self.adapter.graph.report.symbol_count,
+        )
         refreshed_inventory = discover_python_modules(self.root_path)
         refreshed_by_relative = {
             module.relative_path: module for module in refreshed_inventory.modules
         }
+        total_modules = len(refreshed_inventory.modules)
+        emit_progress(
+            progress,
+            "discover",
+            f"Discovered {total_modules} Python module{'s' if total_modules != 1 else ''}",
+            processed_modules=total_modules,
+            total_modules=total_modules,
+            symbol_count=self.adapter.graph.report.symbol_count,
+        )
 
         previous_relative_paths = set(previous_by_relative)
         refreshed_relative_paths = set(refreshed_by_relative)
@@ -138,17 +171,54 @@ class WorkspaceSession:
         parser = PythonModuleParser()
         reparsed_relative_paths: list[str] = []
         next_parsed_modules: list[ParsedModule] = []
+        modules_to_parse_total = sum(
+            1
+            for module in refreshed_inventory.modules
+            if module.relative_path in modules_to_reparse or previous_by_relative.get(module.relative_path) is None
+        )
+        if modules_to_parse_total == 0:
+            emit_progress(
+                progress,
+                "parse",
+                "No modules required reparsing",
+                processed_modules=0,
+                total_modules=0,
+                symbol_count=sum(len(parsed.symbols) for parsed in self.adapter.parsed_modules),
+            )
+        parsed_count = 0
+        symbol_count = 0
         for module in refreshed_inventory.modules:
             previous = previous_by_relative.get(module.relative_path)
             needs_reparse = module.relative_path in modules_to_reparse or previous is None
             if needs_reparse:
-                next_parsed_modules.append(parser.parse_module(module))
+                parsed = parser.parse_module(module)
+                next_parsed_modules.append(parsed)
                 reparsed_relative_paths.append(module.relative_path)
+                parsed_count += 1
+                symbol_count += len(parsed.symbols)
+                emit_progress(
+                    progress,
+                    "parse",
+                    f"Parsed {module.relative_path}",
+                    processed_modules=parsed_count,
+                    total_modules=modules_to_parse_total,
+                    symbol_count=symbol_count,
+                )
             else:
                 next_parsed_modules.append(previous)
+                if previous is not None:
+                    symbol_count += len(previous.symbols)
 
         self.adapter.inventory = refreshed_inventory
         self.adapter.parsed_modules = next_parsed_modules
+        emit_progress(
+            progress,
+            "graph_build",
+            "Rebuilding the repo graph",
+            processed_modules=total_modules,
+            total_modules=total_modules,
+            symbol_count=symbol_count,
+        )
         self.adapter.graph = build_repo_graph(self.root_path, self.adapter.parsed_modules)
 
         changed_paths = tuple(
@@ -161,7 +231,7 @@ class WorkspaceSession:
         if changed_paths or reparsed_relative_paths:
             self.session_version += 1
 
-        payload = self.build_payload(top_n=top_n)
+        payload = self.build_payload(top_n=top_n, progress=progress)
         return {
             "payload": payload,
             "changed_relative_paths": list(changed_paths),
@@ -182,4 +252,3 @@ class WorkspaceSessionManager:
             session = WorkspaceSession.open(root_path)
             self._sessions[root_path] = session
         return session
-
