@@ -29,6 +29,8 @@ export interface StoredGraphLayout {
   groups: StoredGraphGroup[];
 }
 
+const storedGraphLayoutSnapshots = new Map<string, StoredGraphLayout>();
+
 function emptyStoredGraphLayout(): StoredGraphLayout {
   return {
     nodes: {},
@@ -36,6 +38,67 @@ function emptyStoredGraphLayout(): StoredGraphLayout {
     pinnedNodeIds: [],
     groups: [],
   };
+}
+
+function cloneStoredGraphLayout(layout: StoredGraphLayout): StoredGraphLayout {
+  return {
+    nodes: Object.fromEntries(
+      Object.entries(layout.nodes).map(([nodeId, position]) => [
+        nodeId,
+        { x: position.x, y: position.y },
+      ]),
+    ),
+    reroutes: layout.reroutes.map((reroute) => ({
+      id: reroute.id,
+      edgeId: reroute.edgeId,
+      order: reroute.order,
+      x: reroute.x,
+      y: reroute.y,
+    })),
+    pinnedNodeIds: [...layout.pinnedNodeIds],
+    groups: layout.groups.map((group) => ({
+      id: group.id,
+      title: group.title,
+      memberNodeIds: [...group.memberNodeIds],
+    })),
+  };
+}
+
+function storedGraphLayoutSnapshotKey(
+  repoPath: string | undefined,
+  viewKey: string | undefined,
+): string | undefined {
+  if (!repoPath || !viewKey) {
+    return undefined;
+  }
+
+  return `${repoPath}\u0000${viewKey}`;
+}
+
+function getStoredGraphLayoutSnapshot(
+  repoPath: string | undefined,
+  viewKey: string | undefined,
+): StoredGraphLayout | undefined {
+  const snapshotKey = storedGraphLayoutSnapshotKey(repoPath, viewKey);
+  if (!snapshotKey) {
+    return undefined;
+  }
+
+  const snapshot = storedGraphLayoutSnapshots.get(snapshotKey);
+  return snapshot ? cloneStoredGraphLayout(snapshot) : undefined;
+}
+
+function setStoredGraphLayoutSnapshot(
+  repoPath: string | undefined,
+  viewKey: string | undefined,
+  layout: StoredGraphLayout,
+) {
+  const snapshotKey = storedGraphLayoutSnapshotKey(repoPath, viewKey);
+  if (!snapshotKey) {
+    return;
+  }
+
+  storedGraphLayoutSnapshots.set(snapshotKey, cloneStoredGraphLayout(layout));
 }
 
 export function graphLayoutNodeKey(
@@ -170,6 +233,17 @@ export function graphLayoutViewKey(graph: GraphView): string {
   return [graph.level, targetKey].join("|");
 }
 
+export function peekStoredGraphLayout(
+  repoPath: string | undefined,
+  viewKey: string | undefined,
+): StoredGraphLayout | undefined {
+  return getStoredGraphLayoutSnapshot(repoPath, viewKey);
+}
+
+export function clearStoredGraphLayoutSnapshotCache() {
+  storedGraphLayoutSnapshots.clear();
+}
+
 export async function readStoredGraphLayout(
   repoPath: string | undefined,
   viewKey: string | undefined,
@@ -178,12 +252,18 @@ export async function readStoredGraphLayout(
     return emptyStoredGraphLayout();
   }
 
+  const cachedLayout = getStoredGraphLayoutSnapshot(repoPath, viewKey);
+  if (cachedLayout) {
+    return cachedLayout;
+  }
+
   try {
-    const layout = await invoke<unknown>("read_repo_graph_layout", {
+    const layout = normalizeLayout(await invoke<unknown>("read_repo_graph_layout", {
       repoPath,
       viewKey,
-    });
-    return normalizeLayout(layout);
+    }));
+    setStoredGraphLayoutSnapshot(repoPath, viewKey, layout);
+    return cloneStoredGraphLayout(layout);
   } catch {
     return emptyStoredGraphLayout();
   }
@@ -198,11 +278,14 @@ export async function writeStoredGraphLayout(
     return;
   }
 
+  const normalizedLayout = normalizeLayout(layout);
+  setStoredGraphLayoutSnapshot(repoPath, viewKey, normalizedLayout);
+
   try {
     await invoke("write_repo_graph_layout", {
       repoPath,
       viewKey,
-      layoutJson: JSON.stringify(layout),
+      layoutJson: JSON.stringify(normalizedLayout),
     });
   } catch {
     // Ignore persistence failures and keep dragging interactive.

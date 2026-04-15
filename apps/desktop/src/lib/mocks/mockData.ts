@@ -2179,8 +2179,10 @@ export function applyMockEdit(
       summary: validation.syncState === "clean"
         ? `Updated visual flow for ${symbol.name}.`
         : `Saved draft visual flow for ${symbol.name}.`,
-      touchedRelativePaths: [symbol.filePath],
-      reparsedRelativePaths: [symbol.filePath],
+      touchedRelativePaths: validation.syncState === "clean"
+        ? [symbol.filePath, ".helm/flow-models.v1.json"]
+        : [".helm/flow-models.v1.json"],
+      reparsedRelativePaths: validation.syncState === "clean" ? [symbol.filePath] : [],
       changedNodeIds: changedNodeIds.length ? changedNodeIds : [request.targetId],
       warnings: validation.syncState === "clean"
         ? []

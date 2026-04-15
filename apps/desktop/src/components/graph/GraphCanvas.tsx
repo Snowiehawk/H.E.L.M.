@@ -10,6 +10,7 @@ import {
   applyNodeChanges,
   useReactFlow,
   useKeyPress,
+  type Connection,
   type Edge,
   type EdgeTypes,
   type Node,
@@ -53,6 +54,7 @@ import { layoutFlowGraph } from "./flowLayout";
 import {
   graphLayoutNodeKey,
   graphLayoutViewKey,
+  peekStoredGraphLayout,
   readStoredGraphLayout,
   type StoredGraphGroup,
   type StoredGraphLayout,
@@ -106,6 +108,21 @@ export interface GraphCreateIntent {
   anchorLabel?: string;
   flowPosition: { x: number; y: number };
   panelPosition: { x: number; y: number };
+}
+export interface GraphFlowEditIntent {
+  nodeId: string;
+  flowPosition: { x: number; y: number };
+  panelPosition: { x: number; y: number };
+}
+export interface GraphFlowConnectionIntent {
+  sourceId: string;
+  sourceHandle?: string | null;
+  targetId: string;
+  targetHandle?: string | null;
+}
+export interface GraphFlowDeleteIntent {
+  nodeIds: string[];
+  edgeIds: string[];
 }
 type FlowCreateLaneTrigger = {
   edgeId: string;
@@ -496,6 +513,7 @@ function buildSemanticCanvasNodes(
   groupedNodeIds: Set<string>,
   selectedGroupMemberNodeIds: Set<string>,
   canPinNodes: boolean,
+  canConnectFlowHandles: boolean,
   onTogglePinned: (nodeId: string) => void,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
   onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
@@ -559,6 +577,7 @@ function buildSemanticCanvasNodes(
           onPortHoverStart,
           onPortHoverEnd,
         ),
+        connectable: canConnectFlowHandles,
         actions,
         onDefaultAction: actions[0]?.onAction,
       },
@@ -619,6 +638,7 @@ function buildCanvasNodes(
   groupedNodeIds: Set<string>,
   selectedGroupMemberNodeIds: Set<string>,
   canPinNodes: boolean,
+  canConnectFlowHandles: boolean,
   onTogglePinned: (nodeId: string) => void,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
   onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
@@ -641,6 +661,7 @@ function buildCanvasNodes(
       groupedNodeIds,
       selectedGroupMemberNodeIds,
       canPinNodes,
+      canConnectFlowHandles,
       onTogglePinned,
       onActivateNode,
       onInspectNode,
@@ -1544,9 +1565,11 @@ function buildCanvasEdges({
   highlightedEdgeIds,
   hoverActive,
   nodes,
+  onEdgeClick,
   onEdgeHoverEnd,
   onEdgeHoverStart,
   onInsertReroute,
+  selectedControlEdgeIds,
   selectedConnectedEdgeIds,
   selectionContextActive,
   showEdgeLabels,
@@ -1558,6 +1581,13 @@ function buildCanvasEdges({
   highlightedEdgeIds: Set<string>;
   hoverActive: boolean;
   nodes: GraphCanvasNode[];
+  onEdgeClick: (
+    logicalEdgeId: string,
+    logicalEdgeKind: GraphEdgeKind,
+    position: { x: number; y: number },
+    clientPosition: { x: number; y: number },
+    logicalEdgeLabel?: string,
+  ) => void;
   onEdgeHoverEnd: () => void;
   onEdgeHoverStart: (
     logicalEdgeId: string,
@@ -1569,6 +1599,7 @@ function buildCanvasEdges({
     segmentIndex: number,
     position: { x: number; y: number },
   ) => void;
+  selectedControlEdgeIds: Set<string>;
   selectedConnectedEdgeIds: Set<string>;
   selectionContextActive: boolean;
   showEdgeLabels: boolean;
@@ -1579,16 +1610,21 @@ function buildCanvasEdges({
     const reroutes = reroutesByEdge.get(edge.id) ?? [];
     const handles = blueprint.edgeHandles.get(edge.id);
     const connected = selectedConnectedEdgeIds.has(edge.id);
+    const explicitlySelected = selectedControlEdgeIds.has(edge.id);
     const edgeHovered = highlightedEdgeIds.has(edge.id);
     const selectionHighlighted = selectionContextActive && connected;
     const highlighted = hoverActive
       ? edgeHovered
+      : explicitlySelected
+        ? true
       : selectionContextActive
         ? selectionHighlighted
         : highlightGraphPath && connected;
     const createHighlighted = createModeControlEdgeEnabled && edge.kind === "controls";
     const dimmed = hoverActive
       ? !edgeHovered
+      : selectedControlEdgeIds.size > 0
+        ? !explicitlySelected
       : selectionContextActive
         ? !selectionHighlighted
         : false;
@@ -1631,6 +1667,7 @@ function buildCanvasEdges({
           logicalEdgeKind: edge.kind,
           logicalEdgeLabel: edge.label,
           segmentIndex,
+          onClick: onEdgeClick,
           onHoverStart: onEdgeHoverStart,
           onHoverEnd: onEdgeHoverEnd,
           onInsertReroute,
@@ -2024,6 +2061,10 @@ export function GraphCanvas({
   createModeHint,
   onToggleCreateMode = () => {},
   onCreateIntent = () => {},
+  onEditFlowNodeIntent = () => {},
+  onConnectFlowEdge = () => {},
+  onReconnectFlowEdge = () => {},
+  onDeleteFlowSelection = () => {},
 }: {
   repoPath?: string;
   graph?: GraphView;
@@ -2051,6 +2092,10 @@ export function GraphCanvas({
   createModeHint?: string;
   onToggleCreateMode?: () => void;
   onCreateIntent?: (intent: GraphCreateIntent) => void;
+  onEditFlowNodeIntent?: (intent: GraphFlowEditIntent) => void;
+  onConnectFlowEdge?: (connection: GraphFlowConnectionIntent) => void;
+  onReconnectFlowEdge?: (edgeId: string, connection: GraphFlowConnectionIntent) => void;
+  onDeleteFlowSelection?: (selection: GraphFlowDeleteIntent) => void;
 }) {
   const { setTransientHelpTarget } = useWorkspaceHelp();
   const blueprint = useMemo(
@@ -2085,6 +2130,7 @@ export function GraphCanvas({
   const [nodes, setNodes] = useState<GraphCanvasNode[]>([]);
   const [groups, setGroups] = useState<StoredGraphGroup[]>([]);
   const [selectedSemanticNodeIds, setSelectedSemanticNodeIds] = useState<string[]>([]);
+  const [selectedControlEdgeIds, setSelectedControlEdgeIds] = useState<string[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>(undefined);
   const [editingGroupId, setEditingGroupId] = useState<string | undefined>(undefined);
   const [organizeGroupId, setOrganizeGroupId] = useState<string | undefined>(undefined);
@@ -2102,6 +2148,22 @@ export function GraphCanvas({
     [nodes],
   );
   const selectedRerouteCount = selectedRerouteNodes.length;
+  const selectedControlEdgeIdSet = useMemo(
+    () => new Set(selectedControlEdgeIds),
+    [selectedControlEdgeIds],
+  );
+  const flowAuthoringEnabled =
+    graph?.level === "flow"
+    && graph.flowState?.editable === true
+    && Boolean(graph.flowState?.document);
+  const authoredFlowNodeIds = useMemo(
+    () => new Set(
+      (graph?.flowState?.document?.nodes ?? [])
+        .filter((node) => node.kind !== "entry" && node.kind !== "exit")
+        .map((node) => node.id),
+    ),
+    [graph?.flowState?.document],
+  );
   const { groupByNodeId, memberNodeIdsByGroupId } = useMemo(
     () => buildGroupMembership(groups),
     [groups],
@@ -2209,9 +2271,14 @@ export function GraphCanvas({
   }, [graph?.edges, selectionPreviewNodeIdsKey, selectedPreviewNodeIds]);
   const selectionContextActive = selectionPreviewNodeIds.length > 0;
   const canPinNodes = graph?.level === "flow";
+  const selectedAuthorableFlowNodeIds = useMemo(
+    () => effectiveSemanticSelection.filter((nodeId) => authoredFlowNodeIds.has(nodeId)),
+    [authoredFlowNodeIds, effectiveSemanticSelection],
+  );
 
   const clearLocalSelection = () => {
     setSelectedSemanticNodeIds([]);
+    setSelectedControlEdgeIds([]);
     setSelectedGroupId(undefined);
     setOrganizeGroupId(undefined);
     setNodes((current) =>
@@ -2243,6 +2310,18 @@ export function GraphCanvas({
     reactFlowInstanceRef.current?.screenToFlowPosition(clientPosition)
     ?? { x: clientPosition.x, y: clientPosition.y }
   ), []);
+  const selectControlEdge = useCallback((edgeId: string) => {
+    setSelectedControlEdgeIds([edgeId]);
+    setSelectedGroupId(undefined);
+    setOrganizeGroupId(undefined);
+    setSelectedSemanticNodeIds([]);
+    setNodes((current) =>
+      current.some((node) => node.selected)
+        ? current.map((node) => (node.selected ? { ...node, selected: false } : node))
+        : current,
+    );
+    onClearSelection();
+  }, [onClearSelection]);
   const createEdgeTriggers = useMemo(() => {
     if (!graph || !(createModeReady && createModeControlEdgeEnabled && graph.level === "flow")) {
       return [];
@@ -2376,6 +2455,7 @@ export function GraphCanvas({
   };
 
   const selectGroup = (groupId: string) => {
+    setSelectedControlEdgeIds([]);
     setSelectedGroupId(groupId);
     setOrganizeGroupId((current) => (current === groupId ? current : undefined));
     setSelectedSemanticNodeIds([]);
@@ -2751,6 +2831,20 @@ export function GraphCanvas({
       return;
     }
 
+    if (
+      flowAuthoringEnabled
+      && shouldHandleRerouteDeleteKey(event)
+      && (selectedControlEdgeIds.length || selectedAuthorableFlowNodeIds.length)
+    ) {
+      event.preventDefault();
+      onDeleteFlowSelection({
+        nodeIds: selectedAuthorableFlowNodeIds,
+        edgeIds: selectedControlEdgeIds,
+      });
+      setSelectedControlEdgeIds([]);
+      return;
+    }
+
     if (shouldHandleUngroupKey(event)) {
       event.preventDefault();
       ungroupSelection();
@@ -2952,18 +3046,27 @@ export function GraphCanvas({
       pinnedNodeIds: [],
       groups: [],
     };
+    const cachedLayout = peekStoredGraphLayout(repoPath, viewKey);
+    const initialGroups = normalizeStoredGroups(cachedLayout?.groups, graphNodeIds);
+    const initialLayout: StoredGraphLayout = cachedLayout
+      ? {
+          ...cachedLayout,
+          groups: initialGroups,
+        }
+      : emptyLayout;
     const initialNodes = buildCanvasNodes(
       graph,
       EMPTY_STRING_SET,
-      emptyLayout,
+      initialLayout,
       EMPTY_STRING_SET,
       false,
       EMPTY_STRING_SET,
       EMPTY_STRING_SET,
       false,
-      EMPTY_STRING_SET,
+      new Set(initialGroups.flatMap((group) => group.memberNodeIds)),
       EMPTY_STRING_SET,
       canPinNodes,
+      flowAuthoringEnabled,
       togglePinnedNode,
       onActivateNode,
       onInspectNode,
@@ -2971,7 +3074,7 @@ export function GraphCanvas({
       () => setHoveredPortEdgeIds([]),
     );
     setNodes(initialNodes);
-    setGroups([]);
+    setGroups(initialGroups);
     setSelectedSemanticNodeIds([]);
     setSelectedGroupId(undefined);
     setEditingGroupId(undefined);
@@ -3008,6 +3111,7 @@ export function GraphCanvas({
             EMPTY_STRING_SET,
             EMPTY_STRING_SET,
             canPinNodes,
+            flowAuthoringEnabled,
             togglePinnedNode,
             onActivateNode,
             onInspectNode,
@@ -3039,6 +3143,7 @@ export function GraphCanvas({
           new Set(normalizedGroups.flatMap((group) => group.memberNodeIds)),
           EMPTY_STRING_SET,
           canPinNodes,
+          flowAuthoringEnabled,
           togglePinnedNode,
           onActivateNode,
           onInspectNode,
@@ -3055,6 +3160,7 @@ export function GraphCanvas({
   }, [
     graph,
     canPinNodes,
+    flowAuthoringEnabled,
     onActivateNode,
     onInspectNode,
     repoPath,
@@ -3079,6 +3185,7 @@ export function GraphCanvas({
         groupedNodeIds,
         selectedGroupMemberNodeIds,
         canPinNodes,
+        flowAuthoringEnabled,
         togglePinnedNode,
         onActivateNode,
         onInspectNode,
@@ -3091,6 +3198,7 @@ export function GraphCanvas({
     highlightedEdgeIds,
     hoverActive,
     canPinNodes,
+    flowAuthoringEnabled,
     onActivateNode,
     onInspectNode,
     selectedConnectedEdgeIds,
@@ -3113,6 +3221,15 @@ export function GraphCanvas({
       setEditingGroupTitle(DEFAULT_GROUP_TITLE);
     }
   }, [editingGroupId, groups, organizeGroupId, selectedGroupId]);
+
+  useEffect(() => {
+    const liveControlEdgeIds = new Set(
+      (graph?.edges ?? [])
+        .filter((edge) => edge.kind === "controls")
+        .map((edge) => edge.id),
+    );
+    setSelectedControlEdgeIds((current) => current.filter((edgeId) => liveControlEdgeIds.has(edgeId)));
+  }, [graph?.edges]);
 
   useEffect(() => {
     pendingLayoutUndoRef.current = undefined;
@@ -3348,6 +3465,12 @@ export function GraphCanvas({
     highlightedEdgeIds,
     hoverActive,
     nodes,
+    onEdgeClick: (logicalEdgeId, logicalEdgeKind) => {
+      if (!flowAuthoringEnabled || logicalEdgeKind !== "controls") {
+        return;
+      }
+      selectControlEdge(logicalEdgeId);
+    },
     onEdgeHoverEnd: () => {
       setHoveredEdgeId(undefined);
       setTransientHelpTarget(null);
@@ -3362,6 +3485,7 @@ export function GraphCanvas({
       });
     },
     onInsertReroute: handleInsertReroute,
+    selectedControlEdgeIds: selectedControlEdgeIdSet,
     selectedConnectedEdgeIds,
     selectionContextActive,
     showEdgeLabels,
@@ -3444,6 +3568,9 @@ export function GraphCanvas({
               ? current
               : nextSelectedSemanticNodeIds,
           );
+          if (hasLocalNodeSelection && selectedControlEdgeIds.length) {
+            setSelectedControlEdgeIds([]);
+          }
           if (hasLocalNodeSelection && selectedGroupId) {
             setSelectedGroupId(undefined);
           }
@@ -3452,7 +3579,8 @@ export function GraphCanvas({
           }
         }}
         nodesDraggable
-        nodesConnectable={false}
+        nodesConnectable={flowAuthoringEnabled}
+        edgesReconnectable={flowAuthoringEnabled}
         selectionKeyCode={null}
         multiSelectionKeyCode={["Meta", "Control", "Shift"]}
         selectionOnDrag={!panModeActive && !createModeActive}
@@ -3465,6 +3593,36 @@ export function GraphCanvas({
         panOnScrollMode={PanOnScrollMode.Free}
         zoomActivationKeyCode="Alt"
         panOnDrag={panModeActive}
+        onConnect={(connection: Connection) => {
+          if (!flowAuthoringEnabled || !connection.source || !connection.target) {
+            return;
+          }
+          onConnectFlowEdge({
+            sourceId: connection.source,
+            sourceHandle: connection.sourceHandle,
+            targetId: connection.target,
+            targetHandle: connection.targetHandle,
+          });
+          setSelectedControlEdgeIds([]);
+        }}
+        onReconnect={(oldEdge, newConnection) => {
+          const logicalEdgeId = (oldEdge.data as BlueprintEdgeData | undefined)?.logicalEdgeId;
+          if (
+            !flowAuthoringEnabled
+            || !logicalEdgeId
+            || !newConnection.source
+            || !newConnection.target
+          ) {
+            return;
+          }
+          onReconnectFlowEdge(logicalEdgeId, {
+            sourceId: newConnection.source,
+            sourceHandle: newConnection.sourceHandle,
+            targetId: newConnection.target,
+            targetHandle: newConnection.targetHandle,
+          });
+          setSelectedControlEdgeIds([]);
+        }}
         onNodeClick={(event, node) => {
           const flowCreateModeSelectionOnly = createModeActive && graph.level === "flow";
           if (createModeActive && !flowCreateModeSelectionOnly) {
@@ -3475,6 +3633,10 @@ export function GraphCanvas({
               );
             }
             return;
+          }
+
+          if (selectedControlEdgeIds.length) {
+            setSelectedControlEdgeIds([]);
           }
 
           if (isRerouteCanvasNode(node)) {
@@ -3548,11 +3710,22 @@ export function GraphCanvas({
           });
           onSelectNode(node.id, node.data.kind);
         }}
-        onNodeDoubleClick={(_, node) => {
+        onNodeDoubleClick={(event, node) => {
           if (createModeActive) {
             return;
           }
           if (isRerouteCanvasNode(node)) {
+            return;
+          }
+          if (flowAuthoringEnabled && authoredFlowNodeIds.has(node.id)) {
+            onEditFlowNodeIntent({
+              nodeId: node.id,
+              flowPosition: screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+              panelPosition: {
+                x: event.clientX - (panelRef.current?.getBoundingClientRect().left ?? 0),
+                y: event.clientY - (panelRef.current?.getBoundingClientRect().top ?? 0),
+              },
+            });
             return;
           }
           node.data.onDefaultAction?.();
@@ -3566,6 +3739,9 @@ export function GraphCanvas({
               );
             }
             return;
+          }
+          if (selectedControlEdgeIds.length) {
+            setSelectedControlEdgeIds([]);
           }
           clearLocalSelection();
           onClearSelection();
@@ -3683,6 +3859,7 @@ function applyNodeDecorations(
   groupedNodeIds: Set<string>,
   selectedGroupMemberNodeIds: Set<string>,
   canPinNodes: boolean,
+  canConnectFlowHandles: boolean,
   onTogglePinned: (nodeId: string) => void,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
   onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
@@ -3772,6 +3949,7 @@ function applyNodeDecorations(
           onPortHoverStart,
           onPortHoverEnd,
         ),
+        connectable: canConnectFlowHandles,
         actions,
         onDefaultAction: actions[0]?.onAction,
       },

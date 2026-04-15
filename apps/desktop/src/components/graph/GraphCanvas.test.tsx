@@ -22,16 +22,76 @@ import {
 import type { StoredGraphLayout } from "./graphLayoutPersistence";
 import { useUndoStore } from "../../store/undoStore";
 
-const { readStoredGraphLayoutMock, writeStoredGraphLayoutMock, confirmDialogMock } = vi.hoisted(() => ({
+const {
+  readStoredGraphLayoutMock,
+  writeStoredGraphLayoutMock,
+  peekStoredGraphLayoutMock,
+  confirmDialogMock,
+  storedGraphLayoutSnapshots,
+} = vi.hoisted(() => ({
   readStoredGraphLayoutMock: vi.fn(),
   writeStoredGraphLayoutMock: vi.fn(),
+  peekStoredGraphLayoutMock: vi.fn(),
   confirmDialogMock: vi.fn(),
+  storedGraphLayoutSnapshots: new Map<string, StoredGraphLayout>(),
 }));
+
+function mockStoredGraphLayoutKey(repoPath: string | undefined, viewKey: string | undefined) {
+  if (!repoPath || !viewKey) {
+    return undefined;
+  }
+
+  return `${repoPath}\u0000${viewKey}`;
+}
+
+function cloneStoredGraphLayout(layout: StoredGraphLayout): StoredGraphLayout {
+  return {
+    nodes: Object.fromEntries(
+      Object.entries(layout.nodes).map(([nodeId, position]) => [
+        nodeId,
+        { x: position.x, y: position.y },
+      ]),
+    ),
+    reroutes: layout.reroutes.map((reroute) => ({ ...reroute })),
+    pinnedNodeIds: [...layout.pinnedNodeIds],
+    groups: layout.groups.map((group) => ({
+      ...group,
+      memberNodeIds: [...group.memberNodeIds],
+    })),
+  };
+}
+
+function getMockStoredGraphLayout(
+  repoPath: string | undefined,
+  viewKey: string | undefined,
+): StoredGraphLayout | undefined {
+  const key = mockStoredGraphLayoutKey(repoPath, viewKey);
+  if (!key) {
+    return undefined;
+  }
+
+  const layout = storedGraphLayoutSnapshots.get(key);
+  return layout ? cloneStoredGraphLayout(layout) : undefined;
+}
+
+function setMockStoredGraphLayout(
+  repoPath: string | undefined,
+  viewKey: string | undefined,
+  layout: StoredGraphLayout,
+) {
+  const key = mockStoredGraphLayoutKey(repoPath, viewKey);
+  if (!key) {
+    return;
+  }
+
+  storedGraphLayoutSnapshots.set(key, cloneStoredGraphLayout(layout));
+}
 
 vi.mock("./graphLayoutPersistence", async () => {
   const actual = await vi.importActual<typeof import("./graphLayoutPersistence")>("./graphLayoutPersistence");
   return {
     ...actual,
+    peekStoredGraphLayout: peekStoredGraphLayoutMock,
     readStoredGraphLayout: readStoredGraphLayoutMock,
     writeStoredGraphLayout: writeStoredGraphLayoutMock,
   };
@@ -136,6 +196,55 @@ const baseGraph: GraphView = {
     availableLevels: ["symbol", "flow"],
   },
   truncated: false,
+};
+
+const editableFlowDocument: FlowGraphDocument = {
+  symbolId: "symbol:calculator:calculate",
+  relativePath: "calculator.py",
+  qualname: "calculator.calculate",
+  editable: true,
+  syncState: "clean",
+  diagnostics: [],
+  sourceHash: "sha256:test",
+  nodes: [
+    { id: "entry:calculate", kind: "entry", payload: {} },
+    { id: "branch:left", kind: "branch", payload: { condition: "left_branch" } },
+    { id: "branch:right", kind: "branch", payload: { condition: "right_branch" } },
+    { id: "return:done", kind: "return", payload: { expression: "done" } },
+  ],
+  edges: [
+    {
+      id: "controls:entry:left",
+      sourceId: "entry:calculate",
+      sourceHandle: "start",
+      targetId: "branch:left",
+      targetHandle: "in",
+    },
+    {
+      id: "controls:left:right",
+      sourceId: "branch:left",
+      sourceHandle: "after",
+      targetId: "branch:right",
+      targetHandle: "in",
+    },
+    {
+      id: "controls:right:return",
+      sourceId: "branch:right",
+      sourceHandle: "after",
+      targetId: "return:done",
+      targetHandle: "in",
+    },
+  ],
+};
+
+const editableFlowGraph: GraphView = {
+  ...baseGraph,
+  flowState: {
+    editable: true,
+    syncState: "clean",
+    diagnostics: [],
+    document: editableFlowDocument,
+  },
 };
 
 const labeledPathGraph: GraphView = {
@@ -722,12 +831,26 @@ function renderGraphCanvas(overrides: Partial<Parameters<typeof GraphCanvas>[0]>
 
 describe("GraphCanvas", () => {
   beforeEach(() => {
+    storedGraphLayoutSnapshots.clear();
     readStoredGraphLayoutMock.mockReset();
     writeStoredGraphLayoutMock.mockReset();
+    peekStoredGraphLayoutMock.mockReset();
     confirmDialogMock.mockReset();
     useUndoStore.getState().resetSession(undefined);
-    readStoredGraphLayoutMock.mockResolvedValue(originalLayout);
-    writeStoredGraphLayoutMock.mockResolvedValue(undefined);
+    setMockStoredGraphLayout("/workspace/calculator", "flow|symbol:calculator:calculate", originalLayout);
+    readStoredGraphLayoutMock.mockImplementation(async (repoPath: string | undefined, viewKey: string | undefined) => (
+      getMockStoredGraphLayout(repoPath, viewKey) ?? cloneStoredGraphLayout(originalLayout)
+    ));
+    writeStoredGraphLayoutMock.mockImplementation(async (
+      repoPath: string | undefined,
+      viewKey: string | undefined,
+      layout: StoredGraphLayout,
+    ) => {
+      setMockStoredGraphLayout(repoPath, viewKey, layout);
+    });
+    peekStoredGraphLayoutMock.mockImplementation((repoPath: string | undefined, viewKey: string | undefined) => (
+      getMockStoredGraphLayout(repoPath, viewKey)
+    ));
     confirmDialogMock.mockResolvedValue(true);
   });
 
@@ -964,6 +1087,70 @@ describe("GraphCanvas", () => {
     fireEvent.click(within(await screen.findByTestId("rf__node-branch:left")).getByText("branch left"));
 
     await waitFor(() => expect(readStoredGraphLayoutMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps persisted flow-node positions stable through a same-view rebuild", async () => {
+    const persistedLayout = buildStoredLayout({
+      nodes: {
+        "entry:calculate": { x: 10, y: 20 },
+        "branch:left": { x: 910, y: 340 },
+        "branch:right": { x: 1040, y: 360 },
+        "return:done": { x: 1200, y: 340 },
+      },
+    });
+    setMockStoredGraphLayout("/workspace/calculator", "flow|symbol:calculator:calculate", persistedLayout);
+
+    const { rerender } = renderGraphCanvas();
+    const branchNode = await screen.findByTestId("rf__node-branch:left");
+    await waitFor(() => {
+      expect(branchNode.style.transform).toContain("translate(910px,340px)");
+    });
+
+    const rebuiltGraph: GraphView = {
+      ...baseGraph,
+      nodes: baseGraph.nodes.map((node) => (
+        node.id === "branch:left"
+          ? {
+              ...node,
+              x: 45,
+              y: 55,
+            }
+          : node
+      )),
+    };
+
+    rerender(
+      <GraphCanvas
+        repoPath="/workspace/calculator"
+        graph={rebuiltGraph}
+        activeNodeId="entry:calculate"
+        graphFilters={{
+          includeCalls: true,
+          includeDefines: true,
+          includeImports: true,
+        }}
+        graphSettings={{
+          includeExternalDependencies: false,
+        }}
+        highlightGraphPath={false}
+        showEdgeLabels={false}
+        onSelectNode={vi.fn()}
+        onActivateNode={vi.fn()}
+        onInspectNode={vi.fn()}
+        onSelectBreadcrumb={vi.fn()}
+        onSelectLevel={vi.fn()}
+        onToggleGraphFilter={vi.fn()}
+        onToggleGraphSetting={vi.fn()}
+        onToggleGraphPathHighlight={vi.fn()}
+        onToggleEdgeLabels={vi.fn()}
+        onNavigateOut={vi.fn()}
+        onClearSelection={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rf__node-branch:left").style.transform).toContain("translate(910px,340px)");
+    });
   });
 
   it("treats shift-click as additive multiselect for nodes", async () => {
@@ -1586,6 +1773,35 @@ describe("GraphCanvas", () => {
             y: expect.any(Number),
           }),
           flowPosition: expect.objectContaining({
+            x: expect.any(Number),
+            y: expect.any(Number),
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("opens a flow edit intent from authored node double-clicks when editable draft flow authoring is active", async () => {
+    const onEditFlowNodeIntent = vi.fn();
+
+    renderGraphCanvas({
+      graph: editableFlowGraph,
+      activeNodeId: undefined,
+      onEditFlowNodeIntent,
+    });
+
+    const existingNode = await screen.findByTestId("rf__node-branch:left");
+    fireEvent.doubleClick(existingNode);
+
+    await waitFor(() =>
+      expect(onEditFlowNodeIntent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodeId: "branch:left",
+          flowPosition: expect.objectContaining({
+            x: expect.any(Number),
+            y: expect.any(Number),
+          }),
+          panelPosition: expect.objectContaining({
             x: expect.any(Number),
             y: expect.any(Number),
           }),

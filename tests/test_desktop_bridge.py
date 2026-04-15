@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from helm.editor.flow_model import import_flow_document_from_function_source
 from helm.ui.desktop_bridge import (
     apply_undo_to_payload,
     apply_edit_to_payload,
@@ -203,6 +204,120 @@ class DesktopBridgeTests(unittest.TestCase):
                 ["flow:symbol:service:run:statement:1"],
             )
             self.assertIn("helper = current + 1", (root / "service.py").read_text(encoding="utf-8"))
+
+    def test_apply_edit_to_payload_round_trips_draft_replace_flow_graph(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            source = (
+                "def run(value):\n"
+                "    return value\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:run",
+                relative_path="service.py",
+                qualname="run",
+                module_source=source,
+            )
+            draft_payload = imported.to_dict()
+            draft_payload["nodes"].append(
+                {
+                    "id": "flowdoc:symbol:service:run:call:disconnected",
+                    "kind": "call",
+                    "payload": {"source": "notify(value)"},
+                }
+            )
+
+            response = apply_edit_to_payload(
+                root,
+                json.dumps(
+                    {
+                        "kind": "replace_flow_graph",
+                        "target_id": "symbol:service:run",
+                        "flow_graph": draft_payload,
+                    }
+                ),
+            )
+            flow = build_flow_view_payload(root, "symbol:service:run")
+
+            self.assertEqual(response["edit"]["flow_sync_state"], "draft")
+            self.assertEqual(response["edit"]["touched_relative_paths"], [".helm/flow-models.v1.json"])
+            self.assertTrue(response["edit"]["diagnostics"])
+            self.assertEqual(flow["flow_state"]["sync_state"], "draft")
+            self.assertTrue(flow["flow_state"]["diagnostics"])
+            self.assertTrue(
+                any(
+                    node["id"] == "flowdoc:symbol:service:run:call:disconnected"
+                    for node in flow["flow_state"]["document"]["nodes"]
+                )
+            )
+
+    def test_apply_edit_to_payload_round_trips_clean_replace_flow_graph(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            source = (
+                "def run(value):\n"
+                "    return value\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:run",
+                relative_path="service.py",
+                qualname="run",
+                module_source=source,
+            )
+            clean_payload = imported.to_dict()
+            original_edge = clean_payload["edges"][0]
+            call_node_id = "flowdoc:symbol:service:run:call:prepare"
+            clean_payload["nodes"].append(
+                {
+                    "id": call_node_id,
+                    "kind": "call",
+                    "payload": {"source": "prepare(value)"},
+                }
+            )
+            clean_payload["edges"] = [
+                {
+                    "id": f"controls:{original_edge['source_id']}:start->{call_node_id}:in",
+                    "source_id": original_edge["source_id"],
+                    "source_handle": "start",
+                    "target_id": call_node_id,
+                    "target_handle": "in",
+                },
+                {
+                    "id": f"controls:{call_node_id}:next->{original_edge['target_id']}:in",
+                    "source_id": call_node_id,
+                    "source_handle": "next",
+                    "target_id": original_edge["target_id"],
+                    "target_handle": "in",
+                },
+            ]
+
+            response = apply_edit_to_payload(
+                root,
+                json.dumps(
+                    {
+                        "kind": "replace_flow_graph",
+                        "target_id": "symbol:service:run",
+                        "flow_graph": clean_payload,
+                    }
+                ),
+            )
+            flow = build_flow_view_payload(root, "symbol:service:run")
+
+            self.assertEqual(response["edit"]["flow_sync_state"], "clean")
+            self.assertEqual(
+                response["edit"]["touched_relative_paths"],
+                ["service.py", ".helm/flow-models.v1.json"],
+            )
+            self.assertEqual(flow["flow_state"]["sync_state"], "clean")
+            self.assertEqual(flow["flow_state"]["diagnostics"], [])
+            self.assertTrue(
+                any(node["id"] == call_node_id for node in flow["flow_state"]["document"]["nodes"])
+            )
+            self.assertIn("prepare(value)", (root / "service.py").read_text(encoding="utf-8"))
 
     def test_apply_undo_to_payload_restores_created_symbol(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

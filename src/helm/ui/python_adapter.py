@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Literal
 
 from helm.editor import apply_backend_undo, apply_structural_edit
+from helm.editor.flow_model import (
+    FlowImportError,
+    FlowModelDocument,
+    FlowModelEdge,
+    FlowModelNode,
+    flow_edge_label,
+    flow_edge_order,
+    flow_node_label,
+    function_source_for_qualname,
+    function_source_hash,
+    import_flow_document_from_function_source,
+    read_flow_document,
+)
 from helm.editor.declaration_support import resolve_declaration_edit_support
 from helm.editor.models import (
     BackendUndoResult,
@@ -41,6 +54,15 @@ _STAGE_PROGRESS_RANGES: dict[IndexStage, tuple[int, int]] = {
     "graph_build": (76, 88),
     "cache_finalize": (88, 95),
     "watch_ready": (95, 100),
+}
+_FLOW_VISUAL_GRAPH_NODE_KINDS = {
+    GraphViewNodeKind.ENTRY,
+    GraphViewNodeKind.ASSIGN,
+    GraphViewNodeKind.CALL,
+    GraphViewNodeKind.BRANCH,
+    GraphViewNodeKind.LOOP,
+    GraphViewNodeKind.RETURN,
+    GraphViewNodeKind.EXIT,
 }
 
 
@@ -258,12 +280,51 @@ class PythonRepoAdapter:
         symbol: SymbolDef,
     ) -> GraphView:
         source = Path(parsed.module.file_path).read_text(encoding="utf-8")
-        return self._build_code_derived_function_flow_view(
+        base_view = self._build_code_derived_function_flow_view(
             symbol_node=symbol_node,
             parsed=parsed,
             symbol=symbol,
             source=source,
-            import_error=None,
+            flow_state=None,
+        )
+        persisted_document = read_flow_document(self.root_path, symbol.symbol_id)
+        current_source_hash = function_source_hash(
+            function_source_for_qualname(source, symbol.qualname)
+        )
+
+        if (
+            persisted_document is not None
+            and persisted_document.source_hash == current_source_hash
+        ):
+            return replace(
+                base_view,
+                flow_state=_flow_state_payload(persisted_document),
+            )
+
+        try:
+            imported_document = import_flow_document_from_function_source(
+                symbol_id=symbol.symbol_id,
+                relative_path=parsed.module.relative_path,
+                qualname=symbol.qualname,
+                module_source=source,
+            )
+        except FlowImportError as exc:
+            return replace(
+                base_view,
+                flow_state=_flow_state_payload(
+                    _build_import_error_flow_document(
+                        symbol_id=symbol.symbol_id,
+                        relative_path=parsed.module.relative_path,
+                        qualname=symbol.qualname,
+                        source_hash=current_source_hash,
+                        diagnostics=(str(exc),),
+                    )
+                ),
+            )
+
+        return replace(
+            base_view,
+            flow_state=_flow_state_payload(imported_document),
         )
 
     def _build_code_derived_function_flow_view(
@@ -273,7 +334,7 @@ class PythonRepoAdapter:
         parsed: ParsedModule,
         symbol: SymbolDef,
         source: str,
-        import_error: str | None,
+        flow_state: dict[str, Any] | None,
     ) -> GraphView:
         symbol_id = symbol.symbol_id
         tree = ast.parse(source, filename=parsed.module.file_path)
@@ -320,7 +381,6 @@ class PythonRepoAdapter:
             statement_index=0,
         )
 
-        diagnostics = [import_error] if import_error else []
         return GraphView(
             root_node_id=entry_id,
             target_id=symbol_id,
@@ -341,10 +401,10 @@ class PythonRepoAdapter:
                 ),
             ),
             truncated=False,
-            flow_state={
+            flow_state=flow_state or {
                 "editable": False,
-                "sync_state": "import_error" if diagnostics else "clean",
-                "diagnostics": diagnostics,
+                "sync_state": "clean",
+                "diagnostics": [],
                 "document": None,
             },
         )
@@ -1424,6 +1484,162 @@ def _source_metadata_for_ast_node(node: ast.AST) -> dict[str, int]:
         "source_end_line": end_line,
         "source_end_column": end_column,
     }
+
+
+def _flow_state_payload(document: FlowModelDocument) -> dict[str, Any]:
+    return {
+        "editable": document.editable,
+        "sync_state": document.sync_state,
+        "diagnostics": list(document.diagnostics),
+        "document": document.to_dict(),
+    }
+
+
+def _build_import_error_flow_document(
+    *,
+    symbol_id: str,
+    relative_path: str,
+    qualname: str,
+    source_hash: str,
+    diagnostics: tuple[str, ...],
+) -> FlowModelDocument:
+    entry_node_id = f"flowdoc:{symbol_id}:entry"
+    exit_node_id = f"flowdoc:{symbol_id}:exit"
+    return FlowModelDocument(
+        symbol_id=symbol_id,
+        relative_path=relative_path,
+        qualname=qualname,
+        nodes=(
+            FlowModelNode(node_id=entry_node_id, kind="entry", payload={}),
+            FlowModelNode(node_id=exit_node_id, kind="exit", payload={}),
+        ),
+        edges=(),
+        sync_state="import_error",
+        diagnostics=diagnostics,
+        source_hash=source_hash,
+        editable=False,
+    )
+
+
+def _project_function_flow_document_view(
+    base_view: GraphView,
+    document: FlowModelDocument,
+) -> GraphView:
+    visual_node_ids = {node.node_id for node in document.nodes}
+    preserved_nodes = tuple(
+        node
+        for node in base_view.nodes
+        if node.node_id not in visual_node_ids
+        and node.kind not in _FLOW_VISUAL_GRAPH_NODE_KINDS
+    )
+    base_nodes_by_id = {node.node_id: node for node in base_view.nodes}
+    document_nodes = tuple(
+        _graph_view_node_for_flow_model_node(
+            node,
+            index=index,
+            qualname=document.qualname,
+            existing=base_nodes_by_id.get(node.node_id),
+        )
+        for index, node in enumerate(document.nodes)
+    )
+    visible_node_ids = {
+        *(node.node_id for node in preserved_nodes),
+        *(node.node_id for node in document_nodes),
+    }
+    base_edges_by_id = {edge.edge_id: edge for edge in base_view.edges}
+    preserved_edges = tuple(
+        edge
+        for edge in base_view.edges
+        if edge.kind != GraphViewEdgeKind.CONTROLS
+        and edge.source_id in visible_node_ids
+        and edge.target_id in visible_node_ids
+    )
+    document_edges = tuple(
+        _graph_view_edge_for_flow_model_edge(
+            edge,
+            existing=base_edges_by_id.get(edge.edge_id),
+        )
+        for edge in document.edges
+    )
+    root_node_id = (
+        base_view.root_node_id
+        if base_view.root_node_id in visible_node_ids
+        else (document.nodes[0].node_id if document.nodes else base_view.root_node_id)
+    )
+    return replace(
+        base_view,
+        root_node_id=root_node_id,
+        nodes=(*preserved_nodes, *document_nodes),
+        edges=(*preserved_edges, *document_edges),
+        flow_state=_flow_state_payload(document),
+    )
+
+
+def _graph_view_node_for_flow_model_node(
+    node: FlowModelNode,
+    *,
+    index: int,
+    qualname: str,
+    existing: GraphViewNode | None,
+) -> GraphViewNode:
+    return GraphViewNode(
+        node_id=node.node_id,
+        kind=GraphViewNodeKind(node.kind),
+        label=flow_node_label(node),
+        subtitle=existing.subtitle if existing and existing.subtitle else _flow_node_subtitle(node, qualname),
+        metadata={
+            **(existing.metadata if existing else {}),
+            "flow_visual": True,
+            "flow_order": index,
+        },
+        available_actions=existing.available_actions if existing else (),
+    )
+
+
+def _graph_view_edge_for_flow_model_edge(
+    edge: FlowModelEdge,
+    *,
+    existing: GraphViewEdge | None,
+) -> GraphViewEdge:
+    path_label = flow_edge_label(edge.source_handle)
+    path_order = flow_edge_order(edge.source_handle)
+    metadata = {
+        **(existing.metadata if existing else {}),
+        "source_handle": edge.source_handle,
+        "target_handle": edge.target_handle,
+    }
+    if path_label is not None:
+        metadata["path_key"] = path_label
+        metadata["path_label"] = path_label
+    if path_order is not None:
+        metadata["path_order"] = path_order
+
+    return GraphViewEdge(
+        edge_id=edge.edge_id,
+        kind=GraphViewEdgeKind.CONTROLS,
+        source_id=edge.source_id,
+        target_id=edge.target_id,
+        label=path_label,
+        metadata=metadata,
+    )
+
+
+def _flow_node_subtitle(node: FlowModelNode, qualname: str) -> str:
+    if node.kind == "entry":
+        return qualname
+    if node.kind == "exit":
+        return "Flow exit"
+    if node.kind == "assign":
+        return "Assign"
+    if node.kind == "call":
+        return "Call"
+    if node.kind == "branch":
+        return "Branch"
+    if node.kind == "loop":
+        return "Loop"
+    if node.kind == "return":
+        return "Return"
+    return node.kind.title()
 
 
 def _exact_source_snippet(content: str, span: SourceSpan) -> str:

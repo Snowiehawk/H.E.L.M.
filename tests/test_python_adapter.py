@@ -5,6 +5,13 @@ import unittest
 from pathlib import Path
 
 from helm.editor import serialize_edit_request, serialize_undo_transaction
+from helm.editor.flow_model import (
+    FlowModelDocument,
+    FlowModelEdge,
+    FlowModelNode,
+    import_flow_document_from_function_source,
+    write_flow_document,
+)
 from helm.graph.models import GraphAbstractionLevel
 from helm.ui.python_adapter import PythonRepoAdapter
 from tests.helpers import write_repo_files
@@ -112,6 +119,11 @@ class PythonRepoAdapterTests(unittest.TestCase):
             assign_node = next(node for node in flow.nodes if node.kind.value == "assign")
             self.assertEqual(assign_node.metadata["source_start_line"], 2)
             self.assertEqual(assign_node.metadata["source_end_line"], 2)
+            self.assertIsNotNone(flow.flow_state)
+            assert flow.flow_state is not None
+            self.assertTrue(flow.flow_state["editable"])
+            self.assertEqual(flow.flow_state["sync_state"], "clean")
+            self.assertIsNotNone(flow.flow_state["document"])
 
     def test_flow_view_marks_loop_body_and_exit_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -142,6 +154,165 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 {edge.metadata["path_key"] for edge in loop_edges},
                 {"body", "exit"},
             )
+
+    def test_flow_view_rehydrates_persisted_draft_documents_with_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "def run(value):\n"
+                "    return value\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            adapter = PythonRepoAdapter.scan(root)
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:run",
+                relative_path="service.py",
+                qualname="run",
+                module_source=source,
+            )
+            draft_document = FlowModelDocument(
+                symbol_id=imported.symbol_id,
+                relative_path=imported.relative_path,
+                qualname=imported.qualname,
+                nodes=(
+                    *imported.nodes,
+                    FlowModelNode(
+                        node_id="flowdoc:symbol:service:run:call:disconnected",
+                        kind="call",
+                        payload={"source": "notify(value)"},
+                    ),
+                ),
+                edges=imported.edges,
+                sync_state="draft",
+                diagnostics=("Unreachable flow nodes block code generation: flowdoc:symbol:service:run:call:disconnected.",),
+                source_hash=imported.source_hash,
+                editable=True,
+            )
+            write_flow_document(root, draft_document)
+
+            flow = adapter.get_flow_view("symbol:service:run")
+
+            self.assertIsNotNone(flow.flow_state)
+            assert flow.flow_state is not None
+            self.assertEqual(flow.flow_state["sync_state"], "draft")
+            self.assertTrue(flow.flow_state["editable"])
+            self.assertTrue(
+                any("Unreachable flow nodes" in message for message in flow.flow_state["diagnostics"])
+            )
+            document = flow.flow_state["document"]
+            self.assertIsNotNone(document)
+            assert document is not None
+            self.assertEqual(document["sync_state"], "draft")
+            self.assertTrue(
+                any(node["id"] == "flowdoc:symbol:service:run:call:disconnected" for node in document["nodes"])
+            )
+
+    def test_flow_view_reimports_stale_persisted_documents_instead_of_exposing_them(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "def run(value):\n"
+                "    return value\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            write_flow_document(
+                root,
+                FlowModelDocument(
+                    symbol_id="symbol:service:run",
+                    relative_path="service.py",
+                    qualname="run",
+                    nodes=(
+                        FlowModelNode(node_id="flowdoc:symbol:service:run:entry", kind="entry", payload={}),
+                        FlowModelNode(
+                            node_id="flowdoc:symbol:service:run:call:stale",
+                            kind="call",
+                            payload={"source": "stale()"},
+                        ),
+                        FlowModelNode(node_id="flowdoc:symbol:service:run:exit", kind="exit", payload={}),
+                    ),
+                    edges=(
+                        FlowModelEdge(
+                            edge_id=(
+                                "controls:flowdoc:symbol:service:run:entry:start"
+                                "->flowdoc:symbol:service:run:call:stale:in"
+                            ),
+                            source_id="flowdoc:symbol:service:run:entry",
+                            source_handle="start",
+                            target_id="flowdoc:symbol:service:run:call:stale",
+                            target_handle="in",
+                        ),
+                    ),
+                    sync_state="draft",
+                    diagnostics=("stale diagnostics",),
+                    source_hash="stale-source-hash",
+                    editable=True,
+                ),
+            )
+
+            adapter = PythonRepoAdapter.scan(root)
+            flow = adapter.get_flow_view("symbol:service:run")
+
+            self.assertIsNotNone(flow.flow_state)
+            assert flow.flow_state is not None
+            self.assertEqual(flow.flow_state["sync_state"], "clean")
+            self.assertTrue(flow.flow_state["editable"])
+            document = flow.flow_state["document"]
+            self.assertIsNotNone(document)
+            assert document is not None
+            self.assertEqual(document["sync_state"], "clean")
+            self.assertFalse(any(node["id"].endswith(":call:stale") for node in document["nodes"]))
+            self.assertFalse(any(node.node_id.endswith(":call:stale") for node in flow.nodes))
+
+    def test_flow_view_returns_import_error_for_stale_documents_when_current_source_cannot_import(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "def run(value):\n"
+                "    with helper(value) as current:\n"
+                "        return current\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            write_flow_document(
+                root,
+                FlowModelDocument(
+                    symbol_id="symbol:service:run",
+                    relative_path="service.py",
+                    qualname="run",
+                    nodes=(
+                        FlowModelNode(node_id="flowdoc:symbol:service:run:entry", kind="entry", payload={}),
+                        FlowModelNode(
+                            node_id="flowdoc:symbol:service:run:call:stale",
+                            kind="call",
+                            payload={"source": "stale()"},
+                        ),
+                        FlowModelNode(node_id="flowdoc:symbol:service:run:exit", kind="exit", payload={}),
+                    ),
+                    edges=(),
+                    sync_state="draft",
+                    diagnostics=("stale diagnostics",),
+                    source_hash="stale-source-hash",
+                    editable=True,
+                ),
+            )
+
+            adapter = PythonRepoAdapter.scan(root)
+            flow = adapter.get_flow_view("symbol:service:run")
+
+            self.assertIsNotNone(flow.flow_state)
+            assert flow.flow_state is not None
+            self.assertEqual(flow.flow_state["sync_state"], "import_error")
+            self.assertFalse(flow.flow_state["editable"])
+            self.assertTrue(flow.flow_state["diagnostics"])
+            document = flow.flow_state["document"]
+            self.assertIsNotNone(document)
+            assert document is not None
+            self.assertEqual(document["sync_state"], "import_error")
+            self.assertFalse(document["editable"])
+            self.assertFalse(any(node["id"].endswith(":call:stale") for node in document["nodes"]))
+            self.assertFalse(any(node.node_id.endswith(":call:stale") for node in flow.nodes))
 
     def test_class_symbol_view_surfaces_direct_members_and_flow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

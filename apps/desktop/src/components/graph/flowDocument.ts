@@ -8,6 +8,14 @@ import type {
 export type AuthoredFlowNodeKind = Exclude<FlowVisualNodeKind, "entry" | "exit">;
 export type AuthoredFlowNode = FlowGraphNode & { kind: AuthoredFlowNodeKind };
 
+export function isAuthoredFlowNodeKind(kind: FlowVisualNodeKind | string): kind is AuthoredFlowNodeKind {
+  return kind === "assign"
+    || kind === "call"
+    || kind === "return"
+    || kind === "branch"
+    || kind === "loop";
+}
+
 export function createFlowNode(symbolId: string, kind: AuthoredFlowNodeKind): AuthoredFlowNode {
   const unique =
     typeof globalThis.crypto?.randomUUID === "function"
@@ -48,6 +56,41 @@ export function flowNodePayloadFromContent(
     return { header: normalized.replace(/:$/, "") };
   }
   return { expression: normalized.replace(/^return\s+/i, "") };
+}
+
+export function flowNodeContentFromPayload(
+  kind: AuthoredFlowNodeKind,
+  payload: Record<string, unknown>,
+): string {
+  if (kind === "assign" || kind === "call") {
+    return typeof payload.source === "string" ? payload.source : "";
+  }
+  if (kind === "branch") {
+    const condition = typeof payload.condition === "string" ? payload.condition : "";
+    return condition ? `if ${condition}` : "";
+  }
+  if (kind === "loop") {
+    return typeof payload.header === "string" ? payload.header : "";
+  }
+  const expression = typeof payload.expression === "string" ? payload.expression : "";
+  return expression ? `return ${expression}` : "return";
+}
+
+export function flowDocumentHandleFromBlueprintHandle(
+  handleId: string | null | undefined,
+  direction: "source" | "target",
+): string | undefined {
+  if (!handleId) {
+    return undefined;
+  }
+
+  if (direction === "target") {
+    return handleId === "in:control:exec" ? "in" : undefined;
+  }
+
+  return handleId.startsWith("out:control:")
+    ? handleId.slice("out:control:".length)
+    : undefined;
 }
 
 export function allowedOutputHandles(kind: FlowVisualNodeKind): string[] {

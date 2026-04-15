@@ -23,6 +23,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 }));
 
 import { LiveDesktopAdapter } from "./liveDesktopAdapter";
+import type { IndexingJobState } from "./contracts";
 
 describe("LiveDesktopAdapter", () => {
   beforeEach(() => {
@@ -150,6 +151,137 @@ describe("LiveDesktopAdapter", () => {
     ).toBeLessThan(
       graph.nodes.find((node) => node.id === "flow:symbol:calculator:run:statement:0")?.x ?? 0,
     );
+  });
+
+  it("maps flow_state documents, sync state, diagnostics, and source hash from the backend contract", async () => {
+    const adapter = new LiveDesktopAdapter();
+    Reflect.set(adapter, "scanCache", {
+      session: {
+        id: "repo:/workspace/calculator",
+        name: "Calculator",
+        path: "/workspace/calculator",
+        branch: "local",
+        primaryLanguage: "Python",
+        openedAt: "2026-04-09T00:00:00.000Z",
+      },
+    });
+
+    invokeMock.mockResolvedValue({
+      root_node_id: "flow:symbol:calculator:run:entry",
+      target_id: "symbol:calculator:run",
+      level: "flow",
+      nodes: [
+        {
+          node_id: "flow:symbol:calculator:run:entry",
+          kind: "entry",
+          label: "Entry",
+          subtitle: "run",
+          metadata: { flow_order: 0 },
+          available_actions: [],
+        },
+        {
+          node_id: "flow:symbol:calculator:run:statement:0",
+          kind: "assign",
+          label: "value = prepare()",
+          subtitle: "assignment",
+          metadata: { flow_order: 1 },
+          available_actions: [],
+        },
+      ],
+      edges: [
+        {
+          edge_id: "controls:entry->assign",
+          kind: "controls",
+          source_id: "flow:symbol:calculator:run:entry",
+          target_id: "flow:symbol:calculator:run:statement:0",
+          metadata: {
+            source_handle: "start",
+            target_handle: "in",
+          },
+        },
+      ],
+      breadcrumbs: [],
+      focus: {
+        target_id: "symbol:calculator:run",
+        level: "flow",
+        label: "run",
+        available_levels: ["symbol", "flow"],
+      },
+      truncated: false,
+      flow_state: {
+        editable: true,
+        sync_state: "draft",
+        diagnostics: ["flow:symbol:calculator:run:statement:0 is disconnected."],
+        document: {
+          symbol_id: "symbol:calculator:run",
+          relative_path: "calculator.py",
+          qualname: "calculator.run",
+          editable: true,
+          sync_state: "draft",
+          diagnostics: ["flow:symbol:calculator:run:statement:0 is disconnected."],
+          source_hash: "sha256:abc123",
+          nodes: [
+            {
+              id: "flow:symbol:calculator:run:entry",
+              kind: "entry",
+              payload: {},
+            },
+            {
+              id: "flow:symbol:calculator:run:statement:0",
+              kind: "assign",
+              payload: { source: "value = prepare()" },
+            },
+          ],
+          edges: [
+            {
+              id: "controls:entry->assign",
+              source_id: "flow:symbol:calculator:run:entry",
+              source_handle: "start",
+              target_id: "flow:symbol:calculator:run:statement:0",
+              target_handle: "in",
+            },
+          ],
+        },
+      },
+    });
+
+    const graph = await adapter.getFlowView("symbol:calculator:run");
+
+    expect(graph.flowState).toEqual({
+      editable: true,
+      syncState: "draft",
+      diagnostics: ["flow:symbol:calculator:run:statement:0 is disconnected."],
+      document: {
+        symbolId: "symbol:calculator:run",
+        relativePath: "calculator.py",
+        qualname: "calculator.run",
+        editable: true,
+        syncState: "draft",
+        diagnostics: ["flow:symbol:calculator:run:statement:0 is disconnected."],
+        sourceHash: "sha256:abc123",
+        nodes: [
+          {
+            id: "flow:symbol:calculator:run:entry",
+            kind: "entry",
+            payload: {},
+          },
+          {
+            id: "flow:symbol:calculator:run:statement:0",
+            kind: "assign",
+            payload: { source: "value = prepare()" },
+          },
+        ],
+        edges: [
+          {
+            id: "controls:entry->assign",
+            sourceId: "flow:symbol:calculator:run:entry",
+            sourceHandle: "start",
+            targetId: "flow:symbol:calculator:run:statement:0",
+            targetHandle: "in",
+          },
+        ],
+      },
+    });
   });
 
   it("updates cached workspace state from live sync events", async () => {
@@ -292,7 +424,7 @@ describe("LiveDesktopAdapter", () => {
 
   it("updates indexing jobs from backend index progress events", async () => {
     const adapter = new LiveDesktopAdapter();
-    const states: Array<Record<string, unknown>> = [];
+    const states: IndexingJobState[] = [];
     let resolveScan: ((value: unknown) => void) | undefined;
     const payload = {
       summary: {
@@ -440,7 +572,7 @@ describe("LiveDesktopAdapter", () => {
 
     unsubscribe();
 
-    expect(states[0]).toMatchObject({
+    expect(states[0] as unknown as Record<string, unknown>).toMatchObject({
       jobId,
       repoPath: "/workspace/calculator",
       status: "queued",
@@ -456,7 +588,7 @@ describe("LiveDesktopAdapter", () => {
         progressPercent: 42,
       }),
     );
-    expect(states.at(-1)).toMatchObject({
+    expect((states[states.length - 1] ?? null) as unknown as Record<string, unknown> | null).toMatchObject({
       jobId,
       status: "done",
       stage: "watch_ready",

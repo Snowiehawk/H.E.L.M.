@@ -26,8 +26,12 @@ export function establishFlowDraftDocument(graph: GraphView | undefined): FlowGr
     return undefined;
   }
 
-  if (graph.flowState?.document) {
+  if (graph.flowState?.document && graph.flowState.editable && graph.flowState.document.editable) {
     return cloneFlowDocument(graph.flowState.document);
+  }
+
+  if (graph.flowState && graph.flowState.editable === false) {
+    return undefined;
   }
 
   return flowDocumentFromVisualGraph(graph);

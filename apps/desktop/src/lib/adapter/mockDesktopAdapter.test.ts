@@ -95,8 +95,51 @@ describe("MockDesktopAdapter", () => {
     const updated = await adapter.getFlowView("symbol:helm.ui.api:build_graph_summary");
 
     expect(result.flowSyncState).toBe("draft");
+    expect(result.touchedRelativePaths).toEqual([".helm/flow-models.v1.json"]);
     expect(result.diagnostics.some((diagnostic) => diagnostic.includes("disconnected"))).toBe(true);
+    expect(updated.flowState?.syncState).toBe("draft");
     expect(updated.flowState?.document?.nodes.some((node) => node.id.endsWith(":assign:disconnected"))).toBe(true);
     expect(updated.nodes.some((node) => node.id.endsWith(":assign:disconnected"))).toBe(true);
+  });
+
+  it("round-trips clean flow replacements through replace_flow_graph with source and flow-model touches", async () => {
+    const adapter = new MockDesktopAdapter();
+    const original = await adapter.getFlowView("symbol:helm.ui.api:build_graph_summary");
+    const baseDocument = original.flowState?.document;
+    if (!baseDocument) {
+      throw new Error("Expected the mock flow view to expose a draft-capable flow document.");
+    }
+
+    const cleanDocument: FlowGraphDocument = {
+      ...baseDocument,
+      nodes: baseDocument.nodes.map((node) => (
+        node.id === "flow:symbol:helm.ui.api:build_graph_summary:call:rank"
+          ? {
+              ...node,
+              payload: { source: "rank_modules(module_summaries, top_n)" },
+            }
+          : node
+      )),
+    };
+
+    const result = await adapter.applyStructuralEdit({
+      kind: "replace_flow_graph",
+      targetId: "symbol:helm.ui.api:build_graph_summary",
+      flowGraph: cleanDocument,
+    });
+    const updated = await adapter.getFlowView("symbol:helm.ui.api:build_graph_summary");
+
+    expect(result.flowSyncState).toBe("clean");
+    expect(result.diagnostics).toEqual([]);
+    expect(result.touchedRelativePaths).toEqual([
+      "src/helm/ui/api.py",
+      ".helm/flow-models.v1.json",
+    ]);
+    expect(updated.flowState?.syncState).toBe("clean");
+    expect(
+      updated.flowState?.document?.nodes.find((node) => node.id === "flow:symbol:helm.ui.api:build_graph_summary:call:rank")
+        ?.payload,
+    ).toEqual({ source: "rank_modules(module_summaries, top_n)" });
+    expect(updated.nodes.some((node) => node.label.includes("rank_modules(module_summaries, top_n)"))).toBe(true);
   });
 });

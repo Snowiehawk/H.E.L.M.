@@ -3,12 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "../app/AppProviders";
-import { graphLayoutNodeKey } from "../components/graph/graphLayoutPersistence";
+import {
+  graphLayoutNodeKey,
+  type StoredGraphLayout,
+} from "../components/graph/graphLayoutPersistence";
 import { buildRepoSession, defaultRepoPath, mockBackendStatus } from "../lib/mocks/mockData";
 import { MockDesktopAdapter } from "../lib/adapter/mockDesktopAdapter";
 import type {
   BackendStatus,
   GraphAbstractionLevel,
+  GraphView,
   SourceRange,
   WorkspaceSyncEvent,
 } from "../lib/adapter";
@@ -17,7 +21,7 @@ import { useUndoStore } from "../store/undoStore";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 
 const WORKSPACE_TEST_TIMEOUT_MS = 15000;
-const EMPTY_STORED_GRAPH_LAYOUT = {
+const EMPTY_STORED_GRAPH_LAYOUT: StoredGraphLayout = {
   nodes: {},
   reroutes: [],
   pinnedNodeIds: [],
@@ -41,6 +45,61 @@ const { readStoredGraphLayoutMock, writeStoredGraphLayoutMock } = vi.hoisted(() 
   readStoredGraphLayoutMock: vi.fn(),
   writeStoredGraphLayoutMock: vi.fn(),
 }));
+const { peekStoredGraphLayoutMock, storedGraphLayoutSnapshots } = vi.hoisted(() => ({
+  peekStoredGraphLayoutMock: vi.fn(),
+  storedGraphLayoutSnapshots: new Map<string, StoredGraphLayout>(),
+}));
+
+function mockStoredGraphLayoutKey(repoPath: string | undefined, viewKey: string | undefined) {
+  if (!repoPath || !viewKey) {
+    return undefined;
+  }
+
+  return `${repoPath}\u0000${viewKey}`;
+}
+
+function cloneStoredGraphLayout(layout: StoredGraphLayout): StoredGraphLayout {
+  return {
+    nodes: Object.fromEntries(
+      Object.entries(layout.nodes).map(([nodeId, position]) => [
+        nodeId,
+        { x: position.x, y: position.y },
+      ]),
+    ),
+    reroutes: layout.reroutes.map((reroute) => ({ ...reroute })),
+    pinnedNodeIds: [...layout.pinnedNodeIds],
+    groups: layout.groups.map((group) => ({
+      ...group,
+      memberNodeIds: [...group.memberNodeIds],
+    })),
+  };
+}
+
+function getMockStoredGraphLayout(
+  repoPath: string | undefined,
+  viewKey: string | undefined,
+) {
+  const key = mockStoredGraphLayoutKey(repoPath, viewKey);
+  if (!key) {
+    return undefined;
+  }
+
+  const layout = storedGraphLayoutSnapshots.get(key);
+  return layout ? cloneStoredGraphLayout(layout) : undefined;
+}
+
+function setMockStoredGraphLayout(
+  repoPath: string | undefined,
+  viewKey: string | undefined,
+  layout: StoredGraphLayout,
+) {
+  const key = mockStoredGraphLayoutKey(repoPath, viewKey);
+  if (!key) {
+    return;
+  }
+
+  storedGraphLayoutSnapshots.set(key, cloneStoredGraphLayout(layout));
+}
 
 vi.mock("../components/editor/InspectorCodeSurface", () => ({
   InspectorCodeSurface: ({
@@ -92,6 +151,7 @@ vi.mock("../components/graph/graphLayoutPersistence", async () => {
   const actual = await vi.importActual<typeof import("../components/graph/graphLayoutPersistence")>("../components/graph/graphLayoutPersistence");
   return {
     ...actual,
+    peekStoredGraphLayout: peekStoredGraphLayoutMock,
     readStoredGraphLayout: readStoredGraphLayoutMock,
     writeStoredGraphLayout: writeStoredGraphLayoutMock,
   };
@@ -256,14 +316,54 @@ class FlowSaveFailureMockDesktopAdapter extends MockDesktopAdapter {
   }
 }
 
+class ImportErrorFlowMockDesktopAdapter extends MockDesktopAdapter {
+  override async getFlowView(symbolId: string): Promise<GraphView> {
+    const graph = await super.getFlowView(symbolId);
+    if (symbolId !== "symbol:helm.ui.api:build_graph_summary") {
+      return graph;
+    }
+
+    const diagnostics = ["Current source cannot be represented as a visual flow."];
+    return {
+      ...graph,
+      flowState: {
+        editable: false,
+        syncState: "import_error",
+        diagnostics,
+        document: graph.flowState?.document
+          ? {
+              ...graph.flowState.document,
+              editable: false,
+              syncState: "import_error",
+              diagnostics,
+            }
+          : undefined,
+      },
+    };
+  }
+}
+
 describe("WorkspaceScreen", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     resetStore();
+    storedGraphLayoutSnapshots.clear();
     readStoredGraphLayoutMock.mockReset();
     writeStoredGraphLayoutMock.mockReset();
-    readStoredGraphLayoutMock.mockResolvedValue(EMPTY_STORED_GRAPH_LAYOUT);
-    writeStoredGraphLayoutMock.mockResolvedValue(undefined);
+    peekStoredGraphLayoutMock.mockReset();
+    readStoredGraphLayoutMock.mockImplementation(async (repoPath: string | undefined, viewKey: string | undefined) => (
+      getMockStoredGraphLayout(repoPath, viewKey) ?? cloneStoredGraphLayout(EMPTY_STORED_GRAPH_LAYOUT)
+    ));
+    writeStoredGraphLayoutMock.mockImplementation(async (
+      repoPath: string | undefined,
+      viewKey: string | undefined,
+      layout: StoredGraphLayout,
+    ) => {
+      setMockStoredGraphLayout(repoPath, viewKey, layout);
+    });
+    peekStoredGraphLayoutMock.mockImplementation((repoPath: string | undefined, viewKey: string | undefined) => (
+      getMockStoredGraphLayout(repoPath, viewKey)
+    ));
   });
 
   it("resizes the explorer panel and restores the saved width", async () => {
@@ -901,6 +1001,10 @@ describe("WorkspaceScreen", () => {
       x: firstClick.clientX,
       y: firstClick.clientY,
     });
+    const createdNodeHost = await flowGraph.findByTestId(`rf__node-${createdNodeId}`);
+    await waitFor(() => {
+      expect(createdNodeHost.style.transform).toContain(`translate(${firstClick.clientX}px,${firstClick.clientY}px)`);
+    });
     await waitFor(() => {
       expect(screen.queryByRole("heading", { name: /Create flow node/i })).not.toBeInTheDocument();
     });
@@ -910,6 +1014,9 @@ describe("WorkspaceScreen", () => {
     );
     expect(screen.queryByRole("heading", { name: /Create flow node/i })).not.toBeInTheDocument();
     expect(useUiStore.getState().activeNodeId).toBe("flow:symbol:helm.ui.api:build_graph_summary:assign:modules");
+    expect((await flowGraph.findByTestId(`rf__node-${createdNodeId}`)).style.transform).toContain(
+      `translate(${firstClick.clientX}px,${firstClick.clientY}px)`,
+    );
     expect((await screen.findAllByText(/rank_modules/i)).length).toBeGreaterThan(0);
 
     fireEvent.click(graphPane as HTMLElement, { clientX: 260, clientY: 200 });
@@ -1037,13 +1144,20 @@ describe("WorkspaceScreen", () => {
     );
     const graphPane = (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane");
     expect(graphPane).not.toBeNull();
-    await user.click(graphPane as HTMLElement);
+    const spawnClick = { clientX: 240, clientY: 180 };
+    fireEvent.click(graphPane as HTMLElement, spawnClick);
     await user.type(screen.getByRole("textbox", { name: /Flow statement/i }), "helper = rank_modules(graph)");
     await user.click(screen.getByRole("button", { name: /Create node/i }));
     await screen.findAllByText(/rank_modules/i);
 
     const localNodeId = useUiStore.getState().activeNodeId;
     expect(localNodeId).toMatch(/^flowdoc:symbol:helm\.ui\.api:build_graph_summary:assign:/);
+    const localNodeHost = await screen.findByTestId(`rf__node-${localNodeId}`);
+    await waitFor(() => {
+      expect(localNodeHost.style.transform).toContain(
+        `translate(${spawnClick.clientX}px,${spawnClick.clientY}px)`,
+      );
+    });
     const initialFlowViewCalls = flowViewSpy.mock.calls.length;
 
     act(() => {
@@ -1067,6 +1181,9 @@ describe("WorkspaceScreen", () => {
     await waitFor(() => expect(flowViewSpy.mock.calls.length).toBeGreaterThan(initialFlowViewCalls));
     expect((await screen.findAllByText(/rank_modules/i)).length).toBeGreaterThan(0);
     expect(useUiStore.getState().activeNodeId).toBe(localNodeId);
+    expect((await screen.findByTestId(`rf__node-${localNodeId}`)).style.transform).toContain(
+      `translate(${spawnClick.clientX}px,${spawnClick.clientY}px)`,
+    );
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("routes lane insertion through replace_flow_graph when a draft document is available", async () => {
@@ -1199,7 +1316,58 @@ describe("WorkspaceScreen", () => {
     );
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
-  it("shows create mode as unavailable in class flow and does not open the composer", async () => {
+  it("edits an existing flow node via the popover and persists through replace_flow_graph", async () => {
+    const user = userEvent.setup();
+    const adapter = new MockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+
+    const authoredNode = await screen.findByTestId("rf__node-flow:symbol:helm.ui.api:build_graph_summary:assign:modules");
+    fireEvent.doubleClick(authoredNode);
+
+    expect(await screen.findByRole("heading", { name: /Edit flow node/i })).toBeInTheDocument();
+    const statementInput = screen.getByRole("textbox", { name: /Flow statement/i });
+    await user.clear(statementInput);
+    await user.type(statementInput, "module_summaries = rank_modules(graph)");
+    await user.click(screen.getByRole("button", { name: /Save node/i }));
+
+    await waitFor(() =>
+      expect(editSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "replace_flow_graph",
+          targetId: "symbol:helm.ui.api:build_graph_summary",
+        }),
+      ),
+    );
+    const replaceRequest = editSpy.mock.calls
+      .map(([request]) => request)
+      .filter((request) => request.kind === "replace_flow_graph")
+      .slice(-1)[0];
+    expect(replaceRequest?.flowGraph?.nodes.find((node: { id: string }) => node.id === "flow:symbol:helm.ui.api:build_graph_summary:assign:modules")?.payload).toEqual({
+      source: "module_summaries = rank_modules(graph)",
+    });
+    expect(await screen.findByText("module_summaries = rank_modules(graph)")).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("keeps create mode unavailable in class flow and does not open the composer", async () => {
     const user = userEvent.setup();
     const router = createMemoryRouter(
       [{ path: "/workspace", element: <WorkspaceScreen /> }],
@@ -1229,9 +1397,51 @@ describe("WorkspaceScreen", () => {
     (graphPanel as HTMLElement).focus();
     fireEvent.keyDown(graphPanel as HTMLElement, { key: "c" });
 
-    expect(await screen.findByText("Create mode only writes inside function or method flows in v1.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByTestId("graph-create-mode-badge")).not.toBeInTheDocument(),
+    );
     await user.click(graphPane as HTMLElement);
     expect(screen.queryByTestId("graph-create-composer")).not.toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("keeps import_error function flows non-authorable and does not expose flow edit tooling", async () => {
+    const user = userEvent.setup();
+    const adapter = new ImportErrorFlowMockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+
+    const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
+    (flowGraphPanel as HTMLElement).focus();
+    fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
+    await waitFor(() =>
+      expect(screen.queryByTestId("graph-create-mode-badge")).not.toBeInTheDocument(),
+    );
+
+    const authoredNode = await screen.findByTestId("rf__node-flow:symbol:helm.ui.api:build_graph_summary:assign:modules");
+    fireEvent.doubleClick(authoredNode);
+    expect(screen.queryByTestId("graph-create-composer")).not.toBeInTheDocument();
+
+    fireEvent.click(authoredNode);
+    fireEvent.keyDown(window, { key: "Delete" });
+    expect(editSpy).not.toHaveBeenCalled();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("closes the create composer with Escape before exiting create mode", async () => {

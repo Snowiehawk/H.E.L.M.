@@ -1,4 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  flowNodeContentFromPayload,
+  type AuthoredFlowNodeKind,
+} from "../graph/flowDocument";
 
 export interface GraphCreateComposerAnchor {
   x: number;
@@ -27,9 +31,13 @@ export type GraphCreateComposerState =
   | {
       id: string;
       kind: "flow";
+      mode: "create" | "edit";
       anchor: GraphCreateComposerAnchor;
       flowPosition: GraphCreateComposerFlowPosition;
       ownerLabel: string;
+      editingNodeId?: string;
+      initialFlowNodeKind?: AuthoredFlowNodeKind;
+      initialPayload?: Record<string, unknown>;
       insertion?: {
         anchorEdgeId: string;
         anchorLabel?: string;
@@ -80,6 +88,35 @@ export function GraphCreateComposer({
   const [loopHeader, setLoopHeader] = useState("");
   const [loopBody, setLoopBody] = useState("");
 
+  useEffect(() => {
+    setModulePath("");
+    setModuleContent("");
+    setSymbolKind("function");
+    setSymbolName("");
+    setSymbolBody("");
+
+    if (composer.kind !== "flow") {
+      setFlowKind("assign");
+      setFlowStatement("");
+      setBranchCondition("");
+      setBranchTrueBody("");
+      setBranchFalseBody("");
+      setLoopHeader("");
+      setLoopBody("");
+      return;
+    }
+
+    const nextKind = composer.initialFlowNodeKind ?? "assign";
+    const nextPayload = composer.initialPayload ?? {};
+    setFlowKind(nextKind);
+    setFlowStatement(flowStatementFromComposer(nextKind, nextPayload));
+    setBranchCondition(nextKind === "branch" && typeof nextPayload.condition === "string" ? nextPayload.condition : "");
+    setBranchTrueBody("");
+    setBranchFalseBody("");
+    setLoopHeader(nextKind === "loop" && typeof nextPayload.header === "string" ? nextPayload.header : "");
+    setLoopBody("");
+  }, [composer.id]);
+
   const title = useMemo(() => {
     if (composer.kind === "repo") {
       return "Create module";
@@ -87,8 +124,8 @@ export function GraphCreateComposer({
     if (composer.kind === "symbol") {
       return "Create symbol";
     }
-    return "Create flow node";
-  }, [composer.kind]);
+    return composer.mode === "edit" ? "Edit flow node" : "Create flow node";
+  }, [composer]);
 
   const handleSubmit = async () => {
     if (composer.kind === "repo") {
@@ -152,7 +189,9 @@ export function GraphCreateComposer({
     >
       <div className="graph-create-composer__header">
         <div>
-          <span className="window-bar__eyebrow">Create mode</span>
+          <span className="window-bar__eyebrow">
+            {composer.kind === "flow" && composer.mode === "edit" ? "Flow draft" : "Create mode"}
+          </span>
           <h3>{title}</h3>
         </div>
         <button className="ghost-button" type="button" onClick={onCancel}>
@@ -276,7 +315,9 @@ export function GraphCreateComposer({
           <div className="info-card">
             <strong>{composer.ownerLabel}</strong>
             <p>
-              {composer.insertion?.anchorLabel
+              {composer.mode === "edit"
+                ? "Update this flow node in the local draft."
+                : composer.insertion?.anchorLabel
                 ? `Path: ${composer.insertion.anchorLabel}`
                 : composer.insertion
                   ? "Create on the selected control-flow path."
@@ -289,6 +330,7 @@ export function GraphCreateComposer({
             </span>
             <select
               aria-label="Flow node kind"
+              disabled={composer.mode === "edit"}
               value={flowKind}
               onChange={(event) => setFlowKind(event.target.value as typeof flowKind)}
             >
@@ -401,7 +443,13 @@ export function GraphCreateComposer({
           {error ? <p className="error-copy">{error}</p> : null}
           <div className="graph-create-composer__actions">
             <button className="primary-button" type="submit" disabled={!canSubmit || isSubmitting}>
-              {isSubmitting ? "Creating..." : "Create node"}
+              {isSubmitting
+                ? composer.mode === "edit"
+                  ? "Saving..."
+                  : "Creating..."
+                : composer.mode === "edit"
+                  ? "Save node"
+                  : "Create node"}
             </button>
           </div>
         </form>
@@ -451,4 +499,11 @@ function buildFlowContent({
     `${normalizedHeader}:`,
     indentBlock(loopBody),
   ].join("\n");
+}
+
+function flowStatementFromComposer(
+  flowKind: AuthoredFlowNodeKind,
+  payload: Record<string, unknown>,
+) {
+  return flowNodeContentFromPayload(flowKind, payload);
 }

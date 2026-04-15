@@ -5,7 +5,11 @@ import unittest
 from pathlib import Path
 
 from helm.editor import apply_backend_undo, apply_structural_edit, serialize_edit_request
-from helm.editor.flow_model import FLOW_MODEL_RELATIVE_PATH
+from helm.editor.flow_model import (
+    FLOW_MODEL_RELATIVE_PATH,
+    import_flow_document_from_function_source,
+    read_flow_document,
+)
 from helm.graph import EdgeKind, build_repo_graph
 from helm.parser import PythonModuleParser, discover_python_modules
 from tests.helpers import write_repo_files
@@ -820,5 +824,143 @@ class EditorIntegrationTests(unittest.TestCase):
             undo_result = apply_backend_undo(root, result.undo_transaction)
 
             self.assertNotIn("helper = current + 1", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertEqual(undo_result.focus_target.target_id, "symbol:service:run")
+            self.assertEqual(undo_result.focus_target.level, "flow")
+
+    def test_replace_flow_graph_saves_invalid_graph_as_draft_without_touching_python_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            original_source = (
+                "def run(value):\n"
+                "    current = value + 1\n"
+                "    return current\n"
+            )
+            write_repo_files(root, {"service.py": original_source})
+
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:run",
+                relative_path="service.py",
+                qualname="run",
+                module_source=original_source,
+            )
+            draft_payload = imported.to_dict()
+            draft_payload["nodes"].append(
+                {
+                    "id": "flowdoc:symbol:service:run:call:disconnected",
+                    "kind": "call",
+                    "payload": {"source": "notify(current)"},
+                }
+            )
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_flow_graph",
+                        "target_id": "symbol:service:run",
+                        "flow_graph": draft_payload,
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertEqual(result.flow_sync_state, "draft")
+            self.assertTrue(any("Unreachable flow nodes" in message for message in result.diagnostics))
+            self.assertEqual(result.touched_relative_paths, (FLOW_MODEL_RELATIVE_PATH,))
+            self.assertEqual((root / "service.py").read_text(encoding="utf-8"), original_source)
+            self.assertEqual(result.undo_transaction.focus_target.target_id, "symbol:service:run")
+            self.assertEqual(result.undo_transaction.focus_target.level, "flow")
+
+            stored = read_flow_document(root, "symbol:service:run")
+            self.assertIsNotNone(stored)
+            assert stored is not None
+            self.assertEqual(stored.sync_state, "draft")
+            self.assertTrue(
+                any("Unreachable flow nodes" in message for message in stored.diagnostics)
+            )
+
+            undo_result = apply_backend_undo(root, result.undo_transaction)
+            self.assertFalse((root / FLOW_MODEL_RELATIVE_PATH).exists())
+            self.assertEqual(undo_result.focus_target.target_id, "symbol:service:run")
+            self.assertEqual(undo_result.focus_target.level, "flow")
+
+    def test_replace_flow_graph_saves_clean_graph_updates_source_and_undo_restores_both_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            original_source = (
+                "def run(value):\n"
+                "    return value\n"
+            )
+            write_repo_files(root, {"service.py": original_source})
+
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:run",
+                relative_path="service.py",
+                qualname="run",
+                module_source=original_source,
+            )
+            clean_payload = imported.to_dict()
+            original_edge = clean_payload["edges"][0]
+            call_node_id = "flowdoc:symbol:service:run:call:prepare"
+            clean_payload["nodes"].append(
+                {
+                    "id": call_node_id,
+                    "kind": "call",
+                    "payload": {"source": "prepare(value)"},
+                }
+            )
+            clean_payload["edges"] = [
+                {
+                    "id": f"controls:{original_edge['source_id']}:start->{call_node_id}:in",
+                    "source_id": original_edge["source_id"],
+                    "source_handle": "start",
+                    "target_id": call_node_id,
+                    "target_handle": "in",
+                },
+                {
+                    "id": f"controls:{call_node_id}:next->{original_edge['target_id']}:in",
+                    "source_id": call_node_id,
+                    "source_handle": "next",
+                    "target_id": original_edge["target_id"],
+                    "target_handle": "in",
+                },
+            ]
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_flow_graph",
+                        "target_id": "symbol:service:run",
+                        "flow_graph": clean_payload,
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertEqual(result.flow_sync_state, "clean")
+            self.assertEqual(result.diagnostics, ())
+            self.assertEqual(
+                result.touched_relative_paths,
+                ("service.py", FLOW_MODEL_RELATIVE_PATH),
+            )
+            self.assertIn("prepare(value)", (root / "service.py").read_text(encoding="utf-8"))
+
+            stored = read_flow_document(root, "symbol:service:run")
+            self.assertIsNotNone(stored)
+            assert stored is not None
+            self.assertEqual(stored.sync_state, "clean")
+            self.assertEqual(stored.diagnostics, ())
+            self.assertTrue(
+                any(node.node_id == call_node_id for node in stored.nodes)
+            )
+
+            undo_result = apply_backend_undo(root, result.undo_transaction)
+            self.assertEqual((root / "service.py").read_text(encoding="utf-8"), original_source)
+            self.assertFalse((root / FLOW_MODEL_RELATIVE_PATH).exists())
             self.assertEqual(undo_result.focus_target.target_id, "symbol:service:run")
             self.assertEqual(undo_result.focus_target.level, "flow")
