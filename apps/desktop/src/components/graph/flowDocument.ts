@@ -5,7 +5,10 @@ import type {
   FlowVisualNodeKind,
 } from "../../lib/adapter";
 
-export function createFlowNode(symbolId: string, kind: Exclude<FlowVisualNodeKind, "entry" | "exit">): FlowGraphNode {
+export type AuthoredFlowNodeKind = Exclude<FlowVisualNodeKind, "entry" | "exit">;
+export type AuthoredFlowNode = FlowGraphNode & { kind: AuthoredFlowNodeKind };
+
+export function createFlowNode(symbolId: string, kind: AuthoredFlowNodeKind): AuthoredFlowNode {
   const unique =
     typeof globalThis.crypto?.randomUUID === "function"
       ? globalThis.crypto.randomUUID()
@@ -17,7 +20,7 @@ export function createFlowNode(symbolId: string, kind: Exclude<FlowVisualNodeKin
   };
 }
 
-export function defaultPayloadForKind(kind: Exclude<FlowVisualNodeKind, "entry" | "exit">) {
+export function defaultPayloadForKind(kind: AuthoredFlowNodeKind) {
   if (kind === "assign" || kind === "call") {
     return { source: "" };
   }
@@ -28,6 +31,23 @@ export function defaultPayloadForKind(kind: Exclude<FlowVisualNodeKind, "entry" 
     return { header: "" };
   }
   return { expression: "" };
+}
+
+export function flowNodePayloadFromContent(
+  kind: AuthoredFlowNodeKind,
+  content: string,
+): Record<string, unknown> {
+  const normalized = content.trim();
+  if (kind === "assign" || kind === "call") {
+    return { source: normalized };
+  }
+  if (kind === "branch") {
+    return { condition: normalized.replace(/^if\s+/i, "").replace(/:$/, "") };
+  }
+  if (kind === "loop") {
+    return { header: normalized.replace(/:$/, "") };
+  }
+  return { expression: normalized.replace(/^return\s+/i, "") };
 }
 
 export function allowedOutputHandles(kind: FlowVisualNodeKind): string[] {
@@ -65,6 +85,80 @@ export function updateFlowNodePayload(
         ? { ...node, payload }
         : node
     )),
+  };
+}
+
+export function cloneFlowDocument(document: FlowGraphDocument): FlowGraphDocument {
+  return {
+    ...document,
+    diagnostics: [...document.diagnostics],
+    nodes: document.nodes.map((node) => ({
+      ...node,
+      payload: { ...node.payload },
+    })),
+    edges: document.edges.map((edge) => ({ ...edge })),
+  };
+}
+
+export function addDisconnectedFlowNode(
+  document: FlowGraphDocument,
+  node: FlowGraphNode,
+): FlowGraphDocument {
+  if (document.nodes.some((candidate) => candidate.id === node.id)) {
+    return document;
+  }
+
+  return {
+    ...document,
+    nodes: [...document.nodes, node],
+  };
+}
+
+export function insertFlowNodeOnEdge(
+  document: FlowGraphDocument,
+  node: AuthoredFlowNode,
+  anchorEdgeId: string,
+): FlowGraphDocument {
+  const anchorEdge = document.edges.find((edge) => edge.id === anchorEdgeId);
+  const seeded = addDisconnectedFlowNode(document, node);
+  if (!anchorEdge) {
+    return seeded;
+  }
+
+  return {
+    ...seeded,
+    edges: seeded.edges.flatMap((edge) => {
+      if (edge.id !== anchorEdgeId) {
+        return [edge];
+      }
+
+      return [
+        {
+          id: flowConnectionId({
+            sourceId: edge.sourceId,
+            sourceHandle: edge.sourceHandle,
+            targetId: node.id,
+            targetHandle: "in",
+          }),
+          sourceId: edge.sourceId,
+          sourceHandle: edge.sourceHandle,
+          targetId: node.id,
+          targetHandle: "in",
+        },
+        {
+          id: flowConnectionId({
+            sourceId: node.id,
+            sourceHandle: defaultFlowContinuationHandle(node.kind),
+            targetId: edge.targetId,
+            targetHandle: edge.targetHandle,
+          }),
+          sourceId: node.id,
+          sourceHandle: defaultFlowContinuationHandle(node.kind),
+          targetId: edge.targetId,
+          targetHandle: edge.targetHandle,
+        },
+      ];
+    }),
   };
 }
 
@@ -153,4 +247,21 @@ export function flowConnectionId(connection: {
   targetHandle: string;
 }) {
   return `controls:${connection.sourceId}:${connection.sourceHandle}->${connection.targetId}:${connection.targetHandle}`;
+}
+
+export function flowDocumentsEqual(
+  left: FlowGraphDocument | undefined,
+  right: FlowGraphDocument | undefined,
+) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function defaultFlowContinuationHandle(kind: AuthoredFlowNodeKind) {
+  if (kind === "branch") {
+    return "after";
+  }
+  if (kind === "loop") {
+    return "after";
+  }
+  return "next";
 }

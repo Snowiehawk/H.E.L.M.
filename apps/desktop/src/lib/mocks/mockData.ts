@@ -20,6 +20,8 @@ import type {
   SymbolDetails,
 } from "../adapter/contracts";
 import { isGraphSymbolNodeKind } from "../adapter/contracts";
+import { projectFlowDraftGraph } from "../../components/graph/flowDraftGraph";
+import { flowNodePayloadFromContent, insertFlowNodeOnEdge } from "../../components/graph/flowDocument";
 
 export const defaultRepoPath =
   "/Users/noahphillips/Documents/git-repos/H.E.L.M.";
@@ -1593,63 +1595,6 @@ function buildMockSymbolView(
   };
 }
 
-function applyMockFlowInsertions(
-  view: GraphView,
-  state: MockWorkspaceState,
-  symbolIdValue: string,
-): GraphView {
-  const insertions = state.flowInsertionsBySymbolId[symbolIdValue] ?? [];
-  if (!insertions.length) {
-    return view;
-  }
-
-  const nodes = [...view.nodes];
-  const edges = [...view.edges];
-  insertions.forEach((insertion, index) => {
-    const edgeIndex = edges.findIndex(
-      (edgeCandidate) => edgeCandidate.id === insertion.anchorEdgeId && edgeCandidate.kind === "controls",
-    );
-    if (edgeIndex < 0) {
-      return;
-    }
-
-    const anchorEdge = edges[edgeIndex];
-    edges.splice(edgeIndex, 1);
-    const sourceNode = nodes.find((nodeCandidate) => nodeCandidate.id === anchorEdge.source);
-    const targetNode = nodes.find((nodeCandidate) => nodeCandidate.id === anchorEdge.target);
-    const anchorIndex = insertions
-      .slice(0, index)
-      .filter((candidate) => candidate.anchorEdgeId === insertion.anchorEdgeId)
-      .length;
-
-    nodes.push(
-      node(
-        insertion.nodeId,
-        insertion.kind,
-        insertion.label,
-        insertion.subtitle,
-        sourceNode && targetNode
-          ? (sourceNode.x + targetNode.x) / 2 + anchorIndex * 28
-          : 320 + index * 180,
-        sourceNode && targetNode
-          ? (sourceNode.y + targetNode.y) / 2 + anchorIndex * 36
-          : 180,
-        sourceSpanMetadataForTargetId(insertion.nodeId, state),
-      ),
-    );
-    edges.push(
-      edge(controlEdgeId(anchorEdge.source, insertion.nodeId), "controls", anchorEdge.source, insertion.nodeId, anchorEdge.label),
-      edge(controlEdgeId(insertion.nodeId, anchorEdge.target), "controls", insertion.nodeId, anchorEdge.target),
-    );
-  });
-
-  return {
-    ...view,
-    nodes,
-    edges,
-  };
-}
-
 function buildMockFunctionFlowView(
   session: RepoSession,
   state: MockWorkspaceState,
@@ -1662,9 +1607,11 @@ function buildMockFunctionFlowView(
     { nodeId: symbol.nodeId, level: "symbol" as const, label: symbol.name, subtitle: symbol.qualname },
     { nodeId: `flow:${symbol.nodeId}`, level: "flow" as const, label: "Flow", subtitle: symbol.qualname },
   ];
+  const document = getMockFlowDocument(state, symbol);
+  const withProjectedDraft = (view: GraphView): GraphView => projectFlowDraftGraph(view, document);
 
   if (symbol.nodeId === symbolId("helm.ui.api", state.primarySummarySymbolName)) {
-    return applyMockFlowInsertions({
+    return withProjectedDraft({
       rootNodeId: entryId,
       targetId: symbol.nodeId,
       level: "flow",
@@ -1694,11 +1641,11 @@ function buildMockFunctionFlowView(
         edge(`data:${symbol.nodeId}:assign:rank`, "data", `flow:${symbol.nodeId}:assign:modules`, `flow:${symbol.nodeId}:call:rank`, "module_summaries"),
         edge(`data:${symbol.nodeId}:rank:return`, "data", `flow:${symbol.nodeId}:call:rank`, `flow:${symbol.nodeId}:return`, "ranked_modules"),
       ],
-    }, state, symbol.nodeId);
+    });
   }
 
   if (symbol.nodeId === graphSummaryToPayloadSymbolId()) {
-    return applyMockFlowInsertions({
+    return withProjectedDraft({
       rootNodeId: entryId,
       targetId: symbol.nodeId,
       level: "flow",
@@ -1720,10 +1667,10 @@ function buildMockFunctionFlowView(
         edge(controlEdgeId(entryId, `flow:${symbol.nodeId}:return`), "controls", entryId, `flow:${symbol.nodeId}:return`),
         edge(`data:${symbol.nodeId}:self:return`, "data", `flow:${symbol.nodeId}:param:self`, `flow:${symbol.nodeId}:return`, "self"),
       ],
-    }, state, symbol.nodeId);
+    });
   }
 
-  return applyMockFlowInsertions({
+  return withProjectedDraft({
     rootNodeId: entryId,
     targetId: symbol.nodeId,
     level: "flow",
@@ -1743,7 +1690,7 @@ function buildMockFunctionFlowView(
     edges: [
       edge(controlEdgeId(entryId, `flow:${symbol.nodeId}:return`), "controls", entryId, `flow:${symbol.nodeId}:return`),
     ],
-  }, state, symbol.nodeId);
+  });
 }
 
 function buildMockClassFlowView(
@@ -2165,20 +2112,22 @@ export function applyMockEdit(
       throw new Error(`Unknown control-flow anchor '${request.anchorEdgeId}'.`);
     }
 
-    const nextIndex = (state.flowInsertionsBySymbolId[request.targetId] ?? []).length;
     const kind = mockFlowNodeKindFromContent(request.content);
+    const baseDocument = getMockFlowDocument(state, symbol);
+    const nextIndex = baseDocument.nodes.filter((node) => node.id.startsWith(`flow:${request.targetId}:created:`)).length;
     const nodeId = `flow:${request.targetId}:created:${nextIndex + 1}`;
-    state.flowInsertionsBySymbolId[request.targetId] = [
-      ...(state.flowInsertionsBySymbolId[request.targetId] ?? []),
-      {
-        nodeId,
-        kind,
-        label: mockFlowNodeLabel(kind, request.content),
-        subtitle: mockFlowNodeSubtitle(kind, request.content),
-        anchorEdgeId: request.anchorEdgeId,
-        content: request.content,
-      },
-    ];
+    const nextDocument = insertFlowNodeOnEdge(baseDocument, {
+      id: nodeId,
+      kind,
+      payload: flowNodePayloadFromContent(kind, request.content),
+    }, request.anchorEdgeId);
+    const validation = validateMockFlowDocument(nextDocument);
+    state.flowDocumentsBySymbolId[request.targetId] = cloneFlowDocument({
+      ...nextDocument,
+      syncState: validation.syncState,
+      diagnostics: validation.diagnostics,
+      editable: true,
+    });
     return {
       request: {
         kind: "insert_flow_statement",
@@ -2191,7 +2140,53 @@ export function applyMockEdit(
       reparsedRelativePaths: [symbol.filePath],
       changedNodeIds: [nodeId],
       warnings: [],
-      diagnostics: [],
+      diagnostics: validation.diagnostics,
+      flowSyncState: validation.syncState,
+    };
+  }
+
+  if (request.kind === "replace_flow_graph" && request.targetId && request.flowGraph) {
+    const symbols = buildSymbols(state);
+    const symbol = symbols[request.targetId];
+    if (!symbol || (symbol.kind !== "function" && symbol.kind !== "class")) {
+      throw new Error("Mock visual flow editing is only available for seeded functions and methods.");
+    }
+
+    const previousDocument = state.flowDocumentsBySymbolId[request.targetId];
+    const nextDocument = cloneFlowDocument(request.flowGraph);
+    if (nextDocument.symbolId !== request.targetId) {
+      throw new Error("Flow graph payload does not match the requested symbol.");
+    }
+
+    const validation = validateMockFlowDocument(nextDocument);
+    const persistedDocument: FlowGraphDocument = {
+      ...nextDocument,
+      syncState: validation.syncState,
+      diagnostics: validation.diagnostics,
+      editable: true,
+    };
+    state.flowDocumentsBySymbolId[request.targetId] = cloneFlowDocument(persistedDocument);
+    const changedNodeIds = persistedDocument.nodes
+      .filter((node) => !previousDocument?.nodes.some((candidate) => candidate.id === node.id))
+      .map((node) => node.id);
+
+    return {
+      request: {
+        kind: "replace_flow_graph",
+        target_id: request.targetId,
+        flow_graph: request.flowGraph as unknown as Record<string, unknown>,
+      },
+      summary: validation.syncState === "clean"
+        ? `Updated visual flow for ${symbol.name}.`
+        : `Saved draft visual flow for ${symbol.name}.`,
+      touchedRelativePaths: [symbol.filePath],
+      reparsedRelativePaths: [symbol.filePath],
+      changedNodeIds: changedNodeIds.length ? changedNodeIds : [request.targetId],
+      warnings: validation.syncState === "clean"
+        ? []
+        : ["Python source was left unchanged until the flow graph validates cleanly."],
+      flowSyncState: validation.syncState,
+      diagnostics: validation.diagnostics,
     };
   }
 
@@ -2353,37 +2348,6 @@ function mockFlowNodeKindFromContent(content: string): "assign" | "call" | "retu
     return "assign";
   }
   return "call";
-}
-
-function mockFlowNodeLabel(
-  kind: "assign" | "call" | "return" | "branch" | "loop",
-  content: string,
-) {
-  const header = content.trim().split("\n")[0]?.trim() ?? content.trim();
-  if (!header) {
-    return kind;
-  }
-  if (kind === "assign") {
-    return header.split("=")[0]?.trim() || "assign";
-  }
-  return header;
-}
-
-function mockFlowNodeSubtitle(
-  kind: "assign" | "call" | "return" | "branch" | "loop",
-  content: string,
-) {
-  const header = content.trim().split("\n")[0]?.trim() ?? content.trim();
-  if (!header) {
-    return kind;
-  }
-  if (kind === "branch") {
-    return "conditional branch";
-  }
-  if (kind === "loop") {
-    return "loop body";
-  }
-  return header;
 }
 
 function buildCliSource(state: MockWorkspaceState): string {

@@ -12,10 +12,21 @@ import {
   type GraphCreateIntent,
 } from "../components/graph/GraphCanvas";
 import {
+  establishFlowDraftDocument,
+  projectFlowDraftGraph,
+} from "../components/graph/flowDraftGraph";
+import {
   graphLayoutNodeKey,
   readStoredGraphLayout,
   writeStoredGraphLayout,
 } from "../components/graph/graphLayoutPersistence";
+import {
+  createFlowNode,
+  flowDocumentsEqual,
+  flowNodePayloadFromContent,
+  insertFlowNodeOnEdge,
+  addDisconnectedFlowNode,
+} from "../components/graph/flowDocument";
 import { DesktopWindow } from "../components/layout/DesktopWindow";
 import { SidebarPane } from "../components/panes/SidebarPane";
 import { ThemeCycleButton } from "../components/shared/ThemeCycleButton";
@@ -45,6 +56,7 @@ import type {
   BackendStatus,
   BackendUndoTransaction,
   EditableNodeSource,
+  FlowGraphDocument,
   GraphAbstractionLevel,
   GraphBreadcrumbDto,
   GraphNodeDto,
@@ -195,6 +207,16 @@ type InspectorPanelMode = "hidden" | "collapsed" | "expanded";
 interface BackendUndoHistoryEntry {
   transaction: BackendUndoTransaction;
   entry: UndoEntry;
+}
+
+type FlowDraftStatus = "idle" | "dirty" | "saving" | "reconcile-pending";
+
+interface FlowDraftState {
+  symbolId: string;
+  document: FlowGraphDocument;
+  status: FlowDraftStatus;
+  error: string | null;
+  reconcileAfterUpdatedAt?: number;
 }
 
 const INSPECTOR_DRAWER_HEIGHT_STORAGE_KEY = "helm.blueprint.inspectorDrawerHeight";
@@ -505,6 +527,7 @@ export function WorkspaceScreen() {
   const [createModeState, setCreateModeState] = useState<CreateModeState>("inactive");
   const [createComposer, setCreateComposer] = useState<GraphCreateComposerState | undefined>(undefined);
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
+  const [flowDraftState, setFlowDraftState] = useState<FlowDraftState | undefined>(undefined);
   const [inspectorDirty, setInspectorDirty] = useState(false);
   const [inspectorDraftStale, setInspectorDraftStale] = useState(false);
   const [inspectorActionError, setInspectorActionError] = useState<string | null>(null);
@@ -571,6 +594,7 @@ export function WorkspaceScreen() {
       setCreateModeState("inactive");
       setCreateComposer(undefined);
       setCreateModeError(null);
+      setFlowDraftState(undefined);
       setPendingCreatedNodeId(undefined);
       setBackendUndoStack([]);
     }
@@ -678,8 +702,78 @@ export function WorkspaceScreen() {
     },
     enabled: Boolean(repoSession && graphTargetId),
   });
+  const currentSymbolTargetId = graphTargetId?.startsWith("symbol:") ? graphTargetId : undefined;
+  const currentFlowSymbolId = activeLevel === "flow" ? currentSymbolTargetId : undefined;
+  const flowDraftSeedDocument = useMemo(
+    () => establishFlowDraftDocument(graphQuery.data),
+    [graphQuery.data],
+  );
 
-  const selectedGraphNode = graphQuery.data?.nodes.find((node) => node.id === activeNodeId);
+  useEffect(() => {
+    if (
+      !currentSymbolTargetId
+      || !flowDraftState?.symbolId
+      || currentSymbolTargetId === flowDraftState.symbolId
+    ) {
+      return;
+    }
+
+    setFlowDraftState(undefined);
+  }, [currentSymbolTargetId, flowDraftState?.symbolId]);
+
+  useEffect(() => {
+    if (!currentFlowSymbolId || !flowDraftSeedDocument) {
+      return;
+    }
+
+    setFlowDraftState((current) => {
+      if (!current || current.symbolId !== currentFlowSymbolId) {
+        return {
+          symbolId: currentFlowSymbolId,
+          document: flowDraftSeedDocument,
+          status: "idle",
+          error: null,
+        };
+      }
+
+      if (current.status !== "reconcile-pending") {
+        return current;
+      }
+
+      if ((current.reconcileAfterUpdatedAt ?? 0) >= graphQuery.dataUpdatedAt) {
+        return current;
+      }
+
+      if (flowDocumentsEqual(current.document, flowDraftSeedDocument)) {
+        return {
+          ...current,
+          document: flowDraftSeedDocument,
+          status: "idle",
+          error: null,
+          reconcileAfterUpdatedAt: undefined,
+        };
+      }
+
+      return {
+        symbolId: currentFlowSymbolId,
+        document: flowDraftSeedDocument,
+        status: "idle",
+        error: null,
+      };
+    });
+  }, [currentFlowSymbolId, flowDraftSeedDocument, graphQuery.dataUpdatedAt]);
+
+  const activeFlowDraft = currentFlowSymbolId && flowDraftState?.symbolId === currentFlowSymbolId
+    ? flowDraftState
+    : undefined;
+  const effectiveGraph = useMemo(() => {
+    if (activeLevel === "flow" && graphQuery.data && activeFlowDraft) {
+      return projectFlowDraftGraph(graphQuery.data, activeFlowDraft.document);
+    }
+    return graphQuery.data;
+  }, [activeFlowDraft, activeLevel, graphQuery.data]);
+
+  const selectedGraphNode = effectiveGraph?.nodes.find((node) => node.id === activeNodeId);
   const selectedInspectableNode =
     selectedGraphNode && isInspectableGraphNodeKind(selectedGraphNode.kind)
       ? selectedGraphNode
@@ -723,15 +817,15 @@ export function WorkspaceScreen() {
   }, [clampedExplorerSidebarWidth, explorerSidebarWidth, narrowWorkspaceLayout]);
 
   useEffect(() => {
-    if (!inspectorTargetId || !graphQuery.data) {
+    if (!inspectorTargetId || !effectiveGraph) {
       return;
     }
 
-    const matching = graphQuery.data.nodes.find((node) => node.id === inspectorTargetId);
+    const matching = effectiveGraph.nodes.find((node) => node.id === inspectorTargetId);
     if (matching) {
       setInspectorSnapshot(matching);
     }
-  }, [graphQuery.data, inspectorTargetId]);
+  }, [effectiveGraph, inspectorTargetId]);
 
   useEffect(() => {
     if (!dismissedPeekNodeId) {
@@ -749,14 +843,14 @@ export function WorkspaceScreen() {
 
   const inspectorNode = useMemo(() => {
     if (inspectorTargetId) {
-      return graphQuery.data?.nodes.find((node) => node.id === inspectorTargetId) ?? inspectorSnapshot;
+      return effectiveGraph?.nodes.find((node) => node.id === inspectorTargetId) ?? inspectorSnapshot;
     }
     if (inspectorPanelMode !== "hidden" && selectedGraphNode) {
       return selectedGraphNode;
     }
     return undefined;
-  }, [graphQuery.data, inspectorPanelMode, inspectorSnapshot, inspectorTargetId, selectedGraphNode]);
-  const shouldShowInspectorDrawer = Boolean(repoSession && (graphTargetId || graphQuery.data));
+  }, [effectiveGraph, inspectorPanelMode, inspectorSnapshot, inspectorTargetId, selectedGraphNode]);
+  const shouldShowInspectorDrawer = Boolean(repoSession && (graphTargetId || effectiveGraph));
   const effectiveInspectorDrawerMode =
     inspectorPanelMode === "expanded"
       ? "expanded"
@@ -845,7 +939,7 @@ export function WorkspaceScreen() {
       }
 
       if (graphTargetId && !liveNodeIds.has(graphTargetId)) {
-        const fallbackBreadcrumb = [...(graphQuery.data?.breadcrumbs ?? [])]
+        const fallbackBreadcrumb = [...(effectiveGraph?.breadcrumbs ?? [])]
           .reverse()
           .find((breadcrumb) => breadcrumb.nodeId !== graphTargetId && liveNodeIds.has(breadcrumb.nodeId));
         if (fallbackBreadcrumb) {
@@ -884,7 +978,7 @@ export function WorkspaceScreen() {
     activeNodeId,
     adapter,
     focusGraph,
-    graphQuery.data?.breadcrumbs,
+    effectiveGraph?.breadcrumbs,
     graphTargetId,
     inspectorDirty,
     inspectorSourcePath,
@@ -946,7 +1040,7 @@ export function WorkspaceScreen() {
       && activeLevel !== "flow"
       && (isEnterableGraphNodeKind(kind) || isInspectableGraphNodeKind(kind))
     ) {
-      const node = graphQuery.data?.nodes.find((candidate) => candidate.id === nodeId);
+      const node = effectiveGraph?.nodes.find((candidate) => candidate.id === nodeId);
       if (node) {
         setInspectorTargetId(nodeId);
         setInspectorSnapshot(node);
@@ -956,7 +1050,7 @@ export function WorkspaceScreen() {
 
   const handleGraphActivateNode = useCallback((nodeId: string, kind: GraphNodeKind) => {
     selectNode(nodeId);
-    const node = graphQuery.data?.nodes.find((candidate) => candidate.id === nodeId);
+    const node = effectiveGraph?.nodes.find((candidate) => candidate.id === nodeId);
 
     if (isEnterableGraphNodeKind(kind)) {
       setRevealedSource(undefined);
@@ -980,7 +1074,7 @@ export function WorkspaceScreen() {
       setInspectorTargetId(nodeId);
       setInspectorPanelMode("expanded");
     }
-  }, [focusGraph, graphQuery.data, selectNode, setRevealedSource]);
+  }, [effectiveGraph, focusGraph, selectNode, setRevealedSource]);
 
   const handleGraphInspectNode = useCallback((nodeId: string, kind: GraphNodeKind) => {
     if (!isInspectableGraphNodeKind(kind)) {
@@ -994,14 +1088,14 @@ export function WorkspaceScreen() {
       return;
     }
 
-    const node = graphQuery.data?.nodes.find((candidate) => candidate.id === nodeId);
+    const node = effectiveGraph?.nodes.find((candidate) => candidate.id === nodeId);
     if (node) {
       setInspectorSnapshot(node);
     }
     setDismissedPeekNodeId(undefined);
     setInspectorTargetId(nodeId);
     setInspectorPanelMode("expanded");
-  }, [activeLevel, graphQuery.data, inspectorPanelMode, selectNode]);
+  }, [activeLevel, effectiveGraph, inspectorPanelMode, selectNode]);
 
   const handleSelectBreadcrumb = (breadcrumb: GraphBreadcrumbDto) => {
     if (breadcrumb.level === "flow") {
@@ -1014,7 +1108,7 @@ export function WorkspaceScreen() {
   };
 
   const handleSelectLevel = (level: GraphAbstractionLevel) => {
-    if (!graphQuery.data) {
+    if (!effectiveGraph) {
       return;
     }
 
@@ -1024,15 +1118,15 @@ export function WorkspaceScreen() {
     }
 
     if (level === "module") {
-      const moduleBreadcrumb = [...graphQuery.data.breadcrumbs]
+      const moduleBreadcrumb = [...effectiveGraph.breadcrumbs]
         .reverse()
         .find((breadcrumb) => breadcrumb.level === "module");
-      focusGraph(moduleBreadcrumb?.nodeId ?? repoSession?.id ?? graphQuery.data.targetId, "module");
+      focusGraph(moduleBreadcrumb?.nodeId ?? repoSession?.id ?? effectiveGraph.targetId, "module");
       return;
     }
 
     if (level === "symbol") {
-      const symbolBreadcrumb = [...graphQuery.data.breadcrumbs]
+      const symbolBreadcrumb = [...effectiveGraph.breadcrumbs]
         .reverse()
         .find((breadcrumb) => breadcrumb.level === "symbol");
       if (symbolBreadcrumb) {
@@ -1065,7 +1159,7 @@ export function WorkspaceScreen() {
         graphTargetId?.startsWith("symbol:") ? graphTargetId : activeGraphSymbolId;
       const moduleTarget =
         (symbolTarget ? moduleIdFromSymbolId(symbolTarget) : undefined)
-        ?? [...(graphQuery.data?.breadcrumbs ?? [])]
+        ?? [...(effectiveGraph?.breadcrumbs ?? [])]
           .reverse()
           .find((breadcrumb) => breadcrumb.level === "module")?.nodeId;
       if (moduleTarget) {
@@ -1397,20 +1491,20 @@ export function WorkspaceScreen() {
   ]);
 
   const currentModulePath = useMemo(
-    () => [...(graphQuery.data?.breadcrumbs ?? [])]
+    () => [...(effectiveGraph?.breadcrumbs ?? [])]
       .reverse()
       .find((breadcrumb) => breadcrumb.level === "module")?.subtitle ?? undefined,
-    [graphQuery.data?.breadcrumbs],
+    [effectiveGraph?.breadcrumbs],
   );
   const currentModuleNode = useMemo(() => {
-    const moduleBreadcrumbId = [...(graphQuery.data?.breadcrumbs ?? [])]
+    const moduleBreadcrumbId = [...(effectiveGraph?.breadcrumbs ?? [])]
       .reverse()
       .find((breadcrumb) => breadcrumb.level === "module")?.nodeId;
     if (!moduleBreadcrumbId) {
       return undefined;
     }
-    return graphQuery.data?.nodes.find((node) => node.id === moduleBreadcrumbId && node.kind === "module");
-  }, [graphQuery.data]);
+    return effectiveGraph?.nodes.find((node) => node.id === moduleBreadcrumbId && node.kind === "module");
+  }, [effectiveGraph]);
   const structuralDestinationModulePaths = useMemo(
     () => overviewQuery.data?.modules.map((module) => module.relativePath) ?? [],
     [overviewQuery.data?.modules],
@@ -1424,9 +1518,11 @@ export function WorkspaceScreen() {
       || flowOwnerKind === "method"
       || flowOwnerKind === "async_method"
     );
+  const flowDraftBackedCreateEnabled = flowCreateEnabled && Boolean(activeFlowDraft?.document);
   const createModeCanvasEnabled =
     activeLevel === "repo"
-    || ((activeLevel === "module" || activeLevel === "symbol") && Boolean(currentModulePath));
+    || ((activeLevel === "module" || activeLevel === "symbol") && Boolean(currentModulePath))
+    || flowDraftBackedCreateEnabled;
   const createModeHint =
     createModeState === "inactive"
       ? undefined
@@ -1436,8 +1532,10 @@ export function WorkspaceScreen() {
           ? currentModulePath
             ? `Click the graph to create a function or class in ${currentModulePath}.`
             : "Create mode needs a concrete module target in this view."
-          : flowCreateEnabled
-            ? "Click an insertion lane to add a node on that control-flow path."
+          : flowDraftBackedCreateEnabled
+            ? "Click the graph to add a disconnected node, or click an insertion lane to place one on that control-flow path."
+            : flowCreateEnabled
+              ? "Click an insertion lane to add a node on that control-flow path."
             : "Create mode only writes inside function or method flows in v1.";
   const createModeContextKey = [
     activeLevel,
@@ -1481,24 +1579,29 @@ export function WorkspaceScreen() {
       return;
     }
 
-    if (activeLevel === "flow" && intent.anchorEdgeId && flowCreateEnabled) {
+    if (activeLevel === "flow" && flowCreateEnabled && (flowDraftBackedCreateEnabled || intent.anchorEdgeId)) {
       setCreateComposer({
         id: `${Date.now()}:flow`,
         kind: "flow",
         anchor: composerAnchor,
         flowPosition: intent.flowPosition,
-        anchorEdgeId: intent.anchorEdgeId,
-        anchorLabel: intent.anchorLabel,
-        ownerLabel: flowOwnerSymbolQuery.data?.qualname ?? graphQuery.data?.focus?.label ?? "Flow",
+        ownerLabel: flowOwnerSymbolQuery.data?.qualname ?? effectiveGraph?.focus?.label ?? "Flow",
+        insertion: intent.anchorEdgeId
+          ? {
+              anchorEdgeId: intent.anchorEdgeId,
+              anchorLabel: intent.anchorLabel,
+            }
+          : undefined,
       });
       setCreateModeState("composing");
     }
   }, [
     activeLevel,
     currentModulePath,
+    flowDraftBackedCreateEnabled,
     flowCreateEnabled,
     flowOwnerSymbolQuery.data?.qualname,
-    graphQuery.data?.focus?.label,
+    effectiveGraph?.focus?.label,
   ]);
 
   const handleToggleCreateMode = useCallback(async () => {
@@ -1538,14 +1641,7 @@ export function WorkspaceScreen() {
     }
 
     const viewKey = level === "repo" ? "repo|repo-root" : `${level}|${targetId}`;
-    const nextLayout = level === "flow"
-      ? {
-          nodes: {},
-          reroutes: [],
-          pinnedNodeIds: [],
-          groups: [],
-        }
-      : await readStoredGraphLayout(repoSession.path, viewKey);
+    const nextLayout = await readStoredGraphLayout(repoSession.path, viewKey);
     nextLayout.nodes[graphLayoutNodeKey(nodeId, nodeKind)] = {
       x: composerState.flowPosition.x,
       y: composerState.flowPosition.y,
@@ -1600,13 +1696,65 @@ export function WorkspaceScreen() {
         && createComposer.kind === "flow"
         && graphTargetId?.startsWith("symbol:")
       ) {
+        createdNodeKind = payload.flowNodeKind;
+        if (activeFlowDraft?.symbolId === graphTargetId) {
+          const nextNode = {
+            ...createFlowNode(graphTargetId, payload.flowNodeKind),
+            payload: flowNodePayloadFromContent(payload.flowNodeKind, payload.content),
+          };
+          const nextDocument = createComposer.insertion
+            ? insertFlowNodeOnEdge(activeFlowDraft.document, nextNode, createComposer.insertion.anchorEdgeId)
+            : addDisconnectedFlowNode(activeFlowDraft.document, nextNode);
+          const optimisticDocument: FlowGraphDocument = {
+            ...nextDocument,
+            diagnostics: [...activeFlowDraft.document.diagnostics],
+          };
+
+          setFlowDraftState({
+            symbolId: graphTargetId,
+            document: optimisticDocument,
+            status: "saving",
+            error: null,
+          });
+          await seedCreatedNodeLayout(nextNode.id, createdNodeKind, createComposer);
+          selectNode(nextNode.id);
+          setPendingCreatedNodeId(undefined);
+
+          request = {
+            kind: "replace_flow_graph",
+            targetId: graphTargetId,
+            flowGraph: optimisticDocument,
+          };
+
+          const result = await handleApplyEdit(request, { preserveView: true });
+          setFlowDraftState((current) => {
+            if (!current || current.symbolId !== graphTargetId) {
+              return current;
+            }
+
+            return {
+              symbolId: current.symbolId,
+              document: {
+                ...request.flowGraph!,
+                syncState: result.flowSyncState ?? request.flowGraph!.syncState,
+                diagnostics: [...result.diagnostics],
+              },
+              status: "reconcile-pending",
+              error: null,
+              reconcileAfterUpdatedAt: graphQuery.dataUpdatedAt,
+            };
+          });
+          setCreateComposer(undefined);
+          setCreateModeState("active");
+          return;
+        }
+
         request = {
           kind: "insert_flow_statement",
           targetId: graphTargetId,
-          anchorEdgeId: createComposer.anchorEdgeId,
+          anchorEdgeId: createComposer.insertion?.anchorEdgeId,
           content: payload.content,
         };
-        createdNodeKind = payload.flowNodeKind;
       } else {
         throw new Error("Create-mode context no longer matches the requested action.");
       }
@@ -1625,17 +1773,32 @@ export function WorkspaceScreen() {
       setCreateComposer(undefined);
       setCreateModeState("active");
     } catch (reason) {
-      setCreateModeError(
-        reason instanceof Error ? reason.message : "Unable to create from the current graph context.",
-      );
+      const message =
+        reason instanceof Error ? reason.message : "Unable to create from the current graph context.";
+      setCreateModeError(message);
+      if (payload.kind === "flow" && graphTargetId?.startsWith("symbol:")) {
+        setFlowDraftState((current) => {
+          if (!current || current.symbolId !== graphTargetId) {
+            return current;
+          }
+
+          return {
+            ...current,
+            status: "dirty",
+            error: message,
+          };
+        });
+      }
     } finally {
       setIsSubmittingCreate(false);
     }
   }, [
     activeLevel,
+    activeFlowDraft,
     createComposer,
     focusGraph,
     graphTargetId,
+    graphQuery.dataUpdatedAt,
     handleApplyEdit,
     seedCreatedNodeLayout,
     selectNode,
@@ -1800,8 +1963,8 @@ export function WorkspaceScreen() {
     return "Architecture graph";
   }, [activeLevel]);
   const graphPathItems = useMemo(() => {
-    if (graphQuery.data) {
-      return buildGraphPathItems(graphQuery.data);
+    if (effectiveGraph) {
+      return buildGraphPathItems(effectiveGraph);
     }
 
     return buildFallbackGraphPathItems(
@@ -1817,7 +1980,7 @@ export function WorkspaceScreen() {
     );
   }, [
     activeLevel,
-    graphQuery.data,
+    effectiveGraph,
     graphTargetId,
     overviewQuery.data?.modules,
     repoSession,
@@ -1862,13 +2025,13 @@ export function WorkspaceScreen() {
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [createModeState, handleExitCreateMode]);
   useEffect(() => {
-    if (!pendingCreatedNodeId || !graphQuery.data?.nodes.some((node) => node.id === pendingCreatedNodeId)) {
+    if (!pendingCreatedNodeId || !effectiveGraph?.nodes.some((node) => node.id === pendingCreatedNodeId)) {
       return;
     }
 
     selectNode(pendingCreatedNodeId);
     setPendingCreatedNodeId(undefined);
-  }, [graphQuery.data, pendingCreatedNodeId, selectNode]);
+  }, [effectiveGraph, pendingCreatedNodeId, selectNode]);
   const inspectorDrawerStatus = isSavingSource
     ? { label: "Saving", tone: "warning" as const }
     : inspectorDirty
@@ -1878,12 +2041,12 @@ export function WorkspaceScreen() {
         : { label: effectiveInspectorNode?.kind ?? activeLevel, tone: "default" as const };
   const graphContextPath = graphPathItems.map((item) => item.label).join(" / ");
   const graphContextTitle =
-    graphQuery.data?.focus?.label
+    effectiveGraph?.focus?.label
     ?? graphPathItems[graphPathItems.length - 1]?.label
     ?? repoSession?.name
     ?? "Inspector";
   const graphContextSubtitle =
-    graphQuery.data?.focus?.subtitle
+    effectiveGraph?.focus?.subtitle
     ?? (graphContextPath || titleCopy);
   const inspectorSummaryText = selectionSummary(effectiveInspectorNode);
   const drawerTitle = effectiveInspectorNode?.label ?? graphContextTitle;
@@ -2163,10 +2326,10 @@ export function WorkspaceScreen() {
                 <div className="blueprint-graph-shell__canvas">
                   <GraphCanvas
                     repoPath={repoSession?.path}
-                    graph={graphQuery.data}
-                    isLoading={!graphQuery.data && graphQuery.isFetching}
+                    graph={effectiveGraph}
+                    isLoading={!effectiveGraph && graphQuery.isFetching}
                     errorMessage={
-                      !graphQuery.data
+                      !effectiveGraph
                         ? graphQuery.error instanceof Error
                           ? graphQuery.error.message
                           : graphQuery.error

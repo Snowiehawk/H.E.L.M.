@@ -29,9 +29,11 @@ export type GraphCreateComposerState =
       kind: "flow";
       anchor: GraphCreateComposerAnchor;
       flowPosition: GraphCreateComposerFlowPosition;
-      anchorEdgeId: string;
-      anchorLabel?: string;
       ownerLabel: string;
+      insertion?: {
+        anchorEdgeId: string;
+        anchorLabel?: string;
+      };
     };
 
 export type GraphCreateComposerSubmit =
@@ -48,7 +50,6 @@ export type GraphCreateComposerSubmit =
     }
   | {
       kind: "flow";
-      anchorEdgeId: string;
       flowNodeKind: "assign" | "call" | "return" | "branch" | "loop";
       content: string;
     };
@@ -86,7 +87,7 @@ export function GraphCreateComposer({
     if (composer.kind === "symbol") {
       return "Create symbol";
     }
-    return "Insert flow node";
+    return "Create flow node";
   }, [composer.kind]);
 
   const handleSubmit = async () => {
@@ -111,7 +112,6 @@ export function GraphCreateComposer({
 
     await onSubmit({
       kind: "flow",
-      anchorEdgeId: composer.anchorEdgeId,
       flowNodeKind: flowKind,
       content: buildFlowContent({
         flowKind,
@@ -275,7 +275,13 @@ export function GraphCreateComposer({
         >
           <div className="info-card">
             <strong>{composer.ownerLabel}</strong>
-            <p>{composer.anchorLabel ? `Path: ${composer.anchorLabel}` : "Insert on the clicked control path."}</p>
+            <p>
+              {composer.insertion?.anchorLabel
+                ? `Path: ${composer.insertion.anchorLabel}`
+                : composer.insertion
+                  ? "Create on the selected control-flow path."
+                  : "Create a disconnected flow node in the local draft."}
+            </p>
           </div>
           <label className="blueprint-field">
             <span className="blueprint-field__label">
@@ -395,7 +401,7 @@ export function GraphCreateComposer({
           {error ? <p className="error-copy">{error}</p> : null}
           <div className="graph-create-composer__actions">
             <button className="primary-button" type="submit" disabled={!canSubmit || isSubmitting}>
-              {isSubmitting ? "Creating..." : "Insert node"}
+              {isSubmitting ? "Creating..." : "Create node"}
             </button>
           </div>
         </form>

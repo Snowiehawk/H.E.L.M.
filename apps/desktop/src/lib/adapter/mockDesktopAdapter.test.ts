@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MockDesktopAdapter } from "./mockDesktopAdapter";
 import { defaultRepoPath } from "../mocks/mockData";
+import type { FlowGraphDocument } from "./contracts";
 
 describe("MockDesktopAdapter", () => {
   it("returns symbol-only results when file search is disabled", async () => {
@@ -64,5 +65,38 @@ describe("MockDesktopAdapter", () => {
 
     expect(defaultGraph.nodes.some((node) => node.label === "rich.console")).toBe(false);
     expect(expandedGraph.nodes.some((node) => node.label === "rich.console")).toBe(true);
+  });
+
+  it("round-trips disconnected flow draft nodes through replace_flow_graph", async () => {
+    const adapter = new MockDesktopAdapter();
+    const original = await adapter.getFlowView("symbol:helm.ui.api:build_graph_summary");
+    const baseDocument = original.flowState?.document;
+    if (!baseDocument) {
+      throw new Error("Expected the mock flow view to expose a draft-capable flow document.");
+    }
+
+    const disconnectedDocument: FlowGraphDocument = {
+      ...baseDocument,
+      nodes: [
+        ...baseDocument.nodes,
+        {
+          id: "flowdoc:symbol:helm.ui.api:build_graph_summary:assign:disconnected",
+          kind: "assign",
+          payload: { source: "helper = rank_modules(graph)" },
+        },
+      ],
+    };
+
+    const result = await adapter.applyStructuralEdit({
+      kind: "replace_flow_graph",
+      targetId: "symbol:helm.ui.api:build_graph_summary",
+      flowGraph: disconnectedDocument,
+    });
+    const updated = await adapter.getFlowView("symbol:helm.ui.api:build_graph_summary");
+
+    expect(result.flowSyncState).toBe("draft");
+    expect(result.diagnostics.some((diagnostic) => diagnostic.includes("disconnected"))).toBe(true);
+    expect(updated.flowState?.document?.nodes.some((node) => node.id.endsWith(":assign:disconnected"))).toBe(true);
+    expect(updated.nodes.some((node) => node.id.endsWith(":assign:disconnected"))).toBe(true);
   });
 });
