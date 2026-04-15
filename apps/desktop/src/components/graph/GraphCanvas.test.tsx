@@ -1519,6 +1519,46 @@ describe("GraphCanvas", () => {
     );
   });
 
+  it("keeps flow-node clicks selection-only in create mode and still opens a create intent from empty canvas", async () => {
+    const onCreateIntent = vi.fn();
+    const onSelectNode = vi.fn();
+
+    renderGraphCanvas({
+      graph: baseGraph,
+      activeNodeId: undefined,
+      createModeState: "active",
+      createModeCanvasEnabled: true,
+      createModeHint: "Click the graph to add a disconnected node, or click an insertion lane to place one on that control-flow path.",
+      onCreateIntent,
+      onSelectNode,
+    });
+
+    const existingNode = await screen.findByTestId("rf__node-branch:left");
+    fireEvent.click(existingNode);
+
+    expect(onCreateIntent).not.toHaveBeenCalled();
+    expect(onSelectNode).toHaveBeenCalledWith("branch:left", "branch");
+
+    const pane = document.querySelector(".react-flow__pane");
+    expect(pane).not.toBeNull();
+    fireEvent.click(pane as HTMLElement);
+
+    await waitFor(() =>
+      expect(onCreateIntent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          flowPosition: expect.objectContaining({
+            x: expect.any(Number),
+            y: expect.any(Number),
+          }),
+          panelPosition: expect.objectContaining({
+            x: expect.any(Number),
+            y: expect.any(Number),
+          }),
+        }),
+      ),
+    );
+  });
+
   it("renders explicit flow insertion triggers in create mode and opens a flow create intent", async () => {
     const onCreateIntent = vi.fn();
     const user = userEvent.setup();

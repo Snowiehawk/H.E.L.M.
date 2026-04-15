@@ -3466,7 +3466,8 @@ export function GraphCanvas({
         zoomActivationKeyCode="Alt"
         panOnDrag={panModeActive}
         onNodeClick={(event, node) => {
-          if (createModeActive) {
+          const flowCreateModeSelectionOnly = createModeActive && graph.level === "flow";
+          if (createModeActive && !flowCreateModeSelectionOnly) {
             if (createModeReady && createModeCanvasEnabled) {
               requestCreateIntent(
                 { x: event.clientX, y: event.clientY },
