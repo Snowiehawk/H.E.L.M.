@@ -180,7 +180,53 @@ function cloneFlowDocument(document: FlowGraphDocument): FlowGraphDocument {
       payload: { ...node.payload },
     })),
     edges: document.edges.map((edge) => ({ ...edge })),
+    functionInputs: (document.functionInputs ?? []).map((input) => ({ ...input })),
+    inputSlots: (document.inputSlots ?? []).map((slot) => ({ ...slot })),
+    inputBindings: (document.inputBindings ?? []).map((binding) => ({ ...binding })),
   };
+}
+
+function mockFunctionInputId(symbolIdValue: string, name: string) {
+  return `flowinput:${symbolIdValue}:${name}`;
+}
+
+function mockInputSlotId(nodeId: string, slotKey: string) {
+  return `flowslot:${nodeId}:${slotKey}`;
+}
+
+function mockInputBindingId(slotId: string, functionInputId: string) {
+  return `flowbinding:${slotId}->${functionInputId}`;
+}
+
+function mockInputModel(
+  symbolIdValue: string,
+  inputNames: string[],
+  slots: Array<{ nodeId: string; slotKey: string; inputName?: string }>,
+): Pick<FlowGraphDocument, "functionInputs" | "inputSlots" | "inputBindings"> {
+  const functionInputs = inputNames.map((name, index) => ({
+    id: mockFunctionInputId(symbolIdValue, name),
+    name,
+    index,
+  }));
+  const inputSlots = slots.map((slot) => ({
+    id: mockInputSlotId(slot.nodeId, slot.slotKey),
+    nodeId: slot.nodeId,
+    slotKey: slot.slotKey,
+    label: slot.slotKey,
+    required: true,
+  }));
+  const inputBindings = slots.flatMap((slot) => {
+    const functionInputId = mockFunctionInputId(symbolIdValue, slot.inputName ?? slot.slotKey);
+    const slotId = mockInputSlotId(slot.nodeId, slot.slotKey);
+    return functionInputs.some((input) => input.id === functionInputId)
+      ? [{
+          id: mockInputBindingId(slotId, functionInputId),
+          functionInputId,
+          slotId,
+        }]
+      : [];
+  });
+  return { functionInputs, inputSlots, inputBindings };
 }
 
 function flowDocumentEdge(
@@ -216,16 +262,20 @@ function defaultMockFlowDocument(
       diagnostics: [],
       sourceHash: null,
       nodes: [
-        { id: entryId, kind: "entry", payload: {} },
-        { id: assignId, kind: "assign", payload: { source: "module_summaries = collect_module_stats(graph)" } },
-        { id: callId, kind: "call", payload: { source: "sorted(module_summaries, key=score_module)" } },
-        { id: returnId, kind: "return", payload: { expression: "GraphSummary(...)" } },
+        { id: entryId, kind: "entry", payload: {}, indexedNodeId: entryId },
+        { id: assignId, kind: "assign", payload: { source: "module_summaries = collect_module_stats(graph)" }, indexedNodeId: assignId },
+        { id: callId, kind: "call", payload: { source: "sorted(module_summaries, key=score_module)" }, indexedNodeId: callId },
+        { id: returnId, kind: "return", payload: { expression: "GraphSummary(...)" }, indexedNodeId: returnId },
       ],
       edges: [
         flowDocumentEdge(entryId, "start", assignId),
         flowDocumentEdge(assignId, "next", callId),
         flowDocumentEdge(callId, "next", returnId),
       ],
+      ...mockInputModel(symbol.nodeId, ["graph", "top_n"], [
+        { nodeId: assignId, slotKey: "graph" },
+        { nodeId: callId, slotKey: "top_n" },
+      ]),
     };
   }
 
@@ -240,12 +290,15 @@ function defaultMockFlowDocument(
       diagnostics: [],
       sourceHash: null,
       nodes: [
-        { id: entryId, kind: "entry", payload: {} },
-        { id: returnId, kind: "return", payload: { expression: "{'repo_path': self.repo_path}" } },
+        { id: entryId, kind: "entry", payload: {}, indexedNodeId: entryId },
+        { id: returnId, kind: "return", payload: { expression: "{'repo_path': self.repo_path}" }, indexedNodeId: returnId },
       ],
       edges: [
         flowDocumentEdge(entryId, "start", returnId),
       ],
+      ...mockInputModel(symbol.nodeId, ["self"], [
+        { nodeId: returnId, slotKey: "self" },
+      ]),
     };
   }
 
@@ -259,12 +312,13 @@ function defaultMockFlowDocument(
     diagnostics: [],
     sourceHash: null,
     nodes: [
-      { id: entryId, kind: "entry", payload: {} },
-      { id: returnId, kind: "return", payload: { expression: "" } },
+      { id: entryId, kind: "entry", payload: {}, indexedNodeId: entryId },
+      { id: returnId, kind: "return", payload: { expression: "" }, indexedNodeId: returnId },
     ],
     edges: [
       flowDocumentEdge(entryId, "start", returnId),
     ],
+    ...mockInputModel(symbol.nodeId, [], []),
   };
 }
 
@@ -385,6 +439,12 @@ function validateMockFlowDocument(document: FlowGraphDocument): { syncState: Flo
       }
     }
   });
+  const boundSlotIds = new Set((document.inputBindings ?? []).map((binding) => binding.slotId));
+  (document.inputSlots ?? []).forEach((slot) => {
+    if (slot.required && !boundSlotIds.has(slot.id)) {
+      diagnostics.push(`${slot.id} needs a function input binding.`);
+    }
+  });
 
   return {
     syncState: diagnostics.length ? "draft" : "clean",
@@ -428,6 +488,7 @@ function buildMockVisualFlowView(
         {
           flow_visual: true,
           flow_order: index,
+          ...(flowNode.indexedNodeId ? { indexed_node_id: flowNode.indexedNodeId } : {}),
           ...sourceSpanMetadataForTargetId(flowNode.id, state),
         },
       );

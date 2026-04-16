@@ -10,16 +10,26 @@ from typing import Any, Callable, Literal
 from helm.editor import apply_backend_undo, apply_structural_edit
 from helm.editor.flow_model import (
     FlowImportError,
+    FlowFunctionInput,
+    FlowInputBinding,
+    FlowInputSlot,
     FlowModelDocument,
     FlowModelEdge,
     FlowModelNode,
     flow_edge_label,
+    flow_input_binding_id,
+    flow_input_slot_id,
+    flow_function_input_id,
     flow_edge_order,
+    flow_model_node_source_identity,
     flow_node_label,
+    function_inputs_from_function_source,
     function_source_for_qualname,
     function_source_hash,
     import_flow_document_from_function_source,
+    indexed_flow_entry_node_id,
     read_flow_document,
+    with_flow_document_inherited_input_model,
 )
 from helm.editor.declaration_support import resolve_declaration_edit_support
 from helm.editor.models import (
@@ -296,9 +306,25 @@ class PythonRepoAdapter:
             persisted_document is not None
             and persisted_document.source_hash == current_source_hash
         ):
-            return replace(
+            document = persisted_document
+            if not persisted_document.input_slots:
+                try:
+                    source_document = import_flow_document_from_function_source(
+                        symbol_id=symbol.symbol_id,
+                        relative_path=parsed.module.relative_path,
+                        qualname=symbol.qualname,
+                        module_source=source,
+                    )
+                except FlowImportError:
+                    source_document = None
+                if source_document is not None:
+                    document = with_flow_document_inherited_input_model(
+                        document,
+                        source_document=source_document,
+                    )
+            return _project_function_flow_document_view(
                 base_view,
-                flow_state=_flow_state_payload(persisted_document),
+                document,
             )
 
         try:
@@ -316,15 +342,17 @@ class PythonRepoAdapter:
                         symbol_id=symbol.symbol_id,
                         relative_path=parsed.module.relative_path,
                         qualname=symbol.qualname,
+                        module_source=source,
+                        previous_document=persisted_document,
                         source_hash=current_source_hash,
                         diagnostics=(str(exc),),
                     )
                 ),
             )
 
-        return replace(
+        return _project_function_flow_document_view(
             base_view,
-            flow_state=_flow_state_payload(imported_document),
+            imported_document,
         )
 
     def _build_code_derived_function_flow_view(
@@ -360,13 +388,20 @@ class PythonRepoAdapter:
         previous_control_id = entry_id
         for argument in function_node.args.args:
             param_id = f"flow:{symbol_id}:param:{argument.arg}"
+            function_input_id = flow_function_input_id(symbol_id, argument.arg)
             nodes.append(
                 GraphViewNode(
                     node_id=param_id,
                     kind=GraphViewNodeKind.PARAM,
                     label=argument.arg,
                     subtitle="parameter",
-                    metadata=_source_metadata_for_ast_node(argument),
+                    metadata={
+                        **_source_metadata_for_ast_node(argument),
+                        "function_input_id": function_input_id,
+                        "signature_owner_id": entry_id,
+                        "signature_order": len(definitions),
+                        "source_handle": _function_input_source_handle(function_input_id),
+                    },
                 )
             )
             definitions[argument.arg] = param_id
@@ -1500,9 +1535,29 @@ def _build_import_error_flow_document(
     symbol_id: str,
     relative_path: str,
     qualname: str,
+    module_source: str,
+    previous_document: FlowModelDocument | None = None,
     source_hash: str,
     diagnostics: tuple[str, ...],
 ) -> FlowModelDocument:
+    try:
+        current_function_inputs = function_inputs_from_function_source(
+            symbol_id=symbol_id,
+            qualname=qualname,
+            module_source=module_source,
+        )
+    except SyntaxError:
+        current_function_inputs = ()
+    if previous_document is not None:
+        return replace(
+            previous_document,
+            function_inputs=current_function_inputs or previous_document.function_inputs,
+            sync_state="import_error",
+            diagnostics=diagnostics,
+            source_hash=source_hash,
+            editable=False,
+        )
+
     entry_node_id = f"flowdoc:{symbol_id}:entry"
     exit_node_id = f"flowdoc:{symbol_id}:exit"
     return FlowModelDocument(
@@ -1510,10 +1565,16 @@ def _build_import_error_flow_document(
         relative_path=relative_path,
         qualname=qualname,
         nodes=(
-            FlowModelNode(node_id=entry_node_id, kind="entry", payload={}),
+            FlowModelNode(
+                node_id=entry_node_id,
+                kind="entry",
+                payload={},
+                indexed_node_id=indexed_flow_entry_node_id(symbol_id),
+            ),
             FlowModelNode(node_id=exit_node_id, kind="exit", payload={}),
         ),
         edges=(),
+        function_inputs=current_function_inputs,
         sync_state="import_error",
         diagnostics=diagnostics,
         source_hash=source_hash,
@@ -1521,16 +1582,192 @@ def _build_import_error_flow_document(
     )
 
 
+def _function_input_param_node_id(symbol_id: str, function_input: FlowFunctionInput) -> str:
+    return f"flow:{symbol_id}:param:{function_input.name}"
+
+
+def _function_input_source_handle(function_input_id: str) -> str:
+    return f"out:data:function-input:{function_input_id}"
+
+
+def _input_slot_target_handle(slot_id: str) -> str:
+    return f"in:data:input-slot:{slot_id}"
+
+
+def _with_flow_document_inherited_input_model_from_base_view(
+    base_view: GraphView,
+    document: FlowModelDocument,
+) -> FlowModelDocument:
+    param_nodes = sorted(
+        (node for node in base_view.nodes if node.kind == GraphViewNodeKind.PARAM),
+        key=lambda candidate: (
+            candidate.metadata.get("signature_order")
+            if isinstance(candidate.metadata.get("signature_order"), int)
+            else 10**9,
+            candidate.label,
+        ),
+    )
+    if not param_nodes:
+        return document
+
+    existing_input_by_name = {
+        function_input.name: function_input
+        for function_input in document.function_inputs
+    }
+    function_inputs: list[FlowFunctionInput] = []
+    for index, node in enumerate(param_nodes):
+        raw_function_input_id = node.metadata.get("function_input_id")
+        function_input_id = (
+            raw_function_input_id
+            if isinstance(raw_function_input_id, str) and raw_function_input_id.strip()
+            else flow_function_input_id(document.symbol_id, node.label)
+        )
+        existing = existing_input_by_name.get(node.label)
+        function_inputs.append(
+            FlowFunctionInput(
+                input_id=existing.input_id if existing else function_input_id,
+                name=node.label,
+                index=index,
+            )
+        )
+
+    if document.input_slots:
+        if document.function_inputs:
+            return document
+        return replace(document, function_inputs=tuple(function_inputs))
+
+    function_input_by_param_node_id = {
+        node.node_id: function_inputs[index]
+        for index, node in enumerate(param_nodes)
+    }
+    document_node_by_identity: dict[str, FlowModelNode] = {}
+    for node in document.nodes:
+        document_node_by_identity.setdefault(flow_model_node_source_identity(node), node)
+        document_node_by_identity.setdefault(node.node_id, node)
+
+    slots: list[FlowInputSlot] = []
+    bindings: list[FlowInputBinding] = []
+    seen_slot_ids: set[str] = set()
+    seen_bound_slot_ids: set[str] = set()
+    for edge in base_view.edges:
+        if edge.kind != GraphViewEdgeKind.DATA:
+            continue
+        function_input = function_input_by_param_node_id.get(edge.source_id)
+        if function_input is None:
+            continue
+        target_node = document_node_by_identity.get(edge.target_id)
+        if target_node is None:
+            continue
+        slot_key = (edge.label or function_input.name).strip() or function_input.name
+        slot_id = flow_input_slot_id(flow_model_node_source_identity(target_node), slot_key)
+        if slot_id in seen_slot_ids:
+            continue
+        seen_slot_ids.add(slot_id)
+        slots.append(
+            FlowInputSlot(
+                slot_id=slot_id,
+                node_id=target_node.node_id,
+                slot_key=slot_key,
+                label=slot_key,
+                required=True,
+            )
+        )
+        if slot_id in seen_bound_slot_ids:
+            continue
+        seen_bound_slot_ids.add(slot_id)
+        bindings.append(
+            FlowInputBinding(
+                binding_id=flow_input_binding_id(slot_id, function_input.input_id),
+                function_input_id=function_input.input_id,
+                slot_id=slot_id,
+            )
+        )
+
+    return replace(
+        document,
+        function_inputs=tuple(function_inputs),
+        input_slots=tuple(slots),
+        input_bindings=tuple(bindings),
+    )
+
+
+def _graph_view_node_for_function_input(
+    symbol_id: str,
+    function_input: FlowFunctionInput,
+    *,
+    entry_node_id: str | None,
+    existing: GraphViewNode | None,
+) -> GraphViewNode:
+    node_id = _function_input_param_node_id(symbol_id, function_input)
+    return GraphViewNode(
+        node_id=node_id,
+        kind=GraphViewNodeKind.PARAM,
+        label=function_input.name,
+        subtitle="signature parameter",
+        metadata={
+            **(existing.metadata if existing else {}),
+            "function_input_id": function_input.input_id,
+            "signature_owner_id": entry_node_id,
+            "signature_order": function_input.index,
+            "source_handle": _function_input_source_handle(function_input.input_id),
+        },
+        available_actions=existing.available_actions if existing else (),
+    )
+
+
+def _graph_view_edge_for_input_binding(
+    document: FlowModelDocument,
+    binding: FlowInputBinding,
+) -> GraphViewEdge:
+    slot_by_id = {slot.slot_id: slot for slot in document.input_slots}
+    input_by_id = {function_input.input_id: function_input for function_input in document.function_inputs}
+    slot = slot_by_id.get(binding.slot_id)
+    function_input = input_by_id.get(binding.function_input_id)
+    if slot is None or function_input is None:
+        return GraphViewEdge(
+            edge_id=f"data:{binding.binding_id}",
+            kind=GraphViewEdgeKind.DATA,
+            source_id=document.nodes[0].node_id if document.nodes else document.symbol_id,
+            target_id=document.nodes[0].node_id if document.nodes else document.symbol_id,
+        )
+    source_id = _function_input_param_node_id(document.symbol_id, function_input)
+    source_handle = _function_input_source_handle(function_input.input_id)
+    target_handle = _input_slot_target_handle(slot.slot_id)
+    return GraphViewEdge(
+        edge_id=f"data:{binding.binding_id}",
+        kind=GraphViewEdgeKind.DATA,
+        source_id=source_id,
+        target_id=slot.node_id,
+        label=function_input.name,
+        metadata={
+            "flow_input_binding": True,
+            "binding_id": binding.binding_id,
+            "function_input_id": function_input.input_id,
+            "slot_id": slot.slot_id,
+            "source_label": function_input.name,
+            "target_label": slot.label,
+            "source_handle": source_handle,
+            "target_handle": target_handle,
+        },
+    )
+
+
 def _project_function_flow_document_view(
     base_view: GraphView,
     document: FlowModelDocument,
 ) -> GraphView:
+    document = _with_flow_document_inherited_input_model_from_base_view(base_view, document)
     visual_node_ids = {node.node_id for node in document.nodes}
+    function_input_param_node_ids = {
+        _function_input_param_node_id(document.symbol_id, function_input)
+        for function_input in document.function_inputs
+    }
     preserved_nodes = tuple(
         node
         for node in base_view.nodes
         if node.node_id not in visual_node_ids
         and node.kind not in _FLOW_VISUAL_GRAPH_NODE_KINDS
+        and node.node_id not in function_input_param_node_ids
     )
     base_nodes_by_id = {node.node_id: node for node in base_view.nodes}
     document_nodes = tuple(
@@ -1538,22 +1775,60 @@ def _project_function_flow_document_view(
             node,
             index=index,
             qualname=document.qualname,
-            existing=base_nodes_by_id.get(node.node_id),
+            document=document,
+            existing=base_nodes_by_id.get(node.node_id)
+            or (
+                base_nodes_by_id.get(node.indexed_node_id)
+                if node.indexed_node_id
+                else None
+            ),
         )
         for index, node in enumerate(document.nodes)
     )
+    projected_node_ids = {
+        node.node_id: node.node_id
+        for node in document.nodes
+    }
+    projected_node_ids.update(
+        {
+            flow_model_node_source_identity(node): node.node_id
+            for node in document.nodes
+            if node.indexed_node_id
+        }
+    )
+    entry_node_id = next((node.node_id for node in document.nodes if node.kind == "entry"), None)
+    input_nodes = tuple(
+        _graph_view_node_for_function_input(
+            document.symbol_id,
+            function_input,
+            entry_node_id=entry_node_id,
+            existing=base_nodes_by_id.get(_function_input_param_node_id(document.symbol_id, function_input)),
+        )
+        for function_input in document.function_inputs
+    )
     visible_node_ids = {
         *(node.node_id for node in preserved_nodes),
+        *(node.node_id for node in input_nodes),
         *(node.node_id for node in document_nodes),
     }
     base_edges_by_id = {edge.edge_id: edge for edge in base_view.edges}
-    preserved_edges = tuple(
-        edge
-        for edge in base_view.edges
-        if edge.kind != GraphViewEdgeKind.CONTROLS
-        and edge.source_id in visible_node_ids
-        and edge.target_id in visible_node_ids
-    )
+    preserved_edges: list[GraphViewEdge] = []
+    for edge in base_view.edges:
+        if edge.kind == GraphViewEdgeKind.CONTROLS:
+            continue
+        if edge.kind == GraphViewEdgeKind.DATA and edge.source_id in function_input_param_node_ids:
+            continue
+        projected_source_id = projected_node_ids.get(edge.source_id, edge.source_id)
+        projected_target_id = projected_node_ids.get(edge.target_id, edge.target_id)
+        if projected_source_id not in visible_node_ids or projected_target_id not in visible_node_ids:
+            continue
+        preserved_edges.append(
+            replace(
+                edge,
+                source_id=projected_source_id,
+                target_id=projected_target_id,
+            )
+        )
     document_edges = tuple(
         _graph_view_edge_for_flow_model_edge(
             edge,
@@ -1561,16 +1836,15 @@ def _project_function_flow_document_view(
         )
         for edge in document.edges
     )
-    root_node_id = (
-        base_view.root_node_id
-        if base_view.root_node_id in visible_node_ids
-        else (document.nodes[0].node_id if document.nodes else base_view.root_node_id)
-    )
+    input_binding_edges = tuple(_graph_view_edge_for_input_binding(document, binding) for binding in document.input_bindings)
+    root_node_id = projected_node_ids.get(base_view.root_node_id, base_view.root_node_id)
+    if root_node_id not in visible_node_ids:
+        root_node_id = document.nodes[0].node_id if document.nodes else base_view.root_node_id
     return replace(
         base_view,
         root_node_id=root_node_id,
-        nodes=(*preserved_nodes, *document_nodes),
-        edges=(*preserved_edges, *document_edges),
+        nodes=(*preserved_nodes, *input_nodes, *document_nodes),
+        edges=(*preserved_edges, *input_binding_edges, *document_edges),
         flow_state=_flow_state_payload(document),
     )
 
@@ -1580,8 +1854,28 @@ def _graph_view_node_for_flow_model_node(
     *,
     index: int,
     qualname: str,
+    document: FlowModelDocument,
     existing: GraphViewNode | None,
 ) -> GraphViewNode:
+    input_slots = [
+        {
+            "slot_id": slot.slot_id,
+            "slot_key": slot.slot_key,
+            "label": slot.label,
+            "target_handle": _input_slot_target_handle(slot.slot_id),
+        }
+        for slot in document.input_slots
+        if slot.node_id == node.node_id
+    ]
+    function_inputs = [
+        {
+            "function_input_id": function_input.input_id,
+            "name": function_input.name,
+            "index": function_input.index,
+            "source_handle": _function_input_source_handle(function_input.input_id),
+        }
+        for function_input in document.function_inputs
+    ] if node.kind == "entry" else []
     return GraphViewNode(
         node_id=node.node_id,
         kind=GraphViewNodeKind(node.kind),
@@ -1591,6 +1885,13 @@ def _graph_view_node_for_flow_model_node(
             **(existing.metadata if existing else {}),
             "flow_visual": True,
             "flow_order": index,
+            **(
+                {"indexed_node_id": node.indexed_node_id}
+                if node.indexed_node_id
+                else {}
+            ),
+            **({"flow_input_slots": input_slots} if input_slots else {}),
+            **({"flow_function_inputs": function_inputs} if function_inputs else {}),
         },
         available_actions=existing.available_actions if existing else (),
     )

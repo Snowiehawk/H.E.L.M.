@@ -182,6 +182,29 @@ function dataOutputPortId(label: string): string {
   return `out:data:${normalizePortKey(label)}`;
 }
 
+function nodeMetadataList(node: GraphNodeDto, key: string): Array<Record<string, unknown>> {
+  const value =
+    node.metadata[key]
+    ?? node.metadata[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+}
+
+function metadataStringFromRecord(value: Record<string, unknown>, key: string): string | undefined {
+  const raw =
+    value[key]
+    ?? value[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+  return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+}
+
+function nodeMetadataString(node: GraphNodeDto, key: string): string | undefined {
+  const value =
+    node.metadata[key]
+    ?? node.metadata[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 function architecturePortMemberLabel(
   direction: "input" | "output",
   edge: GraphEdgeDto,
@@ -272,9 +295,9 @@ function buildFlowPorts(
       incoming
         .filter((edge) => edge.kind === "data")
         .map((edge) => {
-          const label = dataPortLabel(edge, "value");
+          const label = edgeMetadataString(edge, "target_label") ?? dataPortLabel(edge, "value");
           return {
-            id: dataInputPortId(label),
+            id: edgeMetadataString(edge, "target_handle") ?? dataInputPortId(label),
             label,
             kind: "data" as const,
             memberLabels: [flowPortMemberLabel("input", edge, nodeById)],
@@ -282,6 +305,16 @@ function buildFlowPorts(
           };
       }),
     ),
+  );
+  inputs.push(
+    ...nodeMetadataList(node, "flow_input_slots").map((slot) => {
+      const label = metadataStringFromRecord(slot, "label") ?? "value";
+      return {
+        id: metadataStringFromRecord(slot, "target_handle") ?? dataInputPortId(label),
+        label,
+        kind: "data" as const,
+      };
+    }),
   );
   inputs.push(...buildArchitecturePortList("input", incomingGraphEdges, nodeById));
 
@@ -305,9 +338,9 @@ function buildFlowPorts(
     outgoing
       .filter((edge) => edge.kind === "data")
       .map((edge) => {
-        const label = dataPortLabel(edge, node.label);
+        const label = edgeMetadataString(edge, "source_label") ?? dataPortLabel(edge, node.label);
         return {
-          id: dataOutputPortId(label),
+          id: edgeMetadataString(edge, "source_handle") ?? dataOutputPortId(label),
           label,
           kind: "data" as const,
           memberLabels: [flowPortMemberLabel("output", edge, nodeById)],
@@ -318,11 +351,26 @@ function buildFlowPorts(
   outputs.push(...outgoingDataPorts);
 
   if (node.kind === "param" && !outgoingDataPorts.length) {
+    const functionInputId = nodeMetadataString(node, "function_input_id");
     outputs.push({
-      id: dataOutputPortId(node.label),
+      id: nodeMetadataString(node, "source_handle")
+        ?? (functionInputId ? `out:data:function-input:${functionInputId}` : dataOutputPortId(node.label)),
       label: node.label,
       kind: "data",
     });
+  }
+
+  if (node.kind === "entry") {
+    outputs.push(
+      ...nodeMetadataList(node, "flow_function_inputs").map((input) => {
+        const label = metadataStringFromRecord(input, "name") ?? "value";
+        return {
+          id: metadataStringFromRecord(input, "source_handle") ?? dataOutputPortId(label),
+          label,
+          kind: "data" as const,
+        };
+      }),
+    );
   }
 
   if (visualFlow) {
@@ -371,10 +419,11 @@ function resolveEdgeHandles(
   }
 
   if (edge.kind === "data") {
-    const label = dataPortLabel(edge, "value");
+    const sourceLabel = edgeMetadataString(edge, "source_label") ?? dataPortLabel(edge, "value");
+    const targetLabel = edgeMetadataString(edge, "target_label") ?? dataPortLabel(edge, "value");
     return {
-      sourceHandle: dataOutputPortId(label),
-      targetHandle: dataInputPortId(label),
+      sourceHandle: edgeMetadataString(edge, "source_handle") ?? dataOutputPortId(sourceLabel),
+      targetHandle: edgeMetadataString(edge, "target_handle") ?? dataInputPortId(targetLabel),
     };
   }
 

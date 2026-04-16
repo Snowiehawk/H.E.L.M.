@@ -77,4 +77,59 @@ describe("GraphToolbar", () => {
     expect(screen.getByText("0 nodes")).toBeInTheDocument();
     expect(screen.getByText("0 edges")).toBeInTheDocument();
   });
+
+  it("shows the editable flow input mode switch only for editable flow views", async () => {
+    const user = userEvent.setup();
+    const onSetFlowInputDisplayMode = vi.fn();
+    const flowGraph: GraphView = {
+      ...baseGraph,
+      targetId: "symbol:calculator:add",
+      level: "flow",
+      focus: {
+        targetId: "symbol:calculator:add",
+        level: "flow",
+        label: "add",
+        availableLevels: ["symbol", "flow"],
+      },
+      flowState: {
+        editable: true,
+        syncState: "draft",
+        diagnostics: [],
+        document: undefined,
+      },
+    };
+
+    render(
+      <GraphToolbar
+        graph={flowGraph}
+        graphFilters={{
+          includeCalls: true,
+          includeDefines: true,
+          includeImports: true,
+        }}
+        graphSettings={{
+          includeExternalDependencies: false,
+        }}
+        flowInputDisplayMode="entry"
+        highlightGraphPath
+        showEdgeLabels
+        canUndoLayout={false}
+        onSelectLevel={vi.fn()}
+        onDeclutter={vi.fn()}
+        onFitView={vi.fn()}
+        onToggleGraphFilter={vi.fn()}
+        onToggleGraphSetting={vi.fn()}
+        onSetFlowInputDisplayMode={onSetFlowInputDisplayMode}
+        onToggleGraphPathHighlight={vi.fn()}
+        onToggleEdgeLabels={vi.fn()}
+        onUndoLayout={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /add flow view/i }));
+    expect(screen.getByRole("button", { name: "Entry inputs" })).toHaveClass("is-active");
+    await user.click(screen.getByRole("button", { name: "Parameters" }));
+
+    expect(onSetFlowInputDisplayMode).toHaveBeenCalledWith("param_nodes");
+  });
 });

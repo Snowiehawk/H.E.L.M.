@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from helm.editor import serialize_edit_request, serialize_undo_transaction
@@ -10,11 +11,38 @@ from helm.editor.flow_model import (
     FlowModelEdge,
     FlowModelNode,
     import_flow_document_from_function_source,
+    read_flow_document,
     write_flow_document,
 )
 from helm.graph.models import GraphAbstractionLevel
 from helm.ui.python_adapter import PythonRepoAdapter
 from tests.helpers import write_repo_files
+
+
+def _replace_flow_node_id(
+    document: FlowModelDocument,
+    *,
+    original_node_id: str,
+    replacement_node_id: str,
+) -> FlowModelDocument:
+    return replace(
+        document,
+        nodes=tuple(
+            replace(node, node_id=replacement_node_id)
+            if node.node_id == original_node_id
+            else node
+            for node in document.nodes
+        ),
+        edges=tuple(
+            replace(
+                edge,
+                edge_id=edge.edge_id.replace(original_node_id, replacement_node_id),
+                source_id=replacement_node_id if edge.source_id == original_node_id else edge.source_id,
+                target_id=replacement_node_id if edge.target_id == original_node_id else edge.target_id,
+            )
+            for edge in document.edges
+        ),
+    )
 
 
 class PythonRepoAdapterTests(unittest.TestCase):
@@ -101,17 +129,25 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertIn("assign", kinds)
             self.assertIn("branch", kinds)
             self.assertIn("return", kinds)
+            node_ids_by_kind = {
+                node.kind.value: {candidate.node_id for candidate in flow.nodes if candidate.kind.value == node.kind.value}
+                for node in flow.nodes
+            }
             self.assertTrue(
-                any(edge.source_id.endswith(":entry") and ":statement:" in edge.target_id for edge in control_edges)
+                any(
+                    edge.source_id.endswith(":entry")
+                    and edge.target_id in node_ids_by_kind["assign"]
+                    for edge in control_edges
+                )
             )
             self.assertFalse(any(":param:" in edge.target_id for edge in control_edges))
             self.assertTrue(any(edge.source_id.endswith(":param:value") for edge in data_edges))
             branch_node = next(node.node_id for node in flow.nodes if node.kind.value == "branch")
             branch_edges = [edge for edge in control_edges if edge.source_id == branch_node]
-            self.assertEqual({edge.label for edge in branch_edges}, {"true", "false"})
+            self.assertEqual({edge.label for edge in branch_edges}, {"true", "after"})
             self.assertEqual(
                 {edge.metadata["path_key"] for edge in branch_edges},
-                {"true", "false"},
+                {"true", "after"},
             )
             param_node = next(node for node in flow.nodes if node.node_id.endswith(":param:value"))
             self.assertEqual(param_node.metadata["source_start_line"], 1)
@@ -152,10 +188,10 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 if edge.kind.value == "controls" and edge.source_id == loop_node
             ]
 
-            self.assertEqual({edge.label for edge in loop_edges}, {"body", "exit"})
+            self.assertEqual({edge.label for edge in loop_edges}, {"body", "after"})
             self.assertEqual(
                 {edge.metadata["path_key"] for edge in loop_edges},
-                {"body", "exit"},
+                {"body", "after"},
             )
 
     def test_flow_view_rehydrates_persisted_draft_documents_with_diagnostics(self) -> None:
@@ -174,23 +210,28 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 qualname="run",
                 module_source=source,
             )
-            draft_document = FlowModelDocument(
-                symbol_id=imported.symbol_id,
-                relative_path=imported.relative_path,
-                qualname=imported.qualname,
+            source_backed_return_id = next(
+                node.node_id
+                for node in imported.nodes
+                if node.kind == "return"
+            )
+            renamed_document = _replace_flow_node_id(
+                imported,
+                original_node_id=source_backed_return_id,
+                replacement_node_id="flowdoc:symbol:service:run:return:draft",
+            )
+            draft_document = replace(
+                renamed_document,
                 nodes=(
-                    *imported.nodes,
+                    *renamed_document.nodes,
                     FlowModelNode(
                         node_id="flowdoc:symbol:service:run:call:disconnected",
                         kind="call",
                         payload={"source": "notify(value)"},
                     ),
                 ),
-                edges=imported.edges,
                 sync_state="draft",
                 diagnostics=("Unreachable flow nodes block code generation: flowdoc:symbol:service:run:call:disconnected.",),
-                source_hash=imported.source_hash,
-                editable=True,
             )
             write_flow_document(root, draft_document)
 
@@ -209,6 +250,190 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertEqual(document["sync_state"], "draft")
             self.assertTrue(
                 any(node["id"] == "flowdoc:symbol:service:run:call:disconnected" for node in document["nodes"])
+            )
+            self.assertIn("flow:symbol:service:run:param:value", {node.node_id for node in flow.nodes})
+            self.assertIn("flowdoc:symbol:service:run:return:draft", {node.node_id for node in flow.nodes})
+            self.assertTrue(
+                any(
+                    edge.kind.value == "data"
+                    and edge.source_id == "flow:symbol:service:run:param:value"
+                    and edge.target_id == "flowdoc:symbol:service:run:return:draft"
+                )
+                for edge in flow.edges
+            )
+
+    def test_flow_view_keeps_method_parameter_wires_when_persisted_document_is_draft_backed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "class Service:\n"
+                "    def run(self, value):\n"
+                "        return self.scale(value)\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:Service.run",
+                relative_path="service.py",
+                qualname="Service.run",
+                module_source=source,
+            )
+            source_backed_return_id = next(
+                node.node_id
+                for node in imported.nodes
+                if node.kind == "return"
+            )
+            draft_document = replace(
+                _replace_flow_node_id(
+                    imported,
+                    original_node_id=source_backed_return_id,
+                    replacement_node_id="flowdoc:symbol:service:Service.run:return:draft",
+                ),
+                sync_state="draft",
+                diagnostics=("Synthetic draft diagnostics.",),
+            )
+            write_flow_document(root, draft_document)
+
+            adapter = PythonRepoAdapter.scan(root)
+            flow = adapter.get_flow_view("symbol:service:Service.run")
+
+            self.assertIn("flow:symbol:service:Service.run:param:self", {node.node_id for node in flow.nodes})
+            self.assertIn("flow:symbol:service:Service.run:param:value", {node.node_id for node in flow.nodes})
+            self.assertIn(
+                "flowdoc:symbol:service:Service.run:return:draft",
+                {node.node_id for node in flow.nodes},
+            )
+            self.assertTrue(
+                any(
+                    edge.kind.value == "data"
+                    and edge.source_id == "flow:symbol:service:Service.run:param:self"
+                    and edge.target_id == "flowdoc:symbol:service:Service.run:return:draft"
+                )
+                for edge in flow.edges
+            )
+            self.assertTrue(
+                any(
+                    edge.kind.value == "data"
+                    and edge.source_id == "flow:symbol:service:Service.run:param:value"
+                    and edge.target_id == "flowdoc:symbol:service:Service.run:return:draft"
+                )
+                for edge in flow.edges
+            )
+
+    def test_flow_view_backfills_function_inputs_for_legacy_persisted_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "def add(a, b):\n"
+                "    return a + b\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:add",
+                relative_path="service.py",
+                qualname="add",
+                module_source=source,
+            )
+            legacy_document = replace(
+                imported,
+                function_inputs=(),
+                input_slots=(),
+                input_bindings=(),
+            )
+            write_flow_document(root, legacy_document)
+
+            adapter = PythonRepoAdapter.scan(root)
+            flow = adapter.get_flow_view("symbol:service:add")
+
+            document = flow.flow_state["document"] if flow.flow_state else None
+            self.assertIsNotNone(document)
+            assert document is not None
+            self.assertEqual([item["name"] for item in document["function_inputs"]], ["a", "b"])
+            self.assertEqual(
+                {slot["slot_key"] for slot in document["input_slots"]},
+                {"a", "b"},
+            )
+            self.assertEqual(len(document["input_bindings"]), 2)
+
+            data_edges = [edge for edge in flow.edges if edge.kind.value == "data"]
+            self.assertEqual(
+                {
+                    (edge.source_id, edge.target_id, edge.metadata.get("slot_id"))
+                    for edge in data_edges
+                },
+                {
+                    (
+                        "flow:symbol:service:add:param:a",
+                        "flowdoc:symbol:service:add:return:0",
+                        "flowslot:flow:symbol:service:add:statement:0:a",
+                    ),
+                    (
+                        "flow:symbol:service:add:param:b",
+                        "flowdoc:symbol:service:add:return:0",
+                        "flowslot:flow:symbol:service:add:statement:0:b",
+                    ),
+                },
+            )
+
+            stored = read_flow_document(root, "symbol:service:add")
+            self.assertIsNotNone(stored)
+            assert stored is not None
+            self.assertEqual(stored.input_slots, ())
+            self.assertEqual(stored.input_bindings, ())
+
+    def test_flow_view_backfills_method_inputs_for_legacy_persisted_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "class Service:\n"
+                "    def run(self, value):\n"
+                "        return self.scale(value)\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:Service.run",
+                relative_path="service.py",
+                qualname="Service.run",
+                module_source=source,
+            )
+            legacy_document = replace(
+                imported,
+                nodes=tuple(replace(node, indexed_node_id=None) for node in imported.nodes),
+                function_inputs=(),
+                input_slots=(),
+                input_bindings=(),
+            )
+            write_flow_document(root, legacy_document)
+
+            adapter = PythonRepoAdapter.scan(root)
+            flow = adapter.get_flow_view("symbol:service:Service.run")
+
+            document = flow.flow_state["document"] if flow.flow_state else None
+            self.assertIsNotNone(document)
+            assert document is not None
+            self.assertEqual([item["name"] for item in document["function_inputs"]], ["self", "value"])
+            self.assertEqual(
+                {slot["slot_key"] for slot in document["input_slots"]},
+                {"self", "value"},
+            )
+            self.assertEqual(len(document["input_bindings"]), 2)
+            self.assertTrue(
+                any(
+                    edge.kind.value == "data"
+                    and edge.source_id == "flow:symbol:service:Service.run:param:self"
+                    and edge.target_id == "flowdoc:symbol:service:Service.run:return:0"
+                    for edge in flow.edges
+                )
+            )
+            self.assertTrue(
+                any(
+                    edge.kind.value == "data"
+                    and edge.source_id == "flow:symbol:service:Service.run:param:value"
+                    and edge.target_id == "flowdoc:symbol:service:Service.run:return:0"
+                    for edge in flow.edges
+                )
             )
 
     def test_flow_view_reimports_stale_persisted_documents_instead_of_exposing_them(self) -> None:
@@ -267,6 +492,15 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertEqual(document["sync_state"], "clean")
             self.assertFalse(any(node["id"].endswith(":call:stale") for node in document["nodes"]))
             self.assertFalse(any(node.node_id.endswith(":call:stale") for node in flow.nodes))
+            visible_return = next(node.node_id for node in flow.nodes if node.kind.value == "return")
+            self.assertTrue(
+                any(
+                    edge.kind.value == "data"
+                    and edge.source_id == "flow:symbol:service:run:param:value"
+                    and edge.target_id == visible_return
+                )
+                for edge in flow.edges
+            )
 
     def test_flow_view_returns_import_error_for_stale_documents_when_current_source_cannot_import(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -278,22 +512,17 @@ class PythonRepoAdapterTests(unittest.TestCase):
             )
             write_repo_files(root, {"service.py": source})
 
+            previous_source = "def run(value):\n    return value\n"
+            previous_document = import_flow_document_from_function_source(
+                symbol_id="symbol:service:run",
+                relative_path="service.py",
+                qualname="run",
+                module_source=previous_source,
+            )
             write_flow_document(
                 root,
-                FlowModelDocument(
-                    symbol_id="symbol:service:run",
-                    relative_path="service.py",
-                    qualname="run",
-                    nodes=(
-                        FlowModelNode(node_id="flowdoc:symbol:service:run:entry", kind="entry", payload={}),
-                        FlowModelNode(
-                            node_id="flowdoc:symbol:service:run:call:stale",
-                            kind="call",
-                            payload={"source": "stale()"},
-                        ),
-                        FlowModelNode(node_id="flowdoc:symbol:service:run:exit", kind="exit", payload={}),
-                    ),
-                    edges=(),
+                replace(
+                    previous_document,
                     sync_state="draft",
                     diagnostics=("stale diagnostics",),
                     source_hash="stale-source-hash",
@@ -314,8 +543,11 @@ class PythonRepoAdapterTests(unittest.TestCase):
             assert document is not None
             self.assertEqual(document["sync_state"], "import_error")
             self.assertFalse(document["editable"])
-            self.assertFalse(any(node["id"].endswith(":call:stale") for node in document["nodes"]))
-            self.assertFalse(any(node.node_id.endswith(":call:stale") for node in flow.nodes))
+            self.assertEqual([item["name"] for item in document["function_inputs"]], ["value"])
+            self.assertTrue(document["input_slots"])
+            self.assertTrue(document["input_bindings"])
+            self.assertTrue(any(node["kind"] == "return" for node in document["nodes"]))
+            self.assertTrue(any(node.kind.value == "param" and node.label == "value" for node in flow.nodes))
 
     def test_class_symbol_view_surfaces_direct_members_and_flow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -552,7 +784,12 @@ class PythonRepoAdapterTests(unittest.TestCase):
 
             self.assertEqual(response["edit"]["changed_node_ids"], ["flow:symbol:service:run:statement:1"])
             flow = adapter.get_flow_view("symbol:service:run")
-            self.assertIn("helper = current + 1", {node.label for node in flow.nodes})
+            self.assertTrue(
+                any(
+                    node["payload"].get("source") == "helper = current + 1"
+                    for node in flow.flow_state["document"]["nodes"]
+                )
+            )
 
     def test_apply_undo_restores_backend_state_and_focus_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -16,6 +16,8 @@ import {
 } from "../components/graph/GraphCanvas";
 import {
   establishFlowDraftDocument,
+  parseFunctionInputSourceHandle,
+  parseInputSlotTargetHandle,
   projectFlowDraftGraph,
 } from "../components/graph/flowDraftGraph";
 import {
@@ -33,10 +35,13 @@ import {
   isFlowNodeAuthorableKind,
   flowNodePayloadFromContent,
   removeFlowEdges,
+  removeFlowInputBindings,
   removeFlowNodes,
   updateFlowNodePayload,
   upsertFlowConnection,
+  upsertFlowInputBinding,
   validateFlowConnection,
+  validateFlowInputBindingConnection,
 } from "../components/graph/flowDocument";
 import { DesktopWindow } from "../components/layout/DesktopWindow";
 import { SidebarPane } from "../components/panes/SidebarPane";
@@ -633,6 +638,7 @@ export function WorkspaceScreen() {
   const activeSymbolId = useUiStore((state) => state.activeSymbolId);
   const graphFilters = useUiStore((state) => state.graphFilters);
   const graphSettings = useUiStore((state) => state.graphSettings);
+  const flowInputDisplayMode = useUiStore((state) => state.flowInputDisplayMode);
   const highlightGraphPath = useUiStore((state) => state.highlightGraphPath);
   const showEdgeLabels = useUiStore((state) => state.showEdgeLabels);
   const sidebarQuery = useUiStore((state) => state.sidebarQuery);
@@ -646,6 +652,7 @@ export function WorkspaceScreen() {
   const selectNode = useUiStore((state) => state.selectNode);
   const toggleGraphFilter = useUiStore((state) => state.toggleGraphFilter);
   const toggleGraphSetting = useUiStore((state) => state.toggleGraphSetting);
+  const setFlowInputDisplayMode = useUiStore((state) => state.setFlowInputDisplayMode);
   const toggleGraphPathHighlight = useUiStore((state) => state.toggleGraphPathHighlight);
   const toggleEdgeLabels = useUiStore((state) => state.toggleEdgeLabels);
   const setRevealedSource = useUiStore((state) => state.setRevealedSource);
@@ -847,10 +854,10 @@ export function WorkspaceScreen() {
     : undefined;
   const effectiveGraph = useMemo(() => {
     if (activeLevel === "flow" && graphQuery.data && activeFlowDraft) {
-      return projectFlowDraftGraph(graphQuery.data, activeFlowDraft.document);
+      return projectFlowDraftGraph(graphQuery.data, activeFlowDraft.document, flowInputDisplayMode);
     }
     return graphQuery.data;
-  }, [activeFlowDraft, activeLevel, graphQuery.data]);
+  }, [activeFlowDraft, activeLevel, flowInputDisplayMode, graphQuery.data]);
 
   const selectedGraphNode = effectiveGraph?.nodes.find((node) => node.id === activeNodeId);
   const selectedInspectableNode =
@@ -2021,6 +2028,30 @@ export function WorkspaceScreen() {
     };
   }, [activeFlowDraft]);
 
+  const resolveFlowInputBindingConnection = useCallback((connection: GraphFlowConnectionIntent) => {
+    if (!activeFlowDraft) {
+      return undefined;
+    }
+
+    const functionInputId =
+      parseFunctionInputSourceHandle(connection.sourceHandle)
+      ?? (() => {
+        const sourceNode = effectiveGraph?.nodes.find((node) => node.id === connection.sourceId);
+        const value =
+          sourceNode?.metadata.function_input_id
+          ?? sourceNode?.metadata.functionInputId;
+        return typeof value === "string" ? value : undefined;
+      })();
+    const slotId = parseInputSlotTargetHandle(connection.targetHandle);
+    if (!functionInputId || !slotId) {
+      return undefined;
+    }
+    return {
+      functionInputId,
+      slotId,
+    };
+  }, [activeFlowDraft, effectiveGraph?.nodes]);
+
   const handleOpenFlowEditComposer = useCallback((intent: GraphFlowEditIntent) => {
     if (
       activeLevel !== "flow"
@@ -2068,6 +2099,22 @@ export function WorkspaceScreen() {
     if (!activeFlowDraft) {
       return;
     }
+    const inputBindingConnection = resolveFlowInputBindingConnection(connectionIntent);
+    if (inputBindingConnection) {
+      const validation = validateFlowInputBindingConnection(activeFlowDraft.document, inputBindingConnection);
+      if (!validation.ok) {
+        setCreateModeError(validation.message);
+        return;
+      }
+      void applyFlowDraftMutation({
+        transform: (document) => upsertFlowInputBinding(document, inputBindingConnection),
+      }).catch((reason) => {
+        const message =
+          reason instanceof Error ? reason.message : "Unable to bind the selected function input.";
+        setCreateModeError(message);
+      });
+      return;
+    }
     const connection = resolveFlowDocumentConnection(connectionIntent);
     if (!connection) {
       return;
@@ -2090,6 +2137,7 @@ export function WorkspaceScreen() {
     activeFlowDraft,
     applyFlowDraftMutation,
     resolveFlowDocumentConnection,
+    resolveFlowInputBindingConnection,
   ]);
 
   const handleReconnectFlowEdge = useCallback((
@@ -2097,6 +2145,25 @@ export function WorkspaceScreen() {
     connectionIntent: GraphFlowConnectionIntent,
   ) => {
     if (!activeFlowDraft) {
+      return;
+    }
+    const inputBindingConnection = resolveFlowInputBindingConnection(connectionIntent);
+    if (inputBindingConnection) {
+      const validation = validateFlowInputBindingConnection(activeFlowDraft.document, inputBindingConnection);
+      if (!validation.ok) {
+        setCreateModeError(validation.message);
+        return;
+      }
+      const previousBindingId = edgeId.startsWith("data:")
+        ? edgeId.slice("data:".length)
+        : undefined;
+      void applyFlowDraftMutation({
+        transform: (document) => upsertFlowInputBinding(document, inputBindingConnection, previousBindingId),
+      }).catch((reason) => {
+        const message =
+          reason instanceof Error ? reason.message : "Unable to reconnect the selected function input.";
+        setCreateModeError(message);
+      });
       return;
     }
     const connection = resolveFlowDocumentConnection(connectionIntent);
@@ -2121,9 +2188,21 @@ export function WorkspaceScreen() {
     activeFlowDraft,
     applyFlowDraftMutation,
     resolveFlowDocumentConnection,
+    resolveFlowInputBindingConnection,
   ]);
 
   const handleDisconnectFlowEdge = useCallback((edgeId: string) => {
+    if (edgeId.startsWith("data:")) {
+      const bindingId = edgeId.slice("data:".length);
+      void applyFlowDraftMutation({
+        transform: (document) => removeFlowInputBindings(document, [bindingId]),
+      }).catch((reason) => {
+        const message =
+          reason instanceof Error ? reason.message : "Unable to disconnect the selected function input.";
+        setCreateModeError(message);
+      });
+      return;
+    }
     void applyFlowDraftMutation({
       transform: (document) => removeFlowEdges(document, [edgeId]),
     }).catch((reason) => {
@@ -2704,6 +2783,7 @@ export function WorkspaceScreen() {
                     activeNodeId={activeNodeId}
                     graphFilters={graphFilters}
                     graphSettings={graphSettings}
+                    flowInputDisplayMode={flowInputDisplayMode}
                     highlightGraphPath={highlightGraphPath}
                     showEdgeLabels={showEdgeLabels}
                     onSelectNode={handleGraphSelectNode}
@@ -2713,6 +2793,7 @@ export function WorkspaceScreen() {
                     onSelectLevel={handleSelectLevel}
                     onToggleGraphFilter={toggleGraphFilter}
                     onToggleGraphSetting={toggleGraphSetting}
+                    onSetFlowInputDisplayMode={setFlowInputDisplayMode}
                     onToggleGraphPathHighlight={toggleGraphPathHighlight}
                     onToggleEdgeLabels={toggleEdgeLabels}
                     onNavigateOut={handleNavigateGraphOut}

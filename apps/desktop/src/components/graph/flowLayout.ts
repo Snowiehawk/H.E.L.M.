@@ -50,6 +50,8 @@ const CONTROL_NODE_GAP = 76;
 const SUPPORT_COLUMN_OFFSET = 96;
 const SUPPORT_ROW_GAP = 148;
 const SUPPORT_BAND_MARGIN = 164;
+const SIGNATURE_RAIL_GAP_X = 28;
+const SIGNATURE_RAIL_GAP_Y = 52;
 const PIN_DISTANCE_X = 420;
 const PIN_DISTANCE_Y = 220;
 
@@ -76,6 +78,13 @@ function metadataNumber(node: FlowLayoutNode, key: string): number | undefined {
     node.metadata?.[key]
     ?? node.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
   return typeof value === "number" ? value : undefined;
+}
+
+function metadataString(node: FlowLayoutNode, key: string): string | undefined {
+  const value =
+    node.metadata?.[key]
+    ?? node.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function edgeMetadataNumber(edge: GraphEdgeDto, key: string): number | undefined {
@@ -411,6 +420,40 @@ function placeSupportNodes(
     return supportPositions;
   }
 
+  const signatureNodesByOwner = new Map<string, ResolvedFlowNode[]>();
+  supportNodes.forEach((node) => {
+    const ownerId = metadataString(node, "signature_owner_id");
+    if (!ownerId || !controlPositions.has(ownerId)) {
+      return;
+    }
+    signatureNodesByOwner.set(ownerId, [...(signatureNodesByOwner.get(ownerId) ?? []), node]);
+  });
+  signatureNodesByOwner.forEach((ownedNodes, ownerId) => {
+    const owner = controlNodes.find((node) => node.id === ownerId);
+    const ownerPosition = controlPositions.get(ownerId);
+    if (!owner || !ownerPosition) {
+      return;
+    }
+    const sorted = ownedNodes.slice().sort((left, right) =>
+      (metadataNumber(left, "signature_order") ?? left.flowOrder)
+      - (metadataNumber(right, "signature_order") ?? right.flowOrder)
+      || left.baseIndex - right.baseIndex
+      || left.id.localeCompare(right.id),
+    );
+    const totalWidth = sorted.reduce((sum, node, index) =>
+      sum + node.width + (index > 0 ? SIGNATURE_RAIL_GAP_X : 0),
+    0);
+    const ownerCenterX = ownerPosition.x + owner.width / 2;
+    let cursorX = ownerCenterX - totalWidth / 2;
+    sorted.forEach((node) => {
+      supportPositions.set(node.id, {
+        x: cursorX,
+        y: ownerPosition.y - SIGNATURE_RAIL_GAP_Y - node.height,
+      });
+      cursorX += node.width + SIGNATURE_RAIL_GAP_X;
+    });
+  });
+
   const controlTop = controlNodes.reduce((lowest, node) => {
     const top = controlPositions.get(node.id)?.y ?? 0;
     return Math.min(lowest, top);
@@ -421,7 +464,8 @@ function placeSupportNodes(
   }, Number.NEGATIVE_INFINITY);
 
   const columnsBySupport = new Map<string, number>();
-  supportNodes.forEach((node) => {
+  const bandSupportNodes = supportNodes.filter((node) => !supportPositions.has(node.id));
+  bandSupportNodes.forEach((node) => {
     const relatedColumns = edges.flatMap((edge) => {
       if (edge.source === node.id && controlNodeIds.has(edge.target)) {
         return [columns.get(edge.target) ?? 0];
@@ -448,7 +492,7 @@ function placeSupportNodes(
     columnsBySupport.set(node.id, fallbackColumn);
   });
 
-  const above = supportNodes
+  const above = bandSupportNodes
     .filter((node) => classifySupportNode(node, edges, controlNodeIds) === "above")
     .sort((left, right) =>
       (columnsBySupport.get(left.id) ?? 0) - (columnsBySupport.get(right.id) ?? 0)
@@ -456,7 +500,7 @@ function placeSupportNodes(
       || left.baseIndex - right.baseIndex
       || left.id.localeCompare(right.id),
     );
-  const below = supportNodes
+  const below = bandSupportNodes
     .filter((node) => classifySupportNode(node, edges, controlNodeIds) === "below")
     .sort((left, right) =>
       (columnsBySupport.get(left.id) ?? 0) - (columnsBySupport.get(right.id) ?? 0)

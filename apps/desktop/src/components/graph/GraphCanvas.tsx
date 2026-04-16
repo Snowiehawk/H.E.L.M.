@@ -24,6 +24,7 @@ import type {
   GraphBreadcrumbDto,
   GraphEdgeKind,
   GraphFilters,
+  FlowInputDisplayMode,
   GraphNodeKind,
   GraphNodeDto,
   GraphSettings,
@@ -2001,6 +2002,7 @@ export function GraphCanvas({
   activeNodeId,
   graphFilters,
   graphSettings,
+  flowInputDisplayMode = "param_nodes",
   highlightGraphPath,
   showEdgeLabels,
   onSelectNode,
@@ -2010,6 +2012,7 @@ export function GraphCanvas({
   onSelectLevel,
   onToggleGraphFilter,
   onToggleGraphSetting,
+  onSetFlowInputDisplayMode = () => {},
   onToggleGraphPathHighlight,
   onToggleEdgeLabels,
   onNavigateOut,
@@ -2032,6 +2035,7 @@ export function GraphCanvas({
   activeNodeId?: string;
   graphFilters: GraphFilters;
   graphSettings: GraphSettings;
+  flowInputDisplayMode?: FlowInputDisplayMode;
   highlightGraphPath: boolean;
   showEdgeLabels: boolean;
   onSelectNode: (nodeId: string, kind: GraphNodeKind) => void;
@@ -2041,6 +2045,7 @@ export function GraphCanvas({
   onSelectLevel: (level: GraphAbstractionLevel) => void;
   onToggleGraphFilter: (key: keyof GraphFilters) => void;
   onToggleGraphSetting: (key: keyof GraphSettings) => void;
+  onSetFlowInputDisplayMode?: (mode: FlowInputDisplayMode) => void;
   onToggleGraphPathHighlight: () => void;
   onToggleEdgeLabels: () => void;
   onNavigateOut: () => void;
@@ -3379,6 +3384,12 @@ export function GraphCanvas({
     hoverActive,
     nodes,
     onEdgeClick: (logicalEdgeId, logicalEdgeKind, _position, _clientPosition, modifiers) => {
+      if (logicalEdgeKind === "data" && logicalEdgeId.startsWith("data:flowbinding:")) {
+        if (modifiers.altKey) {
+          onDisconnectFlowEdge(logicalEdgeId);
+        }
+        return;
+      }
       const edgeInteraction = resolveFlowEdgeInteraction({
         flowAuthoringEnabled,
         logicalEdgeKind,
@@ -3709,6 +3720,7 @@ export function GraphCanvas({
         graph={graph}
         graphFilters={graphFilters}
         graphSettings={graphSettings}
+        flowInputDisplayMode={flowInputDisplayMode}
         highlightGraphPath={highlightGraphPath}
         showEdgeLabels={showEdgeLabels}
         canUndoLayout={currentLayoutUndoStack.length > 0}
@@ -3717,6 +3729,7 @@ export function GraphCanvas({
         onFitView={handleFitView}
         onToggleGraphFilter={onToggleGraphFilter}
         onToggleGraphSetting={onToggleGraphSetting}
+        onSetFlowInputDisplayMode={onSetFlowInputDisplayMode}
         onToggleGraphPathHighlight={onToggleGraphPathHighlight}
         onToggleEdgeLabels={onToggleEdgeLabels}
         onUndoLayout={handleUndoLayout}

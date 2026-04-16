@@ -199,6 +199,7 @@ interface RawGraphView {
         id: string;
         kind: "entry" | "assign" | "call" | "branch" | "loop" | "return" | "exit";
         payload: Record<string, unknown>;
+        indexed_node_id?: string | null;
       }>;
       edges: Array<{
         id: string;
@@ -206,6 +207,23 @@ interface RawGraphView {
         source_handle: string;
         target_id: string;
         target_handle: string;
+      }>;
+      function_inputs?: Array<{
+        id: string;
+        name: string;
+        index: number;
+      }>;
+      input_slots?: Array<{
+        id: string;
+        node_id: string;
+        slot_key: string;
+        label: string;
+        required: boolean;
+      }>;
+      input_bindings?: Array<{
+        id: string;
+        function_input_id: string;
+        slot_id: string;
       }>;
       sync_state: "clean" | "draft" | "import_error";
       diagnostics: string[];
@@ -1311,6 +1329,7 @@ function toRawEditRequest(request: StructuralEditRequest) {
             id: node.id,
             kind: node.kind,
             payload: node.payload,
+            ...(node.indexedNodeId ? { indexed_node_id: node.indexedNodeId } : {}),
           })),
           edges: request.flowGraph.edges.map((edge) => ({
             id: edge.id,
@@ -1318,6 +1337,23 @@ function toRawEditRequest(request: StructuralEditRequest) {
             source_handle: edge.sourceHandle,
             target_id: edge.targetId,
             target_handle: edge.targetHandle,
+          })),
+          function_inputs: (request.flowGraph.functionInputs ?? []).map((input) => ({
+            id: input.id,
+            name: input.name,
+            index: input.index,
+          })),
+          input_slots: (request.flowGraph.inputSlots ?? []).map((slot) => ({
+            id: slot.id,
+            node_id: slot.nodeId,
+            slot_key: slot.slotKey,
+            label: slot.label,
+            required: slot.required,
+          })),
+          input_bindings: (request.flowGraph.inputBindings ?? []).map((binding) => ({
+            id: binding.id,
+            function_input_id: binding.functionInputId,
+            slot_id: binding.slotId,
           })),
           sync_state: request.flowGraph.syncState,
           diagnostics: request.flowGraph.diagnostics,
@@ -1551,6 +1587,7 @@ function toFlowGraphDocument(
       id: node.id,
       kind: node.kind,
       payload: node.payload,
+      indexedNodeId: node.indexed_node_id ?? null,
     })),
     edges: raw.edges.map((edge) => ({
       id: edge.id,
@@ -1559,6 +1596,35 @@ function toFlowGraphDocument(
       targetId: edge.target_id,
       targetHandle: edge.target_handle,
     })),
+    ...(raw.function_inputs
+      ? {
+          functionInputs: raw.function_inputs.map((input) => ({
+            id: input.id,
+            name: input.name,
+            index: input.index,
+          })),
+        }
+      : {}),
+    ...(raw.input_slots
+      ? {
+          inputSlots: raw.input_slots.map((slot) => ({
+            id: slot.id,
+            nodeId: slot.node_id,
+            slotKey: slot.slot_key,
+            label: slot.label,
+            required: slot.required,
+          })),
+        }
+      : {}),
+    ...(raw.input_bindings
+      ? {
+          inputBindings: raw.input_bindings.map((binding) => ({
+            id: binding.id,
+            functionInputId: binding.function_input_id,
+            slotId: binding.slot_id,
+          })),
+        }
+      : {}),
     syncState: raw.sync_state,
     diagnostics: raw.diagnostics,
     sourceHash: raw.source_hash,

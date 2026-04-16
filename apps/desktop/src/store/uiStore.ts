@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   GraphAbstractionLevel,
   GraphFilters,
+  FlowInputDisplayMode,
   GraphSettings,
   RepoSession,
   RevealedSource,
@@ -12,6 +13,7 @@ import type {
 } from "../lib/adapter";
 
 const UI_SCALE_STORAGE_KEY = "helm.ui-scale";
+const FLOW_INPUT_DISPLAY_MODE_STORAGE_KEY = "helm.flow-input-display-mode";
 export const DEFAULT_UI_SCALE = 1;
 export const UI_SCALE_STEP = 0.1;
 export const MIN_UI_SCALE = 0.7;
@@ -68,6 +70,20 @@ function persistUiScale(scale: number) {
   storage.setItem(UI_SCALE_STORAGE_KEY, String(scale));
 }
 
+function readStoredFlowInputDisplayMode(): FlowInputDisplayMode {
+  const storage = uiScaleStorage();
+  const value = storage?.getItem(FLOW_INPUT_DISPLAY_MODE_STORAGE_KEY);
+  return value === "entry" || value === "param_nodes" ? value : "param_nodes";
+}
+
+function persistFlowInputDisplayMode(mode: FlowInputDisplayMode) {
+  const storage = uiScaleStorage();
+  if (!storage) {
+    return;
+  }
+  storage.setItem(FLOW_INPUT_DISPLAY_MODE_STORAGE_KEY, mode);
+}
+
 export type WorkspaceActivityDomain = "backend" | "layout" | "editor";
 export type WorkspaceActivityKind = "mutation" | "undo" | "error";
 
@@ -94,6 +110,7 @@ interface UiState {
   graphDepth: number;
   graphFilters: GraphFilters;
   graphSettings: GraphSettings;
+  flowInputDisplayMode: FlowInputDisplayMode;
   highlightGraphPath: boolean;
   showEdgeLabels: boolean;
   revealedSource?: RevealedSource;
@@ -119,6 +136,7 @@ interface UiState {
   reduceGraphDepth: () => void;
   toggleGraphFilter: (key: keyof GraphFilters) => void;
   toggleGraphSetting: (key: keyof GraphSettings) => void;
+  setFlowInputDisplayMode: (mode: FlowInputDisplayMode) => void;
   toggleGraphPathHighlight: () => void;
   toggleEdgeLabels: () => void;
   setRevealedSource: (source?: RevealedSource) => void;
@@ -147,6 +165,7 @@ export const useUiStore = create<UiState>((set) => ({
   graphDepth: 1,
   graphFilters: defaultGraphFilters,
   graphSettings: defaultGraphSettings,
+  flowInputDisplayMode: readStoredFlowInputDisplayMode(),
   highlightGraphPath: true,
   showEdgeLabels: true,
   setTheme: (theme) => set({ theme }),
@@ -286,6 +305,10 @@ export const useUiStore = create<UiState>((set) => ({
         [key]: !state.graphSettings[key],
       },
     })),
+  setFlowInputDisplayMode: (flowInputDisplayMode) => {
+    persistFlowInputDisplayMode(flowInputDisplayMode);
+    set({ flowInputDisplayMode });
+  },
   toggleGraphPathHighlight: () =>
     set((state) => ({ highlightGraphPath: !state.highlightGraphPath })),
   toggleEdgeLabels: () =>

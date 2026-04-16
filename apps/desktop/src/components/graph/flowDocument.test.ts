@@ -6,9 +6,12 @@ import {
   isFlowDocumentNodeKind,
   isFlowNodeAuthorableKind,
   removeFlowEdges,
+  removeFlowInputBindings,
   removeFlowNodes,
+  upsertFlowInputBinding,
   upsertFlowConnection,
   validateFlowConnection,
+  validateFlowInputBindingConnection,
 } from "./flowDocument";
 
 const baseDocument: FlowGraphDocument = {
@@ -160,5 +163,84 @@ describe("flowDocument logical helpers", () => {
     const result = removeFlowNodes(documentWithSupportNode, ["flow:symbol:workflow:run:param:value"]);
 
     expect(result.nodes.map((node) => node.id)).toContain("flow:symbol:workflow:run:param:value");
+  });
+
+  it("updates one canonical function-input binding without touching siblings for the same input", () => {
+    const document: FlowGraphDocument = {
+      ...baseDocument,
+      nodes: [
+        { id: "flowdoc:symbol:workflow:run:entry", kind: "entry", payload: {} },
+        { id: "flowdoc:symbol:workflow:run:assign:0", kind: "assign", payload: { source: "x = a" } },
+        { id: "flowdoc:symbol:workflow:run:return:1", kind: "return", payload: { expression: "a" } },
+        { id: "flowdoc:symbol:workflow:run:exit", kind: "exit", payload: {} },
+      ],
+      functionInputs: [
+        { id: "flowinput:symbol:workflow:run:a", name: "a", index: 0 },
+        { id: "flowinput:symbol:workflow:run:b", name: "b", index: 1 },
+      ],
+      inputSlots: [
+        {
+          id: "flowslot:flow:symbol:workflow:run:statement:0:a",
+          nodeId: "flowdoc:symbol:workflow:run:assign:0",
+          slotKey: "a",
+          label: "a",
+          required: true,
+        },
+        {
+          id: "flowslot:flow:symbol:workflow:run:statement:1:a",
+          nodeId: "flowdoc:symbol:workflow:run:return:1",
+          slotKey: "a",
+          label: "a",
+          required: true,
+        },
+      ],
+      inputBindings: [
+        {
+          id: "flowbinding:flowslot:flow:symbol:workflow:run:statement:0:a->flowinput:symbol:workflow:run:a",
+          slotId: "flowslot:flow:symbol:workflow:run:statement:0:a",
+          functionInputId: "flowinput:symbol:workflow:run:a",
+        },
+        {
+          id: "flowbinding:flowslot:flow:symbol:workflow:run:statement:1:a->flowinput:symbol:workflow:run:a",
+          slotId: "flowslot:flow:symbol:workflow:run:statement:1:a",
+          functionInputId: "flowinput:symbol:workflow:run:a",
+        },
+      ],
+    };
+
+    expect(validateFlowInputBindingConnection(document, {
+      functionInputId: "flowinput:symbol:workflow:run:b",
+      slotId: "flowslot:flow:symbol:workflow:run:statement:0:a",
+    })).toEqual({ ok: true });
+
+    const withoutAssignBinding = removeFlowInputBindings(document, [
+      "flowbinding:flowslot:flow:symbol:workflow:run:statement:0:a->flowinput:symbol:workflow:run:a",
+    ]);
+
+    expect(withoutAssignBinding.inputBindings).toEqual([
+      {
+        id: "flowbinding:flowslot:flow:symbol:workflow:run:statement:1:a->flowinput:symbol:workflow:run:a",
+        slotId: "flowslot:flow:symbol:workflow:run:statement:1:a",
+        functionInputId: "flowinput:symbol:workflow:run:a",
+      },
+    ]);
+
+    const reconnected = upsertFlowInputBinding(withoutAssignBinding, {
+      functionInputId: "flowinput:symbol:workflow:run:b",
+      slotId: "flowslot:flow:symbol:workflow:run:statement:0:a",
+    });
+
+    expect(reconnected.inputBindings).toEqual([
+      {
+        id: "flowbinding:flowslot:flow:symbol:workflow:run:statement:1:a->flowinput:symbol:workflow:run:a",
+        slotId: "flowslot:flow:symbol:workflow:run:statement:1:a",
+        functionInputId: "flowinput:symbol:workflow:run:a",
+      },
+      {
+        id: "flowbinding:flowslot:flow:symbol:workflow:run:statement:0:a->flowinput:symbol:workflow:run:b",
+        slotId: "flowslot:flow:symbol:workflow:run:statement:0:a",
+        functionInputId: "flowinput:symbol:workflow:run:b",
+      },
+    ]);
   });
 });

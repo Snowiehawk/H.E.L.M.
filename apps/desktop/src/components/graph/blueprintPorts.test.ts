@@ -291,6 +291,82 @@ describe("buildBlueprintPresentation", () => {
     });
   });
 
+  it("exposes entry-owned function inputs and unbound target slots as data ports", () => {
+    const graph: GraphView = {
+      rootNodeId: "flowdoc:symbol:service:run:entry",
+      targetId: "symbol:service:run",
+      level: "flow",
+      truncated: false,
+      breadcrumbs: [],
+      focus: null,
+      nodes: [
+        {
+          id: "flowdoc:symbol:service:run:entry",
+          kind: "entry",
+          label: "Entry",
+          x: 0,
+          y: 0,
+          metadata: {
+            flow_visual: true,
+            flow_function_inputs: [
+              {
+                function_input_id: "flowinput:symbol:service:run:value",
+                name: "value",
+                index: 0,
+                source_handle: "out:data:function-input:flowinput:symbol:service:run:value",
+              },
+            ],
+          },
+          availableActions: [],
+        },
+        {
+          id: "flowdoc:symbol:service:run:return:0",
+          kind: "return",
+          label: "return value",
+          x: 240,
+          y: 0,
+          metadata: {
+            flow_visual: true,
+            flow_input_slots: [
+              {
+                slot_id: "flowslot:flow:symbol:service:run:statement:0:value",
+                slot_key: "value",
+                label: "value",
+                target_handle: "in:data:input-slot:flowslot:flow:symbol:service:run:statement:0:value",
+              },
+            ],
+          },
+          availableActions: [],
+        },
+      ],
+      edges: [],
+    };
+
+    const presentation = buildBlueprintPresentation(graph);
+    const entryPorts = presentation.nodePorts.get("flowdoc:symbol:service:run:entry");
+    const returnPorts = presentation.nodePorts.get("flowdoc:symbol:service:run:return:0");
+
+    expect(entryPorts?.outputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "out:data:function-input:flowinput:symbol:service:run:value",
+          label: "value",
+          kind: "data",
+        }),
+      ]),
+    );
+    expect(entryPorts?.inputs.some((port) => port.kind === "data")).toBe(false);
+    expect(returnPorts?.inputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "in:data:input-slot:flowslot:flow:symbol:service:run:statement:0:value",
+          label: "value",
+          kind: "data",
+        }),
+      ]),
+    );
+  });
+
   it("assigns distinct control handles for labeled and unlabeled split paths", () => {
     const graph: GraphView = {
       rootNodeId: "flow:entry",

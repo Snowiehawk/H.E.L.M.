@@ -86,7 +86,7 @@ function PortList({
                 ].filter(Boolean).join(" ")}
                 type="target"
                 position={Position.Left}
-                isConnectable={port.kind === "control" && connectable}
+                isConnectable={(port.kind === "control" || port.kind === "data") && connectable}
               />
             ) : null}
             {direction === "input" ? badge : null}
@@ -103,7 +103,7 @@ function PortList({
                 ].filter(Boolean).join(" ")}
                 type="source"
                 position={Position.Right}
-                isConnectable={port.kind === "control" && connectable}
+                isConnectable={(port.kind === "control" || port.kind === "data") && connectable}
               />
             ) : null}
           </div>

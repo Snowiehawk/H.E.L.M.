@@ -30,6 +30,7 @@ function resetStore() {
     graphSettings: {
       includeExternalDependencies: false,
     },
+    flowInputDisplayMode: "param_nodes",
     highlightGraphPath: true,
   });
 }
@@ -96,5 +97,16 @@ describe("uiStore", () => {
 
     useUiStore.getState().resetUiScale();
     expect(useUiStore.getState().uiScale).toBe(1);
+  });
+
+  it("persists the global editable flow input display preference across workspace resets", () => {
+    useUiStore.getState().setFlowInputDisplayMode("entry");
+
+    expect(useUiStore.getState().flowInputDisplayMode).toBe("entry");
+    expect(window.localStorage.getItem("helm.flow-input-display-mode")).toBe("entry");
+
+    useUiStore.getState().resetWorkspace();
+
+    expect(useUiStore.getState().flowInputDisplayMode).toBe("entry");
   });
 });

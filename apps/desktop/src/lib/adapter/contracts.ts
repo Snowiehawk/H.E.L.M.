@@ -58,6 +58,7 @@ export type StructuralEditKind =
   | "replace_flow_graph";
 
 export type FlowSyncState = "clean" | "draft" | "import_error";
+export type FlowInputDisplayMode = "entry" | "param_nodes";
 export type FlowVisualNodeKind =
   | "entry"
   | "assign"
@@ -68,11 +69,13 @@ export type FlowVisualNodeKind =
   | "exit";
 
 export interface FlowGraphNode {
-  // Persisted flow documents stay statement-node-only in v1. Visual support nodes such
-  // as `param` can still appear in rendered flow views, but they do not belong here.
+  // Persisted flow documents describe authored control flow plus source-backed
+  // identity and canonical function-input bindings. Visual support nodes such as
+  // `param` are projected from functionInputs/inputBindings rather than persisted.
   id: string;
   kind: FlowVisualNodeKind;
   payload: Record<string, unknown>;
+  indexedNodeId?: string | null;
 }
 
 export interface FlowGraphEdge {
@@ -83,12 +86,35 @@ export interface FlowGraphEdge {
   targetHandle: string;
 }
 
+export interface FlowFunctionInput {
+  id: string;
+  name: string;
+  index: number;
+}
+
+export interface FlowInputSlot {
+  id: string;
+  nodeId: string;
+  slotKey: string;
+  label: string;
+  required: boolean;
+}
+
+export interface FlowInputBinding {
+  id: string;
+  functionInputId: string;
+  slotId: string;
+}
+
 export interface FlowGraphDocument {
   symbolId: string;
   relativePath: string;
   qualname: string;
   nodes: FlowGraphNode[];
   edges: FlowGraphEdge[];
+  functionInputs?: FlowFunctionInput[];
+  inputSlots?: FlowInputSlot[];
+  inputBindings?: FlowInputBinding[];
   syncState: FlowSyncState;
   diagnostics: string[];
   sourceHash?: string | null;

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 import keyword
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dataclass_replace
 from pathlib import Path, PurePosixPath
 from typing import Callable, Iterable
 
@@ -16,9 +16,14 @@ from helm.editor.flow_model import (
     compile_flow_document,
     find_ast_symbol,
     flow_document_from_payload,
+    function_inputs_from_function_source,
     function_source_for_qualname,
     function_source_hash,
     import_flow_document_from_function_source,
+    indexed_flow_entry_node_id,
+    read_flow_document,
+    with_flow_document_inherited_input_model,
+    with_flow_document_indexed_node_ids,
     with_flow_document_status,
     write_flow_document,
 )
@@ -645,6 +650,20 @@ def _replace_flow_graph(
     document = flow_document_from_payload(request.flow_graph)
     if document.symbol_id != symbol.symbol_id:
         raise ValueError("Flow graph payload does not match the requested symbol.")
+    try:
+        source_document = import_flow_document_from_function_source(
+            symbol_id=symbol.symbol_id,
+            relative_path=parsed.module.relative_path,
+            qualname=symbol.qualname,
+            module_source=source,
+        )
+    except FlowImportError:
+        source_document = None
+    if source_document is not None:
+        document = with_flow_document_inherited_input_model(
+            document,
+            source_document=source_document,
+        )
     document = with_flow_document_status(
         document,
         sync_state=document.sync_state,
@@ -667,8 +686,17 @@ def _replace_flow_graph(
         source_path.write_text(updated.code, encoding="utf-8")
         updated_source = source_path.read_text(encoding="utf-8")
         updated_function_source = function_source_for_qualname(updated_source, symbol.qualname)
+        imported_document = import_flow_document_from_function_source(
+            symbol_id=symbol.symbol_id,
+            relative_path=parsed.module.relative_path,
+            qualname=symbol.qualname,
+            module_source=updated_source,
+        )
         compiled_document = with_flow_document_status(
-            compiled.document,
+            with_flow_document_indexed_node_ids(
+                compiled.document,
+                source_document=imported_document,
+            ),
             sync_state="clean",
             diagnostics=(),
             source_hash=function_source_hash(updated_function_source),
@@ -1284,20 +1312,44 @@ def _sync_flow_document_from_symbol_source(
         )
     except FlowImportError as exc:
         current_function_source = function_source_for_qualname(source, symbol.qualname)
-        failure_document = with_flow_document_status(
-            flow_document_from_payload(
+        existing_document = read_flow_document(context.root_path, symbol.symbol_id)
+        try:
+            current_function_inputs = function_inputs_from_function_source(
+                symbol_id=symbol.symbol_id,
+                qualname=symbol.qualname,
+                module_source=source,
+            )
+        except SyntaxError:
+            current_function_inputs = ()
+        if existing_document is not None:
+            failure_source = existing_document
+            if current_function_inputs:
+                failure_source = dataclass_replace(
+                    failure_source,
+                    function_inputs=current_function_inputs,
+                )
+        else:
+            failure_source = flow_document_from_payload(
                 {
                     "symbol_id": symbol.symbol_id,
                     "relative_path": parsed.module.relative_path,
                     "qualname": symbol.qualname,
                     "nodes": [
-                        {"id": f"flowdoc:{symbol.symbol_id}:entry", "kind": "entry", "payload": {}},
+                        {
+                            "id": f"flowdoc:{symbol.symbol_id}:entry",
+                            "kind": "entry",
+                            "payload": {},
+                            "indexed_node_id": indexed_flow_entry_node_id(symbol.symbol_id),
+                        },
                         {"id": f"flowdoc:{symbol.symbol_id}:exit", "kind": "exit", "payload": {}},
                     ],
                     "edges": [],
+                    "function_inputs": [function_input.to_dict() for function_input in current_function_inputs],
                     "editable": False,
                 }
-            ),
+            )
+        failure_document = with_flow_document_status(
+            failure_source,
             sync_state="import_error",
             diagnostics=(str(exc),),
             source_hash=function_source_hash(current_function_source),

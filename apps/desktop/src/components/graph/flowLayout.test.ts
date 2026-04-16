@@ -138,4 +138,45 @@ describe("layoutFlowGraph", () => {
       bottomEdge(nodes[1]!, result.positions.call.y) + 120,
     ).toBeLessThanOrEqual(result.positions.helper.y);
   });
+
+  it("lays signature-owned parameter nodes out as a rail tied to the entry", () => {
+    const nodes: FlowLayoutNode[] = [
+      { id: "entry", kind: "entry", x: 0, y: 0, width: 190, height: 94, metadata: { flow_order: 0 } },
+      { id: "return", kind: "return", x: 0, y: 0, width: 240, height: 96, metadata: { flow_order: 1 } },
+      {
+        id: "param:a",
+        kind: "param",
+        x: 0,
+        y: 0,
+        width: 220,
+        height: 92,
+        metadata: { signature_owner_id: "entry", signature_order: 0 },
+      },
+      {
+        id: "param:b",
+        kind: "param",
+        x: 0,
+        y: 0,
+        width: 220,
+        height: 92,
+        metadata: { signature_owner_id: "entry", signature_order: 1 },
+      },
+    ];
+    const edges: GraphEdgeDto[] = [
+      { id: "controls:entry-return", kind: "controls", source: "entry", target: "return" },
+      { id: "data:a-return", kind: "data", source: "param:a", target: "return", label: "a" },
+      { id: "data:b-return", kind: "data", source: "param:b", target: "return", label: "b" },
+    ];
+
+    const result = layoutFlowGraph(nodes, edges);
+    const entryCenter = result.positions.entry.x + nodes[0]!.width! / 2;
+    const railCenter =
+      (result.positions["param:a"].x + nodes[2]!.width! / 2
+      + result.positions["param:b"].x + nodes[3]!.width! / 2) / 2;
+
+    expect(result.positions["param:a"].y).toBeLessThan(result.positions.entry.y);
+    expect(result.positions["param:b"].y).toBe(result.positions["param:a"].y);
+    expect(result.positions["param:a"].x).toBeLessThan(result.positions["param:b"].x);
+    expect(Math.abs(railCenter - entryCenter)).toBeLessThanOrEqual(1);
+  });
 });

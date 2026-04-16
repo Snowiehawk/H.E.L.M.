@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type {
+  FlowInputDisplayMode,
   GraphAbstractionLevel,
   GraphFilters,
   GraphSettings,
@@ -36,6 +37,7 @@ export function GraphToolbar({
   graph,
   graphFilters,
   graphSettings,
+  flowInputDisplayMode = "param_nodes",
   highlightGraphPath,
   showEdgeLabels,
   canUndoLayout,
@@ -44,6 +46,7 @@ export function GraphToolbar({
   onFitView,
   onToggleGraphFilter,
   onToggleGraphSetting,
+  onSetFlowInputDisplayMode = () => {},
   onToggleGraphPathHighlight,
   onToggleEdgeLabels,
   onUndoLayout,
@@ -51,6 +54,7 @@ export function GraphToolbar({
   graph?: GraphView;
   graphFilters: GraphFilters;
   graphSettings: GraphSettings;
+  flowInputDisplayMode?: FlowInputDisplayMode;
   highlightGraphPath: boolean;
   showEdgeLabels: boolean;
   canUndoLayout: boolean;
@@ -59,6 +63,7 @@ export function GraphToolbar({
   onFitView: () => void;
   onToggleGraphFilter: (key: keyof GraphFilters) => void;
   onToggleGraphSetting: (key: keyof GraphSettings) => void;
+  onSetFlowInputDisplayMode?: (mode: FlowInputDisplayMode) => void;
   onToggleGraphPathHighlight: () => void;
   onToggleEdgeLabels: () => void;
   onUndoLayout: () => void;
@@ -112,6 +117,7 @@ export function GraphToolbar({
   const availableLevels = graph.focus?.availableLevels ?? [graph.level];
   const showLevelControls = availableLevels.length > 1;
   const showRelationshipFilters = graph.level !== "flow";
+  const showFlowInputMode = graph.level === "flow" && graph.flowState?.editable;
   const nodeCountLabel = `${graph.nodes.length} node${graph.nodes.length === 1 ? "" : "s"}`;
   const edgeCountLabel = `${graph.edges.length} edge${graph.edges.length === 1 ? "" : "s"}`;
 
@@ -268,6 +274,24 @@ export function GraphToolbar({
                   >
                     External
                   </button>
+                ) : null}
+                {showFlowInputMode ? (
+                  <>
+                    <button
+                      className={`toggle-button${flowInputDisplayMode === "entry" ? " is-active" : ""}`}
+                      type="button"
+                      onClick={() => onSetFlowInputDisplayMode("entry")}
+                    >
+                      Entry inputs
+                    </button>
+                    <button
+                      className={`toggle-button${flowInputDisplayMode === "param_nodes" ? " is-active" : ""}`}
+                      type="button"
+                      onClick={() => onSetFlowInputDisplayMode("param_nodes")}
+                    >
+                      Parameters
+                    </button>
+                  </>
                 ) : null}
                 <button
                   {...helpTargetProps("graph.filter.path")}

@@ -240,11 +240,13 @@ describe("LiveDesktopAdapter", () => {
               id: "flow:symbol:calculator:run:entry",
               kind: "entry",
               payload: {},
+              indexed_node_id: "flow:symbol:calculator:run:entry",
             },
             {
               id: "flow:symbol:calculator:run:statement:0",
               kind: "assign",
               payload: { source: "value = prepare()" },
+              indexed_node_id: "flow:symbol:calculator:run:statement:0",
             },
           ],
           edges: [
@@ -279,11 +281,13 @@ describe("LiveDesktopAdapter", () => {
             id: "flow:symbol:calculator:run:entry",
             kind: "entry",
             payload: {},
+            indexedNodeId: "flow:symbol:calculator:run:entry",
           },
           {
             id: "flow:symbol:calculator:run:statement:0",
             kind: "assign",
             payload: { source: "value = prepare()" },
+            indexedNodeId: "flow:symbol:calculator:run:statement:0",
           },
         ],
         edges: [

@@ -23,6 +23,15 @@ import { WorkspaceScreen } from "./WorkspaceScreen";
 
 const WORKSPACE_TEST_TIMEOUT_MS = 15000;
 const BUILD_GRAPH_SUMMARY_SYMBOL_ID = "symbol:helm.ui.api:build_graph_summary";
+const BUILD_GRAPH_SUMMARY_ENTRY_ID = `flow:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:entry`;
+const BUILD_GRAPH_SUMMARY_GRAPH_PARAM_ID = `flow:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:param:graph`;
+const BUILD_GRAPH_SUMMARY_TOP_N_PARAM_ID = `flow:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:param:top_n`;
+const BUILD_GRAPH_SUMMARY_ASSIGN_MODULES_ID = `flow:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:assign:modules`;
+const BUILD_GRAPH_SUMMARY_CALL_RANK_ID = `flow:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:call:rank`;
+const BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID = `flowinput:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:graph`;
+const BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID = `flowinput:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:top_n`;
+const BUILD_GRAPH_SUMMARY_GRAPH_SLOT_ID = `flowslot:${BUILD_GRAPH_SUMMARY_ASSIGN_MODULES_ID}:graph`;
+const BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID = `flowslot:${BUILD_GRAPH_SUMMARY_CALL_RANK_ID}:top_n`;
 const BUILD_GRAPH_SUMMARY_RANK_TO_RETURN_EDGE_ID = "controls:flow:symbol:helm.ui.api:build_graph_summary:call:rank:next->flow:symbol:helm.ui.api:build_graph_summary:return:in";
 const EMPTY_STORED_GRAPH_LAYOUT: StoredGraphLayout = {
   nodes: {},
@@ -240,6 +249,50 @@ function lastReplaceFlowGraphRequest(
     .slice(-1)[0];
 }
 
+function flowInputSourceHandle(functionInputId: string) {
+  return `out:data:function-input:${functionInputId}`;
+}
+
+function flowInputSlotTargetHandle(slotId: string) {
+  return `in:data:input-slot:${slotId}`;
+}
+
+function flowInputBindingId(slotId: string, functionInputId: string) {
+  return `flowbinding:${slotId}->${functionInputId}`;
+}
+
+function expectFlowBinding(
+  document: StructuralEditRequest["flowGraph"] | null | undefined,
+  slotId: string,
+  functionInputId: string,
+) {
+  expect(document?.inputBindings).toEqual(
+    expect.arrayContaining([
+      {
+        id: flowInputBindingId(slotId, functionInputId),
+        slotId,
+        functionInputId,
+      },
+    ]),
+  );
+}
+
+async function expandFlowToolbar(user: ReturnType<typeof userEvent.setup>) {
+  if (screen.queryByRole("button", { name: "Entry inputs" })) {
+    return;
+  }
+  await user.click(await screen.findByRole("button", { name: /build_graph_summary flow view/i }));
+  await screen.findByRole("button", { name: "Entry inputs" });
+}
+
+async function setFlowInputMode(
+  user: ReturnType<typeof userEvent.setup>,
+  mode: "entry" | "param_nodes",
+) {
+  await expandFlowToolbar(user);
+  await user.click(screen.getByRole("button", { name: mode === "entry" ? "Entry inputs" : "Parameters" }));
+}
+
 function mockGraphElementRect() {
   const elementSize = function elementSize(this: HTMLElement) {
     const isHandle = this.classList?.contains("react-flow__handle");
@@ -249,20 +302,20 @@ function mockGraphElementRect() {
     };
   };
 
-  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function mockClientWidth() {
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function mockClientWidth(this: HTMLElement) {
     return elementSize.call(this).width;
   });
-  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function mockClientHeight() {
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function mockClientHeight(this: HTMLElement) {
     return elementSize.call(this).height;
   });
-  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function mockWidth() {
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function mockWidth(this: HTMLElement) {
     return elementSize.call(this).width;
   });
-  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function mockHeight() {
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function mockHeight(this: HTMLElement) {
     return elementSize.call(this).height;
   });
 
-  return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function mockRect() {
+  return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function mockRect(this: HTMLElement) {
     const { width, height } = elementSize.call(this);
     return {
       x: 0,
@@ -419,14 +472,20 @@ function dragConnectionToHandle({
         value: originalElementFromPoint,
       });
     } else {
-      delete (document as Document & { elementFromPoint?: typeof document.elementFromPoint }).elementFromPoint;
+      Reflect.deleteProperty(document, "elementFromPoint");
     }
   }
 }
 
+type FlowViewSpy = {
+  mock: {
+    calls: unknown[][];
+  };
+};
+
 async function emitSameSymbolRefetch(
   adapter: SyncAwareMockDesktopAdapter,
-  flowViewSpy: ReturnType<typeof vi.spyOn<SyncAwareMockDesktopAdapter, "getFlowView">>,
+  flowViewSpy: FlowViewSpy,
   nodeIds: string[],
 ) {
   const initialFlowViewCalls = flowViewSpy.mock.calls.length;
@@ -610,6 +669,54 @@ class ParamVisualSupportFlowMockDesktopAdapter extends MockDesktopAdapter {
         },
         ...graph.edges,
       ],
+    };
+  }
+}
+
+class IndexedDraftFlowMockDesktopAdapter extends SyncAwareMockDesktopAdapter {
+  override async getFlowView(symbolId: string): Promise<GraphView> {
+    const graph = await super.getFlowView(symbolId);
+    if (symbolId !== BUILD_GRAPH_SUMMARY_SYMBOL_ID || !graph.flowState?.document) {
+      return graph;
+    }
+
+    const sourceAssignId = "flow:symbol:helm.ui.api:build_graph_summary:assign:modules";
+    const draftAssignId = "flowdoc:symbol:helm.ui.api:build_graph_summary:assign:indexed";
+    const diagnostics = ["Draft-backed flow keeps indexed parameter wiring."];
+    return {
+      ...graph,
+      flowState: {
+        ...graph.flowState,
+        syncState: "draft",
+        diagnostics,
+        document: {
+          ...graph.flowState.document,
+          syncState: "draft",
+          diagnostics,
+          nodes: graph.flowState.document.nodes.map((node) => {
+            if (node.id === sourceAssignId) {
+              return {
+                ...node,
+                id: draftAssignId,
+                indexedNodeId: sourceAssignId,
+              };
+            }
+            if (node.kind === "entry" && !node.indexedNodeId) {
+              return {
+                ...node,
+                indexedNodeId: node.id,
+              };
+            }
+            return node;
+          }),
+          edges: graph.flowState.document.edges.map((edge) => ({
+            ...edge,
+            id: edge.id.replace(sourceAssignId, draftAssignId),
+            sourceId: edge.sourceId === sourceAssignId ? draftAssignId : edge.sourceId,
+            targetId: edge.targetId === sourceAssignId ? draftAssignId : edge.targetId,
+          })),
+        },
+      },
     };
   }
 }
@@ -1660,6 +1767,219 @@ describe("WorkspaceScreen", () => {
     expect((await screen.findByTestId(`rf__node-${localNodeId}`)).style.transform).toContain(
       `translate(${spawnClick.clientX}px,${spawnClick.clientY}px)`,
     );
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("keeps indexed parameter wires visible through a draft-backed same-symbol refetch", async () => {
+    const user = userEvent.setup();
+    const adapter = new IndexedDraftFlowMockDesktopAdapter();
+    const flowViewSpy = vi.spyOn(adapter, "getFlowView");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await openBuildGraphSummaryFlow(user);
+    await waitFor(() => expect(flowViewSpy).toHaveBeenCalled());
+
+    const draftAssignId = "flowdoc:symbol:helm.ui.api:build_graph_summary:assign:indexed";
+    const paramNodeId = "flow:symbol:helm.ui.api:build_graph_summary:param:graph";
+    expect(await screen.findByTestId(`rf__node-${draftAssignId}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`rf__node-${paramNodeId}`)).toBeInTheDocument();
+    expect(screen.queryByTestId("rf__node-flow:symbol:helm.ui.api:build_graph_summary:assign:modules")).not.toBeInTheDocument();
+
+    await emitSameSymbolRefetch(adapter, flowViewSpy, [draftAssignId]);
+
+    expect(await screen.findByTestId(`rf__node-${draftAssignId}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`rf__node-${paramNodeId}`)).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("switches editable flow input modes without mutating the binding document", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    useUiStore.setState({ flowInputDisplayMode: "param_nodes" });
+    const adapter = new SyncAwareMockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await openBuildGraphSummaryFlow(user);
+    await setFlowInputMode(user, "param_nodes");
+
+    expect(await screen.findByTestId(`rf__node-${BUILD_GRAPH_SUMMARY_GRAPH_PARAM_ID}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`rf__node-${BUILD_GRAPH_SUMMARY_TOP_N_PARAM_ID}`)).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      flowInputBindingId(BUILD_GRAPH_SUMMARY_GRAPH_SLOT_ID, BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID),
+    ])).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      flowInputBindingId(BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID, BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID),
+    ])).toBeInTheDocument();
+
+    await setFlowInputMode(user, "entry");
+
+    expect(screen.queryByTestId(`rf__node-${BUILD_GRAPH_SUMMARY_GRAPH_PARAM_ID}`)).not.toBeInTheDocument();
+    expect(await findFlowHandle(
+      BUILD_GRAPH_SUMMARY_ENTRY_ID,
+      flowInputSourceHandle(BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID),
+    )).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      flowInputBindingId(BUILD_GRAPH_SUMMARY_GRAPH_SLOT_ID, BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID),
+    ])).toBeInTheDocument();
+
+    await setFlowInputMode(user, "param_nodes");
+
+    expect(await screen.findByTestId(`rf__node-${BUILD_GRAPH_SUMMARY_GRAPH_PARAM_ID}`)).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      flowInputBindingId(BUILD_GRAPH_SUMMARY_GRAPH_SLOT_ID, BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID),
+    ])).toBeInTheDocument();
+    expect(lastReplaceFlowGraphRequest(editSpy)).toBeUndefined();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("reflects parameter-mode input rewires in entry mode and preserves them across refetch and reopen", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    useUiStore.setState({ flowInputDisplayMode: "param_nodes" });
+    const adapter = new SyncAwareMockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const flowViewSpy = vi.spyOn(adapter, "getFlowView");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    const rendered = render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await openBuildGraphSummaryFlow(user);
+    await setFlowInputMode(user, "param_nodes");
+
+    const replaceCallsBeforeRewire = editSpy.mock.calls.length;
+    dragConnectionToHandle({
+      dragStart: await findFlowHandle(
+        BUILD_GRAPH_SUMMARY_TOP_N_PARAM_ID,
+        flowInputSourceHandle(BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID),
+      ),
+      targetHandle: await findFlowHandle(
+        BUILD_GRAPH_SUMMARY_ASSIGN_MODULES_ID,
+        flowInputSlotTargetHandle(BUILD_GRAPH_SUMMARY_GRAPH_SLOT_ID),
+      ),
+    });
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeRewire),
+    );
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expectFlowBinding(replaceRequest?.flowGraph, BUILD_GRAPH_SUMMARY_GRAPH_SLOT_ID, BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID);
+    expectFlowBinding(replaceRequest?.flowGraph, BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID, BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID);
+    expect(replaceRequest?.flowGraph?.inputBindings?.some((binding) => (
+      binding.slotId === BUILD_GRAPH_SUMMARY_GRAPH_SLOT_ID
+      && binding.functionInputId === BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID
+    ))).toBe(false);
+
+    const rewiredBindingId = flowInputBindingId(BUILD_GRAPH_SUMMARY_GRAPH_SLOT_ID, BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID);
+    await setFlowInputMode(user, "entry");
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [rewiredBindingId])).toBeInTheDocument();
+    expect(await findFlowHandle(
+      BUILD_GRAPH_SUMMARY_ENTRY_ID,
+      flowInputSourceHandle(BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID),
+    )).toBeInTheDocument();
+
+    await emitSameSymbolRefetch(adapter, flowViewSpy, [
+      BUILD_GRAPH_SUMMARY_ASSIGN_MODULES_ID,
+      BUILD_GRAPH_SUMMARY_CALL_RANK_ID,
+    ]);
+
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [rewiredBindingId])).toBeInTheDocument();
+    const refetchedDocument = (await adapter.getFlowView(BUILD_GRAPH_SUMMARY_SYMBOL_ID)).flowState?.document;
+    expectFlowBinding(refetchedDocument, BUILD_GRAPH_SUMMARY_GRAPH_SLOT_ID, BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID);
+    expectFlowBinding(refetchedDocument, BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID, BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID);
+
+    rendered.unmount();
+    resetStore();
+    useUiStore.setState({ flowInputDisplayMode: "entry" });
+    const reopenedRouter = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={reopenedRouter} />
+      </AppProviders>,
+    );
+
+    const reopenedUser = userEvent.setup();
+    await openBuildGraphSummaryFlow(reopenedUser);
+    await setFlowInputMode(reopenedUser, "entry");
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [rewiredBindingId])).toBeInTheDocument();
+
+    await setFlowInputMode(reopenedUser, "param_nodes");
+    expect(await screen.findByTestId(`rf__node-${BUILD_GRAPH_SUMMARY_TOP_N_PARAM_ID}`)).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [rewiredBindingId])).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("reflects entry-mode input rewires in parameter mode", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    useUiStore.setState({ flowInputDisplayMode: "entry" });
+    const adapter = new SyncAwareMockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await openBuildGraphSummaryFlow(user);
+    await setFlowInputMode(user, "entry");
+
+    const replaceCallsBeforeRewire = editSpy.mock.calls.length;
+    dragConnectionToHandle({
+      dragStart: await findFlowHandle(
+        BUILD_GRAPH_SUMMARY_ENTRY_ID,
+        flowInputSourceHandle(BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID),
+      ),
+      targetHandle: await findFlowHandle(
+        BUILD_GRAPH_SUMMARY_CALL_RANK_ID,
+        flowInputSlotTargetHandle(BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID),
+      ),
+    });
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeRewire),
+    );
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expectFlowBinding(replaceRequest?.flowGraph, BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID, BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID);
+    expectFlowBinding(replaceRequest?.flowGraph, BUILD_GRAPH_SUMMARY_GRAPH_SLOT_ID, BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID);
+    expect(replaceRequest?.flowGraph?.inputBindings?.some((binding) => (
+      binding.slotId === BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID
+      && binding.functionInputId === BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID
+    ))).toBe(false);
+
+    const rewiredBindingId = flowInputBindingId(BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID, BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID);
+    await setFlowInputMode(user, "param_nodes");
+    expect(await screen.findByTestId(`rf__node-${BUILD_GRAPH_SUMMARY_GRAPH_PARAM_ID}`)).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [rewiredBindingId])).toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("keeps a failed flow draft save visible and recoverable", async () => {

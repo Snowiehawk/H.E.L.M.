@@ -2,6 +2,7 @@ import type {
   FlowGraphDocument,
   FlowGraphEdge,
   FlowGraphNode,
+  FlowInputBinding,
   FlowVisualNodeKind,
 } from "../../lib/adapter";
 
@@ -54,6 +55,7 @@ export function createFlowNode(symbolId: string, kind: AuthoredFlowNodeKind): Au
     id: `flowdoc:${symbolId}:${kind}:${unique}`,
     kind,
     payload: defaultPayloadForKind(kind),
+    indexedNodeId: null,
   };
 }
 
@@ -167,8 +169,12 @@ export function cloneFlowDocument(document: FlowGraphDocument): FlowGraphDocumen
     nodes: document.nodes.map((node) => ({
       ...node,
       payload: { ...node.payload },
+      indexedNodeId: node.indexedNodeId ?? null,
     })),
     edges: document.edges.map((edge) => ({ ...edge })),
+    functionInputs: (document.functionInputs ?? []).map((input) => ({ ...input })),
+    inputSlots: (document.inputSlots ?? []).map((slot) => ({ ...slot })),
+    inputBindings: (document.inputBindings ?? []).map((binding) => ({ ...binding })),
   };
 }
 
@@ -239,6 +245,11 @@ type FlowConnection = {
   sourceHandle: string;
   targetId: string;
   targetHandle: string;
+};
+
+type FlowInputBindingConnection = {
+  functionInputId: string;
+  slotId: string;
 };
 
 export function validateFlowConnection(
@@ -335,6 +346,60 @@ export function removeFlowEdges(
   };
 }
 
+export function validateFlowInputBindingConnection(
+  document: FlowGraphDocument,
+  connection: FlowInputBindingConnection,
+): { ok: true } | { ok: false; message: string } {
+  if (!(document.functionInputs ?? []).some((input) => input.id === connection.functionInputId)) {
+    return { ok: false, message: "Unable to find the selected function input." };
+  }
+  if (!(document.inputSlots ?? []).some((slot) => slot.id === connection.slotId)) {
+    return { ok: false, message: "Unable to find the selected input slot." };
+  }
+  return { ok: true };
+}
+
+export function upsertFlowInputBinding(
+  document: FlowGraphDocument,
+  connection: FlowInputBindingConnection,
+  previousBindingId?: string,
+): FlowGraphDocument {
+  const validation = validateFlowInputBindingConnection(document, connection);
+  if (!validation.ok) {
+    return document;
+  }
+
+  const binding: FlowInputBinding = {
+    id: flowInputBindingId(connection.slotId, connection.functionInputId),
+    functionInputId: connection.functionInputId,
+    slotId: connection.slotId,
+  };
+  return {
+    ...document,
+    inputBindings: [
+      ...(document.inputBindings ?? []).filter((candidate) => (
+        candidate.id !== previousBindingId
+        && candidate.slotId !== connection.slotId
+      )),
+      binding,
+    ],
+  };
+}
+
+export function removeFlowInputBindings(
+  document: FlowGraphDocument,
+  bindingIds: Iterable<string>,
+): FlowGraphDocument {
+  const toRemove = new Set(bindingIds);
+  if (!toRemove.size) {
+    return document;
+  }
+  return {
+    ...document,
+    inputBindings: (document.inputBindings ?? []).filter((binding) => !toRemove.has(binding.id)),
+  };
+}
+
 export function removeFlowNodes(
   document: FlowGraphDocument,
   nodeIds: Iterable<string>,
@@ -355,10 +420,18 @@ export function removeFlowNodes(
     return document;
   }
 
+  const removedSlotIds = new Set(
+    (document.inputSlots ?? [])
+      .filter((slot) => removable.has(slot.nodeId))
+      .map((slot) => slot.id),
+  );
+
   return {
     ...document,
     nodes: document.nodes.filter((node) => !removable.has(node.id)),
     edges: document.edges.filter((edge) => !removable.has(edge.sourceId) && !removable.has(edge.targetId)),
+    inputSlots: (document.inputSlots ?? []).filter((slot) => !removable.has(slot.nodeId)),
+    inputBindings: (document.inputBindings ?? []).filter((binding) => !removedSlotIds.has(binding.slotId)),
   };
 }
 
@@ -369,6 +442,10 @@ export function flowConnectionId(connection: {
   targetHandle: string;
 }) {
   return `controls:${connection.sourceId}:${connection.sourceHandle}->${connection.targetId}:${connection.targetHandle}`;
+}
+
+export function flowInputBindingId(slotId: string, functionInputId: string) {
+  return `flowbinding:${slotId}->${functionInputId}`;
 }
 
 export function flowDocumentsEqual(
