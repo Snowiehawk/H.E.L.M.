@@ -14,6 +14,7 @@ import type {
   GraphAbstractionLevel,
   GraphView,
   SourceRange,
+  StructuralEditRequest,
   WorkspaceSyncEvent,
 } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
@@ -224,6 +225,19 @@ function lastWrittenGraphLayout() {
   return writeStoredGraphLayoutMock.mock.calls[writeStoredGraphLayoutMock.mock.calls.length - 1]?.[2];
 }
 
+function lastReplaceFlowGraphRequest(
+  editSpy: {
+    mock: {
+      calls: Array<[StructuralEditRequest, ...unknown[]]>;
+    };
+  },
+): StructuralEditRequest | undefined {
+  return editSpy.mock.calls
+    .map(([request]) => request)
+    .filter((request) => request.kind === "replace_flow_graph")
+    .slice(-1)[0];
+}
+
 async function seedMockFunctionSymbol(adapter: MockDesktopAdapter, newName: string) {
   await adapter.applyStructuralEdit({
     kind: "create_symbol",
@@ -339,6 +353,49 @@ class ImportErrorFlowMockDesktopAdapter extends MockDesktopAdapter {
             }
           : undefined,
       },
+    };
+  }
+}
+
+class ParamVisualSupportFlowMockDesktopAdapter extends MockDesktopAdapter {
+  override async getFlowView(symbolId: string): Promise<GraphView> {
+    const graph = await super.getFlowView(symbolId);
+    if (symbolId !== "symbol:helm.ui.api:build_graph_summary") {
+      return graph;
+    }
+
+    return {
+      ...graph,
+      nodes: [
+        {
+          id: "flow:symbol:helm.ui.api:build_graph_summary:param:graph",
+          kind: "param",
+          label: "graph",
+          subtitle: "parameter",
+          x: 140,
+          y: 40,
+          metadata: {
+            flow_visual: true,
+            flow_order: 0,
+          },
+          availableActions: [],
+        },
+        ...graph.nodes,
+      ],
+      edges: [
+        {
+          id: "data:flow:symbol:helm.ui.api:build_graph_summary:param:graph->flow:symbol:helm.ui.api:build_graph_summary:assign:modules",
+          kind: "data",
+          source: "flow:symbol:helm.ui.api:build_graph_summary:param:graph",
+          target: "flow:symbol:helm.ui.api:build_graph_summary:assign:modules",
+          label: "graph",
+          metadata: {
+            path_key: "graph",
+            path_label: "graph",
+          },
+        },
+        ...graph.edges,
+      ],
     };
   }
 }
@@ -971,8 +1028,13 @@ describe("WorkspaceScreen", () => {
     fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
     expect(await screen.findByTestId("graph-create-mode-badge")).toBeInTheDocument();
     expect(screen.getByTestId("graph-create-mode-hint")).toHaveTextContent(
-      "Click the graph to add a disconnected node, or click an insertion lane to place one on that control-flow path.",
+      "Click empty canvas to create a flow node in this draft.",
     );
+    expect(
+      screen.queryByTestId(
+        "graph-edge:controls:flow:symbol:helm.ui.api:build_graph_summary:entry:start->flow:symbol:helm.ui.api:build_graph_summary:assign:modules:in",
+      ),
+    ).not.toBeInTheDocument();
     await waitFor(() =>
       expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
     );
@@ -1106,6 +1168,206 @@ describe("WorkspaceScreen", () => {
     ).toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
+  it("keeps the flow node picker limited to supported kinds and creates or edits branch nodes through condition-only payloads", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 240,
+      bottom: 96,
+      width: 240,
+      height: 96,
+      toJSON: () => ({}),
+    }) as DOMRect);
+    const adapter = new MockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+    const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
+
+    (flowGraphPanel as HTMLElement).focus();
+    fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
+    await waitFor(() =>
+      expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
+    );
+    const graphPane = (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane");
+    expect(graphPane).not.toBeNull();
+
+    fireEvent.click(graphPane as HTMLElement, { clientX: 260, clientY: 180 });
+    const kindSelect = screen.getByRole("combobox", { name: /Flow node kind/i });
+    expect(
+      within(kindSelect).getAllByRole("option").map((option) => option.textContent?.trim()),
+    ).toEqual(["Assign", "Call", "Return", "Branch", "Loop"]);
+    expect(screen.queryByRole("option", { name: /Parameter/i })).not.toBeInTheDocument();
+
+    await user.selectOptions(kindSelect, "branch");
+    expect(screen.getByRole("textbox", { name: /Branch condition/i })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Flow statement/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Branch true body/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Branch false body/i })).not.toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: /Branch condition/i }), "module_summaries");
+    await user.click(screen.getByRole("button", { name: /Create node/i }));
+
+    const createdBranchNodeId = useUiStore.getState().activeNodeId;
+    expect(createdBranchNodeId).toMatch(/^flowdoc:symbol:helm\.ui\.api:build_graph_summary:branch:/);
+    expect(lastReplaceFlowGraphRequest(editSpy)?.flowGraph?.nodes.find((node: { id: string }) => node.id === createdBranchNodeId)?.payload).toEqual({
+      condition: "module_summaries",
+    });
+    expect((await screen.findAllByText("if module_summaries")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: /Create flow node/i })).not.toBeInTheDocument();
+    });
+
+    fireEvent.doubleClick(await screen.findByTestId(`rf__node-${createdBranchNodeId}`));
+    expect(await screen.findByRole("heading", { name: /Edit flow node/i })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /Branch condition/i })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Branch true body/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Branch false body/i })).not.toBeInTheDocument();
+    await user.clear(screen.getByRole("textbox", { name: /Branch condition/i }));
+    await user.type(screen.getByRole("textbox", { name: /Branch condition/i }), "summary_count > 0");
+    await user.click(screen.getByRole("button", { name: /Save node/i }));
+
+    expect(lastReplaceFlowGraphRequest(editSpy)?.flowGraph?.nodes.find((node: { id: string }) => node.id === createdBranchNodeId)?.payload).toEqual({
+      condition: "summary_count > 0",
+    });
+    expect((await screen.findAllByText("if summary_count > 0")).length).toBeGreaterThan(0);
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("creates and edits loop nodes through header-only payloads", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 240,
+      bottom: 96,
+      width: 240,
+      height: 96,
+      toJSON: () => ({}),
+    }) as DOMRect);
+    const adapter = new MockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+    const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
+
+    (flowGraphPanel as HTMLElement).focus();
+    fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
+    await waitFor(() =>
+      expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
+    );
+    const graphPane = (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane");
+    expect(graphPane).not.toBeNull();
+
+    fireEvent.click(graphPane as HTMLElement, { clientX: 300, clientY: 220 });
+    await user.selectOptions(screen.getByRole("combobox", { name: /Flow node kind/i }), "loop");
+    expect(screen.getByRole("textbox", { name: /Loop header/i })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Loop body/i })).not.toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: /Loop header/i }), "for module in module_summaries");
+    await user.click(screen.getByRole("button", { name: /Create node/i }));
+
+    const createdLoopNodeId = useUiStore.getState().activeNodeId;
+    expect(createdLoopNodeId).toMatch(/^flowdoc:symbol:helm\.ui\.api:build_graph_summary:loop:/);
+    expect(lastReplaceFlowGraphRequest(editSpy)?.flowGraph?.nodes.find((node: { id: string }) => node.id === createdLoopNodeId)?.payload).toEqual({
+      header: "for module in module_summaries",
+    });
+    expect((await screen.findAllByText("for module in module_summaries")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: /Create flow node/i })).not.toBeInTheDocument();
+    });
+
+    fireEvent.doubleClick(await screen.findByTestId(`rf__node-${createdLoopNodeId}`));
+    expect(await screen.findByRole("heading", { name: /Edit flow node/i })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /Loop header/i })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Loop body/i })).not.toBeInTheDocument();
+    await user.clear(screen.getByRole("textbox", { name: /Loop header/i }));
+    await user.type(screen.getByRole("textbox", { name: /Loop header/i }), "while module_summaries");
+    await user.click(screen.getByRole("button", { name: /Save node/i }));
+
+    expect(lastReplaceFlowGraphRequest(editSpy)?.flowGraph?.nodes.find((node: { id: string }) => node.id === createdLoopNodeId)?.payload).toEqual({
+      header: "while module_summaries",
+    });
+    expect((await screen.findAllByText("while module_summaries")).length).toBeGreaterThan(0);
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("keeps visual parameter nodes selection-only in editable flow views", async () => {
+    const user = userEvent.setup();
+    const adapter = new ParamVisualSupportFlowMockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+
+    const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
+    const paramNodeId = "flow:symbol:helm.ui.api:build_graph_summary:param:graph";
+    const paramNode = await screen.findByTestId(`rf__node-${paramNodeId}`);
+    fireEvent.doubleClick(paramNode);
+    expect(screen.queryByTestId("graph-create-composer")).not.toBeInTheDocument();
+
+    fireEvent.click(paramNode);
+    expect(useUiStore.getState().activeNodeId).toBe(paramNodeId);
+    (flowGraphPanel as HTMLElement).focus();
+    fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "Delete" });
+
+    expect(editSpy).not.toHaveBeenCalled();
+    expect(await screen.findByTestId(`rf__node-${paramNodeId}`)).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
   it("keeps a draft-backed disconnected flow node visible across a same-symbol refetch", async () => {
     const user = userEvent.setup();
     const adapter = new SyncAwareMockDesktopAdapter();
@@ -1136,7 +1398,7 @@ describe("WorkspaceScreen", () => {
     fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
     await waitFor(() =>
       expect(screen.getByTestId("graph-create-mode-hint")).toHaveTextContent(
-        "Click the graph to add a disconnected node, or click an insertion lane to place one on that control-flow path.",
+        "Click empty canvas to create a flow node in this draft.",
       ),
     );
     await waitFor(() =>
@@ -1186,78 +1448,6 @@ describe("WorkspaceScreen", () => {
     );
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
-  it("routes lane insertion through replace_flow_graph when a draft document is available", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
-      x: 0,
-      y: 0,
-      top: 0,
-      left: 0,
-      right: 240,
-      bottom: 96,
-      width: 240,
-      height: 96,
-      toJSON: () => ({}),
-    }) as DOMRect);
-    const adapter = new MockDesktopAdapter();
-    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
-    const router = createMemoryRouter(
-      [{ path: "/workspace", element: <WorkspaceScreen /> }],
-      { initialEntries: ["/workspace"] },
-    );
-
-    render(
-      <AppProviders adapter={adapter}>
-        <RouterProvider router={router} />
-      </AppProviders>,
-    );
-
-    const graphPanel = document.querySelector(".graph-panel");
-    expect(graphPanel).not.toBeNull();
-    const graph = within(graphPanel as HTMLElement);
-
-    fireEvent.doubleClick(await graph.findByText("api.py"));
-    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
-    expect(functionNode).not.toBeNull();
-    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
-    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
-
-    const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
-    (flowGraphPanel as HTMLElement).focus();
-    fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
-    await waitFor(() =>
-      expect(screen.getByTestId("graph-create-mode-hint")).toHaveTextContent(
-        "Click the graph to add a disconnected node, or click an insertion lane to place one on that control-flow path.",
-      ),
-    );
-
-    const insertLane = await screen.findByTestId(
-      "graph-edge:controls:flow:symbol:helm.ui.api:build_graph_summary:entry:start->flow:symbol:helm.ui.api:build_graph_summary:assign:modules:in",
-    );
-    expect(insertLane).toHaveTextContent("+First step");
-
-    await user.click(insertLane);
-
-    expect(await screen.findByRole("heading", { name: /Create flow node/i })).toBeInTheDocument();
-    await user.type(screen.getByRole("textbox", { name: /Flow statement/i }), "helper = rank_modules(graph)");
-    await user.click(screen.getByRole("button", { name: /Create node/i }));
-
-    await waitFor(() =>
-      expect(editSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          kind: "replace_flow_graph",
-          targetId: "symbol:helm.ui.api:build_graph_summary",
-        }),
-      ),
-    );
-    expect((await screen.findAllByText(/rank_modules/i)).length).toBeGreaterThan(0);
-    expect(useUiStore.getState().activeLevel).toBe("flow");
-    expect(useUiStore.getState().activeNodeId).toMatch(
-      /^flowdoc:symbol:helm\.ui\.api:build_graph_summary:assign:/,
-    );
-    expect(screen.getByTestId("graph-create-mode-badge")).toBeInTheDocument();
-  }, WORKSPACE_TEST_TIMEOUT_MS);
-
   it("keeps a failed flow draft save visible and recoverable", async () => {
     const user = userEvent.setup();
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
@@ -1296,7 +1486,7 @@ describe("WorkspaceScreen", () => {
     fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
     await waitFor(() =>
       expect(screen.getByTestId("graph-create-mode-hint")).toHaveTextContent(
-        "Click the graph to add a disconnected node, or click an insertion lane to place one on that control-flow path.",
+        "Click empty canvas to create a flow node in this draft.",
       ),
     );
     await waitFor(() =>
@@ -1365,6 +1555,200 @@ describe("WorkspaceScreen", () => {
       source: "module_summaries = rank_modules(graph)",
     });
     expect(await screen.findByText("module_summaries = rank_modules(graph)")).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("edits a newly spawned flow node through the same popover while create mode stays available", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 240,
+      bottom: 96,
+      width: 240,
+      height: 96,
+      toJSON: () => ({}),
+    }) as DOMRect);
+    const adapter = new MockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+
+    const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
+    (flowGraphPanel as HTMLElement).focus();
+    fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
+    await waitFor(() =>
+      expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
+    );
+
+    const graphPane = (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane");
+    expect(graphPane).not.toBeNull();
+    fireEvent.click(graphPane as HTMLElement, { clientX: 180, clientY: 140 });
+    await user.type(screen.getByRole("textbox", { name: /Flow statement/i }), "helper = rank_modules(graph)");
+    await user.click(screen.getByRole("button", { name: /Create node/i }));
+
+    const createdNodeId = useUiStore.getState().activeNodeId;
+    expect(createdNodeId).toMatch(/^flowdoc:symbol:helm\.ui\.api:build_graph_summary:assign:/);
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: /Create flow node/i })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("graph-create-mode-badge")).toBeInTheDocument();
+
+    fireEvent.doubleClick(await screen.findByTestId(`rf__node-${createdNodeId}`));
+    expect(await screen.findByRole("heading", { name: /Edit flow node/i })).toBeInTheDocument();
+    const statementInput = screen.getByRole("textbox", { name: /Flow statement/i });
+    await user.clear(statementInput);
+    await user.type(statementInput, "helper = rescore_modules(graph)");
+    await user.click(await screen.findByRole("button", { name: /Save node/i }));
+
+    await waitFor(() =>
+      expect(editSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "replace_flow_graph",
+          targetId: "symbol:helm.ui.api:build_graph_summary",
+        }),
+      ),
+    );
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expect(replaceRequest?.flowGraph?.nodes.find((node: { id: string }) => node.id === createdNodeId)?.payload).toEqual({
+      source: "helper = rescore_modules(graph)",
+    });
+    expect((await screen.findAllByText("helper = rescore_modules(graph)")).length).toBeGreaterThan(0);
+    expect(screen.getByTestId("graph-create-mode-badge")).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("deletes ordinary source-backed flow nodes through replace_flow_graph", async () => {
+    const user = userEvent.setup();
+    const adapter = new MockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+
+    const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
+    (flowGraphPanel as HTMLElement).focus();
+    const sourceBackedNodeId = "flow:symbol:helm.ui.api:build_graph_summary:assign:modules";
+    fireEvent.click(await screen.findByTestId(`rf__node-${sourceBackedNodeId}`));
+    const replaceCallsBeforeDelete = editSpy.mock.calls.length;
+    fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "Delete" });
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeDelete),
+    );
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expect(replaceRequest).toEqual(expect.objectContaining({
+      kind: "replace_flow_graph",
+      targetId: "symbol:helm.ui.api:build_graph_summary",
+    }));
+    expect(replaceRequest?.flowGraph?.nodes.map((node: { id: string }) => node.id)).not.toContain(sourceBackedNodeId);
+    await waitFor(() =>
+      expect(screen.queryByTestId(`rf__node-${sourceBackedNodeId}`)).not.toBeInTheDocument(),
+    );
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("deletes newly spawned flow nodes through replace_flow_graph", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 240,
+      bottom: 96,
+      width: 240,
+      height: 96,
+      toJSON: () => ({}),
+    }) as DOMRect);
+    const adapter = new MockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+
+    const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
+    (flowGraphPanel as HTMLElement).focus();
+    fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
+    await waitFor(() =>
+      expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
+    );
+    const graphPane = (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane");
+    expect(graphPane).not.toBeNull();
+    fireEvent.click(graphPane as HTMLElement, { clientX: 180, clientY: 140 });
+    await user.type(screen.getByRole("textbox", { name: /Flow statement/i }), "helper = rank_modules(graph)");
+    await user.click(screen.getByRole("button", { name: /Create node/i }));
+
+    const createdNodeId = useUiStore.getState().activeNodeId;
+    expect(createdNodeId).toMatch(/^flowdoc:symbol:helm\.ui\.api:build_graph_summary:assign:/);
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: /Create flow node/i })).not.toBeInTheDocument(),
+    );
+
+    fireEvent.click(await screen.findByTestId(`rf__node-${createdNodeId}`));
+    const replaceCallsBeforeDelete = editSpy.mock.calls.length;
+    fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "Delete" });
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeDelete),
+    );
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expect(replaceRequest).toEqual(expect.objectContaining({
+      kind: "replace_flow_graph",
+      targetId: "symbol:helm.ui.api:build_graph_summary",
+    }));
+    expect(replaceRequest?.flowGraph?.nodes.map((node: { id: string }) => node.id)).not.toContain(createdNodeId);
+    await waitFor(() =>
+      expect(screen.queryByTestId(`rf__node-${createdNodeId}`)).not.toBeInTheDocument(),
+    );
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("keeps create mode unavailable in class flow and does not open the composer", async () => {

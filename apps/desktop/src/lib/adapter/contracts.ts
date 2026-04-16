@@ -68,6 +68,8 @@ export type FlowVisualNodeKind =
   | "exit";
 
 export interface FlowGraphNode {
+  // Persisted flow documents stay statement-node-only in v1. Visual support nodes such
+  // as `param` can still appear in rendered flow views, but they do not belong here.
   id: string;
   kind: FlowVisualNodeKind;
   payload: Record<string, unknown>;

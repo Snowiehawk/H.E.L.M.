@@ -16,6 +16,7 @@ import {
   mergeGroupsForSelection,
   normalizeStoredGroups,
   renameGraphGroup,
+  resolveFlowEdgeInteraction,
   resolveSelectionPreviewNodeId,
   ungroupGroupsForSelection,
 } from "./GraphCanvas";
@@ -1715,7 +1716,7 @@ describe("GraphCanvas", () => {
       activeNodeId: undefined,
       createModeState: "active",
       createModeCanvasEnabled: true,
-      createModeHint: "Click the graph to add a disconnected node, or click an insertion lane to place one on that control-flow path.",
+      createModeHint: "Click empty canvas to create a flow node in this draft.",
       onCreateIntent,
       onSelectNode,
     });
@@ -1746,47 +1747,17 @@ describe("GraphCanvas", () => {
     );
   });
 
-  it("renders explicit flow insertion triggers in create mode and opens a flow create intent", async () => {
-    const onCreateIntent = vi.fn();
-    const user = userEvent.setup();
-
-    renderGraphCanvas({
-      graph: baseGraph,
-      activeNodeId: undefined,
-      createModeState: "active",
-      createModeControlEdgeEnabled: true,
-      createModeHint: "Click a control-flow edge to insert a node on that path.",
-      onCreateIntent,
-    });
-
-    const insertTrigger = await screen.findByTestId("graph-edge:controls:entry:left");
-    expect(insertTrigger).toHaveTextContent("+First step");
-
-    await user.click(insertTrigger);
-
-    await waitFor(() =>
-      expect(onCreateIntent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          anchorEdgeId: "controls:entry:left",
-          panelPosition: expect.objectContaining({
-            x: expect.any(Number),
-            y: expect.any(Number),
-          }),
-          flowPosition: expect.objectContaining({
-            x: expect.any(Number),
-            y: expect.any(Number),
-          }),
-        }),
-      ),
-    );
-  });
-
-  it("opens a flow edit intent from authored node double-clicks when editable draft flow authoring is active", async () => {
+  it("opens a flow edit intent from ordinary flow-node double-clicks even while create mode is active", async () => {
     const onEditFlowNodeIntent = vi.fn();
+    const onCreateIntent = vi.fn();
 
     renderGraphCanvas({
       graph: editableFlowGraph,
       activeNodeId: undefined,
+      createModeState: "active",
+      createModeCanvasEnabled: true,
+      createModeHint: "Click empty canvas to create a flow node in this draft.",
+      onCreateIntent,
       onEditFlowNodeIntent,
     });
 
@@ -1808,25 +1779,42 @@ describe("GraphCanvas", () => {
         }),
       ),
     );
+    expect(onCreateIntent).not.toHaveBeenCalled();
   });
 
-  it("renders labeled flow insertion lanes for branch and loop paths", async () => {
-    readStoredGraphLayoutMock.mockResolvedValueOnce(labeledPathLayout);
+  it("distinguishes plain edge selection from Alt-click disconnect in editable flow views", () => {
+    expect(resolveFlowEdgeInteraction({
+      flowAuthoringEnabled: true,
+      logicalEdgeKind: "controls",
+      altKey: false,
+    })).toBe("select");
 
+    expect(resolveFlowEdgeInteraction({
+      flowAuthoringEnabled: true,
+      logicalEdgeKind: "controls",
+      altKey: true,
+    })).toBe("disconnect");
+
+    expect(resolveFlowEdgeInteraction({
+      flowAuthoringEnabled: true,
+      logicalEdgeKind: "calls",
+      altKey: true,
+    })).toBe("ignore");
+  });
+
+  it("does not render insertion-lane UI in the normal editable flow authoring path", async () => {
     renderGraphCanvas({
-      graph: labeledPathGraph,
+      graph: editableFlowGraph,
       activeNodeId: undefined,
       createModeState: "active",
-      createModeControlEdgeEnabled: true,
-      createModeHint: "Click an insertion lane to add a node on that control-flow path.",
+      createModeCanvasEnabled: true,
+      createModeHint: "Click empty canvas to create a flow node in this draft.",
       onCreateIntent: vi.fn(),
     });
 
-    expect(await screen.findByTestId("graph-edge:controls:entry->branch")).toHaveTextContent("+First step");
-    expect(screen.getByTestId("graph-edge:controls:branch->true:true")).toHaveTextContent("+True");
-    expect(screen.getByTestId("graph-edge:controls:branch->false:false")).toHaveTextContent("+False");
-    expect(screen.getByTestId("graph-edge:controls:loop->body:body")).toHaveTextContent("+Body");
-    expect(screen.getByTestId("graph-edge:controls:loop->exit:exit")).toHaveTextContent("+Exit");
+    await waitFor(() =>
+      expect(screen.queryByTestId("graph-edge:controls:entry:left")).not.toBeInTheDocument(),
+    );
   });
 
   it("merges touched groups into one flat group when regrouping a selection", () => {

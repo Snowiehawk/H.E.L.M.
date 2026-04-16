@@ -22,6 +22,7 @@ export interface BlueprintEdgeData extends Record<string, unknown> {
     logicalEdgeKind: GraphEdgeKind,
     position: { x: number; y: number },
     clientPosition: { x: number; y: number },
+    modifiers: { altKey: boolean },
     logicalEdgeLabel?: string,
   ) => void;
   onHoverStart?: (
@@ -148,6 +149,9 @@ export const BlueprintEdge = memo(function BlueprintEdge({
       {
         x: event.clientX,
         y: event.clientY,
+      },
+      {
+        altKey: event.altKey,
       },
       edgeData.logicalEdgeLabel,
     );

@@ -5,15 +5,44 @@ import type {
   FlowVisualNodeKind,
 } from "../../lib/adapter";
 
-export type AuthoredFlowNodeKind = Exclude<FlowVisualNodeKind, "entry" | "exit">;
+export const FLOW_DOCUMENT_NODE_KINDS = [
+  "entry",
+  "assign",
+  "call",
+  "branch",
+  "loop",
+  "return",
+  "exit",
+] as const satisfies readonly FlowVisualNodeKind[];
+
+export const FLOW_AUTHORABLE_NODE_KINDS = [
+  "assign",
+  "call",
+  "return",
+  "branch",
+  "loop",
+] as const;
+
+const FLOW_DOCUMENT_NODE_KIND_SET = new Set<string>(FLOW_DOCUMENT_NODE_KINDS);
+const FLOW_AUTHORABLE_NODE_KIND_SET = new Set<string>(FLOW_AUTHORABLE_NODE_KINDS);
+
+export type AuthoredFlowNodeKind = typeof FLOW_AUTHORABLE_NODE_KINDS[number];
 export type AuthoredFlowNode = FlowGraphNode & { kind: AuthoredFlowNodeKind };
 
+export function isFlowNodeStructuralKind(kind: FlowVisualNodeKind | string): kind is "entry" | "exit" {
+  return kind === "entry" || kind === "exit";
+}
+
+export function isFlowDocumentNodeKind(kind: FlowVisualNodeKind | string): kind is FlowVisualNodeKind {
+  return FLOW_DOCUMENT_NODE_KIND_SET.has(kind);
+}
+
+export function isFlowNodeAuthorableKind(kind: FlowVisualNodeKind | string): kind is AuthoredFlowNodeKind {
+  return FLOW_AUTHORABLE_NODE_KIND_SET.has(kind);
+}
+
 export function isAuthoredFlowNodeKind(kind: FlowVisualNodeKind | string): kind is AuthoredFlowNodeKind {
-  return kind === "assign"
-    || kind === "call"
-    || kind === "return"
-    || kind === "branch"
-    || kind === "loop";
+  return isFlowNodeAuthorableKind(kind);
 }
 
 export function createFlowNode(symbolId: string, kind: AuthoredFlowNodeKind): AuthoredFlowNode {
@@ -205,30 +234,81 @@ export function insertFlowNodeOnEdge(
   };
 }
 
-export function upsertFlowConnection(
+type FlowConnection = {
+  sourceId: string;
+  sourceHandle: string;
+  targetId: string;
+  targetHandle: string;
+};
+
+export function validateFlowConnection(
   document: FlowGraphDocument,
-  connection: {
-    sourceId: string;
-    sourceHandle: string;
-    targetId: string;
-    targetHandle: string;
-  },
+  connection: FlowConnection,
   previousEdgeId?: string,
-): FlowGraphDocument {
+): { ok: true } | { ok: false; message: string } {
+  const sourceNode = document.nodes.find((node) => node.id === connection.sourceId);
+  if (!sourceNode) {
+    return { ok: false, message: "Unable to find the source flow node." };
+  }
+
   const targetNode = document.nodes.find((node) => node.id === connection.targetId);
   if (!targetNode) {
+    return { ok: false, message: "Unable to find the target flow node." };
+  }
+
+  if (connection.sourceId === connection.targetId) {
+    return { ok: false, message: "Flow nodes cannot connect back into themselves." };
+  }
+
+  if (!allowedOutputHandles(sourceNode.kind).includes(connection.sourceHandle)) {
+    return { ok: false, message: "That control output is not available for the selected source node." };
+  }
+
+  if (!allowedInputHandles(targetNode.kind).includes(connection.targetHandle)) {
+    return { ok: false, message: "That control input is not available for the selected target node." };
+  }
+
+  const competingEdges = document.edges.filter((edge) => edge.id !== previousEdgeId);
+  if (competingEdges.some((edge) => (
+    edge.sourceId === connection.sourceId
+    && edge.sourceHandle === connection.sourceHandle
+    && edge.targetId === connection.targetId
+    && edge.targetHandle === connection.targetHandle
+  ))) {
+    return { ok: false, message: "That flow connection already exists." };
+  }
+
+  if (competingEdges.some((edge) => (
+    edge.sourceId === connection.sourceId
+    && edge.sourceHandle === connection.sourceHandle
+  ))) {
+    return { ok: false, message: "That control output is already connected." };
+  }
+
+  if (
+    targetNode.kind !== "exit"
+    && competingEdges.some((edge) => (
+      edge.targetId === connection.targetId
+      && edge.targetHandle === connection.targetHandle
+    ))
+  ) {
+    return { ok: false, message: "That control input is already connected." };
+  }
+
+  return { ok: true };
+}
+
+export function upsertFlowConnection(
+  document: FlowGraphDocument,
+  connection: FlowConnection,
+  previousEdgeId?: string,
+): FlowGraphDocument {
+  const validation = validateFlowConnection(document, connection, previousEdgeId);
+  if (!validation.ok) {
     return document;
   }
 
-  const filtered = document.edges.filter((edge) => (
-    edge.id !== previousEdgeId
-    && !(edge.sourceId === connection.sourceId && edge.sourceHandle === connection.sourceHandle)
-    && !(
-      edge.targetId === connection.targetId
-      && edge.targetHandle === connection.targetHandle
-      && targetNode.kind !== "exit"
-    )
-  ));
+  const filtered = document.edges.filter((edge) => edge.id !== previousEdgeId);
 
   const nextEdge: FlowGraphEdge = {
     id: flowConnectionId(connection),
@@ -262,11 +342,10 @@ export function removeFlowNodes(
   const requestedNodeIds = [...nodeIds];
   const blocked = new Set<string>();
   const removable = new Set<string>();
-  const protectedKinds = new Set<FlowVisualNodeKind>(["entry", "exit"]);
   const nodeById = new Map(document.nodes.map((node) => [node.id, node] as const));
   requestedNodeIds.forEach((nodeId) => {
     const kind = nodeById.get(nodeId)?.kind;
-    if (kind && protectedKinds.has(kind)) {
+    if (!kind || !isFlowNodeAuthorableKind(kind)) {
       blocked.add(nodeId);
       return;
     }

@@ -124,6 +124,9 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertTrue(flow.flow_state["editable"])
             self.assertEqual(flow.flow_state["sync_state"], "clean")
             self.assertIsNotNone(flow.flow_state["document"])
+            document = flow.flow_state["document"]
+            assert document is not None
+            self.assertFalse(any(node["kind"] == "param" for node in document["nodes"]))
 
     def test_flow_view_marks_loop_body_and_exit_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

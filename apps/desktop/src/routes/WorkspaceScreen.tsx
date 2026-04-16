@@ -30,13 +30,13 @@ import {
   createFlowNode,
   flowDocumentHandleFromBlueprintHandle,
   flowDocumentsEqual,
+  isFlowNodeAuthorableKind,
   flowNodePayloadFromContent,
-  insertFlowNodeOnEdge,
-  isAuthoredFlowNodeKind,
   removeFlowEdges,
   removeFlowNodes,
   updateFlowNodePayload,
   upsertFlowConnection,
+  validateFlowConnection,
 } from "../components/graph/flowDocument";
 import { DesktopWindow } from "../components/layout/DesktopWindow";
 import { SidebarPane } from "../components/panes/SidebarPane";
@@ -1599,8 +1599,6 @@ export function WorkspaceScreen() {
     );
   const flowEditable = flowCreateEnabled && (effectiveGraph?.flowState?.editable ?? activeFlowDraft?.document.editable ?? false);
   const flowDraftBackedCreateEnabled = flowEditable && Boolean(activeFlowDraft?.document);
-  const flowInsertionFallbackEnabled = flowEditable && !flowDraftBackedCreateEnabled;
-  const flowAuthoringEnabled = flowDraftBackedCreateEnabled || flowInsertionFallbackEnabled;
   const createModeCanvasEnabled =
     activeLevel === "repo"
     || ((activeLevel === "module" || activeLevel === "symbol") && Boolean(currentModulePath))
@@ -1615,9 +1613,7 @@ export function WorkspaceScreen() {
             ? `Click the graph to create a function or class in ${currentModulePath}.`
             : "Create mode needs a concrete module target in this view."
           : flowDraftBackedCreateEnabled
-            ? "Click the graph to add a disconnected node, or click an insertion lane to place one on that control-flow path."
-            : flowInsertionFallbackEnabled
-              ? "Click an insertion lane to add a node on that control-flow path."
+            ? "Click empty canvas to create a flow node in this draft."
             : "Create mode only writes inside function or method flows in v1.";
   const createModeContextKey = [
     activeLevel,
@@ -1628,7 +1624,7 @@ export function WorkspaceScreen() {
   const createModeSupported =
     activeLevel === "repo"
     || ((activeLevel === "module" || activeLevel === "symbol") && Boolean(currentModulePath))
-    || flowAuthoringEnabled;
+    || flowDraftBackedCreateEnabled;
 
   const handleExitCreateMode = useCallback(() => {
     setCreateComposer(undefined);
@@ -1665,11 +1661,7 @@ export function WorkspaceScreen() {
       return;
     }
 
-    if (
-      activeLevel === "flow"
-      && flowAuthoringEnabled
-      && (flowDraftBackedCreateEnabled || (flowInsertionFallbackEnabled && intent.anchorEdgeId))
-    ) {
+    if (activeLevel === "flow" && flowDraftBackedCreateEnabled) {
       setCreateComposer({
         id: `${Date.now()}:flow`,
         kind: "flow",
@@ -1679,12 +1671,6 @@ export function WorkspaceScreen() {
         ownerLabel: flowOwnerSymbolQuery.data?.qualname ?? effectiveGraph?.focus?.label ?? "Flow",
         initialFlowNodeKind: "assign",
         initialPayload: { source: "" },
-        insertion: intent.anchorEdgeId
-          ? {
-              anchorEdgeId: intent.anchorEdgeId,
-              anchorLabel: intent.anchorLabel,
-            }
-          : undefined,
       });
       setCreateModeState("composing");
     }
@@ -1692,8 +1678,6 @@ export function WorkspaceScreen() {
     activeLevel,
     currentModulePath,
     flowDraftBackedCreateEnabled,
-    flowInsertionFallbackEnabled,
-    flowAuthoringEnabled,
     flowOwnerSymbolQuery.data?.qualname,
     effectiveGraph?.focus?.label,
   ]);
@@ -1927,52 +1911,43 @@ export function WorkspaceScreen() {
         && createComposer.kind === "flow"
         && graphTargetId?.startsWith("symbol:")
       ) {
-        if (activeFlowDraft?.symbolId === graphTargetId) {
-          if (createComposer.mode === "edit" && createComposer.editingNodeId) {
-            const nextPayload = flowNodePayloadFromContent(payload.flowNodeKind, payload.content);
-            await applyFlowDraftMutation({
-              transform: (document) => updateFlowNodePayload(
-                document,
-                createComposer.editingNodeId as string,
-                nextPayload,
-              ),
-              selectedNodeId: createComposer.editingNodeId,
-            });
-            setCreateComposer(undefined);
-            setCreateModeState(resumeCreateMode ? "active" : "inactive");
-            return;
-          }
+        if (activeFlowDraft?.symbolId !== graphTargetId) {
+          throw new Error("Editable flow draft state is no longer available for this symbol.");
+        }
 
-          createdNodeKind = payload.flowNodeKind;
-          const nextNode = {
-            ...createFlowNode(graphTargetId, payload.flowNodeKind),
-            payload: flowNodePayloadFromContent(payload.flowNodeKind, payload.content),
-          };
+        if (createComposer.mode === "edit" && createComposer.editingNodeId) {
+          const nextPayload = flowNodePayloadFromContent(payload.flowNodeKind, payload.content);
           await applyFlowDraftMutation({
-            transform: (document) => (
-              createComposer.insertion
-                ? insertFlowNodeOnEdge(document, nextNode, createComposer.insertion.anchorEdgeId)
-                : addDisconnectedFlowNode(document, nextNode)
+            transform: (document) => updateFlowNodePayload(
+              document,
+              createComposer.editingNodeId as string,
+              nextPayload,
             ),
-            seededNodes: [{
-              nodeId: nextNode.id,
-              kind: nextNode.kind,
-              position: createComposer.flowPosition,
-            }],
-            selectedNodeId: nextNode.id,
+            selectedNodeId: createComposer.editingNodeId,
           });
-          setPendingCreatedNodeId(undefined);
           setCreateComposer(undefined);
-          setCreateModeState("active");
+          setCreateModeState(resumeCreateMode ? "active" : "inactive");
           return;
         }
 
-        request = {
-          kind: "insert_flow_statement",
-          targetId: graphTargetId,
-          anchorEdgeId: createComposer.insertion?.anchorEdgeId,
-          content: payload.content,
+        createdNodeKind = payload.flowNodeKind;
+        const nextNode = {
+          ...createFlowNode(graphTargetId, payload.flowNodeKind),
+          payload: flowNodePayloadFromContent(payload.flowNodeKind, payload.content),
         };
+        await applyFlowDraftMutation({
+          transform: (document) => addDisconnectedFlowNode(document, nextNode),
+          seededNodes: [{
+            nodeId: nextNode.id,
+            kind: nextNode.kind,
+            position: createComposer.flowPosition,
+          }],
+          selectedNodeId: nextNode.id,
+        });
+        setPendingCreatedNodeId(undefined);
+        setCreateComposer(undefined);
+        setCreateModeState("active");
+        return;
       } else {
         throw new Error("Create-mode context no longer matches the requested action.");
       }
@@ -2057,7 +2032,7 @@ export function WorkspaceScreen() {
     }
 
     const targetNode = activeFlowDraft.document.nodes.find((node) => node.id === intent.nodeId);
-    if (!targetNode || !isAuthoredFlowNodeKind(targetNode.kind)) {
+    if (!targetNode || !isFlowNodeAuthorableKind(targetNode.kind)) {
       return;
     }
 
@@ -2076,9 +2051,13 @@ export function WorkspaceScreen() {
       initialFlowNodeKind: targetNode.kind,
       initialPayload: targetNode.payload,
     });
+    if (createModeState === "active") {
+      setCreateModeState("composing");
+    }
   }, [
     activeFlowDraft,
     activeLevel,
+    createModeState,
     effectiveGraph?.focus?.label,
     flowDraftBackedCreateEnabled,
     flowOwnerSymbolQuery.data?.qualname,
@@ -2086,8 +2065,17 @@ export function WorkspaceScreen() {
   ]);
 
   const handleConnectFlowEdge = useCallback((connectionIntent: GraphFlowConnectionIntent) => {
+    if (!activeFlowDraft) {
+      return;
+    }
     const connection = resolveFlowDocumentConnection(connectionIntent);
     if (!connection) {
+      return;
+    }
+
+    const validation = validateFlowConnection(activeFlowDraft.document, connection);
+    if (!validation.ok) {
+      setCreateModeError(validation.message);
       return;
     }
 
@@ -2099,6 +2087,7 @@ export function WorkspaceScreen() {
       setCreateModeError(message);
     });
   }, [
+    activeFlowDraft,
     applyFlowDraftMutation,
     resolveFlowDocumentConnection,
   ]);
@@ -2107,8 +2096,17 @@ export function WorkspaceScreen() {
     edgeId: string,
     connectionIntent: GraphFlowConnectionIntent,
   ) => {
+    if (!activeFlowDraft) {
+      return;
+    }
     const connection = resolveFlowDocumentConnection(connectionIntent);
     if (!connection) {
+      return;
+    }
+
+    const validation = validateFlowConnection(activeFlowDraft.document, connection, edgeId);
+    if (!validation.ok) {
+      setCreateModeError(validation.message);
       return;
     }
 
@@ -2120,9 +2118,20 @@ export function WorkspaceScreen() {
       setCreateModeError(message);
     });
   }, [
+    activeFlowDraft,
     applyFlowDraftMutation,
     resolveFlowDocumentConnection,
   ]);
+
+  const handleDisconnectFlowEdge = useCallback((edgeId: string) => {
+    void applyFlowDraftMutation({
+      transform: (document) => removeFlowEdges(document, [edgeId]),
+    }).catch((reason) => {
+      const message =
+        reason instanceof Error ? reason.message : "Unable to disconnect the selected flow edge.";
+      setCreateModeError(message);
+    });
+  }, [applyFlowDraftMutation]);
 
   const handleDeleteFlowSelection = useCallback((selection: GraphFlowDeleteIntent) => {
     if (!selection.nodeIds.length && !selection.edgeIds.length) {
@@ -2710,7 +2719,6 @@ export function WorkspaceScreen() {
                     onClearSelection={() => void handleClearGraphSelection()}
                     createModeState={createModeState}
                     createModeCanvasEnabled={createModeCanvasEnabled}
-                    createModeControlEdgeEnabled={flowAuthoringEnabled}
                     createModeHint={createModeHint}
                     onToggleCreateMode={() => {
                       void handleToggleCreateMode();
@@ -2719,6 +2727,7 @@ export function WorkspaceScreen() {
                     onEditFlowNodeIntent={handleOpenFlowEditComposer}
                     onConnectFlowEdge={handleConnectFlowEdge}
                     onReconnectFlowEdge={handleReconnectFlowEdge}
+                    onDisconnectFlowEdge={handleDisconnectFlowEdge}
                     onDeleteFlowSelection={handleDeleteFlowSelection}
                   />
                   {createComposer ? (

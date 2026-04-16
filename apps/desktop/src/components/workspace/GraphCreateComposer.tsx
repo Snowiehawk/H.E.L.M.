@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  FLOW_AUTHORABLE_NODE_KINDS,
   flowNodeContentFromPayload,
   type AuthoredFlowNodeKind,
 } from "../graph/flowDocument";
@@ -38,10 +39,6 @@ export type GraphCreateComposerState =
       editingNodeId?: string;
       initialFlowNodeKind?: AuthoredFlowNodeKind;
       initialPayload?: Record<string, unknown>;
-      insertion?: {
-        anchorEdgeId: string;
-        anchorLabel?: string;
-      };
     };
 
 export type GraphCreateComposerSubmit =
@@ -58,7 +55,7 @@ export type GraphCreateComposerSubmit =
     }
   | {
       kind: "flow";
-      flowNodeKind: "assign" | "call" | "return" | "branch" | "loop";
+      flowNodeKind: AuthoredFlowNodeKind;
       content: string;
     };
 
@@ -80,13 +77,10 @@ export function GraphCreateComposer({
   const [symbolKind, setSymbolKind] = useState<"function" | "class">("function");
   const [symbolName, setSymbolName] = useState("");
   const [symbolBody, setSymbolBody] = useState("");
-  const [flowKind, setFlowKind] = useState<"assign" | "call" | "return" | "branch" | "loop">("assign");
+  const [flowKind, setFlowKind] = useState<AuthoredFlowNodeKind>("assign");
   const [flowStatement, setFlowStatement] = useState("");
   const [branchCondition, setBranchCondition] = useState("");
-  const [branchTrueBody, setBranchTrueBody] = useState("");
-  const [branchFalseBody, setBranchFalseBody] = useState("");
   const [loopHeader, setLoopHeader] = useState("");
-  const [loopBody, setLoopBody] = useState("");
 
   useEffect(() => {
     setModulePath("");
@@ -99,10 +93,7 @@ export function GraphCreateComposer({
       setFlowKind("assign");
       setFlowStatement("");
       setBranchCondition("");
-      setBranchTrueBody("");
-      setBranchFalseBody("");
       setLoopHeader("");
-      setLoopBody("");
       return;
     }
 
@@ -111,10 +102,7 @@ export function GraphCreateComposer({
     setFlowKind(nextKind);
     setFlowStatement(flowStatementFromComposer(nextKind, nextPayload));
     setBranchCondition(nextKind === "branch" && typeof nextPayload.condition === "string" ? nextPayload.condition : "");
-    setBranchTrueBody("");
-    setBranchFalseBody("");
     setLoopHeader(nextKind === "loop" && typeof nextPayload.header === "string" ? nextPayload.header : "");
-    setLoopBody("");
   }, [composer.id]);
 
   const title = useMemo(() => {
@@ -154,10 +142,7 @@ export function GraphCreateComposer({
         flowKind,
         statement: flowStatement,
         branchCondition,
-        branchTrueBody,
-        branchFalseBody,
         loopHeader,
-        loopBody,
       }),
     });
   };
@@ -317,11 +302,7 @@ export function GraphCreateComposer({
             <p>
               {composer.mode === "edit"
                 ? "Update this flow node in the local draft."
-                : composer.insertion?.anchorLabel
-                ? `Path: ${composer.insertion.anchorLabel}`
-                : composer.insertion
-                  ? "Create on the selected control-flow path."
-                  : "Create a disconnected flow node in the local draft."}
+                : "Create a new flow node in the local draft."}
             </p>
           </div>
           <label className="blueprint-field">
@@ -334,11 +315,11 @@ export function GraphCreateComposer({
               value={flowKind}
               onChange={(event) => setFlowKind(event.target.value as typeof flowKind)}
             >
-              <option value="assign">Assign</option>
-              <option value="call">Call</option>
-              <option value="return">Return</option>
-              <option value="branch">Branch</option>
-              <option value="loop">Loop</option>
+              {FLOW_AUTHORABLE_NODE_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {flowNodeKindLabel(kind)}
+                </option>
+              ))}
             </select>
           </label>
 
@@ -365,79 +346,39 @@ export function GraphCreateComposer({
           ) : null}
 
           {flowKind === "branch" ? (
-            <>
-              <label className="blueprint-field">
-                <span className="blueprint-field__label">
-                  <strong>Condition</strong>
-                </span>
-                <input
-                  aria-label="Branch condition"
-                  autoFocus
-                  autoComplete="off"
-                  placeholder="result is not None"
-                  spellCheck={false}
-                  type="text"
-                  value={branchCondition}
-                  onChange={(event) => setBranchCondition(event.target.value)}
-                />
-              </label>
-              <label className="blueprint-field">
-                <span className="blueprint-field__label">
-                  <strong>True body</strong>
-                </span>
-                <textarea
-                  aria-label="Branch true body"
-                  placeholder="process(result)"
-                  rows={4}
-                  value={branchTrueBody}
-                  onChange={(event) => setBranchTrueBody(event.target.value)}
-                />
-              </label>
-              <label className="blueprint-field">
-                <span className="blueprint-field__label">
-                  <strong>False body</strong>
-                </span>
-                <textarea
-                  aria-label="Branch false body"
-                  placeholder="pass"
-                  rows={4}
-                  value={branchFalseBody}
-                  onChange={(event) => setBranchFalseBody(event.target.value)}
-                />
-              </label>
-            </>
+            <label className="blueprint-field">
+              <span className="blueprint-field__label">
+                <strong>Condition</strong>
+              </span>
+              <input
+                aria-label="Branch condition"
+                autoFocus
+                autoComplete="off"
+                placeholder="result is not None"
+                spellCheck={false}
+                type="text"
+                value={branchCondition}
+                onChange={(event) => setBranchCondition(event.target.value)}
+              />
+            </label>
           ) : null}
 
           {flowKind === "loop" ? (
-            <>
-              <label className="blueprint-field">
-                <span className="blueprint-field__label">
-                  <strong>Loop header</strong>
-                </span>
-                <input
-                  aria-label="Loop header"
-                  autoFocus
-                  autoComplete="off"
-                  placeholder="for item in items"
-                  spellCheck={false}
-                  type="text"
-                  value={loopHeader}
-                  onChange={(event) => setLoopHeader(event.target.value)}
-                />
-              </label>
-              <label className="blueprint-field">
-                <span className="blueprint-field__label">
-                  <strong>Loop body</strong>
-                </span>
-                <textarea
-                  aria-label="Loop body"
-                  placeholder="total += item"
-                  rows={4}
-                  value={loopBody}
-                  onChange={(event) => setLoopBody(event.target.value)}
-                />
-              </label>
-            </>
+            <label className="blueprint-field">
+              <span className="blueprint-field__label">
+                <strong>Loop header</strong>
+              </span>
+              <input
+                aria-label="Loop header"
+                autoFocus
+                autoComplete="off"
+                placeholder="for item in items"
+                spellCheck={false}
+                type="text"
+                value={loopHeader}
+                onChange={(event) => setLoopHeader(event.target.value)}
+              />
+            </label>
           ) : null}
 
           {error ? <p className="error-copy">{error}</p> : null}
@@ -458,47 +399,26 @@ export function GraphCreateComposer({
   );
 }
 
-function indentBlock(block: string) {
-  const trimmed = block.trim();
-  const lines = (trimmed || "pass").split("\n");
-  return lines.map((line) => `    ${line}`).join("\n");
-}
-
 function buildFlowContent({
   flowKind,
   statement,
   branchCondition,
-  branchTrueBody,
-  branchFalseBody,
   loopHeader,
-  loopBody,
 }: {
-  flowKind: "assign" | "call" | "return" | "branch" | "loop";
+  flowKind: AuthoredFlowNodeKind;
   statement: string;
   branchCondition: string;
-  branchTrueBody: string;
-  branchFalseBody: string;
   loopHeader: string;
-  loopBody: string;
 }) {
   if (flowKind === "assign" || flowKind === "call" || flowKind === "return") {
     return statement.trim();
   }
 
   if (flowKind === "branch") {
-    return [
-      `if ${branchCondition.trim()}:`,
-      indentBlock(branchTrueBody),
-      "else:",
-      indentBlock(branchFalseBody),
-    ].join("\n");
+    return branchCondition.trim();
   }
 
-  const normalizedHeader = loopHeader.trim().replace(/:$/, "");
-  return [
-    `${normalizedHeader}:`,
-    indentBlock(loopBody),
-  ].join("\n");
+  return loopHeader.trim();
 }
 
 function flowStatementFromComposer(
@@ -506,4 +426,19 @@ function flowStatementFromComposer(
   payload: Record<string, unknown>,
 ) {
   return flowNodeContentFromPayload(flowKind, payload);
+}
+
+function flowNodeKindLabel(kind: AuthoredFlowNodeKind) {
+  switch (kind) {
+    case "assign":
+      return "Assign";
+    case "call":
+      return "Call";
+    case "return":
+      return "Return";
+    case "branch":
+      return "Branch";
+    case "loop":
+      return "Loop";
+  }
 }

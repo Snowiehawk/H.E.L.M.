@@ -12,6 +12,9 @@ from typing import Any
 
 FLOW_MODEL_VERSION = 1
 FLOW_MODEL_RELATIVE_PATH = ".helm/flow-models.v1.json"
+# Parameter nodes remain source-derived visual support nodes in flow views. The
+# persisted FlowModelDocument only accepts authored control-flow statements plus
+# entry / exit sentinels.
 FLOW_NODE_KINDS = {"entry", "assign", "call", "branch", "loop", "return", "exit"}
 FLOW_SYNC_STATES = {"clean", "draft", "import_error"}
 
@@ -184,7 +187,7 @@ def flow_document_from_payload(payload: dict[str, Any]) -> FlowModelDocument:
         kind = str(raw_node.get("kind") or "").strip()
         payload_value = raw_node.get("payload") or {}
         if not node_id or kind not in FLOW_NODE_KINDS:
-            raise ValueError("Flow graph nodes require a valid id and kind.")
+            raise ValueError("Flow graph nodes require a valid id and supported document kind.")
         if node_id in seen_node_ids:
             raise ValueError(f"Duplicate flow node id '{node_id}'.")
         if not isinstance(payload_value, dict):

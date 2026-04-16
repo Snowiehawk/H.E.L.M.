@@ -187,6 +187,14 @@ describe("LiveDesktopAdapter", () => {
           metadata: { flow_order: 1 },
           available_actions: [],
         },
+        {
+          node_id: "flow:symbol:calculator:run:param:value",
+          kind: "param",
+          label: "value",
+          subtitle: "parameter",
+          metadata: { flow_order: 0 },
+          available_actions: [],
+        },
       ],
       edges: [
         {
@@ -198,6 +206,13 @@ describe("LiveDesktopAdapter", () => {
             source_handle: "start",
             target_handle: "in",
           },
+        },
+        {
+          edge_id: "data:param->assign",
+          kind: "data",
+          source_id: "flow:symbol:calculator:run:param:value",
+          target_id: "flow:symbol:calculator:run:statement:0",
+          metadata: {},
         },
       ],
       breadcrumbs: [],
@@ -282,6 +297,9 @@ describe("LiveDesktopAdapter", () => {
         ],
       },
     });
+
+    expect(graph.nodes.some((node) => node.kind === "param")).toBe(true);
+    expect(graph.flowState?.document?.nodes.some((node) => String(node.kind) === "param")).toBe(false);
   });
 
   it("updates cached workspace state from live sync events", async () => {

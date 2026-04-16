@@ -9,17 +9,7 @@ import type {
   GraphNodeKind,
   GraphView,
 } from "../../lib/adapter";
-import { cloneFlowDocument } from "./flowDocument";
-
-const FLOW_VISUAL_NODE_KINDS = new Set<FlowVisualNodeKind>([
-  "entry",
-  "assign",
-  "call",
-  "branch",
-  "loop",
-  "return",
-  "exit",
-]);
+import { cloneFlowDocument, isFlowDocumentNodeKind } from "./flowDocument";
 
 export function establishFlowDraftDocument(graph: GraphView | undefined): FlowGraphDocument | undefined {
   if (!graph || graph.level !== "flow") {
@@ -34,6 +24,9 @@ export function establishFlowDraftDocument(graph: GraphView | undefined): FlowGr
     return undefined;
   }
 
+  // Visual flow views may include support nodes like `param` plus data edges. We only
+  // synthesize a draft from control-only graphs that already match the persisted
+  // FlowGraphDocument schema.
   return flowDocumentFromVisualGraph(graph);
 }
 
@@ -44,7 +37,7 @@ export function projectFlowDraftGraph(
   const logicalNodeIds = new Set(document.nodes.map((node) => node.id));
   const preservedNodes = baseGraph.nodes.filter((node) => (
     !logicalNodeIds.has(node.id)
-    && !FLOW_VISUAL_NODE_KINDS.has(node.kind as FlowVisualNodeKind)
+    && !isFlowDocumentNodeKind(node.kind)
   ));
   const baseNodesById = new Map(baseGraph.nodes.map((node) => [node.id, node] as const));
   const draftNodes = document.nodes.map((node, index) => (
@@ -137,8 +130,8 @@ function flowDocumentFromVisualGraph(graph: GraphView): FlowGraphDocument | unde
 }
 
 function toFlowVisualNodeKind(kind: GraphNodeKind): FlowVisualNodeKind | undefined {
-  return FLOW_VISUAL_NODE_KINDS.has(kind as FlowVisualNodeKind)
-    ? kind as FlowVisualNodeKind
+  return isFlowDocumentNodeKind(kind)
+    ? kind
     : undefined;
 }
 

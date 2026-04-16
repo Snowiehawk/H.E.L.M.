@@ -886,6 +886,45 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertEqual(undo_result.focus_target.target_id, "symbol:service:run")
             self.assertEqual(undo_result.focus_target.level, "flow")
 
+    def test_replace_flow_graph_rejects_parameter_nodes_in_persisted_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "def run(value):\n"
+                "    return value\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:run",
+                relative_path="service.py",
+                qualname="run",
+                module_source=source,
+            )
+            payload = imported.to_dict()
+            payload["nodes"].append(
+                {
+                    "id": "flow:symbol:service:run:param:value",
+                    "kind": "param",
+                    "payload": {},
+                }
+            )
+
+            parsed_modules, _, inbound = parse_repo(root)
+            with self.assertRaisesRegex(ValueError, "supported document kind"):
+                apply_structural_edit(
+                    root,
+                    serialize_edit_request(
+                        {
+                            "kind": "replace_flow_graph",
+                            "target_id": "symbol:service:run",
+                            "flow_graph": payload,
+                        }
+                    ),
+                    parsed_modules=parsed_modules,
+                    inbound_dependency_count=inbound,
+                )
+
     def test_replace_flow_graph_saves_clean_graph_updates_source_and_undo_restores_both_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -964,3 +1003,155 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertFalse((root / FLOW_MODEL_RELATIVE_PATH).exists())
             self.assertEqual(undo_result.focus_target.target_id, "symbol:service:run")
             self.assertEqual(undo_result.focus_target.level, "flow")
+
+    def test_replace_flow_graph_round_trips_all_picker_node_kinds_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            original_source = (
+                "def run(value, items, total):\n"
+                "    return value\n"
+            )
+            write_repo_files(root, {"service.py": original_source})
+
+            payload = {
+                "symbol_id": "symbol:service:run",
+                "relative_path": "service.py",
+                "qualname": "run",
+                "nodes": [
+                    {"id": "flowdoc:symbol:service:run:entry", "kind": "entry", "payload": {}},
+                    {
+                        "id": "flowdoc:symbol:service:run:assign:prepare",
+                        "kind": "assign",
+                        "payload": {"source": "value = prepare(value)"},
+                    },
+                    {
+                        "id": "flowdoc:symbol:service:run:call:notify",
+                        "kind": "call",
+                        "payload": {"source": "notify(value)"},
+                    },
+                    {
+                        "id": "flowdoc:symbol:service:run:branch:ready",
+                        "kind": "branch",
+                        "payload": {"condition": "value > 0"},
+                    },
+                    {
+                        "id": "flowdoc:symbol:service:run:loop:items",
+                        "kind": "loop",
+                        "payload": {"header": "for item in items"},
+                    },
+                    {
+                        "id": "flowdoc:symbol:service:run:call:tick",
+                        "kind": "call",
+                        "payload": {"source": "tick(item)"},
+                    },
+                    {
+                        "id": "flowdoc:symbol:service:run:return:false",
+                        "kind": "return",
+                        "payload": {"expression": "value"},
+                    },
+                    {
+                        "id": "flowdoc:symbol:service:run:return:after",
+                        "kind": "return",
+                        "payload": {"expression": "total + 1"},
+                    },
+                    {"id": "flowdoc:symbol:service:run:exit", "kind": "exit", "payload": {}},
+                ],
+                "edges": [
+                    {
+                        "id": "controls:flowdoc:symbol:service:run:entry:start->flowdoc:symbol:service:run:assign:prepare:in",
+                        "source_id": "flowdoc:symbol:service:run:entry",
+                        "source_handle": "start",
+                        "target_id": "flowdoc:symbol:service:run:assign:prepare",
+                        "target_handle": "in",
+                    },
+                    {
+                        "id": "controls:flowdoc:symbol:service:run:assign:prepare:next->flowdoc:symbol:service:run:call:notify:in",
+                        "source_id": "flowdoc:symbol:service:run:assign:prepare",
+                        "source_handle": "next",
+                        "target_id": "flowdoc:symbol:service:run:call:notify",
+                        "target_handle": "in",
+                    },
+                    {
+                        "id": "controls:flowdoc:symbol:service:run:call:notify:next->flowdoc:symbol:service:run:branch:ready:in",
+                        "source_id": "flowdoc:symbol:service:run:call:notify",
+                        "source_handle": "next",
+                        "target_id": "flowdoc:symbol:service:run:branch:ready",
+                        "target_handle": "in",
+                    },
+                    {
+                        "id": "controls:flowdoc:symbol:service:run:branch:ready:true->flowdoc:symbol:service:run:loop:items:in",
+                        "source_id": "flowdoc:symbol:service:run:branch:ready",
+                        "source_handle": "true",
+                        "target_id": "flowdoc:symbol:service:run:loop:items",
+                        "target_handle": "in",
+                    },
+                    {
+                        "id": "controls:flowdoc:symbol:service:run:branch:ready:false->flowdoc:symbol:service:run:return:false:in",
+                        "source_id": "flowdoc:symbol:service:run:branch:ready",
+                        "source_handle": "false",
+                        "target_id": "flowdoc:symbol:service:run:return:false",
+                        "target_handle": "in",
+                    },
+                    {
+                        "id": "controls:flowdoc:symbol:service:run:branch:ready:after->flowdoc:symbol:service:run:return:after:in",
+                        "source_id": "flowdoc:symbol:service:run:branch:ready",
+                        "source_handle": "after",
+                        "target_id": "flowdoc:symbol:service:run:return:after",
+                        "target_handle": "in",
+                    },
+                    {
+                        "id": "controls:flowdoc:symbol:service:run:loop:items:body->flowdoc:symbol:service:run:call:tick:in",
+                        "source_id": "flowdoc:symbol:service:run:loop:items",
+                        "source_handle": "body",
+                        "target_id": "flowdoc:symbol:service:run:call:tick",
+                        "target_handle": "in",
+                    },
+                    {
+                        "id": "controls:flowdoc:symbol:service:run:call:tick:next->flowdoc:symbol:service:run:exit:in",
+                        "source_id": "flowdoc:symbol:service:run:call:tick",
+                        "source_handle": "next",
+                        "target_id": "flowdoc:symbol:service:run:exit",
+                        "target_handle": "in",
+                    },
+                    {
+                        "id": "controls:flowdoc:symbol:service:run:loop:items:after->flowdoc:symbol:service:run:exit:in",
+                        "source_id": "flowdoc:symbol:service:run:loop:items",
+                        "source_handle": "after",
+                        "target_id": "flowdoc:symbol:service:run:exit",
+                        "target_handle": "in",
+                    },
+                ],
+                "sync_state": "clean",
+                "diagnostics": [],
+                "editable": True,
+            }
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_flow_graph",
+                        "target_id": "symbol:service:run",
+                        "flow_graph": payload,
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertEqual(result.flow_sync_state, "clean")
+            self.assertEqual(result.diagnostics, ())
+            updated_source = (root / "service.py").read_text(encoding="utf-8")
+            self.assertIn("value = prepare(value)", updated_source)
+            self.assertIn("notify(value)", updated_source)
+            self.assertIn("if value > 0:", updated_source)
+            self.assertIn("for item in items:", updated_source)
+            self.assertIn("tick(item)", updated_source)
+            self.assertIn("return total + 1", updated_source)
+
+            stored = read_flow_document(root, "symbol:service:run")
+            self.assertIsNotNone(stored)
+            assert stored is not None
+            self.assertEqual(stored.sync_state, "clean")
+            self.assertEqual({node.kind for node in stored.nodes}, {"entry", "assign", "call", "branch", "loop", "return", "exit"})

@@ -34,6 +34,7 @@ import {
   isGraphSymbolNodeKind,
   isInspectableGraphNodeKind,
 } from "../../lib/adapter";
+import { isFlowNodeAuthorableKind } from "./flowDocument";
 import { GraphToolbar } from "./GraphToolbar";
 import {
   BlueprintNode,
@@ -104,8 +105,6 @@ type GraphCanvasNode = SemanticCanvasNode | RerouteCanvasNode;
 type GraphCanvasEdge = Edge<BlueprintEdgeData, "blueprint">;
 export type CreateModeState = "inactive" | "active" | "composing";
 export interface GraphCreateIntent {
-  anchorEdgeId?: string;
-  anchorLabel?: string;
   flowPosition: { x: number; y: number };
   panelPosition: { x: number; y: number };
 }
@@ -124,16 +123,21 @@ export interface GraphFlowDeleteIntent {
   nodeIds: string[];
   edgeIds: string[];
 }
-type FlowCreateLaneTrigger = {
-  edgeId: string;
-  buttonLabel: string;
-  ariaLabel: string;
-  edgeLabel: string | undefined;
-  x: number;
-  y: number;
-  angle: number;
-  length: number;
-};
+
+export function resolveFlowEdgeInteraction({
+  flowAuthoringEnabled,
+  logicalEdgeKind,
+  altKey,
+}: {
+  flowAuthoringEnabled: boolean;
+  logicalEdgeKind: GraphEdgeKind;
+  altKey: boolean;
+}): "ignore" | "select" | "disconnect" {
+  if (!flowAuthoringEnabled || logicalEdgeKind !== "controls") {
+    return "ignore";
+  }
+  return altKey ? "disconnect" : "select";
+}
 type EdgeLabelSegment = {
   id: string;
   label: string;
@@ -1328,47 +1332,6 @@ function nodeCenter(node: GraphCanvasNode) {
   };
 }
 
-function controlEdgePathLabel(edge: GraphView["edges"][number]) {
-  const directLabel = typeof edge.label === "string" ? edge.label.trim() : "";
-  if (directLabel) {
-    return directLabel;
-  }
-
-  const metadataLabel = edge.metadata ?? {};
-  const rawPathLabel = (
-    (typeof metadataLabel["path_label"] === "string" && metadataLabel["path_label"])
-    || (typeof metadataLabel["pathLabel"] === "string" && metadataLabel["pathLabel"])
-    || (typeof metadataLabel["path_key"] === "string" && metadataLabel["path_key"])
-    || (typeof metadataLabel["pathKey"] === "string" && metadataLabel["pathKey"])
-  );
-  return typeof rawPathLabel === "string" ? rawPathLabel.trim() : "";
-}
-
-function titleCaseLabel(value: string) {
-  return value
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b([a-z])/g, (_, letter: string) => letter.toUpperCase());
-}
-
-function flowCreateLaneLabel(pathLabel: string, sourceKind: GraphNodeKind) {
-  if (pathLabel) {
-    return titleCaseLabel(pathLabel);
-  }
-  return sourceKind === "entry" ? "First step" : "Insert";
-}
-
-function flowCreateLaneAriaLabel(label: string) {
-  if (label === "Insert") {
-    return "Insert here";
-  }
-  if (label === "First step") {
-    return "Insert first step";
-  }
-  return `Insert on ${label.toLowerCase()} path`;
-}
-
 function rerouteHandleId(
   type: "source" | "target",
   from: { x: number; y: number },
@@ -1560,7 +1523,6 @@ export function collapseDuplicateEdgeLabels(labelSegments: EdgeLabelSegment[]) {
 
 function buildCanvasEdges({
   blueprint,
-  createModeControlEdgeEnabled,
   graph,
   highlightedEdgeIds,
   hoverActive,
@@ -1576,7 +1538,6 @@ function buildCanvasEdges({
   highlightGraphPath,
 }: {
   blueprint: ReturnType<typeof buildBlueprintPresentation>;
-  createModeControlEdgeEnabled: boolean;
   graph: GraphView;
   highlightedEdgeIds: Set<string>;
   hoverActive: boolean;
@@ -1586,6 +1547,7 @@ function buildCanvasEdges({
     logicalEdgeKind: GraphEdgeKind,
     position: { x: number; y: number },
     clientPosition: { x: number; y: number },
+    modifiers: { altKey: boolean },
     logicalEdgeLabel?: string,
   ) => void;
   onEdgeHoverEnd: () => void;
@@ -1620,17 +1582,14 @@ function buildCanvasEdges({
       : selectionContextActive
         ? selectionHighlighted
         : highlightGraphPath && connected;
-    const createHighlighted = createModeControlEdgeEnabled && edge.kind === "controls";
     const dimmed = hoverActive
       ? !edgeHovered
       : selectedControlEdgeIds.size > 0
         ? !explicitlySelected
-      : selectionContextActive
+        : selectionContextActive
         ? !selectionHighlighted
         : false;
-    const stroke = createHighlighted
-      ? "var(--accent-strong)"
-      : buildEdgeStroke(edge.kind, highlighted);
+    const stroke = buildEdgeStroke(edge.kind, highlighted);
     const segmentCount = reroutes.length + 1;
     const labelSegmentIndex = Math.floor(segmentCount / 2);
 
@@ -1673,11 +1632,11 @@ function buildCanvasEdges({
           onInsertReroute,
         },
         label,
-        animated: (highlighted || createHighlighted) && (edge.kind === "calls" || edge.kind === "controls"),
+        animated: highlighted && (edge.kind === "calls" || edge.kind === "controls"),
         style: {
           stroke,
           strokeWidth:
-            highlighted || createHighlighted
+            highlighted
               ? 2.8
               : edge.kind === "data"
                 ? 1.8
@@ -1685,7 +1644,7 @@ function buildCanvasEdges({
                   ? 1
                   : 1.2,
           strokeDasharray: edge.kind === "data" ? "8 6" : edge.kind === "controls" ? "0" : undefined,
-          opacity: dimmed ? 0.18 : highlighted || createHighlighted ? 1 : selectionContextActive ? 0.92 : 0.84,
+          opacity: dimmed ? 0.18 : highlighted ? 1 : selectionContextActive ? 0.92 : 0.84,
         },
         labelShowBg: false,
         labelBgPadding: [5, 9] as [number, number],
@@ -2057,13 +2016,13 @@ export function GraphCanvas({
   onClearSelection,
   createModeState = "inactive",
   createModeCanvasEnabled = false,
-  createModeControlEdgeEnabled = false,
   createModeHint,
   onToggleCreateMode = () => {},
   onCreateIntent = () => {},
   onEditFlowNodeIntent = () => {},
   onConnectFlowEdge = () => {},
   onReconnectFlowEdge = () => {},
+  onDisconnectFlowEdge = () => {},
   onDeleteFlowSelection = () => {},
 }: {
   repoPath?: string;
@@ -2088,13 +2047,13 @@ export function GraphCanvas({
   onClearSelection: () => void;
   createModeState?: CreateModeState;
   createModeCanvasEnabled?: boolean;
-  createModeControlEdgeEnabled?: boolean;
   createModeHint?: string;
   onToggleCreateMode?: () => void;
   onCreateIntent?: (intent: GraphCreateIntent) => void;
   onEditFlowNodeIntent?: (intent: GraphFlowEditIntent) => void;
   onConnectFlowEdge?: (connection: GraphFlowConnectionIntent) => void;
   onReconnectFlowEdge?: (edgeId: string, connection: GraphFlowConnectionIntent) => void;
+  onDisconnectFlowEdge?: (edgeId: string) => void;
   onDeleteFlowSelection?: (selection: GraphFlowDeleteIntent) => void;
 }) {
   const { setTransientHelpTarget } = useWorkspaceHelp();
@@ -2156,10 +2115,10 @@ export function GraphCanvas({
     graph?.level === "flow"
     && graph.flowState?.editable === true
     && Boolean(graph.flowState?.document);
-  const authoredFlowNodeIds = useMemo(
+  const authorableFlowNodeIds = useMemo(
     () => new Set(
       (graph?.flowState?.document?.nodes ?? [])
-        .filter((node) => node.kind !== "entry" && node.kind !== "exit")
+        .filter((node) => isFlowNodeAuthorableKind(node.kind))
         .map((node) => node.id),
     ),
     [graph?.flowState?.document],
@@ -2272,8 +2231,8 @@ export function GraphCanvas({
   const selectionContextActive = selectionPreviewNodeIds.length > 0;
   const canPinNodes = graph?.level === "flow";
   const selectedAuthorableFlowNodeIds = useMemo(
-    () => effectiveSemanticSelection.filter((nodeId) => authoredFlowNodeIds.has(nodeId)),
-    [authoredFlowNodeIds, effectiveSemanticSelection],
+    () => effectiveSemanticSelection.filter((nodeId) => authorableFlowNodeIds.has(nodeId)),
+    [authorableFlowNodeIds, effectiveSemanticSelection],
   );
 
   const clearLocalSelection = () => {
@@ -2291,13 +2250,9 @@ export function GraphCanvas({
   const requestCreateIntent = (
     clientPosition: { x: number; y: number },
     flowPosition: { x: number; y: number },
-    anchorEdgeId?: string,
-    anchorLabel?: string,
   ) => {
     const panelBounds = panelRef.current?.getBoundingClientRect();
     onCreateIntent({
-      anchorEdgeId,
-      anchorLabel,
       flowPosition,
       panelPosition: {
         x: panelBounds ? clientPosition.x - panelBounds.left : clientPosition.x,
@@ -2322,47 +2277,6 @@ export function GraphCanvas({
     );
     onClearSelection();
   }, [onClearSelection]);
-  const createEdgeTriggers = useMemo(() => {
-    if (!graph || !(createModeReady && createModeControlEdgeEnabled && graph.level === "flow")) {
-      return [];
-    }
-
-    const nodeLookup = new Map(nodes.map((node) => [node.id, node] as const));
-    return graph.edges
-      .filter((edge) => edge.kind === "controls")
-      .map((edge) => {
-        const sourceNode = nodeLookup.get(edge.source);
-        const targetNode = nodeLookup.get(edge.target);
-        if (
-          !sourceNode
-          || !targetNode
-          || !isSemanticCanvasNode(sourceNode)
-          || !isSemanticCanvasNode(targetNode)
-        ) {
-          return null;
-        }
-
-        const sourceCenter = nodeCenter(sourceNode);
-        const targetCenter = nodeCenter(targetNode);
-        const deltaX = targetCenter.x - sourceCenter.x;
-        const deltaY = targetCenter.y - sourceCenter.y;
-        const pathLabel = controlEdgePathLabel(edge);
-        const buttonLabel = flowCreateLaneLabel(pathLabel, sourceNode.data.kind);
-        const distance = Math.hypot(deltaX, deltaY);
-        return {
-          edgeId: edge.id,
-          buttonLabel,
-          ariaLabel: flowCreateLaneAriaLabel(buttonLabel),
-          edgeLabel: pathLabel || undefined,
-          x: (sourceCenter.x + targetCenter.x) / 2,
-          y: (sourceCenter.y + targetCenter.y) / 2,
-          angle: distance > 0 ? (Math.atan2(deltaY, deltaX) * 180) / Math.PI : 0,
-          length: Math.max(108, Math.min(distance * 0.68, 228)),
-        };
-      })
-      .filter((trigger): trigger is FlowCreateLaneTrigger => trigger !== null);
-  }, [createModeControlEdgeEnabled, createModeReady, graph, nodes]);
-
   const persistCurrentLayout = (
     nextNodes: GraphCanvasNode[],
     nextGroups: StoredGraphGroup[] = groups,
@@ -3460,13 +3374,22 @@ export function GraphCanvas({
 
   const edges = buildCanvasEdges({
     blueprint,
-    createModeControlEdgeEnabled: createModeReady && createModeControlEdgeEnabled,
     graph,
     highlightedEdgeIds,
     hoverActive,
     nodes,
-    onEdgeClick: (logicalEdgeId, logicalEdgeKind) => {
-      if (!flowAuthoringEnabled || logicalEdgeKind !== "controls") {
+    onEdgeClick: (logicalEdgeId, logicalEdgeKind, _position, _clientPosition, modifiers) => {
+      const edgeInteraction = resolveFlowEdgeInteraction({
+        flowAuthoringEnabled,
+        logicalEdgeKind,
+        altKey: modifiers.altKey,
+      });
+      if (edgeInteraction === "ignore") {
+        return;
+      }
+      if (edgeInteraction === "disconnect") {
+        onDisconnectFlowEdge(logicalEdgeId);
+        setSelectedControlEdgeIds((current) => current.filter((edgeId) => edgeId !== logicalEdgeId));
         return;
       }
       selectControlEdge(logicalEdgeId);
@@ -3711,13 +3634,10 @@ export function GraphCanvas({
           onSelectNode(node.id, node.data.kind);
         }}
         onNodeDoubleClick={(event, node) => {
-          if (createModeActive) {
-            return;
-          }
           if (isRerouteCanvasNode(node)) {
             return;
           }
-          if (flowAuthoringEnabled && authoredFlowNodeIds.has(node.id)) {
+          if (flowAuthoringEnabled && authorableFlowNodeIds.has(node.id)) {
             onEditFlowNodeIntent({
               nodeId: node.id,
               flowPosition: screenToFlowPosition({ x: event.clientX, y: event.clientY }),
@@ -3764,48 +3684,6 @@ export function GraphCanvas({
           onToggleOrganizeGroup={toggleOrganizeGroup}
           onUngroupGroup={ungroupGroup}
         />
-        {createEdgeTriggers.length ? (
-          <ViewportPortal>
-            {createEdgeTriggers.map((trigger) => (
-              <button
-                key={trigger.edgeId}
-                aria-label={trigger.ariaLabel}
-                className="graph-edge__create-trigger"
-                data-testid={`graph-edge:${trigger.edgeId}`}
-                style={{
-                  left: `${trigger.x}px`,
-                  top: `${trigger.y}px`,
-                  width: `${trigger.length}px`,
-                  transform: `translate(-50%, -50%) rotate(${trigger.angle}deg)`,
-                }}
-                type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  requestCreateIntent(
-                    { x: event.clientX, y: event.clientY },
-                    { x: trigger.x, y: trigger.y },
-                    trigger.edgeId,
-                    trigger.edgeLabel,
-                  );
-                }}
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                }}
-              >
-                <span
-                  className="graph-edge__create-trigger-copy"
-                  style={{
-                    transform: `rotate(${-trigger.angle}deg)`,
-                  }}
-                >
-                  <span className="graph-edge__create-trigger-icon">+</span>
-                  <span>{trigger.buttonLabel}</span>
-                </span>
-              </button>
-            ))}
-          </ViewportPortal>
-        ) : null}
         <Controls showInteractive={false} />
         <Background gap={32} size={1} color={createModeActive ? "var(--accent-strong)" : "var(--line-strong)"} />
       </ReactFlow>
