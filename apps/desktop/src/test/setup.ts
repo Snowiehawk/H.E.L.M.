@@ -44,7 +44,19 @@ if (
 }
 
 class ResizeObserverMock {
-  observe() {}
+  private callback: ResizeObserverCallback;
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+  }
+
+  observe(target: Element) {
+    this.callback(
+      [{ target } as ResizeObserverEntry],
+      this as unknown as ResizeObserver,
+    );
+  }
+
   unobserve() {}
   disconnect() {}
 }
@@ -64,6 +76,19 @@ if (typeof window.PointerEvent !== "function") {
   }
 
   window.PointerEvent = PointerEventMock as typeof PointerEvent;
+}
+
+if (typeof window.DOMMatrixReadOnly !== "function") {
+  class DOMMatrixReadOnlyMock {
+    m22: number;
+
+    constructor(transform = "none") {
+      const scaleMatch = /scale\(([-+]?\d*\.?\d+)\)/.exec(transform);
+      this.m22 = scaleMatch ? Number.parseFloat(scaleMatch[1] ?? "1") : 1;
+    }
+  }
+
+  window.DOMMatrixReadOnly = DOMMatrixReadOnlyMock as typeof DOMMatrixReadOnly;
 }
 
 window.ResizeObserver = ResizeObserverMock;

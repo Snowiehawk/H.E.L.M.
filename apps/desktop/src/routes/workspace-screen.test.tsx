@@ -22,6 +22,8 @@ import { useUndoStore } from "../store/undoStore";
 import { WorkspaceScreen } from "./WorkspaceScreen";
 
 const WORKSPACE_TEST_TIMEOUT_MS = 15000;
+const BUILD_GRAPH_SUMMARY_SYMBOL_ID = "symbol:helm.ui.api:build_graph_summary";
+const BUILD_GRAPH_SUMMARY_RANK_TO_RETURN_EDGE_ID = "controls:flow:symbol:helm.ui.api:build_graph_summary:call:rank:next->flow:symbol:helm.ui.api:build_graph_summary:return:in";
 const EMPTY_STORED_GRAPH_LAYOUT: StoredGraphLayout = {
   nodes: {},
   reroutes: [],
@@ -236,6 +238,218 @@ function lastReplaceFlowGraphRequest(
     .map(([request]) => request)
     .filter((request) => request.kind === "replace_flow_graph")
     .slice(-1)[0];
+}
+
+function mockGraphElementRect() {
+  const elementSize = function elementSize(this: HTMLElement) {
+    const isHandle = this.classList?.contains("react-flow__handle");
+    return {
+      width: isHandle ? 12 : 240,
+      height: isHandle ? 12 : 96,
+    };
+  };
+
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function mockClientWidth() {
+    return elementSize.call(this).width;
+  });
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function mockClientHeight() {
+    return elementSize.call(this).height;
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function mockWidth() {
+    return elementSize.call(this).width;
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function mockHeight() {
+    return elementSize.call(this).height;
+  });
+
+  return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function mockRect() {
+    const { width, height } = elementSize.call(this);
+    return {
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: width,
+      bottom: height,
+      width,
+      height,
+      toJSON: () => ({}),
+    } as DOMRect;
+  });
+}
+
+function queryTestIdElementByFragments(prefix: string, fragments: string[]) {
+  return Array.from(document.querySelectorAll(`[data-testid^="${prefix}"]`)).find((element) => {
+    const testId = element.getAttribute("data-testid") ?? "";
+    return fragments.every((fragment) => testId.includes(fragment));
+  });
+}
+
+async function findTestIdElementByFragments(prefix: string, fragments: string[]) {
+  await waitFor(() =>
+    expect(queryTestIdElementByFragments(prefix, fragments)).not.toBeUndefined(),
+  );
+  return queryTestIdElementByFragments(prefix, fragments) as Element;
+}
+
+async function openBuildGraphSummaryFlow(user: ReturnType<typeof userEvent.setup>) {
+  const graphPanel = document.querySelector(".graph-panel");
+  expect(graphPanel).not.toBeNull();
+  const graph = within(graphPanel as HTMLElement);
+  fireEvent.doubleClick(await graph.findByText("api.py"));
+  const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+  expect(functionNode).not.toBeNull();
+  fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+  await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+
+  const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
+  return {
+    graphPanel: graphPanel as HTMLElement,
+    flowGraphPanel: flowGraphPanel as HTMLElement,
+  };
+}
+
+async function ensureFlowCreateMode(flowGraphPanel: HTMLElement) {
+  if (!screen.queryByTestId("graph-create-mode-badge")) {
+    flowGraphPanel.focus();
+    fireEvent.keyDown(flowGraphPanel, { key: "c" });
+  }
+
+  await waitFor(() =>
+    expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
+  );
+  return (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane") as HTMLElement;
+}
+
+function flowComposerFieldLabel(kind: "assign" | "call" | "return" | "branch" | "loop") {
+  if (kind === "branch") {
+    return /Branch condition/i;
+  }
+  if (kind === "loop") {
+    return /Loop header/i;
+  }
+  return /Flow statement/i;
+}
+
+async function createDraftFlowNode({
+  user,
+  flowGraphPanel,
+  position,
+  kind,
+  content,
+}: {
+  user: ReturnType<typeof userEvent.setup>;
+  flowGraphPanel: HTMLElement;
+  position: { clientX: number; clientY: number };
+  kind: "assign" | "call" | "return" | "branch" | "loop";
+  content: string;
+}) {
+  const graphPane = await ensureFlowCreateMode(flowGraphPanel);
+  fireEvent.click(graphPane, position);
+
+  if (kind !== "assign") {
+    await user.selectOptions(screen.getByRole("combobox", { name: /Flow node kind/i }), kind);
+  }
+
+  await user.type(screen.getByRole("textbox", { name: flowComposerFieldLabel(kind) }), content);
+  await user.click(screen.getByRole("button", { name: /Create node/i }));
+
+  const createdNodeId = useUiStore.getState().activeNodeId;
+  expect(createdNodeId).toMatch(new RegExp(`^flowdoc:${BUILD_GRAPH_SUMMARY_SYMBOL_ID.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:${kind}:`));
+  await waitFor(() =>
+    expect(screen.queryByRole("heading", { name: /Create flow node/i })).not.toBeInTheDocument(),
+  );
+  await screen.findByTestId(`rf__node-${createdNodeId}`);
+  return createdNodeId as string;
+}
+
+async function findFlowHandle(nodeId: string, handleId: string) {
+  const nodeHost = await screen.findByTestId(`rf__node-${nodeId}`);
+  await waitFor(() =>
+    expect(
+      nodeHost.querySelector(`.react-flow__handle[data-nodeid="${nodeId}"][data-handleid="${handleId}"]`),
+    ).not.toBeNull(),
+  );
+  return nodeHost.querySelector(
+    `.react-flow__handle[data-nodeid="${nodeId}"][data-handleid="${handleId}"]`,
+  ) as HTMLElement;
+}
+
+function centerPoint(element: Element) {
+  const rect = element.getBoundingClientRect();
+  return {
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  };
+}
+
+function dragConnectionToHandle({
+  dragStart,
+  targetHandle,
+}: {
+  dragStart: Element;
+  targetHandle: HTMLElement;
+}) {
+  const targetPoint = centerPoint(targetHandle);
+  const originalElementFromPoint = document.elementFromPoint;
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    value: () => targetHandle,
+  });
+
+  try {
+    fireEvent.mouseDown(dragStart, {
+      button: 0,
+      clientX: 0,
+      clientY: 0,
+    });
+    fireEvent.mouseMove(document, {
+      buttons: 1,
+      clientX: targetPoint.x + 8,
+      clientY: targetPoint.y + 8,
+    });
+    fireEvent.mouseUp(document, {
+      clientX: targetPoint.x + 8,
+      clientY: targetPoint.y + 8,
+    });
+  } finally {
+    if (originalElementFromPoint) {
+      Object.defineProperty(document, "elementFromPoint", {
+        configurable: true,
+        value: originalElementFromPoint,
+      });
+    } else {
+      delete (document as Document & { elementFromPoint?: typeof document.elementFromPoint }).elementFromPoint;
+    }
+  }
+}
+
+async function emitSameSymbolRefetch(
+  adapter: SyncAwareMockDesktopAdapter,
+  flowViewSpy: ReturnType<typeof vi.spyOn<SyncAwareMockDesktopAdapter, "getFlowView">>,
+  nodeIds: string[],
+) {
+  const initialFlowViewCalls = flowViewSpy.mock.calls.length;
+
+  act(() => {
+    adapter.emitWorkspaceSync({
+      repoPath: defaultRepoPath,
+      sessionVersion: 4,
+      reason: "refresh",
+      status: "synced",
+      changedRelativePaths: [],
+      needsManualResync: false,
+      message: "Watching the active repo for Python changes.",
+      snapshot: {
+        repoId: buildRepoSession().id,
+        defaultFocusNodeId: BUILD_GRAPH_SUMMARY_SYMBOL_ID,
+        defaultLevel: "flow",
+        nodeIds: [BUILD_GRAPH_SUMMARY_SYMBOL_ID, ...nodeIds],
+      },
+    });
+  });
+
+  await waitFor(() => expect(flowViewSpy.mock.calls.length).toBeGreaterThan(initialFlowViewCalls));
 }
 
 async function seedMockFunctionSymbol(adapter: MockDesktopAdapter, newName: string) {
@@ -1633,6 +1847,172 @@ describe("WorkspaceScreen", () => {
     });
     expect((await screen.findAllByText("helper = rescore_modules(graph)")).length).toBeGreaterThan(0);
     expect(screen.getByTestId("graph-create-mode-badge")).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("persists a flow connect action through replace_flow_graph and a same-symbol refetch", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    const adapter = new SyncAwareMockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const flowViewSpy = vi.spyOn(adapter, "getFlowView");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const { flowGraphPanel } = await openBuildGraphSummaryFlow(user);
+    await waitFor(() => expect(flowViewSpy).toHaveBeenCalled());
+
+    const branchNodeId = await createDraftFlowNode({
+      user,
+      flowGraphPanel,
+      position: { clientX: 260, clientY: 180 },
+      kind: "branch",
+      content: "module_summaries",
+    });
+    const returnNodeId = await createDraftFlowNode({
+      user,
+      flowGraphPanel,
+      position: { clientX: 520, clientY: 180 },
+      kind: "return",
+      content: "return module_summaries",
+    });
+
+    const replaceCallsBeforeConnect = editSpy.mock.calls.length;
+    dragConnectionToHandle({
+      dragStart: await findFlowHandle(branchNodeId, "out:control:true"),
+      targetHandle: await findFlowHandle(returnNodeId, "in:control:exec"),
+    });
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeConnect),
+    );
+    const expectedEdgeId = `controls:${branchNodeId}:true->${returnNodeId}:in`;
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expect(replaceRequest).toEqual(expect.objectContaining({
+      kind: "replace_flow_graph",
+      targetId: BUILD_GRAPH_SUMMARY_SYMBOL_ID,
+    }));
+    expect(replaceRequest?.flowGraph?.edges.some((edge: { id: string }) => edge.id === expectedEdgeId)).toBe(true);
+
+    await emitSameSymbolRefetch(adapter, flowViewSpy, [branchNodeId, returnNodeId]);
+
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [expectedEdgeId])).toBeInTheDocument();
+    expect(await screen.findByTestId(`rf__node-${branchNodeId}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`rf__node-${returnNodeId}`)).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("persists a flow reconnect action through replace_flow_graph and a same-symbol refetch", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    const adapter = new SyncAwareMockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const flowViewSpy = vi.spyOn(adapter, "getFlowView");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const { flowGraphPanel } = await openBuildGraphSummaryFlow(user);
+    await waitFor(() => expect(flowViewSpy).toHaveBeenCalled());
+
+    const returnNodeId = await createDraftFlowNode({
+      user,
+      flowGraphPanel,
+      position: { clientX: 560, clientY: 220 },
+      kind: "return",
+      content: "return ranked_modules",
+    });
+
+    const reconnectTarget = await findTestIdElementByFragments("rf__edge-", [
+      BUILD_GRAPH_SUMMARY_RANK_TO_RETURN_EDGE_ID,
+    ]);
+    const targetUpdater = reconnectTarget.querySelector(".react-flow__edgeupdater-target");
+    expect(targetUpdater).not.toBeNull();
+    const replaceCallsBeforeReconnect = editSpy.mock.calls.length;
+    dragConnectionToHandle({
+      dragStart: targetUpdater as Element,
+      targetHandle: await findFlowHandle(returnNodeId, "in:control:exec"),
+    });
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeReconnect),
+    );
+    const expectedEdgeId = `controls:flow:symbol:helm.ui.api:build_graph_summary:call:rank:next->${returnNodeId}:in`;
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expect(replaceRequest).toEqual(expect.objectContaining({
+      kind: "replace_flow_graph",
+      targetId: BUILD_GRAPH_SUMMARY_SYMBOL_ID,
+    }));
+    expect(replaceRequest?.flowGraph?.edges.some((edge: { id: string }) => edge.id === expectedEdgeId)).toBe(true);
+    expect(replaceRequest?.flowGraph?.edges.some((edge: { id: string }) => edge.id === BUILD_GRAPH_SUMMARY_RANK_TO_RETURN_EDGE_ID)).toBe(false);
+
+    await emitSameSymbolRefetch(adapter, flowViewSpy, [returnNodeId]);
+
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [expectedEdgeId])).toBeInTheDocument();
+    expect(queryTestIdElementByFragments("graph-edge-hitarea:", [
+      BUILD_GRAPH_SUMMARY_RANK_TO_RETURN_EDGE_ID,
+    ])).toBeUndefined();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("persists Alt-click control-edge disconnect through replace_flow_graph and a same-symbol refetch", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    const adapter = new SyncAwareMockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const flowViewSpy = vi.spyOn(adapter, "getFlowView");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await openBuildGraphSummaryFlow(user);
+    await waitFor(() => expect(flowViewSpy).toHaveBeenCalled());
+
+    const replaceCallsBeforeDisconnect = editSpy.mock.calls.length;
+    fireEvent.click(
+      await findTestIdElementByFragments("graph-edge-hitarea:", [
+        BUILD_GRAPH_SUMMARY_RANK_TO_RETURN_EDGE_ID,
+      ]),
+      { altKey: true },
+    );
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeDisconnect),
+    );
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expect(replaceRequest).toEqual(expect.objectContaining({
+      kind: "replace_flow_graph",
+      targetId: BUILD_GRAPH_SUMMARY_SYMBOL_ID,
+    }));
+    expect(replaceRequest?.flowGraph?.edges.some((edge: { id: string }) => edge.id === BUILD_GRAPH_SUMMARY_RANK_TO_RETURN_EDGE_ID)).toBe(false);
+
+    await emitSameSymbolRefetch(adapter, flowViewSpy, []);
+
+    expect(queryTestIdElementByFragments("graph-edge-hitarea:", [
+      BUILD_GRAPH_SUMMARY_RANK_TO_RETURN_EDGE_ID,
+    ])).toBeUndefined();
+    expect(await screen.findByTestId("rf__node-flow:symbol:helm.ui.api:build_graph_summary:assign:modules")).toBeInTheDocument();
+    expect(await screen.findByTestId("rf__node-flow:symbol:helm.ui.api:build_graph_summary:call:rank")).toBeInTheDocument();
+    expect(await screen.findByTestId("rf__node-flow:symbol:helm.ui.api:build_graph_summary:return")).toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("deletes ordinary source-backed flow nodes through replace_flow_graph", async () => {
