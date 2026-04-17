@@ -17,7 +17,6 @@ from helm.editor.flow_model import (
     FlowModelEdge,
     FlowModelNode,
     FlowValueSource,
-    flow_document_source_names_by_id,
     flow_edge_label,
     flow_input_binding_id,
     flow_input_slot_id,
@@ -393,27 +392,53 @@ class PythonRepoAdapter:
             )
         )
 
+        function_inputs = function_inputs_from_function_source(
+            symbol_id=symbol_id,
+            qualname=symbol.qualname,
+            module_source=source,
+        )
+        argument_by_name = {
+            argument.arg: argument
+            for argument in (
+                *function_node.args.posonlyargs,
+                *function_node.args.args,
+                *(
+                    (function_node.args.vararg,)
+                    if function_node.args.vararg is not None
+                    else ()
+                ),
+                *function_node.args.kwonlyargs,
+                *(
+                    (function_node.args.kwarg,)
+                    if function_node.args.kwarg is not None
+                    else ()
+                ),
+            )
+        }
+
         definitions: dict[str, str] = {}
         previous_control_id = entry_id
-        for argument in function_node.args.args:
-            param_id = f"flow:{symbol_id}:param:{argument.arg}"
-            function_input_id = flow_function_input_id(symbol_id, argument.arg)
+        for function_input in function_inputs:
+            argument = argument_by_name.get(function_input.name)
+            param_id = _function_input_param_node_id(symbol_id, function_input)
             nodes.append(
                 GraphViewNode(
                     node_id=param_id,
                     kind=GraphViewNodeKind.PARAM,
-                    label=argument.arg,
+                    label=function_input.name,
                     subtitle="parameter",
                     metadata={
-                        **_source_metadata_for_ast_node(argument),
-                        "function_input_id": function_input_id,
+                        **(_source_metadata_for_ast_node(argument) if argument is not None else {}),
+                        "function_input_id": function_input.input_id,
+                        "function_input_kind": function_input.kind,
+                        "default_expression": function_input.default_expression,
                         "signature_owner_id": entry_id,
-                        "signature_order": len(definitions),
-                        "source_handle": _function_input_source_handle(function_input_id),
+                        "signature_order": function_input.index,
+                        "source_handle": _function_input_source_handle(function_input.input_id),
                     },
                 )
             )
-            definitions[argument.arg] = param_id
+            definitions[function_input.name] = param_id
 
         _append_statement_block(
             statements=function_node.body,
@@ -1634,23 +1659,58 @@ def _with_flow_document_inherited_input_model_from_base_view(
             else flow_function_input_id(document.symbol_id, node.label)
         )
         existing = existing_input_by_name.get(node.label)
+        raw_kind = node.metadata.get("function_input_kind")
+        function_input_kind = (
+            raw_kind
+            if isinstance(raw_kind, str)
+            and raw_kind in {
+                "positional_only",
+                "positional_or_keyword",
+                "keyword_only",
+                "vararg",
+                "kwarg",
+            }
+            else (existing.kind if existing else "positional_or_keyword")
+        )
+        raw_default_expression = node.metadata.get("default_expression")
+        default_expression = (
+            raw_default_expression
+            if isinstance(raw_default_expression, str)
+            else (existing.default_expression if existing else None)
+        )
         function_inputs.append(
             FlowFunctionInput(
                 input_id=existing.input_id if existing else function_input_id,
                 name=node.label,
                 index=index,
+                kind=function_input_kind,
+                default_expression=default_expression,
             )
+        )
+
+    projected_function_inputs = tuple(function_inputs)
+    if document.function_inputs and projected_function_inputs:
+        existing_by_name = {function_input.name: function_input for function_input in document.function_inputs}
+        projected_function_inputs = tuple(
+            FlowFunctionInput(
+                input_id=existing_by_name.get(function_input.name, function_input).input_id,
+                name=function_input.name,
+                index=function_input.index,
+                kind=function_input.kind,
+                default_expression=function_input.default_expression,
+            )
+            for function_input in projected_function_inputs
         )
 
     if document.input_slots:
         if document.value_model_version == 1:
-            if document.function_inputs or not function_inputs:
-                return document
-            return replace(document, function_inputs=tuple(function_inputs))
+            if document.function_inputs or not projected_function_inputs:
+                return replace(document, function_inputs=projected_function_inputs or document.function_inputs)
+            return replace(document, function_inputs=projected_function_inputs)
         return replace(
             document,
             value_model_version=1,
-            function_inputs=document.function_inputs or tuple(function_inputs),
+            function_inputs=projected_function_inputs or document.function_inputs,
             value_sources=document.value_sources or _value_sources_from_base_graph(base_view, document),
         )
 
@@ -1691,6 +1751,7 @@ def _with_flow_document_inherited_input_model_from_base_view(
                             node_id=source_node.node_id,
                             name=source_label,
                             label=source_label,
+                            emitted_name=None,
                         )
                     )
         if source_id is None or source_label is None:
@@ -1727,7 +1788,7 @@ def _with_flow_document_inherited_input_model_from_base_view(
     return replace(
         document,
         value_model_version=1,
-        function_inputs=tuple(function_inputs),
+        function_inputs=projected_function_inputs,
         value_sources=tuple(value_sources),
         input_slots=tuple(slots),
         input_bindings=tuple(bindings),
@@ -1772,6 +1833,7 @@ def _value_sources_from_base_graph(
                 node_id=source_node.node_id,
                 name=source_name,
                 label=existing.label if existing else source_name,
+                emitted_name=existing.emitted_name if existing else None,
             )
         )
     return tuple(value_sources)
@@ -1793,6 +1855,8 @@ def _graph_view_node_for_function_input(
         metadata={
             **(existing.metadata if existing else {}),
             "function_input_id": function_input.input_id,
+            "function_input_kind": function_input.kind,
+            "default_expression": function_input.default_expression,
             "signature_owner_id": entry_node_id,
             "signature_order": function_input.index,
             "source_handle": _function_input_source_handle(function_input.input_id),
@@ -2014,6 +2078,7 @@ def _graph_view_node_for_flow_model_node(
             "source_id": source.source_id,
             "name": source.name,
             "label": source.label,
+            "emitted_name": source.emitted_name,
             "source_handle": _value_source_handle(source.source_id),
             "duplicate_name": source_name_counts.get(source.name, 0) > 1,
         }
@@ -2025,6 +2090,8 @@ def _graph_view_node_for_flow_model_node(
             "function_input_id": function_input.input_id,
             "name": function_input.name,
             "index": function_input.index,
+            "kind": function_input.kind,
+            "default_expression": function_input.default_expression,
             "source_handle": _function_input_source_handle(function_input.input_id),
         }
         for function_input in document.function_inputs

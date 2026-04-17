@@ -1305,7 +1305,7 @@ class EditorIntegrationTests(unittest.TestCase):
             assert stored is not None
             self.assertTrue(any(source.name == "y" for source in stored.value_sources))
 
-    def test_replace_flow_graph_duplicate_local_name_rewire_falls_back_to_draft(self) -> None:
+    def test_replace_flow_graph_duplicate_local_name_rewire_clean_saves_with_alias(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             source = (
@@ -1354,16 +1354,296 @@ class EditorIntegrationTests(unittest.TestCase):
                 inbound_dependency_count=inbound,
             )
 
-            self.assertEqual(result.flow_sync_state, "draft")
-            self.assertIn("latest in-scope", " ".join(result.diagnostics))
-            self.assertEqual((root / "service.py").read_text(encoding="utf-8"), source)
+            self.assertEqual(result.flow_sync_state, "clean")
+            self.assertEqual(result.diagnostics, ())
+            self.assertEqual(
+                (root / "service.py").read_text(encoding="utf-8"),
+                (
+                    "def run(a):\n"
+                    "    x__flow_0 = a\n"
+                    "    x = a + 1\n"
+                    "    return x__flow_0\n"
+                ),
+            )
             stored = read_flow_document(root, "symbol:service:run")
             self.assertIsNotNone(stored)
             assert stored is not None
-            self.assertEqual(stored.sync_state, "draft")
-            self.assertTrue(
-                any(binding.source_id == earlier_source["id"] for binding in stored.input_bindings)
+            self.assertEqual(stored.sync_state, "clean")
+            stored_earlier_source = next(
+                source
+                for source in stored.value_sources
+                if source.source_id == earlier_source["id"]
             )
+            self.assertEqual(stored_earlier_source.name, "x")
+            self.assertEqual(stored_earlier_source.emitted_name, "x__flow_0")
+            self.assertTrue(any(binding.source_id == earlier_source["id"] for binding in stored.input_bindings))
+
+    def test_replace_flow_graph_function_input_shadow_rewire_clean_saves_with_local_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "def run(x):\n"
+                "    x = 1\n"
+                "    return x\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:run",
+                relative_path="service.py",
+                qualname="run",
+                module_source=source,
+            )
+            payload = imported.to_dict()
+            input_id = payload["function_inputs"][0]["id"]
+            node_kind_by_id = {node["id"]: node["kind"] for node in payload["nodes"]}
+            return_slot = next(
+                slot
+                for slot in payload["input_slots"]
+                if node_kind_by_id[slot["node_id"]] == "return"
+            )
+            payload["input_bindings"] = [
+                (
+                    {
+                        **binding,
+                        "id": f"flowbinding:{return_slot['id']}->{input_id}",
+                        "source_id": input_id,
+                        "function_input_id": input_id,
+                    }
+                    if binding["slot_id"] == return_slot["id"]
+                    else binding
+                )
+                for binding in payload["input_bindings"]
+            ]
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_flow_graph",
+                        "target_id": "symbol:service:run",
+                        "flow_graph": payload,
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertEqual(result.flow_sync_state, "clean")
+            self.assertEqual(
+                (root / "service.py").read_text(encoding="utf-8"),
+                (
+                    "def run(x):\n"
+                    "    x__flow_0 = 1\n"
+                    "    return x\n"
+                ),
+            )
+            stored = read_flow_document(root, "symbol:service:run")
+            self.assertIsNotNone(stored)
+            assert stored is not None
+            local_source = next(source for source in stored.value_sources if source.name == "x")
+            self.assertEqual(local_source.emitted_name, "x__flow_0")
+            self.assertTrue(
+                any(
+                    binding.source_id == input_id
+                    and binding.slot_id.endswith(":x")
+                    for binding in stored.input_bindings
+                )
+            )
+
+    def test_replace_flow_graph_async_method_shadow_rewire_preserves_async_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "class Service:\n"
+                "    async def run(self, value):\n"
+                "        value = 1\n"
+                "        return value\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:Service.run",
+                relative_path="service.py",
+                qualname="Service.run",
+                module_source=source,
+            )
+            payload = imported.to_dict()
+            input_id = next(item["id"] for item in payload["function_inputs"] if item["name"] == "value")
+            node_kind_by_id = {node["id"]: node["kind"] for node in payload["nodes"]}
+            return_slot = next(
+                slot
+                for slot in payload["input_slots"]
+                if node_kind_by_id[slot["node_id"]] == "return"
+            )
+            payload["input_bindings"] = [
+                (
+                    {
+                        **binding,
+                        "id": f"flowbinding:{return_slot['id']}->{input_id}",
+                        "source_id": input_id,
+                        "function_input_id": input_id,
+                    }
+                    if binding["slot_id"] == return_slot["id"]
+                    else binding
+                )
+                for binding in payload["input_bindings"]
+            ]
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_flow_graph",
+                        "target_id": "symbol:service:Service.run",
+                        "flow_graph": payload,
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertEqual(result.flow_sync_state, "clean")
+            self.assertEqual(
+                (root / "service.py").read_text(encoding="utf-8"),
+                (
+                    "class Service:\n"
+                    "    async def run(self, value):\n"
+                    "        value__flow_0 = 1\n"
+                    "        return value\n"
+                ),
+            )
+
+    def test_replace_flow_graph_future_source_binding_remains_draft(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "def run(a):\n"
+                "    y = a\n"
+                "    x = a\n"
+                "    return y\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:run",
+                relative_path="service.py",
+                qualname="run",
+                module_source=source,
+            )
+            payload = imported.to_dict()
+            node_kind_by_id = {node["id"]: node["kind"] for node in payload["nodes"]}
+            payload_by_id = {node["id"]: node["payload"] for node in payload["nodes"]}
+            first_assign_slot = next(
+                slot
+                for slot in payload["input_slots"]
+                if node_kind_by_id[slot["node_id"]] == "assign"
+                and str(payload_by_id[slot["node_id"]].get("source", "")).startswith("y =")
+            )
+            x_source = next(source for source in payload["value_sources"] if source["name"] == "x")
+            payload["input_bindings"] = [
+                (
+                    {
+                        **binding,
+                        "id": f"flowbinding:{first_assign_slot['id']}->{x_source['id']}",
+                        "source_id": x_source["id"],
+                    }
+                    if binding["slot_id"] == first_assign_slot["id"]
+                    else binding
+                )
+                for binding in payload["input_bindings"]
+            ]
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_flow_graph",
+                        "target_id": "symbol:service:run",
+                        "flow_graph": payload,
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertEqual(result.flow_sync_state, "draft")
+            self.assertIn("future-source", " ".join(result.diagnostics))
+            self.assertEqual((root / "service.py").read_text(encoding="utf-8"), source)
+
+    def test_replace_flow_graph_branch_only_source_after_merge_remains_draft(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "def run(flag, a):\n"
+                "    if flag:\n"
+                "        x = a\n"
+                "    return x\n"
+            )
+            write_repo_files(root, {"service.py": source})
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:run",
+                relative_path="service.py",
+                qualname="run",
+                module_source=source,
+            )
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_flow_graph",
+                        "target_id": "symbol:service:run",
+                        "flow_graph": imported.to_dict(),
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertEqual(result.flow_sync_state, "draft")
+            self.assertIn("branch-only source after merge", " ".join(result.diagnostics))
+            self.assertEqual((root / "service.py").read_text(encoding="utf-8"), source)
+
+    def test_replace_flow_graph_loop_body_source_after_loop_remains_draft(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "def run(flag, a):\n"
+                "    while flag:\n"
+                "        x = a\n"
+                "        flag = False\n"
+                "    return x\n"
+            )
+            write_repo_files(root, {"service.py": source})
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:run",
+                relative_path="service.py",
+                qualname="run",
+                module_source=source,
+            )
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_flow_graph",
+                        "target_id": "symbol:service:run",
+                        "flow_graph": imported.to_dict(),
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertEqual(result.flow_sync_state, "draft")
+            self.assertIn("loop-body-only source after loop", " ".join(result.diagnostics))
+            self.assertEqual((root / "service.py").read_text(encoding="utf-8"), source)
 
     def test_input_binding_records_allow_one_input_to_feed_multiple_slots_independently(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

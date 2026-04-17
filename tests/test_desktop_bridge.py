@@ -77,6 +77,11 @@ class DesktopBridgeTests(unittest.TestCase):
 
             self.assertEqual(flow["level"], "flow")
             self.assertIn("param", {node["kind"] for node in flow["nodes"]})
+            document = flow["flow_state"]["document"]
+            self.assertEqual(
+                document["function_inputs"][0]["kind"],
+                "positional_or_keyword",
+            )
             self.assertEqual(revealed["path"], "service.py")
             self.assertIn("def run(value):", revealed["content"])
 

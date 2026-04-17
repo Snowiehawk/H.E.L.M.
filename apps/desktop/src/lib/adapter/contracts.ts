@@ -90,6 +90,8 @@ export interface FlowFunctionInput {
   id: string;
   name: string;
   index: number;
+  kind?: "positional_only" | "positional_or_keyword" | "keyword_only" | "vararg" | "kwarg";
+  defaultExpression?: string | null;
 }
 
 export interface FlowInputSlot {
@@ -105,6 +107,7 @@ export interface FlowValueSource {
   nodeId: string;
   name: string;
   label: string;
+  emittedName?: string | null;
 }
 
 export interface FlowInputBinding {

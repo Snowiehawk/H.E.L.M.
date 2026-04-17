@@ -179,6 +179,52 @@ class PythonRepoAdapterTests(unittest.TestCase):
             assert document is not None
             self.assertFalse(any(node["kind"] == "param" for node in document["nodes"]))
 
+    def test_flow_import_derives_exotic_signature_metadata(self) -> None:
+        source = (
+            "class Service:\n"
+            "    @classmethod\n"
+            "    async def build(cls, a, /, b=1, *args, c, d=2, **kwargs):\n"
+            "        return b\n"
+        )
+
+        document = import_flow_document_from_function_source(
+            symbol_id="symbol:service:Service.build",
+            relative_path="service.py",
+            qualname="Service.build",
+            module_source=source,
+        )
+
+        self.assertEqual(
+            [
+                (function_input.name, function_input.kind, function_input.default_expression)
+                for function_input in document.function_inputs
+            ],
+            [
+                ("cls", "positional_only", None),
+                ("a", "positional_only", None),
+                ("b", "positional_or_keyword", "1"),
+                ("args", "vararg", None),
+                ("c", "keyword_only", None),
+                ("d", "keyword_only", "2"),
+                ("kwargs", "kwarg", None),
+            ],
+        )
+        self.assertEqual(
+            [
+                item.get("kind")
+                for item in document.to_dict()["function_inputs"]
+            ],
+            [
+                "positional_only",
+                "positional_only",
+                "positional_or_keyword",
+                "vararg",
+                "keyword_only",
+                "keyword_only",
+                "kwarg",
+            ],
+        )
+
     def test_flow_view_marks_loop_body_and_exit_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

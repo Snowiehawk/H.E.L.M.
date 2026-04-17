@@ -258,6 +258,25 @@ describe("LiveDesktopAdapter", () => {
               target_handle: "in",
             },
           ],
+          value_model_version: 1,
+          function_inputs: [
+            {
+              id: "flowinput:symbol:calculator:run:value",
+              name: "value",
+              index: 0,
+              kind: "positional_or_keyword",
+              default_expression: "1",
+            },
+          ],
+          value_sources: [
+            {
+              id: "flowsource:flow:symbol:calculator:run:statement:0:value",
+              node_id: "flow:symbol:calculator:run:statement:0",
+              name: "value",
+              label: "value",
+              emitted_name: "value__flow_0",
+            },
+          ],
         },
       },
     });
@@ -297,6 +316,25 @@ describe("LiveDesktopAdapter", () => {
             sourceHandle: "start",
             targetId: "flow:symbol:calculator:run:statement:0",
             targetHandle: "in",
+          },
+        ],
+        valueModelVersion: 1,
+        functionInputs: [
+          {
+            id: "flowinput:symbol:calculator:run:value",
+            name: "value",
+            index: 0,
+            kind: "positional_or_keyword",
+            defaultExpression: "1",
+          },
+        ],
+        valueSources: [
+          {
+            id: "flowsource:flow:symbol:calculator:run:statement:0:value",
+            nodeId: "flow:symbol:calculator:run:statement:0",
+            name: "value",
+            label: "value",
+            emittedName: "value__flow_0",
           },
         ],
       },

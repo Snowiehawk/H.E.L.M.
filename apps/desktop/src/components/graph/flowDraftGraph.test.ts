@@ -467,6 +467,7 @@ describe("flowDraftGraph", () => {
           nodeId: assignId,
           name: "total",
           label: "total",
+          emittedName: "total__flow_0",
         },
       ],
       inputSlots: [
@@ -491,11 +492,13 @@ describe("flowDraftGraph", () => {
     const assignNode = projected.nodes.find((node) => node.id === assignId);
 
     expect(assignNode?.metadata.flow_value_sources).toEqual([
-      expect.objectContaining({
-        source_id: sourceId,
-        source_handle: `out:data:value-source:${sourceId}`,
-      }),
-    ]);
+        expect.objectContaining({
+          source_id: sourceId,
+          name: "total",
+          emitted_name: "total__flow_0",
+          source_handle: `out:data:value-source:${sourceId}`,
+        }),
+      ]);
     expect(projected.edges).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

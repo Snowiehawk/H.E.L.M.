@@ -213,12 +213,15 @@ interface RawGraphView {
         id: string;
         name: string;
         index: number;
+        kind?: "positional_only" | "positional_or_keyword" | "keyword_only" | "vararg" | "kwarg";
+        default_expression?: string | null;
       }>;
       value_sources?: Array<{
         id: string;
         node_id: string;
         name: string;
         label: string;
+        emitted_name?: string | null;
       }>;
       input_slots?: Array<{
         id: string;
@@ -1351,12 +1354,15 @@ function toRawEditRequest(request: StructuralEditRequest) {
             id: input.id,
             name: input.name,
             index: input.index,
+            ...(input.kind ? { kind: input.kind } : {}),
+            ...(input.defaultExpression !== undefined ? { default_expression: input.defaultExpression } : {}),
           })),
           value_sources: (request.flowGraph.valueSources ?? []).map((source) => ({
             id: source.id,
             node_id: source.nodeId,
             name: source.name,
             label: source.label,
+            ...(source.emittedName ? { emitted_name: source.emittedName } : {}),
           })),
           input_slots: (request.flowGraph.inputSlots ?? []).map((slot) => ({
             id: slot.id,
@@ -1619,6 +1625,8 @@ function toFlowGraphDocument(
             id: input.id,
             name: input.name,
             index: input.index,
+            ...(input.kind ? { kind: input.kind } : {}),
+            ...(input.default_expression !== undefined ? { defaultExpression: input.default_expression } : {}),
           })),
         }
       : {}),
@@ -1629,6 +1637,7 @@ function toFlowGraphDocument(
             nodeId: source.node_id,
             name: source.name,
             label: source.label,
+            ...(source.emitted_name !== undefined ? { emittedName: source.emitted_name } : {}),
           })),
         }
       : {}),

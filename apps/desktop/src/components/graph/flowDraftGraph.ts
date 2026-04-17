@@ -210,16 +210,12 @@ function withLegacyInputModelFromBaseGraph(
   const functionInputs = functionInputsFromParamNodes(paramNodes, document);
   if ((document.inputSlots ?? []).length > 0) {
     if (document.valueModelVersion === 1) {
-      return (document.functionInputs ?? []).length > 0 || !functionInputs.length
-        ? document
-        : { ...document, functionInputs };
+      return functionInputs.length ? { ...document, functionInputs } : document;
     }
     return {
       ...document,
       valueModelVersion: 1,
-      functionInputs: (document.functionInputs ?? []).length > 0 || !functionInputs.length
-        ? document.functionInputs
-        : functionInputs,
+      functionInputs: functionInputs.length ? functionInputs : document.functionInputs,
       valueSources: (document.valueSources ?? []).length
         ? document.valueSources
         : valueSourcesFromBaseGraph(baseGraph, document),
@@ -263,6 +259,7 @@ function withLegacyInputModelFromBaseGraph(
             nodeId: sourceNode.id,
             name: sourceLabel,
             label: sourceLabel,
+            emittedName: null,
           });
         }
       }
@@ -321,6 +318,12 @@ function valueSourcesFromBaseGraph(
   const existingByNodeName = new Map(
     (document.valueSources ?? []).map((source) => [`${source.nodeId}\u0000${source.name}`, source] as const),
   );
+  const existingByNodeEmittedName = new Map(
+    (document.valueSources ?? []).map((source) => [
+      `${source.nodeId}\u0000${source.emittedName || source.name}`,
+      source,
+    ] as const),
+  );
   const valueSources: FlowValueSource[] = [];
   const seenSourceIds = new Set<string>();
   baseGraph.edges.forEach((edge) => {
@@ -332,7 +335,8 @@ function valueSourcesFromBaseGraph(
     if (!sourceNode || !sourceName) {
       return;
     }
-    const existing = existingByNodeName.get(`${sourceNode.id}\u0000${sourceName}`);
+    const existing = existingByNodeEmittedName.get(`${sourceNode.id}\u0000${sourceName}`)
+      ?? existingByNodeName.get(`${sourceNode.id}\u0000${sourceName}`);
     const sourceId = existing?.id ?? flowValueSourceId(flowGraphNodeSourceIdentity(sourceNode), sourceName);
     if (seenSourceIds.has(sourceId)) {
       return;
@@ -341,8 +345,9 @@ function valueSourcesFromBaseGraph(
     valueSources.push({
       id: sourceId,
       nodeId: sourceNode.id,
-      name: sourceName,
+      name: existing?.name ?? sourceName,
       label: existing?.label ?? sourceName,
+      emittedName: existing?.emittedName ?? null,
     });
   });
   return valueSources;
@@ -374,8 +379,29 @@ function functionInputsFromParamNodes(
           ?? `flowinput:${document.symbolId}:${node.label}`,
         name: node.label,
         index,
+        kind:
+          readFunctionInputKind(node)
+          ?? existing?.kind
+          ?? "positional_or_keyword",
+        defaultExpression:
+          readNodeMetadataString(node, "default_expression")
+          ?? readNodeMetadataString(node, "defaultExpression")
+          ?? existing?.defaultExpression
+          ?? null,
       };
     });
+}
+
+function readFunctionInputKind(node: GraphNodeDto): FlowFunctionInput["kind"] | undefined {
+  const value = readNodeMetadataString(node, "function_input_kind")
+    ?? readNodeMetadataString(node, "kind");
+  return value === "positional_only"
+    || value === "positional_or_keyword"
+    || value === "keyword_only"
+    || value === "vararg"
+    || value === "kwarg"
+    ? value
+    : undefined;
 }
 
 function inputSlotKeyFromEdge(edge: GraphEdgeDto, fallback: string): string {
@@ -447,6 +473,9 @@ function functionInputMetadata(input: FlowFunctionInput) {
     function_input_id: input.id,
     name: input.name,
     index: input.index,
+    kind: input.kind ?? "positional_or_keyword",
+    function_input_kind: input.kind ?? "positional_or_keyword",
+    default_expression: input.defaultExpression ?? null,
     source_handle: functionInputSourceHandle(input.id),
   };
 }
@@ -587,6 +616,7 @@ function graphNodeForFlowDraft(
       source_id: source.id,
       name: source.name,
       label: source.label,
+      emitted_name: source.emittedName ?? null,
       source_handle: valueSourceHandle(source.id),
       duplicate_name: (sourceNameCounts.get(source.name) ?? 0) > 1,
     }));
