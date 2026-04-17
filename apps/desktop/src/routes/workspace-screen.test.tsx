@@ -11,10 +11,12 @@ import { buildRepoSession, defaultRepoPath, mockBackendStatus } from "../lib/moc
 import { MockDesktopAdapter } from "../lib/adapter/mockDesktopAdapter";
 import type {
   BackendStatus,
+  FlowGraphDocument,
   GraphAbstractionLevel,
   GraphView,
   SourceRange,
   StructuralEditRequest,
+  StructuralEditResult,
   WorkspaceSyncEvent,
 } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
@@ -39,6 +41,18 @@ const BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SLOT_ID = `flowslot:${BUILD_GRAPH_SUM
 const BUILD_GRAPH_SUMMARY_RETURN_MODULE_SUMMARIES_SLOT_ID = `flowslot:${BUILD_GRAPH_SUMMARY_RETURN_ID}:module_summaries`;
 const BUILD_GRAPH_SUMMARY_RANK_TO_RETURN_EDGE_ID = "controls:flow:symbol:helm.ui.api:build_graph_summary:call:rank:next->flow:symbol:helm.ui.api:build_graph_summary:return:in";
 const BUILD_GRAPH_SUMMARY_RETURN_COMPLETION_EDGE_ID = `controls:${BUILD_GRAPH_SUMMARY_RETURN_ID}:exit->${BUILD_GRAPH_SUMMARY_EXIT_ID}:in`;
+const ADD_SYMBOL_ID = "symbol:helm.ui.api:add";
+const ADD_ENTRY_ID = `flowdoc:${ADD_SYMBOL_ID}:entry`;
+const ADD_INDEXED_ENTRY_ID = `flow:${ADD_SYMBOL_ID}:entry`;
+const ADD_RETURN_ID = `flowdoc:${ADD_SYMBOL_ID}:return:0`;
+const ADD_INDEXED_RETURN_ID = `flow:${ADD_SYMBOL_ID}:statement:0`;
+const ADD_EXIT_ID = `flowdoc:${ADD_SYMBOL_ID}:exit`;
+const ADD_PARAM_A_ID = `flow:${ADD_SYMBOL_ID}:param:a`;
+const ADD_PARAM_B_ID = `flow:${ADD_SYMBOL_ID}:param:b`;
+const ADD_INPUT_A_ID = `flowinput:${ADD_SYMBOL_ID}:a`;
+const ADD_INPUT_B_ID = `flowinput:${ADD_SYMBOL_ID}:b`;
+const ADD_SLOT_A_ID = `flowslot:${ADD_INDEXED_RETURN_ID}:a`;
+const ADD_SLOT_B_ID = `flowslot:${ADD_INDEXED_RETURN_ID}:b`;
 const EMPTY_STORED_GRAPH_LAYOUT: StoredGraphLayout = {
   nodes: {},
   reroutes: [],
@@ -271,8 +285,10 @@ function flowInputBindingId(slotId: string, functionInputId: string) {
   return `flowbinding:${slotId}->${functionInputId}`;
 }
 
+type FlowGraphDocumentLike = StructuralEditRequest["flowGraph"] | FlowGraphDocument | null | undefined;
+
 function expectFlowBinding(
-  document: StructuralEditRequest["flowGraph"] | null | undefined,
+  document: FlowGraphDocumentLike,
   slotId: string,
   functionInputId: string,
 ) {
@@ -288,19 +304,34 @@ function expectFlowBinding(
   );
 }
 
-async function expandFlowToolbar(user: ReturnType<typeof userEvent.setup>) {
+function expectNoBinding(
+  document: FlowGraphDocumentLike,
+  slotId: string,
+  sourceId: string,
+) {
+  expect(document?.inputBindings?.some((binding) => (
+    binding.slotId === slotId && binding.sourceId === sourceId
+  ))).toBe(false);
+}
+
+async function expandFlowToolbar(
+  user: ReturnType<typeof userEvent.setup>,
+  symbolName = "build_graph_summary",
+) {
   if (screen.queryByRole("button", { name: "Entry inputs" })) {
     return;
   }
-  await user.click(await screen.findByRole("button", { name: /build_graph_summary flow view/i }));
+  const escapedSymbolName = symbolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await user.click(await screen.findByRole("button", { name: new RegExp(`${escapedSymbolName} flow view`, "i") }));
   await screen.findByRole("button", { name: "Entry inputs" });
 }
 
 async function setFlowInputMode(
   user: ReturnType<typeof userEvent.setup>,
   mode: "entry" | "param_nodes",
+  symbolName = "build_graph_summary",
 ) {
-  await expandFlowToolbar(user);
+  await expandFlowToolbar(user, symbolName);
   await user.click(screen.getByRole("button", { name: mode === "entry" ? "Entry inputs" : "Parameters" }));
 }
 
@@ -356,12 +387,15 @@ async function findTestIdElementByFragments(prefix: string, fragments: string[])
   return queryTestIdElementByFragments(prefix, fragments) as Element;
 }
 
-async function openBuildGraphSummaryFlow(user: ReturnType<typeof userEvent.setup>) {
+async function openFunctionFlow(
+  user: ReturnType<typeof userEvent.setup>,
+  symbolName: string,
+) {
   const graphPanel = document.querySelector(".graph-panel");
   expect(graphPanel).not.toBeNull();
   const graph = within(graphPanel as HTMLElement);
   fireEvent.doubleClick(await graph.findByText("api.py"));
-  const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+  const functionNode = (await graph.findByText(symbolName)).closest(".graph-node");
   expect(functionNode).not.toBeNull();
   fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
   await user.click(await screen.findByRole("button", { name: /Open flow/i }));
@@ -371,6 +405,10 @@ async function openBuildGraphSummaryFlow(user: ReturnType<typeof userEvent.setup
     graphPanel: graphPanel as HTMLElement,
     flowGraphPanel: flowGraphPanel as HTMLElement,
   };
+}
+
+async function openBuildGraphSummaryFlow(user: ReturnType<typeof userEvent.setup>) {
+  return openFunctionFlow(user, "build_graph_summary");
 }
 
 async function ensureFlowCreateMode(flowGraphPanel: HTMLElement) {
@@ -498,6 +536,7 @@ async function emitSameSymbolRefetch(
   adapter: SyncAwareMockDesktopAdapter,
   flowViewSpy: FlowViewSpy,
   nodeIds: string[],
+  targetSymbolId = BUILD_GRAPH_SUMMARY_SYMBOL_ID,
 ) {
   const initialFlowViewCalls = flowViewSpy.mock.calls.length;
 
@@ -512,9 +551,9 @@ async function emitSameSymbolRefetch(
       message: "Watching the active repo for Python changes.",
       snapshot: {
         repoId: buildRepoSession().id,
-        defaultFocusNodeId: BUILD_GRAPH_SUMMARY_SYMBOL_ID,
+        defaultFocusNodeId: targetSymbolId,
         defaultLevel: "flow",
-        nodeIds: [BUILD_GRAPH_SUMMARY_SYMBOL_ID, ...nodeIds],
+        nodeIds: [targetSymbolId, ...nodeIds],
       },
     });
   });
@@ -729,6 +768,212 @@ class IndexedDraftFlowMockDesktopAdapter extends SyncAwareMockDesktopAdapter {
         },
       },
     };
+  }
+}
+
+function cloneTestFlowDocument(document: FlowGraphDocument): FlowGraphDocument {
+  return JSON.parse(JSON.stringify(document)) as FlowGraphDocument;
+}
+
+function importedAddFlowDocument(): FlowGraphDocument {
+  return {
+    symbolId: ADD_SYMBOL_ID,
+    relativePath: "src/helm/ui/api.py",
+    qualname: "helm.ui.api.add",
+    editable: true,
+    syncState: "clean",
+    diagnostics: [],
+    sourceHash: "indexed-add-fixture",
+    valueModelVersion: 1,
+    nodes: [
+      {
+        id: ADD_ENTRY_ID,
+        kind: "entry",
+        payload: {},
+        indexedNodeId: ADD_INDEXED_ENTRY_ID,
+      },
+      {
+        id: ADD_RETURN_ID,
+        kind: "return",
+        payload: { expression: "a + b" },
+        indexedNodeId: ADD_INDEXED_RETURN_ID,
+      },
+      {
+        id: ADD_EXIT_ID,
+        kind: "exit",
+        payload: {},
+      },
+    ],
+    edges: [
+      {
+        id: `controls:${ADD_ENTRY_ID}:start->${ADD_RETURN_ID}:in`,
+        sourceId: ADD_ENTRY_ID,
+        sourceHandle: "start",
+        targetId: ADD_RETURN_ID,
+        targetHandle: "in",
+      },
+    ],
+    functionInputs: [
+      { id: ADD_INPUT_A_ID, name: "a", index: 0 },
+      { id: ADD_INPUT_B_ID, name: "b", index: 1 },
+    ],
+    valueSources: [],
+    inputSlots: [
+      {
+        id: ADD_SLOT_A_ID,
+        nodeId: ADD_RETURN_ID,
+        slotKey: "a",
+        label: "a",
+        required: true,
+      },
+      {
+        id: ADD_SLOT_B_ID,
+        nodeId: ADD_RETURN_ID,
+        slotKey: "b",
+        label: "b",
+        required: true,
+      },
+    ],
+    inputBindings: [
+      {
+        id: flowInputBindingId(ADD_SLOT_A_ID, ADD_INPUT_A_ID),
+        sourceId: ADD_INPUT_A_ID,
+        functionInputId: ADD_INPUT_A_ID,
+        slotId: ADD_SLOT_A_ID,
+      },
+      {
+        id: flowInputBindingId(ADD_SLOT_B_ID, ADD_INPUT_B_ID),
+        sourceId: ADD_INPUT_B_ID,
+        functionInputId: ADD_INPUT_B_ID,
+        slotId: ADD_SLOT_B_ID,
+      },
+    ],
+  };
+}
+
+class ImportedAddFlowMockDesktopAdapter extends SyncAwareMockDesktopAdapter {
+  private addDocument = importedAddFlowDocument();
+  readonly replacePayloads: FlowGraphDocument[] = [];
+
+  async seedAddSymbol() {
+    await super.applyStructuralEdit({
+      kind: "create_symbol",
+      relativePath: "src/helm/ui/api.py",
+      newName: "add",
+      symbolKind: "function",
+    });
+  }
+
+  override async getFlowView(symbolId: string): Promise<GraphView> {
+    if (symbolId !== ADD_SYMBOL_ID) {
+      return super.getFlowView(symbolId);
+    }
+
+    const document = cloneTestFlowDocument(this.addDocument);
+    return {
+      rootNodeId: ADD_ENTRY_ID,
+      targetId: ADD_SYMBOL_ID,
+      level: "flow",
+      truncated: false,
+      breadcrumbs: [
+        { nodeId: buildRepoSession().id, level: "repo", label: "H.E.L.M.", subtitle: "Architecture map" },
+        { nodeId: "module:helm.ui.api", level: "module", label: "helm.ui.api", subtitle: "src/helm/ui/api.py" },
+        { nodeId: ADD_SYMBOL_ID, level: "symbol", label: "add", subtitle: "helm.ui.api.add" },
+        { nodeId: `flow:${ADD_SYMBOL_ID}`, level: "flow", label: "Flow", subtitle: "helm.ui.api.add" },
+      ],
+      focus: {
+        targetId: ADD_SYMBOL_ID,
+        level: "flow",
+        label: "add",
+        subtitle: "On-demand flow graph",
+        availableLevels: ["repo", "module", "symbol", "flow"],
+      },
+      nodes: [
+        {
+          id: ADD_ENTRY_ID,
+          kind: "entry",
+          label: "Entry",
+          subtitle: "helm.ui.api.add",
+          x: 0,
+          y: 180,
+          metadata: {},
+          availableActions: [],
+        },
+        {
+          id: ADD_RETURN_ID,
+          kind: "return",
+          label: "return a + b",
+          subtitle: "return",
+          x: 420,
+          y: 180,
+          metadata: {},
+          availableActions: [],
+        },
+        {
+          id: ADD_EXIT_ID,
+          kind: "exit",
+          label: "Exit",
+          subtitle: "function exit",
+          x: 680,
+          y: 180,
+          metadata: {},
+          availableActions: [],
+        },
+      ],
+      edges: [
+        {
+          id: `controls:${ADD_ENTRY_ID}:start->${ADD_RETURN_ID}:in`,
+          kind: "controls",
+          source: ADD_ENTRY_ID,
+          target: ADD_RETURN_ID,
+          label: "start",
+          metadata: {
+            source_handle: "start",
+            target_handle: "in",
+            path_key: "start",
+            path_label: "start",
+            path_order: 0,
+          },
+        },
+      ],
+      flowState: {
+        editable: document.editable,
+        syncState: document.syncState,
+        diagnostics: [...document.diagnostics],
+        document,
+      },
+    };
+  }
+
+  override async applyStructuralEdit(...args: Parameters<SyncAwareMockDesktopAdapter["applyStructuralEdit"]>): Promise<StructuralEditResult> {
+    const [request] = args;
+    if (request.kind === "replace_flow_graph" && request.targetId === ADD_SYMBOL_ID && request.flowGraph) {
+      const nextDocument: FlowGraphDocument = {
+        ...cloneTestFlowDocument(request.flowGraph),
+        editable: true,
+        syncState: "clean",
+        diagnostics: [],
+      };
+      this.addDocument = cloneTestFlowDocument(nextDocument);
+      this.replacePayloads.push(cloneTestFlowDocument(nextDocument));
+      const result: StructuralEditResult = {
+        request: {
+          kind: "replace_flow_graph",
+          target_id: ADD_SYMBOL_ID,
+          flow_graph: request.flowGraph as unknown as Record<string, unknown>,
+        },
+        summary: "Updated visual flow for add.",
+        touchedRelativePaths: ["src/helm/ui/api.py", ".helm/flow-models.v1.json"],
+        reparsedRelativePaths: ["src/helm/ui/api.py"],
+        changedNodeIds: [ADD_SYMBOL_ID],
+        warnings: [],
+        diagnostics: [],
+        flowSyncState: "clean" as const,
+      };
+      return result;
+    }
+
+    return super.applyStructuralEdit(...args);
   }
 }
 
@@ -1859,6 +2104,167 @@ describe("WorkspaceScreen", () => {
     expect(lastReplaceFlowGraphRequest(editSpy)).toBeUndefined();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
+  it("opens imported add flow with indexed input wires in both display modes without mutation", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    useUiStore.setState({ flowInputDisplayMode: "param_nodes" });
+    const adapter = new ImportedAddFlowMockDesktopAdapter();
+    await adapter.seedAddSymbol();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await openFunctionFlow(user, "add");
+    await setFlowInputMode(user, "param_nodes", "add");
+
+    expect(await screen.findByTestId(`rf__node-${ADD_PARAM_A_ID}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`rf__node-${ADD_PARAM_B_ID}`)).toBeInTheDocument();
+    expect(await findFlowHandle(ADD_RETURN_ID, flowInputSlotTargetHandle(ADD_SLOT_A_ID))).toBeInTheDocument();
+    expect(await findFlowHandle(ADD_RETURN_ID, flowInputSlotTargetHandle(ADD_SLOT_B_ID))).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      flowInputBindingId(ADD_SLOT_A_ID, ADD_INPUT_A_ID),
+    ])).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      flowInputBindingId(ADD_SLOT_B_ID, ADD_INPUT_B_ID),
+    ])).toBeInTheDocument();
+
+    await setFlowInputMode(user, "entry", "add");
+
+    expect(screen.queryByTestId(`rf__node-${ADD_PARAM_A_ID}`)).not.toBeInTheDocument();
+    expect(screen.queryByTestId(`rf__node-${ADD_PARAM_B_ID}`)).not.toBeInTheDocument();
+    expect(await findFlowHandle(ADD_ENTRY_ID, flowInputSourceHandle(ADD_INPUT_A_ID))).toBeInTheDocument();
+    expect(await findFlowHandle(ADD_ENTRY_ID, flowInputSourceHandle(ADD_INPUT_B_ID))).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      flowInputBindingId(ADD_SLOT_A_ID, ADD_INPUT_A_ID),
+    ])).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      flowInputBindingId(ADD_SLOT_B_ID, ADD_INPUT_B_ID),
+    ])).toBeInTheDocument();
+    expect(lastReplaceFlowGraphRequest(editSpy)).toBeUndefined();
+    expect(adapter.replacePayloads).toEqual([]);
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("rewires imported add input in parameter mode and preserves it across refetch and reopen", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    useUiStore.setState({ flowInputDisplayMode: "param_nodes" });
+    const adapter = new ImportedAddFlowMockDesktopAdapter();
+    await adapter.seedAddSymbol();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const flowViewSpy = vi.spyOn(adapter, "getFlowView");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    const rendered = render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await openFunctionFlow(user, "add");
+    await setFlowInputMode(user, "param_nodes", "add");
+
+    const replaceCallsBeforeRewire = editSpy.mock.calls.length;
+    dragConnectionToHandle({
+      dragStart: await findFlowHandle(ADD_PARAM_B_ID, flowInputSourceHandle(ADD_INPUT_B_ID)),
+      targetHandle: await findFlowHandle(ADD_RETURN_ID, flowInputSlotTargetHandle(ADD_SLOT_A_ID)),
+    });
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeRewire),
+    );
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expectFlowBinding(replaceRequest?.flowGraph, ADD_SLOT_A_ID, ADD_INPUT_B_ID);
+    expectFlowBinding(replaceRequest?.flowGraph, ADD_SLOT_B_ID, ADD_INPUT_B_ID);
+    expectNoBinding(replaceRequest?.flowGraph, ADD_SLOT_A_ID, ADD_INPUT_A_ID);
+    expect(adapter.replacePayloads).toHaveLength(1);
+
+    const rewiredBindingId = flowInputBindingId(ADD_SLOT_A_ID, ADD_INPUT_B_ID);
+    await emitSameSymbolRefetch(adapter, flowViewSpy, [ADD_RETURN_ID, ADD_EXIT_ID], ADD_SYMBOL_ID);
+
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [rewiredBindingId])).toBeInTheDocument();
+    const refetchedDocument = (await adapter.getFlowView(ADD_SYMBOL_ID)).flowState?.document;
+    expectFlowBinding(refetchedDocument, ADD_SLOT_A_ID, ADD_INPUT_B_ID);
+    expectFlowBinding(refetchedDocument, ADD_SLOT_B_ID, ADD_INPUT_B_ID);
+
+    rendered.unmount();
+    resetStore();
+    useUiStore.setState({ flowInputDisplayMode: "entry" });
+    const reopenedRouter = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={reopenedRouter} />
+      </AppProviders>,
+    );
+
+    const reopenedUser = userEvent.setup();
+    await openFunctionFlow(reopenedUser, "add");
+    await setFlowInputMode(reopenedUser, "entry", "add");
+    expect(await findFlowHandle(ADD_ENTRY_ID, flowInputSourceHandle(ADD_INPUT_B_ID))).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [rewiredBindingId])).toBeInTheDocument();
+
+    await setFlowInputMode(reopenedUser, "param_nodes", "add");
+    expect(await screen.findByTestId(`rf__node-${ADD_PARAM_B_ID}`)).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [rewiredBindingId])).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("rewires imported add input in entry mode and reflects it in parameter mode", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    useUiStore.setState({ flowInputDisplayMode: "entry" });
+    const adapter = new ImportedAddFlowMockDesktopAdapter();
+    await adapter.seedAddSymbol();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await openFunctionFlow(user, "add");
+    await setFlowInputMode(user, "entry", "add");
+
+    const replaceCallsBeforeRewire = editSpy.mock.calls.length;
+    dragConnectionToHandle({
+      dragStart: await findFlowHandle(ADD_ENTRY_ID, flowInputSourceHandle(ADD_INPUT_A_ID)),
+      targetHandle: await findFlowHandle(ADD_RETURN_ID, flowInputSlotTargetHandle(ADD_SLOT_B_ID)),
+    });
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeRewire),
+    );
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expectFlowBinding(replaceRequest?.flowGraph, ADD_SLOT_A_ID, ADD_INPUT_A_ID);
+    expectFlowBinding(replaceRequest?.flowGraph, ADD_SLOT_B_ID, ADD_INPUT_A_ID);
+    expectNoBinding(replaceRequest?.flowGraph, ADD_SLOT_B_ID, ADD_INPUT_B_ID);
+
+    const rewiredBindingId = flowInputBindingId(ADD_SLOT_B_ID, ADD_INPUT_A_ID);
+    await setFlowInputMode(user, "param_nodes", "add");
+    expect(await screen.findByTestId(`rf__node-${ADD_PARAM_A_ID}`)).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      flowInputBindingId(ADD_SLOT_A_ID, ADD_INPUT_A_ID),
+    ])).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [rewiredBindingId])).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
   it("reflects parameter-mode input rewires in entry mode and preserves them across refetch and reopen", async () => {
     const user = userEvent.setup();
     mockGraphElementRect();
@@ -2005,7 +2411,7 @@ describe("WorkspaceScreen", () => {
       { initialEntries: ["/workspace"] },
     );
 
-    render(
+    const rendered = render(
       <AppProviders adapter={adapter}>
         <RouterProvider router={router} />
       </AppProviders>,
@@ -2078,6 +2484,43 @@ describe("WorkspaceScreen", () => {
         }),
       ]),
     );
+
+    const rewiredLocalValueBindingId = flowInputBindingId(
+      BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID,
+      BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SOURCE_ID,
+    );
+    await setFlowInputMode(user, "param_nodes");
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      rewiredLocalValueBindingId,
+    ])).toBeInTheDocument();
+    await setFlowInputMode(user, "entry");
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      rewiredLocalValueBindingId,
+    ])).toBeInTheDocument();
+
+    rendered.unmount();
+    resetStore();
+    useUiStore.setState({ flowInputDisplayMode: "param_nodes" });
+    const reopenedRouter = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={reopenedRouter} />
+      </AppProviders>,
+    );
+
+    const reopenedUser = userEvent.setup();
+    await openBuildGraphSummaryFlow(reopenedUser);
+    await setFlowInputMode(reopenedUser, "param_nodes");
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      rewiredLocalValueBindingId,
+    ])).toBeInTheDocument();
+    await setFlowInputMode(reopenedUser, "entry");
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      rewiredLocalValueBindingId,
+    ])).toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("deletes selected local value-source bindings and keeps the slot reconnectable", async () => {
