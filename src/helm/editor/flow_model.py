@@ -11,6 +11,7 @@ from typing import Any
 
 
 FLOW_MODEL_VERSION = 1
+FLOW_VALUE_MODEL_VERSION = 1
 FLOW_MODEL_RELATIVE_PATH = ".helm/flow-models.v1.json"
 # Parameter nodes remain projected visual support nodes in flow views. The
 # persisted FlowModelDocument stores authored control-flow statements plus entry
@@ -89,17 +90,37 @@ class FlowInputSlot:
 
 
 @dataclass(frozen=True)
-class FlowInputBinding:
-    binding_id: str
-    function_input_id: str
-    slot_id: str
+class FlowValueSource:
+    source_id: str
+    node_id: str
+    name: str
+    label: str
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "id": self.source_id,
+            "node_id": self.node_id,
+            "name": self.name,
+            "label": self.label,
+        }
+
+
+@dataclass(frozen=True)
+class FlowInputBinding:
+    binding_id: str
+    source_id: str
+    slot_id: str
+    function_input_id: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = {
             "id": self.binding_id,
-            "function_input_id": self.function_input_id,
+            "source_id": self.source_id,
             "slot_id": self.slot_id,
         }
+        if self.function_input_id:
+            payload["function_input_id"] = self.function_input_id
+        return payload
 
 
 @dataclass(frozen=True)
@@ -109,13 +130,16 @@ class FlowModelDocument:
     qualname: str
     nodes: tuple[FlowModelNode, ...]
     edges: tuple[FlowModelEdge, ...]
+    value_model_version: int | None = FLOW_VALUE_MODEL_VERSION
     function_inputs: tuple[FlowFunctionInput, ...] = ()
+    value_sources: tuple[FlowValueSource, ...] = ()
     input_slots: tuple[FlowInputSlot, ...] = ()
     input_bindings: tuple[FlowInputBinding, ...] = ()
     sync_state: str = "clean"
     diagnostics: tuple[str, ...] = ()
     source_hash: str | None = None
     editable: bool = True
+    _preserve_input_model_exactly: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -124,7 +148,9 @@ class FlowModelDocument:
             "qualname": self.qualname,
             "nodes": [node.to_dict() for node in self.nodes],
             "edges": [edge.to_dict() for edge in self.edges],
+            "value_model_version": self.value_model_version,
             "function_inputs": [function_input.to_dict() for function_input in self.function_inputs],
+            "value_sources": [value_source.to_dict() for value_source in self.value_sources],
             "input_slots": [slot.to_dict() for slot in self.input_slots],
             "input_bindings": [binding.to_dict() for binding in self.input_bindings],
             "sync_state": self.sync_state,
@@ -160,6 +186,7 @@ class _ImportBuilder:
     function_inputs: list[FlowFunctionInput]
     nodes: list[FlowModelNode]
     edges: list[FlowModelEdge]
+    value_sources: list[FlowValueSource]
     input_slots: list[FlowInputSlot]
     input_bindings: list[FlowInputBinding]
     definitions: dict[str, str]
@@ -201,7 +228,7 @@ class _ImportBuilder:
             )
         )
 
-    def bind_function_input_slots(self, node_id: str, statement: ast.stmt | ast.expr) -> None:
+    def bind_input_slots(self, node_id: str, statement: ast.stmt | ast.expr) -> None:
         node = next((candidate for candidate in self.nodes if candidate.node_id == node_id), None)
         if node is None:
             return
@@ -210,12 +237,16 @@ class _ImportBuilder:
             function_input.input_id: function_input
             for function_input in self.function_inputs
         }
+        value_source_by_id = {
+            value_source.source_id: value_source
+            for value_source in self.value_sources
+        }
         existing_slot_ids = {slot.slot_id for slot in self.input_slots}
         existing_binding_ids = {binding.binding_id for binding in self.input_bindings}
         used_names = sorted(_names_used(statement))
         for used_name in used_names:
             definition_id = self.definitions.get(used_name)
-            if definition_id not in function_input_by_id:
+            if definition_id not in function_input_by_id and definition_id not in value_source_by_id:
                 continue
             source_identity = flow_model_node_source_identity(node)
             slot_id = flow_input_slot_id(source_identity, used_name)
@@ -231,18 +262,35 @@ class _ImportBuilder:
                 existing_slot_ids.add(slot_id)
             binding_id = flow_input_binding_id(slot_id, definition_id)
             if binding_id not in existing_binding_ids:
+                function_input_id = definition_id if definition_id in function_input_by_id else None
                 self.input_bindings.append(
                     FlowInputBinding(
                         binding_id=binding_id,
-                        function_input_id=definition_id,
+                        source_id=definition_id,
                         slot_id=slot_id,
+                        function_input_id=function_input_id,
                     )
                 )
                 existing_binding_ids.add(binding_id)
 
-    def record_assigned_names(self, statement: ast.stmt) -> None:
+    def record_assigned_names(self, node_id: str, statement: ast.stmt) -> None:
+        node = next((candidate for candidate in self.nodes if candidate.node_id == node_id), None)
+        if node is None:
+            return
+        existing_source_ids = {value_source.source_id for value_source in self.value_sources}
         for assigned_name in _assigned_names(statement):
-            self.definitions[assigned_name] = ""
+            source_id = flow_value_source_id(flow_model_node_source_identity(node), assigned_name)
+            if source_id not in existing_source_ids:
+                self.value_sources.append(
+                    FlowValueSource(
+                        source_id=source_id,
+                        node_id=node.node_id,
+                        name=assigned_name,
+                        label=assigned_name,
+                    )
+                )
+                existing_source_ids.add(source_id)
+            self.definitions[assigned_name] = source_id
 
 
 def flow_models_path(root_path: Path) -> Path:
@@ -256,6 +304,40 @@ def flow_edge_id(
     target_handle: str,
 ) -> str:
     return f"controls:{source_id}:{source_handle}->{target_id}:{target_handle}"
+
+
+def flow_return_completion_edge_id(return_node_id: str, exit_node_id: str) -> str:
+    return flow_edge_id(return_node_id, "exit", exit_node_id, "in")
+
+
+def is_flow_return_completion_edge(
+    edge: FlowModelEdge,
+    *,
+    node_by_id: dict[str, FlowModelNode],
+) -> bool:
+    source_node = node_by_id.get(edge.source_id)
+    target_node = node_by_id.get(edge.target_id)
+    return (
+        source_node is not None
+        and target_node is not None
+        and source_node.kind == "return"
+        and target_node.kind == "exit"
+        and edge.source_handle == "exit"
+        and edge.target_handle == "in"
+        and edge.edge_id == flow_return_completion_edge_id(edge.source_id, edge.target_id)
+    )
+
+
+def without_flow_return_completion_edges(document: FlowModelDocument) -> FlowModelDocument:
+    node_by_id = {node.node_id: node for node in document.nodes}
+    next_edges = tuple(
+        edge
+        for edge in document.edges
+        if not is_flow_return_completion_edge(edge, node_by_id=node_by_id)
+    )
+    if len(next_edges) == len(document.edges):
+        return document
+    return replace(document, edges=next_edges)
 
 
 def indexed_flow_entry_node_id(symbol_id: str) -> str:
@@ -274,8 +356,12 @@ def flow_input_slot_id(node_source_identity: str, slot_key: str) -> str:
     return f"flowslot:{node_source_identity}:{slot_key}"
 
 
-def flow_input_binding_id(slot_id: str, function_input_id: str) -> str:
-    return f"flowbinding:{slot_id}->{function_input_id}"
+def flow_value_source_id(node_source_identity: str, name: str) -> str:
+    return f"flowsource:{node_source_identity}:{name}"
+
+
+def flow_input_binding_id(slot_id: str, source_id: str) -> str:
+    return f"flowbinding:{slot_id}->{source_id}"
 
 
 def flow_model_node_source_identity(node: FlowModelNode) -> str:
@@ -399,6 +485,37 @@ def flow_document_from_payload(payload: dict[str, Any]) -> FlowModelDocument:
         seen_function_input_ids.add(input_id)
         function_inputs.append(FlowFunctionInput(input_id=input_id, name=name, index=index))
 
+    raw_value_model_version = payload.get("value_model_version")
+    value_model_version = raw_value_model_version if isinstance(raw_value_model_version, int) else None
+
+    value_sources: list[FlowValueSource] = []
+    seen_value_source_ids: set[str] = set()
+    raw_value_sources = payload.get("value_sources") or []
+    if not isinstance(raw_value_sources, list):
+        raise ValueError("Flow graph payload field 'value_sources' must be a list when provided.")
+    for raw_source in raw_value_sources:
+        if not isinstance(raw_source, dict):
+            raise ValueError("Flow graph value sources must be objects.")
+        source_id = str(raw_source.get("id") or "").strip()
+        source_node_id = str(raw_source.get("node_id") or "").strip()
+        name = str(raw_source.get("name") or "").strip()
+        label = str(raw_source.get("label") or name).strip()
+        if not source_id or not source_node_id or not name:
+            raise ValueError("Flow graph value sources require id, node_id, and name.")
+        if source_node_id not in seen_node_ids:
+            continue
+        if source_id in seen_value_source_ids:
+            raise ValueError(f"Duplicate flow value source id '{source_id}'.")
+        seen_value_source_ids.add(source_id)
+        value_sources.append(
+            FlowValueSource(
+                source_id=source_id,
+                node_id=source_node_id,
+                name=name,
+                label=label or name,
+            )
+        )
+
     input_slots: list[FlowInputSlot] = []
     seen_slot_ids: set[str] = set()
     raw_input_slots = payload.get("input_slots") or []
@@ -432,6 +549,7 @@ def flow_document_from_payload(payload: dict[str, Any]) -> FlowModelDocument:
     input_bindings: list[FlowInputBinding] = []
     seen_binding_ids: set[str] = set()
     bound_slot_ids: set[str] = set()
+    valid_source_ids = {*seen_function_input_ids, *seen_value_source_ids}
     raw_input_bindings = payload.get("input_bindings") or []
     if not isinstance(raw_input_bindings, list):
         raise ValueError("Flow graph payload field 'input_bindings' must be a list when provided.")
@@ -440,22 +558,30 @@ def flow_document_from_payload(payload: dict[str, Any]) -> FlowModelDocument:
             raise ValueError("Flow graph input bindings must be objects.")
         binding_id = str(raw_binding.get("id") or "").strip()
         function_input_id = str(raw_binding.get("function_input_id") or "").strip()
+        raw_source_id = str(raw_binding.get("source_id") or "").strip()
+        source_id = raw_source_id or function_input_id
+        if (
+            function_input_id in seen_function_input_ids
+            and (not raw_source_id or raw_source_id in seen_function_input_ids)
+        ):
+            source_id = function_input_id
         slot_id = str(raw_binding.get("slot_id") or "").strip()
-        if not binding_id or not function_input_id or not slot_id:
-            raise ValueError("Flow graph input bindings require id, function_input_id, and slot_id.")
+        if not binding_id or not source_id or not slot_id:
+            raise ValueError("Flow graph input bindings require id, source_id, and slot_id.")
         if binding_id in seen_binding_ids:
             raise ValueError(f"Duplicate flow input binding id '{binding_id}'.")
-        if function_input_id not in seen_function_input_ids or slot_id not in seen_slot_ids:
+        if source_id not in valid_source_ids or slot_id not in seen_slot_ids:
             continue
         if slot_id in bound_slot_ids:
-            raise ValueError(f"Flow graph input slot '{slot_id}' can only have one function input binding.")
+            raise ValueError(f"Flow graph input slot '{slot_id}' can only have one value binding.")
         seen_binding_ids.add(binding_id)
         bound_slot_ids.add(slot_id)
         input_bindings.append(
             FlowInputBinding(
                 binding_id=binding_id,
-                function_input_id=function_input_id,
+                source_id=source_id,
                 slot_id=slot_id,
+                function_input_id=source_id if source_id in seen_function_input_ids else None,
             )
         )
 
@@ -471,7 +597,9 @@ def flow_document_from_payload(payload: dict[str, Any]) -> FlowModelDocument:
         qualname=qualname,
         nodes=tuple(nodes),
         edges=tuple(edges),
+        value_model_version=value_model_version,
         function_inputs=tuple(sorted(function_inputs, key=lambda item: (item.index, item.name))),
+        value_sources=tuple(value_sources),
         input_slots=tuple(input_slots),
         input_bindings=tuple(input_bindings),
         sync_state=sync_state,
@@ -503,13 +631,6 @@ def with_flow_document_derived_input_model(
     *,
     preserve_existing: bool = True,
 ) -> FlowModelDocument:
-    if not document.function_inputs:
-        return document
-
-    function_input_by_name = {
-        function_input.name: function_input
-        for function_input in document.function_inputs
-    }
     function_input_ids = {function_input.input_id for function_input in document.function_inputs}
     node_by_id = {node.node_id: node for node in document.nodes}
     existing_slot_by_node_key = {
@@ -519,6 +640,10 @@ def with_flow_document_derived_input_model(
     existing_binding_by_slot_id = {
         binding.slot_id: binding
         for binding in document.input_bindings
+    } if preserve_existing else {}
+    existing_source_by_node_name = {
+        (source.node_id, source.name): source
+        for source in document.value_sources
     } if preserve_existing else {}
 
     ordered_node_ids = list(flow_document_compile_order_node_ids(document))
@@ -530,8 +655,46 @@ def with_flow_document_derived_input_model(
 
     definitions: dict[str, str] = {
         function_input.name: function_input.input_id
-        for function_input in document.function_inputs
+            for function_input in document.function_inputs
     }
+    derived_source_by_node_name: dict[tuple[str, str], FlowValueSource] = {}
+    next_value_sources: list[FlowValueSource] = []
+    seen_source_ids: set[str] = set()
+    for node_id in ordered_node_ids:
+        node = node_by_id.get(node_id)
+        if node is None:
+            continue
+        for assigned_name in sorted(_assigned_names_by_flow_node_payload(node)):
+            existing_source = existing_source_by_node_name.get((node.node_id, assigned_name))
+            source_id = (
+                existing_source.source_id
+                if existing_source
+                else flow_value_source_id(flow_model_node_source_identity(node), assigned_name)
+            )
+            source = FlowValueSource(
+                source_id=source_id,
+                node_id=node.node_id,
+                name=assigned_name,
+                label=existing_source.label if existing_source else assigned_name,
+            )
+            derived_source_by_node_name[(node.node_id, assigned_name)] = source
+            if source.source_id in seen_source_ids:
+                continue
+            seen_source_ids.add(source.source_id)
+            next_value_sources.append(source)
+
+    known_source_ids = {
+        *function_input_ids,
+        *(source.source_id for source in next_value_sources),
+        *(source.source_id for source in document.value_sources),
+    }
+    if preserve_existing and document._preserve_input_model_exactly:
+        return replace(
+            document,
+            value_model_version=FLOW_VALUE_MODEL_VERSION,
+            _preserve_input_model_exactly=False,
+        )
+
     next_slots: list[FlowInputSlot] = []
     next_bindings: list[FlowInputBinding] = []
     seen_slot_ids: set[str] = set()
@@ -543,7 +706,7 @@ def with_flow_document_derived_input_model(
             continue
         for used_name in sorted(_names_used_by_flow_node_payload(node)):
             definition_id = definitions.get(used_name)
-            if definition_id not in function_input_ids:
+            if definition_id not in known_source_ids:
                 continue
             source_identity = flow_model_node_source_identity(node)
             existing_slot = existing_slot_by_node_key.get((node.node_id, used_name))
@@ -563,29 +726,34 @@ def with_flow_document_derived_input_model(
             existing_binding = existing_binding_by_slot_id.get(slot.slot_id)
             if existing_slot and existing_binding is None:
                 continue
-            function_input_id = (
-                existing_binding.function_input_id
-                if existing_binding and existing_binding.function_input_id in function_input_ids
+            source_id = (
+                existing_binding.source_id
+                if existing_binding and existing_binding.source_id in known_source_ids
                 else definition_id
             )
-            if function_input_id not in function_input_ids or slot.slot_id in seen_bound_slot_ids:
+            if source_id not in known_source_ids or slot.slot_id in seen_bound_slot_ids:
                 continue
             next_bindings.append(
                 FlowInputBinding(
                     binding_id=existing_binding.binding_id
                     if existing_binding
-                    else flow_input_binding_id(slot.slot_id, function_input_id),
-                    function_input_id=function_input_id,
+                    else flow_input_binding_id(slot.slot_id, source_id),
+                    source_id=source_id,
                     slot_id=slot.slot_id,
+                    function_input_id=source_id if source_id in function_input_ids else None,
                 )
             )
             seen_bound_slot_ids.add(slot.slot_id)
 
         for assigned_name in _assigned_names_by_flow_node_payload(node):
-            definitions[assigned_name] = ""
+            source = derived_source_by_node_name.get((node.node_id, assigned_name))
+            if source is not None:
+                definitions[assigned_name] = source.source_id
 
     return replace(
         document,
+        value_model_version=FLOW_VALUE_MODEL_VERSION,
+        value_sources=tuple(next_value_sources),
         input_slots=tuple(next_slots),
         input_bindings=tuple(next_bindings),
     )
@@ -596,22 +764,30 @@ def with_flow_document_inherited_input_model(
     *,
     source_document: FlowModelDocument,
 ) -> FlowModelDocument:
-    """Backfill legacy editable flow input bindings from source-backed semantics.
+    """Backfill legacy editable flow value bindings from source-backed semantics.
 
     Older persisted flow documents only stored authored control flow. When those
-    documents have no canonical input slots, derive the missing function-input
-    model from the current imported source document instead of parsing draft
-    payload text.
+    documents have no canonical input slots, derive the missing value model from
+    the current imported source document instead of parsing draft payload text.
     """
 
     source_function_inputs = source_document.function_inputs
-    if not source_function_inputs:
+    if not source_function_inputs and not source_document.value_sources:
         return document
 
     if document.input_slots:
-        if document.function_inputs:
-            return document
-        return replace(document, function_inputs=source_function_inputs)
+        next_function_inputs = document.function_inputs or source_function_inputs
+        next_value_sources = _inherited_value_sources_for_document(
+            document,
+            source_document=source_document,
+        )
+        return replace(
+            document,
+            value_model_version=FLOW_VALUE_MODEL_VERSION,
+            function_inputs=next_function_inputs,
+            value_sources=next_value_sources,
+            _preserve_input_model_exactly=document.value_model_version is None,
+        )
 
     existing_input_by_name = {
         function_input.name: function_input
@@ -646,6 +822,39 @@ def with_flow_document_inherited_input_model(
                 indexed_node_id_by_node_id[document_node.node_id] = source_node.indexed_node_id
                 break
 
+    source_id_by_source_id: dict[str, str] = {}
+    for source_input in source_function_inputs:
+        function_input = next_input_by_name.get(source_input.name)
+        if function_input is not None:
+            source_id_by_source_id[source_input.input_id] = function_input.input_id
+
+    next_value_sources = []
+    seen_value_source_ids: set[str] = set()
+    for source in source_document.value_sources:
+        source_node = source_node_by_id.get(source.node_id)
+        if source_node is None:
+            continue
+        target_node = None
+        for identity in _flow_model_node_identity_candidates(source_node):
+            target_node = document_node_by_identity.get(identity)
+            if target_node is not None:
+                break
+        if target_node is None:
+            continue
+        source_id = flow_value_source_id(flow_model_node_source_identity(source_node), source.name)
+        source_id_by_source_id[source.source_id] = source_id
+        if source_id in seen_value_source_ids:
+            continue
+        seen_value_source_ids.add(source_id)
+        next_value_sources.append(
+            FlowValueSource(
+                source_id=source_id,
+                node_id=target_node.node_id,
+                name=source.name,
+                label=source.label,
+            )
+        )
+
     slot_id_by_source_slot_id: dict[str, str] = {}
     next_slots: list[FlowInputSlot] = []
     seen_slot_ids: set[str] = set()
@@ -676,26 +885,21 @@ def with_flow_document_inherited_input_model(
             )
         )
 
-    source_input_by_id = {
-        function_input.input_id: function_input
-        for function_input in source_function_inputs
-    }
     next_bindings: list[FlowInputBinding] = []
     seen_bound_slot_ids: set[str] = set()
     for source_binding in source_document.input_bindings:
         slot_id = slot_id_by_source_slot_id.get(source_binding.slot_id)
-        source_input = source_input_by_id.get(source_binding.function_input_id)
-        if slot_id is None or source_input is None:
-            continue
-        function_input = next_input_by_name.get(source_input.name)
-        if function_input is None or slot_id in seen_bound_slot_ids:
+        source_id = source_id_by_source_id.get(source_binding.source_id)
+        if slot_id is None or source_id is None or slot_id in seen_bound_slot_ids:
             continue
         seen_bound_slot_ids.add(slot_id)
+        function_input_id = source_id if source_id in {item.input_id for item in next_function_inputs} else None
         next_bindings.append(
             FlowInputBinding(
-                binding_id=flow_input_binding_id(slot_id, function_input.input_id),
-                function_input_id=function_input.input_id,
+                binding_id=flow_input_binding_id(slot_id, source_id),
+                source_id=source_id,
                 slot_id=slot_id,
+                function_input_id=function_input_id,
             )
         )
 
@@ -710,32 +914,91 @@ def with_flow_document_inherited_input_model(
     return replace(
         document,
         nodes=next_nodes,
+        value_model_version=FLOW_VALUE_MODEL_VERSION,
         function_inputs=next_function_inputs,
+        value_sources=tuple(next_value_sources),
         input_slots=tuple(next_slots),
         input_bindings=tuple(next_bindings),
     )
 
 
+def _inherited_value_sources_for_document(
+    document: FlowModelDocument,
+    *,
+    source_document: FlowModelDocument,
+) -> tuple[FlowValueSource, ...]:
+    source_node_by_id = {node.node_id: node for node in source_document.nodes}
+    document_node_by_identity: dict[str, FlowModelNode] = {}
+    for node in document.nodes:
+        for identity in _flow_model_node_identity_candidates(node):
+            document_node_by_identity.setdefault(identity, node)
+
+    existing_by_node_name = {
+        (source.node_id, source.name): source
+        for source in document.value_sources
+    }
+    next_sources: list[FlowValueSource] = []
+    seen_source_ids: set[str] = set()
+    for source in source_document.value_sources:
+        source_node = source_node_by_id.get(source.node_id)
+        if source_node is None:
+            continue
+        target_node = None
+        for identity in _flow_model_node_identity_candidates(source_node):
+            target_node = document_node_by_identity.get(identity)
+            if target_node is not None:
+                break
+        if target_node is None:
+            continue
+        existing = existing_by_node_name.get((target_node.node_id, source.name))
+        source_id = existing.source_id if existing else flow_value_source_id(
+            flow_model_node_source_identity(source_node),
+            source.name,
+        )
+        if source_id in seen_source_ids:
+            continue
+        seen_source_ids.add(source_id)
+        next_sources.append(
+            FlowValueSource(
+                source_id=source_id,
+                node_id=target_node.node_id,
+                name=source.name,
+                label=existing.label if existing else source.label,
+            )
+        )
+    return tuple(next_sources)
+
+
+def flow_document_source_names_by_id(document: FlowModelDocument) -> dict[str, str]:
+    return {
+        **{
+            function_input.input_id: function_input.name
+            for function_input in document.function_inputs
+        },
+        **{
+            value_source.source_id: value_source.name
+            for value_source in document.value_sources
+        },
+    }
+
+
 def with_flow_document_applied_input_bindings(
     document: FlowModelDocument,
 ) -> FlowModelDocument:
-    if not document.function_inputs or not document.input_slots or not document.input_bindings:
+    if not document.input_slots or not document.input_bindings:
         return document
 
-    function_input_by_id = {
-        function_input.input_id: function_input
-        for function_input in document.function_inputs
-    }
+    source_name_by_id = flow_document_source_names_by_id(document)
     slot_by_id = {slot.slot_id: slot for slot in document.input_slots}
     replacements_by_node_id: dict[str, dict[str, str]] = {}
     for binding in document.input_bindings:
         slot = slot_by_id.get(binding.slot_id)
-        function_input = function_input_by_id.get(binding.function_input_id)
-        if slot is None or function_input is None:
+        source_name = source_name_by_id.get(binding.source_id)
+        if slot is None or source_name is None:
             continue
-        if slot.slot_key == function_input.name:
+        if slot.slot_key == source_name:
             continue
-        replacements_by_node_id.setdefault(slot.node_id, {})[slot.slot_key] = function_input.name
+        replacements_by_node_id.setdefault(slot.node_id, {})[slot.slot_key] = source_name
 
     if not replacements_by_node_id:
         return document
@@ -858,6 +1121,7 @@ def import_flow_document_from_function_source(
             FlowModelNode(node_id=f"flowdoc:{symbol_id}:exit", kind="exit", payload={}),
         ],
         edges=[],
+        value_sources=[],
         input_slots=[],
         input_bindings=[],
         definitions={
@@ -882,7 +1146,9 @@ def import_flow_document_from_function_source(
         qualname=qualname,
         nodes=tuple(builder.nodes),
         edges=tuple(builder.edges),
+        value_model_version=FLOW_VALUE_MODEL_VERSION,
         function_inputs=tuple(function_inputs),
+        value_sources=tuple(builder.value_sources),
         input_slots=tuple(builder.input_slots),
         input_bindings=tuple(builder.input_bindings),
         sync_state="clean",
@@ -922,13 +1188,13 @@ def _import_statement(
             {"expression": ast.unparse(statement.value) if statement.value is not None else ""},
         )
         if statement.value is not None:
-            builder.bind_function_input_slots(node_id, statement.value)
+            builder.bind_input_slots(node_id, statement.value)
         return _ImportedBlock(root_id=node_id, continuation=None)
 
     if isinstance(statement, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
         node_id = builder.create_node("assign", {"source": ast.unparse(statement)})
-        builder.bind_function_input_slots(node_id, statement)
-        builder.record_assigned_names(statement)
+        builder.bind_input_slots(node_id, statement)
+        builder.record_assigned_names(node_id, statement)
         return _ImportedBlock(root_id=node_id, continuation=(node_id, "next"))
 
     if isinstance(statement, ast.Expr):
@@ -936,13 +1202,13 @@ def _import_statement(
             return _ImportedBlock(root_id=None, continuation=None)
         if any(isinstance(node, ast.Call) for node in ast.walk(statement)):
             node_id = builder.create_node("call", {"source": ast.unparse(statement)})
-            builder.bind_function_input_slots(node_id, statement)
+            builder.bind_input_slots(node_id, statement)
             return _ImportedBlock(root_id=node_id, continuation=(node_id, "next"))
         raise FlowImportError("Expression statements without a call are not supported in visual flow mode.")
 
     if isinstance(statement, ast.If):
         node_id = builder.create_node("branch", {"condition": ast.unparse(statement.test)})
-        builder.bind_function_input_slots(node_id, statement.test)
+        builder.bind_input_slots(node_id, statement.test)
         true_block = _import_block(builder, statement.body)
         false_block = _import_block(builder, statement.orelse)
         if true_block.root_id:
@@ -953,7 +1219,7 @@ def _import_statement(
 
     if isinstance(statement, ast.While):
         node_id = builder.create_node("loop", {"header": f"while {ast.unparse(statement.test)}"})
-        builder.bind_function_input_slots(node_id, statement.test)
+        builder.bind_input_slots(node_id, statement.test)
         body_block = _import_block(builder, statement.body)
         if body_block.root_id:
             builder.connect(node_id, "body", body_block.root_id)
@@ -962,9 +1228,8 @@ def _import_statement(
     if isinstance(statement, ast.For):
         header = f"for {ast.unparse(statement.target)} in {ast.unparse(statement.iter)}"
         node_id = builder.create_node("loop", {"header": header})
-        builder.bind_function_input_slots(node_id, statement.iter)
-        for assigned_name in _assigned_names(statement):
-            builder.definitions[assigned_name] = ""
+        builder.bind_input_slots(node_id, statement.iter)
+        builder.record_assigned_names(node_id, statement)
         body_block = _import_block(builder, statement.body)
         if body_block.root_id:
             builder.connect(node_id, "body", body_block.root_id)
@@ -976,7 +1241,9 @@ def _import_statement(
 
 
 def compile_flow_document(document: FlowModelDocument) -> FlowCompileResult:
-    document = with_flow_document_derived_input_model(document)
+    document = without_flow_return_completion_edges(
+        with_flow_document_derived_input_model(document)
+    )
     node_by_id = {node.node_id: node for node in document.nodes}
     diagnostics: list[str] = []
     entry_node = next((node for node in document.nodes if node.kind == "entry"), None)
@@ -1051,8 +1318,9 @@ def compile_flow_document(document: FlowModelDocument) -> FlowCompileResult:
     for slot in document.input_slots:
         if slot.required and slot.slot_id not in bound_slot_ids:
             diagnostics.append(
-                f"Input slot '{slot.label}' on node '{slot.node_id}' needs a function input binding."
+                f"Input slot '{slot.label}' on node '{slot.node_id}' needs a value binding."
             )
+    diagnostics.extend(_value_binding_representability_diagnostics(document))
 
     if diagnostics:
         normalized = with_flow_document_status(
@@ -1095,6 +1363,76 @@ def compile_flow_document(document: FlowModelDocument) -> FlowCompileResult:
         diagnostics=(),
         sync_state="clean",
     )
+
+
+def _value_binding_representability_diagnostics(document: FlowModelDocument) -> list[str]:
+    """Guard clean saves from source selections Python cannot express by name."""
+
+    source_name_by_id = flow_document_source_names_by_id(document)
+    slot_by_id = {slot.slot_id: slot for slot in document.input_slots}
+    binding_by_slot_id = {
+        binding.slot_id: binding
+        for binding in document.input_bindings
+    }
+    slots_by_node_id: dict[str, list[FlowInputSlot]] = {}
+    for slot in document.input_slots:
+        slots_by_node_id.setdefault(slot.node_id, []).append(slot)
+
+    node_by_id = {node.node_id: node for node in document.nodes}
+    ordered_node_ids = list(flow_document_compile_order_node_ids(document))
+    ordered_node_ids.extend(
+        node.node_id
+        for node in document.nodes
+        if node.kind not in {"entry", "exit"} and node.node_id not in ordered_node_ids
+    )
+    value_source_by_node_name = {
+        (source.node_id, source.name): source
+        for source in document.value_sources
+    }
+    definitions: dict[str, str] = {
+        function_input.name: function_input.input_id
+        for function_input in document.function_inputs
+    }
+    diagnostics: list[str] = []
+
+    for node_id in ordered_node_ids:
+        node = node_by_id.get(node_id)
+        if node is None:
+            continue
+
+        for slot in slots_by_node_id.get(node_id, []):
+            binding = binding_by_slot_id.get(slot.slot_id)
+            if binding is None:
+                continue
+            source_name = source_name_by_id.get(binding.source_id)
+            if source_name is None:
+                diagnostics.append(
+                    f"Input slot '{slot.label}' on node '{slot.node_id}' is bound to an unknown value source."
+                )
+                continue
+            current_source_id = definitions.get(source_name)
+            if current_source_id == binding.source_id:
+                continue
+            if current_source_id is None:
+                diagnostics.append(
+                    f"Input slot '{slot.label}' on node '{slot.node_id}' is bound to value '{source_name}', "
+                    "but that value is not in scope before the target node."
+                )
+                continue
+            current_slot = slot_by_id.get(slot.slot_id)
+            slot_label = current_slot.label if current_slot else slot.label
+            diagnostics.append(
+                f"Input slot '{slot_label}' on node '{slot.node_id}' is bound to an earlier value named "
+                f"'{source_name}', but clean Python generation can only reference the latest in-scope "
+                "value with that name without renaming or restructuring."
+            )
+
+        for assigned_name in _assigned_names_by_flow_node_payload(node):
+            source = value_source_by_node_name.get((node.node_id, assigned_name))
+            if source is not None:
+                definitions[assigned_name] = source.source_id
+
+    return diagnostics
 
 
 def target_id_for_edge(edge: FlowModelEdge | None) -> str | None:
@@ -1495,7 +1833,24 @@ def with_flow_document_indexed_node_ids(
 
 def with_flow_document_normalized_input_ids(document: FlowModelDocument) -> FlowModelDocument:
     slot_id_by_old_id: dict[str, str] = {}
+    source_id_by_old_id: dict[str, str] = {
+        function_input.input_id: function_input.input_id
+        for function_input in document.function_inputs
+    }
     node_by_id = {node.node_id: node for node in document.nodes}
+    normalized_sources: list[FlowValueSource] = []
+    seen_source_ids: set[str] = set()
+    for source in document.value_sources:
+        node = node_by_id.get(source.node_id)
+        if node is None:
+            continue
+        next_source_id = flow_value_source_id(flow_model_node_source_identity(node), source.name)
+        source_id_by_old_id[source.source_id] = next_source_id
+        if next_source_id in seen_source_ids:
+            continue
+        seen_source_ids.add(next_source_id)
+        normalized_sources.append(replace(source, source_id=next_source_id))
+
     normalized_slots: list[FlowInputSlot] = []
     seen_slot_ids: set[str] = set()
     for slot in document.input_slots:
@@ -1514,21 +1869,25 @@ def with_flow_document_normalized_input_ids(document: FlowModelDocument) -> Flow
     function_input_ids = {function_input.input_id for function_input in document.function_inputs}
     for binding in document.input_bindings:
         next_slot_id = slot_id_by_old_id.get(binding.slot_id)
-        if next_slot_id is None or binding.function_input_id not in function_input_ids:
+        next_source_id = source_id_by_old_id.get(binding.source_id)
+        if next_slot_id is None or next_source_id is None:
             continue
         if next_slot_id in seen_bound_slot_ids:
             continue
         seen_bound_slot_ids.add(next_slot_id)
         normalized_bindings.append(
             FlowInputBinding(
-                binding_id=flow_input_binding_id(next_slot_id, binding.function_input_id),
-                function_input_id=binding.function_input_id,
+                binding_id=flow_input_binding_id(next_slot_id, next_source_id),
+                source_id=next_source_id,
                 slot_id=next_slot_id,
+                function_input_id=next_source_id if next_source_id in function_input_ids else None,
             )
         )
 
     return replace(
         document,
+        value_model_version=FLOW_VALUE_MODEL_VERSION,
+        value_sources=tuple(normalized_sources),
         input_slots=tuple(normalized_slots),
         input_bindings=tuple(normalized_bindings),
     )
@@ -1560,7 +1919,7 @@ def flow_node_label(node: FlowModelNode) -> str:
 
 
 def flow_edge_label(source_handle: str) -> str | None:
-    if source_handle in {"true", "false", "body", "after"}:
+    if source_handle in {"true", "false", "body", "after", "exit"}:
         return source_handle
     return None
 
@@ -1571,4 +1930,5 @@ def flow_edge_order(source_handle: str) -> int | None:
         "false": 1,
         "body": 0,
         "after": 2,
+        "exit": 3,
     }.get(source_handle)

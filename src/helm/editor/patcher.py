@@ -25,6 +25,7 @@ from helm.editor.flow_model import (
     with_flow_document_inherited_input_model,
     with_flow_document_indexed_node_ids,
     with_flow_document_status,
+    without_flow_return_completion_edges,
     write_flow_document,
 )
 from helm.editor.models import (
@@ -647,7 +648,7 @@ def _replace_flow_graph(
     source_path = Path(parsed.module.file_path)
     source = source_path.read_text(encoding="utf-8")
     current_function_source = function_source_for_qualname(source, symbol.qualname)
-    document = flow_document_from_payload(request.flow_graph)
+    document = without_flow_return_completion_edges(flow_document_from_payload(request.flow_graph))
     if document.symbol_id != symbol.symbol_id:
         raise ValueError("Flow graph payload does not match the requested symbol.")
     try:

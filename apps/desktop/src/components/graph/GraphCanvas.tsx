@@ -3142,12 +3142,15 @@ export function GraphCanvas({
   }, [editingGroupId, groups, organizeGroupId, selectedGroupId]);
 
   useEffect(() => {
-    const liveControlEdgeIds = new Set(
+    const liveDeletableEdgeIds = new Set(
       (graph?.edges ?? [])
-        .filter((edge) => edge.kind === "controls")
+        .filter((edge) =>
+          edge.kind === "controls"
+          || (edge.kind === "data" && edge.id.startsWith("data:flowbinding:")),
+        )
         .map((edge) => edge.id),
     );
-    setSelectedControlEdgeIds((current) => current.filter((edgeId) => liveControlEdgeIds.has(edgeId)));
+    setSelectedControlEdgeIds((current) => current.filter((edgeId) => liveDeletableEdgeIds.has(edgeId)));
   }, [graph?.edges]);
 
   useEffect(() => {
@@ -3387,7 +3390,10 @@ export function GraphCanvas({
       if (logicalEdgeKind === "data" && logicalEdgeId.startsWith("data:flowbinding:")) {
         if (modifiers.altKey) {
           onDisconnectFlowEdge(logicalEdgeId);
+          setSelectedControlEdgeIds((current) => current.filter((edgeId) => edgeId !== logicalEdgeId));
+          return;
         }
+        selectControlEdge(logicalEdgeId);
         return;
       }
       const edgeInteraction = resolveFlowEdgeInteraction({

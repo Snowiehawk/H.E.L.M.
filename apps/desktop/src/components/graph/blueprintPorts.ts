@@ -349,6 +349,18 @@ function buildFlowPorts(
       }),
   );
   outputs.push(...outgoingDataPorts);
+  outputs.push(
+    ...nodeMetadataList(node, "flow_value_sources").map((source) => {
+      const label = metadataStringFromRecord(source, "label") ?? metadataStringFromRecord(source, "name") ?? "value";
+      const sourceId = metadataStringFromRecord(source, "source_id");
+      return {
+        id: metadataStringFromRecord(source, "source_handle")
+          ?? (sourceId ? `out:data:value-source:${sourceId}` : dataOutputPortId(label)),
+        label,
+        kind: "data" as const,
+      };
+    }),
+  );
 
   if (node.kind === "param" && !outgoingDataPorts.length) {
     const functionInputId = nodeMetadataString(node, "function_input_id");
@@ -483,6 +495,9 @@ function fixedFlowOutputHandles(kind: GraphNodeKind): string[] {
   }
   if (kind === "loop") {
     return ["body", "after"];
+  }
+  if (kind === "return") {
+    return ["exit"];
   }
   return [];
 }

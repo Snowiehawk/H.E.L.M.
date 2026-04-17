@@ -208,10 +208,17 @@ interface RawGraphView {
         target_id: string;
         target_handle: string;
       }>;
+      value_model_version?: number | null;
       function_inputs?: Array<{
         id: string;
         name: string;
         index: number;
+      }>;
+      value_sources?: Array<{
+        id: string;
+        node_id: string;
+        name: string;
+        label: string;
       }>;
       input_slots?: Array<{
         id: string;
@@ -222,7 +229,8 @@ interface RawGraphView {
       }>;
       input_bindings?: Array<{
         id: string;
-        function_input_id: string;
+        source_id?: string;
+        function_input_id?: string;
         slot_id: string;
       }>;
       sync_state: "clean" | "draft" | "import_error";
@@ -1338,10 +1346,17 @@ function toRawEditRequest(request: StructuralEditRequest) {
             target_id: edge.targetId,
             target_handle: edge.targetHandle,
           })),
+          value_model_version: request.flowGraph.valueModelVersion ?? 1,
           function_inputs: (request.flowGraph.functionInputs ?? []).map((input) => ({
             id: input.id,
             name: input.name,
             index: input.index,
+          })),
+          value_sources: (request.flowGraph.valueSources ?? []).map((source) => ({
+            id: source.id,
+            node_id: source.nodeId,
+            name: source.name,
+            label: source.label,
           })),
           input_slots: (request.flowGraph.inputSlots ?? []).map((slot) => ({
             id: slot.id,
@@ -1352,7 +1367,8 @@ function toRawEditRequest(request: StructuralEditRequest) {
           })),
           input_bindings: (request.flowGraph.inputBindings ?? []).map((binding) => ({
             id: binding.id,
-            function_input_id: binding.functionInputId,
+            source_id: binding.sourceId,
+            ...(binding.functionInputId ? { function_input_id: binding.functionInputId } : {}),
             slot_id: binding.slotId,
           })),
           sync_state: request.flowGraph.syncState,
@@ -1596,12 +1612,23 @@ function toFlowGraphDocument(
       targetId: edge.target_id,
       targetHandle: edge.target_handle,
     })),
+    valueModelVersion: raw.value_model_version ?? null,
     ...(raw.function_inputs
       ? {
           functionInputs: raw.function_inputs.map((input) => ({
             id: input.id,
             name: input.name,
             index: input.index,
+          })),
+        }
+      : {}),
+    ...(raw.value_sources
+      ? {
+          valueSources: raw.value_sources.map((source) => ({
+            id: source.id,
+            nodeId: source.node_id,
+            name: source.name,
+            label: source.label,
           })),
         }
       : {}),
@@ -1620,7 +1647,8 @@ function toFlowGraphDocument(
       ? {
           inputBindings: raw.input_bindings.map((binding) => ({
             id: binding.id,
-            functionInputId: binding.function_input_id,
+            sourceId: binding.source_id ?? binding.function_input_id ?? "",
+            ...(binding.function_input_id ? { functionInputId: binding.function_input_id } : {}),
             slotId: binding.slot_id,
           })),
         }

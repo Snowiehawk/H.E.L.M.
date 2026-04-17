@@ -16,10 +16,14 @@ from helm.editor.flow_model import (
     FlowModelDocument,
     FlowModelEdge,
     FlowModelNode,
+    FlowValueSource,
+    flow_document_source_names_by_id,
     flow_edge_label,
     flow_input_binding_id,
     flow_input_slot_id,
     flow_function_input_id,
+    flow_return_completion_edge_id,
+    flow_value_source_id,
     flow_edge_order,
     flow_model_node_source_identity,
     flow_node_label,
@@ -30,6 +34,7 @@ from helm.editor.flow_model import (
     indexed_flow_entry_node_id,
     read_flow_document,
     with_flow_document_inherited_input_model,
+    without_flow_return_completion_edges,
 )
 from helm.editor.declaration_support import resolve_declaration_edit_support
 from helm.editor.models import (
@@ -307,7 +312,11 @@ class PythonRepoAdapter:
             and persisted_document.source_hash == current_source_hash
         ):
             document = persisted_document
-            if not persisted_document.input_slots:
+            if (
+                persisted_document.value_model_version is None
+                or not persisted_document.input_slots
+                or not persisted_document.value_sources
+            ):
                 try:
                     source_document = import_flow_document_from_function_source(
                         symbol_id=symbol.symbol_id,
@@ -1590,6 +1599,10 @@ def _function_input_source_handle(function_input_id: str) -> str:
     return f"out:data:function-input:{function_input_id}"
 
 
+def _value_source_handle(source_id: str) -> str:
+    return f"out:data:value-source:{source_id}"
+
+
 def _input_slot_target_handle(slot_id: str) -> str:
     return f"in:data:input-slot:{slot_id}"
 
@@ -1607,8 +1620,6 @@ def _with_flow_document_inherited_input_model_from_base_view(
             candidate.label,
         ),
     )
-    if not param_nodes:
-        return document
 
     existing_input_by_name = {
         function_input.name: function_input
@@ -1632,9 +1643,16 @@ def _with_flow_document_inherited_input_model_from_base_view(
         )
 
     if document.input_slots:
-        if document.function_inputs:
-            return document
-        return replace(document, function_inputs=tuple(function_inputs))
+        if document.value_model_version == 1:
+            if document.function_inputs or not function_inputs:
+                return document
+            return replace(document, function_inputs=tuple(function_inputs))
+        return replace(
+            document,
+            value_model_version=1,
+            function_inputs=document.function_inputs or tuple(function_inputs),
+            value_sources=document.value_sources or _value_sources_from_base_graph(base_view, document),
+        )
 
     function_input_by_param_node_id = {
         node.node_id: function_inputs[index]
@@ -1646,19 +1664,41 @@ def _with_flow_document_inherited_input_model_from_base_view(
         document_node_by_identity.setdefault(node.node_id, node)
 
     slots: list[FlowInputSlot] = []
+    value_sources: list[FlowValueSource] = []
     bindings: list[FlowInputBinding] = []
     seen_slot_ids: set[str] = set()
+    seen_source_ids: set[str] = set()
     seen_bound_slot_ids: set[str] = set()
     for edge in base_view.edges:
         if edge.kind != GraphViewEdgeKind.DATA:
             continue
         function_input = function_input_by_param_node_id.get(edge.source_id)
-        if function_input is None:
+        source_id: str | None = None
+        source_label: str | None = None
+        if function_input is not None:
+            source_id = function_input.input_id
+            source_label = function_input.name
+        else:
+            source_node = document_node_by_identity.get(edge.source_id)
+            source_label = (edge.label or "").strip()
+            if source_node is not None and source_label:
+                source_id = flow_value_source_id(flow_model_node_source_identity(source_node), source_label)
+                if source_id not in seen_source_ids:
+                    seen_source_ids.add(source_id)
+                    value_sources.append(
+                        FlowValueSource(
+                            source_id=source_id,
+                            node_id=source_node.node_id,
+                            name=source_label,
+                            label=source_label,
+                        )
+                    )
+        if source_id is None or source_label is None:
             continue
         target_node = document_node_by_identity.get(edge.target_id)
         if target_node is None:
             continue
-        slot_key = (edge.label or function_input.name).strip() or function_input.name
+        slot_key = (edge.label or source_label).strip() or source_label
         slot_id = flow_input_slot_id(flow_model_node_source_identity(target_node), slot_key)
         if slot_id in seen_slot_ids:
             continue
@@ -1677,18 +1717,64 @@ def _with_flow_document_inherited_input_model_from_base_view(
         seen_bound_slot_ids.add(slot_id)
         bindings.append(
             FlowInputBinding(
-                binding_id=flow_input_binding_id(slot_id, function_input.input_id),
-                function_input_id=function_input.input_id,
+                binding_id=flow_input_binding_id(slot_id, source_id),
+                source_id=source_id,
                 slot_id=slot_id,
+                function_input_id=source_id if function_input is not None else None,
             )
         )
 
     return replace(
         document,
+        value_model_version=1,
         function_inputs=tuple(function_inputs),
+        value_sources=tuple(value_sources),
         input_slots=tuple(slots),
         input_bindings=tuple(bindings),
     )
+
+
+def _value_sources_from_base_graph(
+    base_view: GraphView,
+    document: FlowModelDocument,
+) -> tuple[FlowValueSource, ...]:
+    document_node_by_identity: dict[str, FlowModelNode] = {}
+    for node in document.nodes:
+        document_node_by_identity.setdefault(flow_model_node_source_identity(node), node)
+        document_node_by_identity.setdefault(node.node_id, node)
+
+    existing_by_node_name = {
+        (source.node_id, source.name): source
+        for source in document.value_sources
+    }
+    value_sources: list[FlowValueSource] = []
+    seen_source_ids: set[str] = set()
+    for edge in base_view.edges:
+        if edge.kind != GraphViewEdgeKind.DATA:
+            continue
+        source_node = document_node_by_identity.get(edge.source_id)
+        if source_node is None:
+            continue
+        source_name = (edge.label or "").strip()
+        if not source_name:
+            continue
+        existing = existing_by_node_name.get((source_node.node_id, source_name))
+        source_id = existing.source_id if existing else flow_value_source_id(
+            flow_model_node_source_identity(source_node),
+            source_name,
+        )
+        if source_id in seen_source_ids:
+            continue
+        seen_source_ids.add(source_id)
+        value_sources.append(
+            FlowValueSource(
+                source_id=source_id,
+                node_id=source_node.node_id,
+                name=source_name,
+                label=existing.label if existing else source_name,
+            )
+        )
+    return tuple(value_sources)
 
 
 def _graph_view_node_for_function_input(
@@ -1721,34 +1807,47 @@ def _graph_view_edge_for_input_binding(
 ) -> GraphViewEdge:
     slot_by_id = {slot.slot_id: slot for slot in document.input_slots}
     input_by_id = {function_input.input_id: function_input for function_input in document.function_inputs}
+    value_source_by_id = {value_source.source_id: value_source for value_source in document.value_sources}
     slot = slot_by_id.get(binding.slot_id)
-    function_input = input_by_id.get(binding.function_input_id)
-    if slot is None or function_input is None:
+    function_input = input_by_id.get(binding.source_id)
+    value_source = value_source_by_id.get(binding.source_id)
+    if slot is None or (function_input is None and value_source is None):
         return GraphViewEdge(
             edge_id=f"data:{binding.binding_id}",
             kind=GraphViewEdgeKind.DATA,
             source_id=document.nodes[0].node_id if document.nodes else document.symbol_id,
             target_id=document.nodes[0].node_id if document.nodes else document.symbol_id,
         )
-    source_id = _function_input_param_node_id(document.symbol_id, function_input)
-    source_handle = _function_input_source_handle(function_input.input_id)
+    if function_input is not None:
+        source_id = _function_input_param_node_id(document.symbol_id, function_input)
+        source_handle = _function_input_source_handle(function_input.input_id)
+        source_label = function_input.name
+        function_input_id = function_input.input_id
+    else:
+        source_id = value_source.node_id
+        source_handle = _value_source_handle(value_source.source_id)
+        source_label = value_source.label or value_source.name
+        function_input_id = None
     target_handle = _input_slot_target_handle(slot.slot_id)
+    metadata = {
+        "flow_input_binding": True,
+        "binding_id": binding.binding_id,
+        "source_id": binding.source_id,
+        "slot_id": slot.slot_id,
+        "source_label": source_label,
+        "target_label": slot.label,
+        "source_handle": source_handle,
+        "target_handle": target_handle,
+    }
+    if function_input_id:
+        metadata["function_input_id"] = function_input_id
     return GraphViewEdge(
         edge_id=f"data:{binding.binding_id}",
         kind=GraphViewEdgeKind.DATA,
         source_id=source_id,
         target_id=slot.node_id,
-        label=function_input.name,
-        metadata={
-            "flow_input_binding": True,
-            "binding_id": binding.binding_id,
-            "function_input_id": function_input.input_id,
-            "slot_id": slot.slot_id,
-            "source_label": function_input.name,
-            "target_label": slot.label,
-            "source_handle": source_handle,
-            "target_handle": target_handle,
-        },
+        label=source_label,
+        metadata=metadata,
     )
 
 
@@ -1756,7 +1855,9 @@ def _project_function_flow_document_view(
     base_view: GraphView,
     document: FlowModelDocument,
 ) -> GraphView:
-    document = _with_flow_document_inherited_input_model_from_base_view(base_view, document)
+    document = without_flow_return_completion_edges(
+        _with_flow_document_inherited_input_model_from_base_view(base_view, document)
+    )
     visual_node_ids = {node.node_id for node in document.nodes}
     function_input_param_node_ids = {
         _function_input_param_node_id(document.symbol_id, function_input)
@@ -1816,10 +1917,17 @@ def _project_function_flow_document_view(
     for edge in base_view.edges:
         if edge.kind == GraphViewEdgeKind.CONTROLS:
             continue
-        if edge.kind == GraphViewEdgeKind.DATA and edge.source_id in function_input_param_node_ids:
-            continue
         projected_source_id = projected_node_ids.get(edge.source_id, edge.source_id)
         projected_target_id = projected_node_ids.get(edge.target_id, edge.target_id)
+        if (
+            edge.kind == GraphViewEdgeKind.DATA
+            and (
+                projected_target_id in {node.node_id for node in document.nodes}
+                or projected_source_id in {node.node_id for node in document.nodes}
+                or edge.source_id in function_input_param_node_ids
+            )
+        ):
+            continue
         if projected_source_id not in visible_node_ids or projected_target_id not in visible_node_ids:
             continue
         preserved_edges.append(
@@ -1836,6 +1944,7 @@ def _project_function_flow_document_view(
         )
         for edge in document.edges
     )
+    return_completion_edges = tuple(_graph_view_return_completion_edges(document))
     input_binding_edges = tuple(_graph_view_edge_for_input_binding(document, binding) for binding in document.input_bindings)
     root_node_id = projected_node_ids.get(base_view.root_node_id, base_view.root_node_id)
     if root_node_id not in visible_node_ids:
@@ -1844,9 +1953,39 @@ def _project_function_flow_document_view(
         base_view,
         root_node_id=root_node_id,
         nodes=(*preserved_nodes, *input_nodes, *document_nodes),
-        edges=(*preserved_edges, *input_binding_edges, *document_edges),
+        edges=(*preserved_edges, *input_binding_edges, *document_edges, *return_completion_edges),
         flow_state=_flow_state_payload(document),
     )
+
+
+def _graph_view_return_completion_edges(document: FlowModelDocument) -> tuple[GraphViewEdge, ...]:
+    exit_node = next((node for node in document.nodes if node.kind == "exit"), None)
+    if exit_node is None:
+        return ()
+
+    edges: list[GraphViewEdge] = []
+    for node in document.nodes:
+        if node.kind != "return":
+            continue
+        edge_id = flow_return_completion_edge_id(node.node_id, exit_node.node_id)
+        edges.append(
+            GraphViewEdge(
+                edge_id=edge_id,
+                kind=GraphViewEdgeKind.CONTROLS,
+                source_id=node.node_id,
+                target_id=exit_node.node_id,
+                label="exit",
+                metadata={
+                    "source_handle": "exit",
+                    "target_handle": "in",
+                    "path_key": "exit",
+                    "path_label": "exit",
+                    "path_order": 3,
+                    "flow_return_completion": True,
+                },
+            )
+        )
+    return tuple(edges)
 
 
 def _graph_view_node_for_flow_model_node(
@@ -1866,6 +2005,20 @@ def _graph_view_node_for_flow_model_node(
         }
         for slot in document.input_slots
         if slot.node_id == node.node_id
+    ]
+    source_name_counts: dict[str, int] = {}
+    for source in document.value_sources:
+        source_name_counts[source.name] = source_name_counts.get(source.name, 0) + 1
+    value_sources = [
+        {
+            "source_id": source.source_id,
+            "name": source.name,
+            "label": source.label,
+            "source_handle": _value_source_handle(source.source_id),
+            "duplicate_name": source_name_counts.get(source.name, 0) > 1,
+        }
+        for source in document.value_sources
+        if source.node_id == node.node_id
     ]
     function_inputs = [
         {
@@ -1891,6 +2044,7 @@ def _graph_view_node_for_flow_model_node(
                 else {}
             ),
             **({"flow_input_slots": input_slots} if input_slots else {}),
+            **({"flow_value_sources": value_sources} if value_sources else {}),
             **({"flow_function_inputs": function_inputs} if function_inputs else {}),
         },
         available_actions=existing.available_actions if existing else (),

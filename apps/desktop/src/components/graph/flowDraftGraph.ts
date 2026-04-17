@@ -7,13 +7,20 @@ import type {
   FlowInputSlot,
   FlowFunctionInput,
   FlowSyncState,
+  FlowValueSource,
   FlowVisualNodeKind,
   GraphEdgeDto,
   GraphNodeDto,
   GraphNodeKind,
   GraphView,
 } from "../../lib/adapter";
-import { cloneFlowDocument, flowInputBindingId, isFlowDocumentNodeKind } from "./flowDocument";
+import {
+  cloneFlowDocument,
+  flowInputBindingId,
+  flowReturnCompletionEdgeId,
+  isFlowDocumentNodeKind,
+  withoutFlowReturnCompletionEdges,
+} from "./flowDocument";
 
 export function establishFlowDraftDocument(graph: GraphView | undefined): FlowGraphDocument | undefined {
   if (!graph || graph.level !== "flow") {
@@ -39,7 +46,7 @@ export function projectFlowDraftGraph(
   document: FlowGraphDocument,
   inputDisplayMode: FlowInputDisplayMode = "param_nodes",
 ): GraphView {
-  document = withLegacyInputModelFromBaseGraph(baseGraph, document);
+  document = withoutFlowReturnCompletionEdges(withLegacyInputModelFromBaseGraph(baseGraph, document));
   const functionInputs = document.functionInputs ?? [];
   const inputSlots = document.inputSlots ?? [];
   const inputBindings = document.inputBindings ?? [];
@@ -84,15 +91,19 @@ export function projectFlowDraftGraph(
     ...inputSourceNodes.map((node) => node.id),
     ...projectedDraftNodes.map((node) => node.id),
   ]);
+  const documentNodeIds = new Set(document.nodes.map((node) => node.id));
   const preservedEdges = baseGraph.edges.flatMap((edge) => {
     if (edge.kind === "controls") {
       return [];
     }
-    if (isFunctionInputBindingEdge(edge) || functionInputParamNodeIds.has(edge.source)) {
-      return [];
-    }
     const source = projectedNodeIds.get(edge.source) ?? edge.source;
     const target = projectedNodeIds.get(edge.target) ?? edge.target;
+    if (
+      edge.kind === "data"
+      && (isFunctionInputBindingEdge(edge) || functionInputParamNodeIds.has(edge.source) || documentNodeIds.has(source) || documentNodeIds.has(target))
+    ) {
+      return [];
+    }
     if (!visibleNodeIds.has(source) || !visibleNodeIds.has(target)) {
       return [];
     }
@@ -100,6 +111,7 @@ export function projectFlowDraftGraph(
   });
   const baseEdgesById = new Map(baseGraph.edges.map((edge) => [edge.id, edge] as const));
   const draftEdges = document.edges.map((edge) => graphEdgeForFlowDraft(edge, baseEdgesById.get(edge.id)));
+  const returnCompletionEdges = graphEdgesForReturnCompletion(document);
   const inputBindingEdges = inputBindings.flatMap((binding) =>
     graphEdgeForInputBinding(document, binding, inputDisplayMode, entryNodeId),
   );
@@ -110,7 +122,7 @@ export function projectFlowDraftGraph(
       ? (projectedNodeIds.get(baseGraph.rootNodeId) ?? baseGraph.rootNodeId)
       : document.nodes[0]?.id ?? baseGraph.rootNodeId,
     nodes: [...preservedNodes, ...inputSourceNodes, ...projectedDraftNodes],
-    edges: [...preservedEdges, ...inputBindingEdges, ...draftEdges],
+    edges: [...preservedEdges, ...inputBindingEdges, ...draftEdges, ...returnCompletionEdges],
     flowState: {
       editable: document.editable,
       syncState: document.syncState,
@@ -154,6 +166,9 @@ function flowDocumentFromVisualGraph(graph: GraphView): FlowGraphDocument | unde
     if (graphEdge.kind !== "controls") {
       return undefined;
     }
+    if (graphEdge.metadata?.flow_return_completion === true || graphEdge.metadata?.flowReturnCompletion === true) {
+      continue;
+    }
 
     const handles = readFlowGraphHandles(graphEdge);
     if (!handles) {
@@ -175,7 +190,9 @@ function flowDocumentFromVisualGraph(graph: GraphView): FlowGraphDocument | unde
     qualname,
     nodes,
     edges,
+    valueModelVersion: 1,
     functionInputs: [],
+    valueSources: [],
     inputSlots: [],
     inputBindings: [],
     syncState: (graph.flowState?.syncState ?? "clean") as FlowSyncState,
@@ -192,12 +209,21 @@ function withLegacyInputModelFromBaseGraph(
   const paramNodes = functionInputParamNodesFromBaseGraph(baseGraph);
   const functionInputs = functionInputsFromParamNodes(paramNodes, document);
   if ((document.inputSlots ?? []).length > 0) {
-    return (document.functionInputs ?? []).length > 0 || !functionInputs.length
-      ? document
-      : { ...document, functionInputs };
-  }
-  if (!functionInputs.length) {
-    return document;
+    if (document.valueModelVersion === 1) {
+      return (document.functionInputs ?? []).length > 0 || !functionInputs.length
+        ? document
+        : { ...document, functionInputs };
+    }
+    return {
+      ...document,
+      valueModelVersion: 1,
+      functionInputs: (document.functionInputs ?? []).length > 0 || !functionInputs.length
+        ? document.functionInputs
+        : functionInputs,
+      valueSources: (document.valueSources ?? []).length
+        ? document.valueSources
+        : valueSourcesFromBaseGraph(baseGraph, document),
+    };
   }
 
   const functionInputByParamNodeId = new Map(
@@ -210,22 +236,45 @@ function withLegacyInputModelFromBaseGraph(
   });
 
   const inputSlots: FlowInputSlot[] = [];
+  const valueSources: FlowValueSource[] = [];
   const inputBindings: FlowInputBinding[] = [];
   const seenSlotIds = new Set<string>();
+  const seenSourceIds = new Set<string>();
   const seenBoundSlotIds = new Set<string>();
   baseGraph.edges.forEach((edge) => {
     if (edge.kind !== "data") {
       return;
     }
     const functionInput = functionInputByParamNodeId.get(edge.source);
-    if (!functionInput) {
+    let sourceId: string | undefined;
+    let sourceLabel: string | undefined;
+    if (functionInput) {
+      sourceId = functionInput.id;
+      sourceLabel = functionInput.name;
+    } else {
+      const sourceNode = documentNodeByIdentity.get(edge.source);
+      sourceLabel = edge.label?.trim();
+      if (sourceNode && sourceLabel) {
+        sourceId = flowValueSourceId(flowGraphNodeSourceIdentity(sourceNode), sourceLabel);
+        if (!seenSourceIds.has(sourceId)) {
+          seenSourceIds.add(sourceId);
+          valueSources.push({
+            id: sourceId,
+            nodeId: sourceNode.id,
+            name: sourceLabel,
+            label: sourceLabel,
+          });
+        }
+      }
+    }
+    if (!sourceId || !sourceLabel) {
       return;
     }
     const targetNode = documentNodeByIdentity.get(edge.target);
     if (!targetNode) {
       return;
     }
-    const slotKey = inputSlotKeyFromEdge(edge, functionInput.name);
+    const slotKey = inputSlotKeyFromEdge(edge, sourceLabel);
     const slotId = flowInputSlotId(flowGraphNodeSourceIdentity(targetNode), slotKey);
     if (seenSlotIds.has(slotId)) {
       return;
@@ -243,18 +292,60 @@ function withLegacyInputModelFromBaseGraph(
     }
     seenBoundSlotIds.add(slotId);
     inputBindings.push({
-      id: flowInputBindingId(slotId, functionInput.id),
-      functionInputId: functionInput.id,
+      id: flowInputBindingId(slotId, sourceId),
+      sourceId,
+      ...(functionInput ? { functionInputId: functionInput.id } : {}),
       slotId,
     });
   });
 
   return {
     ...document,
+    valueModelVersion: 1,
     functionInputs,
+    valueSources,
     inputSlots,
     inputBindings,
   };
+}
+
+function valueSourcesFromBaseGraph(
+  baseGraph: GraphView,
+  document: FlowGraphDocument,
+): FlowValueSource[] {
+  const documentNodeByIdentity = new Map<string, FlowGraphNode>();
+  document.nodes.forEach((node) => {
+    documentNodeByIdentity.set(flowGraphNodeSourceIdentity(node), node);
+    documentNodeByIdentity.set(node.id, node);
+  });
+  const existingByNodeName = new Map(
+    (document.valueSources ?? []).map((source) => [`${source.nodeId}\u0000${source.name}`, source] as const),
+  );
+  const valueSources: FlowValueSource[] = [];
+  const seenSourceIds = new Set<string>();
+  baseGraph.edges.forEach((edge) => {
+    if (edge.kind !== "data") {
+      return;
+    }
+    const sourceNode = documentNodeByIdentity.get(edge.source);
+    const sourceName = edge.label?.trim();
+    if (!sourceNode || !sourceName) {
+      return;
+    }
+    const existing = existingByNodeName.get(`${sourceNode.id}\u0000${sourceName}`);
+    const sourceId = existing?.id ?? flowValueSourceId(flowGraphNodeSourceIdentity(sourceNode), sourceName);
+    if (seenSourceIds.has(sourceId)) {
+      return;
+    }
+    seenSourceIds.add(sourceId);
+    valueSources.push({
+      id: sourceId,
+      nodeId: sourceNode.id,
+      name: sourceName,
+      label: existing?.label ?? sourceName,
+    });
+  });
+  return valueSources;
 }
 
 function functionInputParamNodesFromBaseGraph(baseGraph: GraphView): GraphNodeDto[] {
@@ -302,6 +393,10 @@ function flowInputSlotId(nodeSourceIdentity: string, slotKey: string): string {
   return `flowslot:${nodeSourceIdentity}:${slotKey}`;
 }
 
+function flowValueSourceId(nodeSourceIdentity: string, sourceName: string): string {
+  return `flowsource:${nodeSourceIdentity}:${sourceName}`;
+}
+
 function flowGraphNodeSourceIdentity(node: FlowGraphNode): string {
   return node.indexedNodeId || node.id;
 }
@@ -316,12 +411,21 @@ export function functionInputSourceHandle(functionInputId: string): string {
   return `out:data:function-input:${functionInputId}`;
 }
 
+export function valueSourceHandle(sourceId: string): string {
+  return `out:data:value-source:${sourceId}`;
+}
+
 export function inputSlotTargetHandle(slotId: string): string {
   return `in:data:input-slot:${slotId}`;
 }
 
 export function parseFunctionInputSourceHandle(handleId: string | null | undefined): string | undefined {
   const prefix = "out:data:function-input:";
+  return handleId?.startsWith(prefix) ? handleId.slice(prefix.length) : undefined;
+}
+
+export function parseValueSourceHandle(handleId: string | null | undefined): string | undefined {
+  const prefix = "out:data:value-source:";
   return handleId?.startsWith(prefix) ? handleId.slice(prefix.length) : undefined;
 }
 
@@ -399,31 +503,41 @@ function graphEdgeForInputBinding(
   inputDisplayMode: FlowInputDisplayMode,
   entryNodeId: string | undefined,
 ): GraphEdgeDto[] {
-  const input = (document.functionInputs ?? []).find((candidate) => candidate.id === binding.functionInputId);
+  const input = (document.functionInputs ?? []).find((candidate) => candidate.id === binding.sourceId);
+  const valueSource = (document.valueSources ?? []).find((candidate) => candidate.id === binding.sourceId);
   const slot = (document.inputSlots ?? []).find((candidate) => candidate.id === binding.slotId);
-  if (!input || !slot) {
+  if ((!input && !valueSource) || !slot) {
     return [];
   }
-  const source = inputDisplayMode === "entry"
-    ? entryNodeId
-    : functionInputParamNodeId(document.symbolId, input);
+  const source = input
+    ? (
+        inputDisplayMode === "entry"
+          ? entryNodeId
+          : functionInputParamNodeId(document.symbolId, input)
+      )
+    : valueSource?.nodeId;
   if (!source) {
     return [];
   }
+  const sourceLabel = input?.name ?? valueSource?.label ?? valueSource?.name ?? "value";
+  const sourceHandle = input
+    ? functionInputSourceHandle(input.id)
+    : valueSourceHandle(valueSource?.id ?? binding.sourceId);
   return [{
     id: flowInputBindingEdgeId(binding.id),
     kind: "data",
     source,
     target: slot.nodeId,
-    label: input.name,
+    label: sourceLabel,
     metadata: {
       flow_input_binding: true,
       binding_id: binding.id,
-      function_input_id: input.id,
+      source_id: binding.sourceId,
+      ...(input ? { function_input_id: input.id } : {}),
       slot_id: slot.id,
-      source_label: input.name,
+      source_label: sourceLabel,
       target_label: slot.label,
-      source_handle: functionInputSourceHandle(input.id),
+      source_handle: sourceHandle,
       target_handle: inputSlotTargetHandle(slot.id),
     },
   }];
@@ -463,6 +577,19 @@ function graphNodeForFlowDraft(
       label: slot.label,
       target_handle: inputSlotTargetHandle(slot.id),
     }));
+  const sourceNameCounts = new Map<string, number>();
+  (document.valueSources ?? []).forEach((source) => {
+    sourceNameCounts.set(source.name, (sourceNameCounts.get(source.name) ?? 0) + 1);
+  });
+  const valueSources = (document.valueSources ?? [])
+    .filter((source) => source.nodeId === node.id)
+    .map((source) => ({
+      source_id: source.id,
+      name: source.name,
+      label: source.label,
+      source_handle: valueSourceHandle(source.id),
+      duplicate_name: (sourceNameCounts.get(source.name) ?? 0) > 1,
+    }));
   return {
     id: node.id,
     kind: node.kind as GraphNodeKind,
@@ -476,6 +603,7 @@ function graphNodeForFlowDraft(
       flow_order: index,
       ...(node.indexedNodeId ? { indexed_node_id: node.indexedNodeId } : {}),
       ...(inputSlots.length ? { flow_input_slots: inputSlots } : {}),
+      ...(valueSources.length ? { flow_value_sources: valueSources } : {}),
     },
     availableActions: existing?.availableActions ?? [],
   };
@@ -504,6 +632,31 @@ function graphEdgeForFlowDraft(
         : {}),
     },
   };
+}
+
+function graphEdgesForReturnCompletion(document: FlowGraphDocument): GraphEdgeDto[] {
+  const exitNode = document.nodes.find((node) => node.kind === "exit");
+  if (!exitNode) {
+    return [];
+  }
+
+  return document.nodes
+    .filter((node) => node.kind === "return")
+    .map((node) => ({
+      id: flowReturnCompletionEdgeId(node.id, exitNode.id),
+      kind: "controls" as const,
+      source: node.id,
+      target: exitNode.id,
+      label: "exit",
+      metadata: {
+        source_handle: "exit",
+        target_handle: "in",
+        path_key: "exit",
+        path_label: "exit",
+        path_order: 3,
+        flow_return_completion: true,
+      },
+    }));
 }
 
 function flowDraftNodeLabel(kind: FlowVisualNodeKind, payload: Record<string, unknown>) {

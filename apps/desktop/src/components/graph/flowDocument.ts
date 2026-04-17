@@ -172,7 +172,9 @@ export function cloneFlowDocument(document: FlowGraphDocument): FlowGraphDocumen
       indexedNodeId: node.indexedNodeId ?? null,
     })),
     edges: document.edges.map((edge) => ({ ...edge })),
+    valueModelVersion: document.valueModelVersion ?? null,
     functionInputs: (document.functionInputs ?? []).map((input) => ({ ...input })),
+    valueSources: (document.valueSources ?? []).map((source) => ({ ...source })),
     inputSlots: (document.inputSlots ?? []).map((slot) => ({ ...slot })),
     inputBindings: (document.inputBindings ?? []).map((binding) => ({ ...binding })),
   };
@@ -210,28 +212,34 @@ export function insertFlowNodeOnEdge(
         return [edge];
       }
 
-      return [
-        {
-          id: flowConnectionId({
-            sourceId: edge.sourceId,
-            sourceHandle: edge.sourceHandle,
-            targetId: node.id,
-            targetHandle: "in",
-          }),
+      const incomingEdge = {
+        id: flowConnectionId({
           sourceId: edge.sourceId,
           sourceHandle: edge.sourceHandle,
           targetId: node.id,
           targetHandle: "in",
-        },
+        }),
+        sourceId: edge.sourceId,
+        sourceHandle: edge.sourceHandle,
+        targetId: node.id,
+        targetHandle: "in",
+      };
+      if (node.kind === "return") {
+        return [incomingEdge];
+      }
+
+      const continuationHandle = defaultFlowContinuationHandle(node.kind);
+      return [
+        incomingEdge,
         {
           id: flowConnectionId({
             sourceId: node.id,
-            sourceHandle: defaultFlowContinuationHandle(node.kind),
+            sourceHandle: continuationHandle,
             targetId: edge.targetId,
             targetHandle: edge.targetHandle,
           }),
           sourceId: node.id,
-          sourceHandle: defaultFlowContinuationHandle(node.kind),
+          sourceHandle: continuationHandle,
           targetId: edge.targetId,
           targetHandle: edge.targetHandle,
         },
@@ -248,7 +256,7 @@ type FlowConnection = {
 };
 
 type FlowInputBindingConnection = {
-  functionInputId: string;
+  sourceId: string;
   slotId: string;
 };
 
@@ -350,8 +358,10 @@ export function validateFlowInputBindingConnection(
   document: FlowGraphDocument,
   connection: FlowInputBindingConnection,
 ): { ok: true } | { ok: false; message: string } {
-  if (!(document.functionInputs ?? []).some((input) => input.id === connection.functionInputId)) {
-    return { ok: false, message: "Unable to find the selected function input." };
+  const sourceExists = (document.functionInputs ?? []).some((input) => input.id === connection.sourceId)
+    || (document.valueSources ?? []).some((source) => source.id === connection.sourceId);
+  if (!sourceExists) {
+    return { ok: false, message: "Unable to find the selected value source." };
   }
   if (!(document.inputSlots ?? []).some((slot) => slot.id === connection.slotId)) {
     return { ok: false, message: "Unable to find the selected input slot." };
@@ -369,9 +379,11 @@ export function upsertFlowInputBinding(
     return document;
   }
 
+  const functionInput = (document.functionInputs ?? []).find((input) => input.id === connection.sourceId);
   const binding: FlowInputBinding = {
-    id: flowInputBindingId(connection.slotId, connection.functionInputId),
-    functionInputId: connection.functionInputId,
+    id: flowInputBindingId(connection.slotId, connection.sourceId),
+    sourceId: connection.sourceId,
+    ...(functionInput ? { functionInputId: functionInput.id } : {}),
     slotId: connection.slotId,
   };
   return {
@@ -425,13 +437,22 @@ export function removeFlowNodes(
       .filter((slot) => removable.has(slot.nodeId))
       .map((slot) => slot.id),
   );
+  const removedSourceIds = new Set(
+    (document.valueSources ?? [])
+      .filter((source) => removable.has(source.nodeId))
+      .map((source) => source.id),
+  );
 
   return {
     ...document,
     nodes: document.nodes.filter((node) => !removable.has(node.id)),
     edges: document.edges.filter((edge) => !removable.has(edge.sourceId) && !removable.has(edge.targetId)),
+    valueSources: (document.valueSources ?? []).filter((source) => !removable.has(source.nodeId)),
     inputSlots: (document.inputSlots ?? []).filter((slot) => !removable.has(slot.nodeId)),
-    inputBindings: (document.inputBindings ?? []).filter((binding) => !removedSlotIds.has(binding.slotId)),
+    inputBindings: (document.inputBindings ?? []).filter((binding) => (
+      !removedSlotIds.has(binding.slotId)
+      && !removedSourceIds.has(binding.sourceId)
+    )),
   };
 }
 
@@ -444,8 +465,33 @@ export function flowConnectionId(connection: {
   return `controls:${connection.sourceId}:${connection.sourceHandle}->${connection.targetId}:${connection.targetHandle}`;
 }
 
-export function flowInputBindingId(slotId: string, functionInputId: string) {
-  return `flowbinding:${slotId}->${functionInputId}`;
+export function flowReturnCompletionEdgeId(returnNodeId: string, exitNodeId: string) {
+  return flowConnectionId({
+    sourceId: returnNodeId,
+    sourceHandle: "exit",
+    targetId: exitNodeId,
+    targetHandle: "in",
+  });
+}
+
+export function withoutFlowReturnCompletionEdges(document: FlowGraphDocument): FlowGraphDocument {
+  const nodeById = new Map(document.nodes.map((node) => [node.id, node] as const));
+  const edges = document.edges.filter((edge) => {
+    const sourceNode = nodeById.get(edge.sourceId);
+    const targetNode = nodeById.get(edge.targetId);
+    return !(
+      sourceNode?.kind === "return"
+      && targetNode?.kind === "exit"
+      && edge.sourceHandle === "exit"
+      && edge.targetHandle === "in"
+      && edge.id === flowReturnCompletionEdgeId(edge.sourceId, edge.targetId)
+    );
+  });
+  return edges.length === document.edges.length ? document : { ...document, edges };
+}
+
+export function flowInputBindingId(slotId: string, sourceId: string) {
+  return `flowbinding:${slotId}->${sourceId}`;
 }
 
 export function flowDocumentsEqual(

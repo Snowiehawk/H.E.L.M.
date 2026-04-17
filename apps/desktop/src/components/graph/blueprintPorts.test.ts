@@ -365,6 +365,61 @@ describe("buildBlueprintPresentation", () => {
         }),
       ]),
     );
+    expect(returnPorts?.outputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "out:control:exit",
+          label: "exit",
+          kind: "control",
+        }),
+      ]),
+    );
+  });
+
+  it("exposes canonical local value sources as data output ports", () => {
+    const graph: GraphView = {
+      rootNodeId: "flowdoc:symbol:service:run:entry",
+      targetId: "symbol:service:run",
+      level: "flow",
+      truncated: false,
+      breadcrumbs: [],
+      focus: null,
+      nodes: [
+        {
+          id: "flowdoc:symbol:service:run:assign:0",
+          kind: "assign",
+          label: "current = value",
+          x: 0,
+          y: 0,
+          metadata: {
+            flow_visual: true,
+            flow_value_sources: [
+              {
+                source_id: "flowsource:flow:symbol:service:run:statement:0:current",
+                name: "current",
+                label: "current",
+                source_handle: "out:data:value-source:flowsource:flow:symbol:service:run:statement:0:current",
+              },
+            ],
+          },
+          availableActions: [],
+        },
+      ],
+      edges: [],
+    };
+
+    const presentation = buildBlueprintPresentation(graph);
+    const assignPorts = presentation.nodePorts.get("flowdoc:symbol:service:run:assign:0");
+
+    expect(assignPorts?.outputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "out:data:value-source:flowsource:flow:symbol:service:run:statement:0:current",
+          label: "current",
+          kind: "data",
+        }),
+      ]),
+    );
   });
 
   it("assigns distinct control handles for labeled and unlabeled split paths", () => {

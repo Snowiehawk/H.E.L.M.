@@ -100,9 +100,17 @@ export interface FlowInputSlot {
   required: boolean;
 }
 
+export interface FlowValueSource {
+  id: string;
+  nodeId: string;
+  name: string;
+  label: string;
+}
+
 export interface FlowInputBinding {
   id: string;
-  functionInputId: string;
+  sourceId: string;
+  functionInputId?: string;
   slotId: string;
 }
 
@@ -112,7 +120,9 @@ export interface FlowGraphDocument {
   qualname: string;
   nodes: FlowGraphNode[];
   edges: FlowGraphEdge[];
+  valueModelVersion?: number | null;
   functionInputs?: FlowFunctionInput[];
+  valueSources?: FlowValueSource[];
   inputSlots?: FlowInputSlot[];
   inputBindings?: FlowInputBinding[];
   syncState: FlowSyncState;

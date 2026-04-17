@@ -18,6 +18,7 @@ import {
   establishFlowDraftDocument,
   parseFunctionInputSourceHandle,
   parseInputSlotTargetHandle,
+  parseValueSourceHandle,
   projectFlowDraftGraph,
 } from "../components/graph/flowDraftGraph";
 import {
@@ -2033,21 +2034,26 @@ export function WorkspaceScreen() {
       return undefined;
     }
 
-    const functionInputId =
+    const sourceId =
       parseFunctionInputSourceHandle(connection.sourceHandle)
+      ?? parseValueSourceHandle(connection.sourceHandle)
       ?? (() => {
         const sourceNode = effectiveGraph?.nodes.find((node) => node.id === connection.sourceId);
         const value =
-          sourceNode?.metadata.function_input_id
+          sourceNode?.metadata.source_id
+          ?? sourceNode?.metadata.sourceId
+          ?? sourceNode?.metadata.value_source_id
+          ?? sourceNode?.metadata.valueSourceId
+          ?? sourceNode?.metadata.function_input_id
           ?? sourceNode?.metadata.functionInputId;
         return typeof value === "string" ? value : undefined;
       })();
     const slotId = parseInputSlotTargetHandle(connection.targetHandle);
-    if (!functionInputId || !slotId) {
+    if (!sourceId || !slotId) {
       return undefined;
     }
     return {
-      functionInputId,
+      sourceId,
       slotId,
     };
   }, [activeFlowDraft, effectiveGraph?.nodes]);
@@ -2110,7 +2116,7 @@ export function WorkspaceScreen() {
         transform: (document) => upsertFlowInputBinding(document, inputBindingConnection),
       }).catch((reason) => {
         const message =
-          reason instanceof Error ? reason.message : "Unable to bind the selected function input.";
+          reason instanceof Error ? reason.message : "Unable to bind the selected value source.";
         setCreateModeError(message);
       });
       return;
@@ -2161,7 +2167,7 @@ export function WorkspaceScreen() {
         transform: (document) => upsertFlowInputBinding(document, inputBindingConnection, previousBindingId),
       }).catch((reason) => {
         const message =
-          reason instanceof Error ? reason.message : "Unable to reconnect the selected function input.";
+          reason instanceof Error ? reason.message : "Unable to reconnect the selected value source.";
         setCreateModeError(message);
       });
       return;
@@ -2198,7 +2204,7 @@ export function WorkspaceScreen() {
         transform: (document) => removeFlowInputBindings(document, [bindingId]),
       }).catch((reason) => {
         const message =
-          reason instanceof Error ? reason.message : "Unable to disconnect the selected function input.";
+          reason instanceof Error ? reason.message : "Unable to disconnect the selected value binding.";
         setCreateModeError(message);
       });
       return;
@@ -2231,7 +2237,12 @@ export function WorkspaceScreen() {
               nextDocument = removeFlowNodes(nextDocument, selection.nodeIds);
             }
             if (selection.edgeIds.length) {
-              nextDocument = removeFlowEdges(nextDocument, selection.edgeIds);
+              const dataBindingIds = selection.edgeIds
+                .filter((edgeId) => edgeId.startsWith("data:"))
+                .map((edgeId) => edgeId.slice("data:".length));
+              const controlEdgeIds = selection.edgeIds.filter((edgeId) => !edgeId.startsWith("data:"));
+              nextDocument = removeFlowInputBindings(nextDocument, dataBindingIds);
+              nextDocument = removeFlowEdges(nextDocument, controlEdgeIds);
             }
             return nextDocument;
           },

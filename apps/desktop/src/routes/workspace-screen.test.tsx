@@ -28,11 +28,17 @@ const BUILD_GRAPH_SUMMARY_GRAPH_PARAM_ID = `flow:${BUILD_GRAPH_SUMMARY_SYMBOL_ID
 const BUILD_GRAPH_SUMMARY_TOP_N_PARAM_ID = `flow:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:param:top_n`;
 const BUILD_GRAPH_SUMMARY_ASSIGN_MODULES_ID = `flow:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:assign:modules`;
 const BUILD_GRAPH_SUMMARY_CALL_RANK_ID = `flow:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:call:rank`;
+const BUILD_GRAPH_SUMMARY_RETURN_ID = `flow:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:return`;
+const BUILD_GRAPH_SUMMARY_EXIT_ID = `flow:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:exit`;
 const BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID = `flowinput:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:graph`;
 const BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID = `flowinput:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:top_n`;
 const BUILD_GRAPH_SUMMARY_GRAPH_SLOT_ID = `flowslot:${BUILD_GRAPH_SUMMARY_ASSIGN_MODULES_ID}:graph`;
 const BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID = `flowslot:${BUILD_GRAPH_SUMMARY_CALL_RANK_ID}:top_n`;
+const BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SOURCE_ID = `flowsource:${BUILD_GRAPH_SUMMARY_ASSIGN_MODULES_ID}:module_summaries`;
+const BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SLOT_ID = `flowslot:${BUILD_GRAPH_SUMMARY_CALL_RANK_ID}:module_summaries`;
+const BUILD_GRAPH_SUMMARY_RETURN_MODULE_SUMMARIES_SLOT_ID = `flowslot:${BUILD_GRAPH_SUMMARY_RETURN_ID}:module_summaries`;
 const BUILD_GRAPH_SUMMARY_RANK_TO_RETURN_EDGE_ID = "controls:flow:symbol:helm.ui.api:build_graph_summary:call:rank:next->flow:symbol:helm.ui.api:build_graph_summary:return:in";
+const BUILD_GRAPH_SUMMARY_RETURN_COMPLETION_EDGE_ID = `controls:${BUILD_GRAPH_SUMMARY_RETURN_ID}:exit->${BUILD_GRAPH_SUMMARY_EXIT_ID}:in`;
 const EMPTY_STORED_GRAPH_LAYOUT: StoredGraphLayout = {
   nodes: {},
   reroutes: [],
@@ -253,6 +259,10 @@ function flowInputSourceHandle(functionInputId: string) {
   return `out:data:function-input:${functionInputId}`;
 }
 
+function flowValueSourceHandle(sourceId: string) {
+  return `out:data:value-source:${sourceId}`;
+}
+
 function flowInputSlotTargetHandle(slotId: string) {
   return `in:data:input-slot:${slotId}`;
 }
@@ -268,11 +278,12 @@ function expectFlowBinding(
 ) {
   expect(document?.inputBindings).toEqual(
     expect.arrayContaining([
-      {
+      expect.objectContaining({
         id: flowInputBindingId(slotId, functionInputId),
         slotId,
+        sourceId: functionInputId,
         functionInputId,
-      },
+      }),
     ]),
   );
 }
@@ -857,7 +868,7 @@ describe("WorkspaceScreen", () => {
       { initialEntries: ["/workspace"] },
     );
 
-    render(
+    const rendered = render(
       <AppProviders adapter={adapter}>
         <RouterProvider router={router} />
       </AppProviders>,
@@ -1091,7 +1102,7 @@ describe("WorkspaceScreen", () => {
       { initialEntries: ["/workspace"] },
     );
 
-    render(
+    const rendered = render(
       <AppProviders adapter={adapter}>
         <RouterProvider router={router} />
       </AppProviders>,
@@ -1130,7 +1141,7 @@ describe("WorkspaceScreen", () => {
       { initialEntries: ["/workspace"] },
     );
 
-    render(
+    const rendered = render(
       <AppProviders adapter={adapter}>
         <RouterProvider router={router} />
       </AppProviders>,
@@ -1980,6 +1991,283 @@ describe("WorkspaceScreen", () => {
     await setFlowInputMode(user, "param_nodes");
     expect(await screen.findByTestId(`rf__node-${BUILD_GRAPH_SUMMARY_GRAPH_PARAM_ID}`)).toBeInTheDocument();
     expect(await findTestIdElementByFragments("graph-edge-hitarea:", [rewiredBindingId])).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("rewires local value-source bindings and preserves them across refetch", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    useUiStore.setState({ flowInputDisplayMode: "entry" });
+    const adapter = new SyncAwareMockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const flowViewSpy = vi.spyOn(adapter, "getFlowView");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await openBuildGraphSummaryFlow(user);
+    await setFlowInputMode(user, "entry");
+
+    expect(await findFlowHandle(
+      BUILD_GRAPH_SUMMARY_ASSIGN_MODULES_ID,
+      flowValueSourceHandle(BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SOURCE_ID),
+    )).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      flowInputBindingId(
+        BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SLOT_ID,
+        BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SOURCE_ID,
+      ),
+    ])).toBeInTheDocument();
+
+    const replaceCallsBeforeRewire = editSpy.mock.calls.length;
+    dragConnectionToHandle({
+      dragStart: await findFlowHandle(
+        BUILD_GRAPH_SUMMARY_ASSIGN_MODULES_ID,
+        flowValueSourceHandle(BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SOURCE_ID),
+      ),
+      targetHandle: await findFlowHandle(
+        BUILD_GRAPH_SUMMARY_CALL_RANK_ID,
+        flowInputSlotTargetHandle(BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID),
+      ),
+    });
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeRewire),
+    );
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expect(replaceRequest?.flowGraph?.inputBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: flowInputBindingId(
+            BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID,
+            BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SOURCE_ID,
+          ),
+          sourceId: BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SOURCE_ID,
+          slotId: BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID,
+        }),
+      ]),
+    );
+    expect(replaceRequest?.flowGraph?.inputBindings?.some((binding) => (
+      binding.slotId === BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID
+      && binding.sourceId === BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID
+    ))).toBe(false);
+
+    await emitSameSymbolRefetch(adapter, flowViewSpy, [
+      BUILD_GRAPH_SUMMARY_ASSIGN_MODULES_ID,
+      BUILD_GRAPH_SUMMARY_CALL_RANK_ID,
+    ]);
+
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      flowInputBindingId(
+        BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID,
+        BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SOURCE_ID,
+      ),
+    ])).toBeInTheDocument();
+    const refetchedDocument = (await adapter.getFlowView(BUILD_GRAPH_SUMMARY_SYMBOL_ID)).flowState?.document;
+    expect(refetchedDocument?.inputBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceId: BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SOURCE_ID,
+          slotId: BUILD_GRAPH_SUMMARY_TOP_N_SLOT_ID,
+        }),
+      ]),
+    );
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("deletes selected local value-source bindings and keeps the slot reconnectable", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    useUiStore.setState({ flowInputDisplayMode: "entry" });
+    const adapter = new SyncAwareMockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const flowViewSpy = vi.spyOn(adapter, "getFlowView");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const { flowGraphPanel } = await openBuildGraphSummaryFlow(user);
+    await waitFor(() => expect(flowViewSpy).toHaveBeenCalled());
+
+    const bindingId = flowInputBindingId(
+      BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SLOT_ID,
+      BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SOURCE_ID,
+    );
+    fireEvent.click(await findTestIdElementByFragments("graph-edge-hitarea:", [bindingId]));
+    flowGraphPanel.focus();
+
+    const replaceCallsBeforeDelete = editSpy.mock.calls.length;
+    fireEvent.keyDown(flowGraphPanel, { key: "Delete" });
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeDelete),
+    );
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expect(replaceRequest).toEqual(expect.objectContaining({
+      kind: "replace_flow_graph",
+      targetId: BUILD_GRAPH_SUMMARY_SYMBOL_ID,
+    }));
+    expect(replaceRequest?.flowGraph?.inputBindings?.some((binding) => binding.id === bindingId)).toBe(false);
+    expect(replaceRequest?.flowGraph?.inputSlots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SLOT_ID,
+        }),
+      ]),
+    );
+
+    await emitSameSymbolRefetch(adapter, flowViewSpy, [
+      BUILD_GRAPH_SUMMARY_ASSIGN_MODULES_ID,
+      BUILD_GRAPH_SUMMARY_CALL_RANK_ID,
+    ]);
+
+    expect(queryTestIdElementByFragments("graph-edge-hitarea:", [bindingId])).toBeUndefined();
+    expect(await findFlowHandle(
+      BUILD_GRAPH_SUMMARY_CALL_RANK_ID,
+      flowInputSlotTargetHandle(BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SLOT_ID),
+    )).toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("shows return value inputs plus derived completion without persisting the completion edge", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    useUiStore.setState({ flowInputDisplayMode: "entry" });
+    const adapter = new SyncAwareMockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const flowViewSpy = vi.spyOn(adapter, "getFlowView");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    const rendered = render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const { flowGraphPanel } = await openBuildGraphSummaryFlow(user);
+    await waitFor(() => expect(flowViewSpy).toHaveBeenCalled());
+
+    const returnValueBindingId = flowInputBindingId(
+      BUILD_GRAPH_SUMMARY_RETURN_MODULE_SUMMARIES_SLOT_ID,
+      BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SOURCE_ID,
+    );
+    expect(await findFlowHandle(
+      BUILD_GRAPH_SUMMARY_RETURN_ID,
+      flowInputSlotTargetHandle(BUILD_GRAPH_SUMMARY_RETURN_MODULE_SUMMARIES_SLOT_ID),
+    )).toBeInTheDocument();
+    expect(await findFlowHandle(
+      BUILD_GRAPH_SUMMARY_RETURN_ID,
+      "out:control:exit",
+    )).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      returnValueBindingId,
+    ])).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      BUILD_GRAPH_SUMMARY_RETURN_COMPLETION_EDGE_ID,
+    ])).toBeInTheDocument();
+
+    const document = (await adapter.getFlowView(BUILD_GRAPH_SUMMARY_SYMBOL_ID)).flowState?.document;
+    expect(document?.inputBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: returnValueBindingId,
+          sourceId: BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SOURCE_ID,
+          slotId: BUILD_GRAPH_SUMMARY_RETURN_MODULE_SUMMARIES_SLOT_ID,
+        }),
+      ]),
+    );
+    expect(document?.edges.some((edge) => edge.id === BUILD_GRAPH_SUMMARY_RETURN_COMPLETION_EDGE_ID)).toBe(false);
+
+    const replaceCallsBeforeRewire = editSpy.mock.calls.length;
+    dragConnectionToHandle({
+      dragStart: await findFlowHandle(
+        BUILD_GRAPH_SUMMARY_ENTRY_ID,
+        flowInputSourceHandle(BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID),
+      ),
+      targetHandle: await findFlowHandle(
+        BUILD_GRAPH_SUMMARY_RETURN_ID,
+        flowInputSlotTargetHandle(BUILD_GRAPH_SUMMARY_RETURN_MODULE_SUMMARIES_SLOT_ID),
+      ),
+    });
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeRewire),
+    );
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expectFlowBinding(
+      replaceRequest?.flowGraph,
+      BUILD_GRAPH_SUMMARY_RETURN_MODULE_SUMMARIES_SLOT_ID,
+      BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID,
+    );
+    expect(replaceRequest?.flowGraph?.inputBindings?.some((binding) => (
+      binding.slotId === BUILD_GRAPH_SUMMARY_RETURN_MODULE_SUMMARIES_SLOT_ID
+      && binding.sourceId === BUILD_GRAPH_SUMMARY_MODULE_SUMMARIES_SOURCE_ID
+    ))).toBe(false);
+    expect(replaceRequest?.flowGraph?.edges.some((edge) => edge.id === BUILD_GRAPH_SUMMARY_RETURN_COMPLETION_EDGE_ID)).toBe(false);
+
+    const rewiredReturnBindingId = flowInputBindingId(
+      BUILD_GRAPH_SUMMARY_RETURN_MODULE_SUMMARIES_SLOT_ID,
+      BUILD_GRAPH_SUMMARY_TOP_N_INPUT_ID,
+    );
+    await emitSameSymbolRefetch(adapter, flowViewSpy, [
+      BUILD_GRAPH_SUMMARY_RETURN_ID,
+      BUILD_GRAPH_SUMMARY_EXIT_ID,
+    ]);
+
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      rewiredReturnBindingId,
+    ])).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      BUILD_GRAPH_SUMMARY_RETURN_COMPLETION_EDGE_ID,
+    ])).toBeInTheDocument();
+
+    const replaceCallsBeforeDelete = editSpy.mock.calls.length;
+    fireEvent.click(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      BUILD_GRAPH_SUMMARY_RETURN_COMPLETION_EDGE_ID,
+    ]));
+    flowGraphPanel.focus();
+    fireEvent.keyDown(flowGraphPanel, { key: "Delete" });
+
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      BUILD_GRAPH_SUMMARY_RETURN_COMPLETION_EDGE_ID,
+    ])).toBeInTheDocument();
+    expect(editSpy.mock.calls.length).toBe(replaceCallsBeforeDelete);
+
+    rendered.unmount();
+    resetStore();
+    useUiStore.setState({ flowInputDisplayMode: "entry" });
+    const reopenedRouter = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={reopenedRouter} />
+      </AppProviders>,
+    );
+
+    const reopenedUser = userEvent.setup();
+    await openBuildGraphSummaryFlow(reopenedUser);
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      rewiredReturnBindingId,
+    ])).toBeInTheDocument();
+    expect(await findTestIdElementByFragments("graph-edge-hitarea:", [
+      BUILD_GRAPH_SUMMARY_RETURN_COMPLETION_EDGE_ID,
+    ])).toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("keeps a failed flow draft save visible and recoverable", async () => {

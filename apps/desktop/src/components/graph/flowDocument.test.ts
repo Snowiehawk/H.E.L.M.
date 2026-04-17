@@ -8,6 +8,7 @@ import {
   removeFlowEdges,
   removeFlowInputBindings,
   removeFlowNodes,
+  flowReturnCompletionEdgeId,
   upsertFlowInputBinding,
   upsertFlowConnection,
   validateFlowConnection,
@@ -124,6 +125,41 @@ describe("flowDocument logical helpers", () => {
     ]);
   });
 
+  it("keeps return completion edges derived instead of authorable", () => {
+    const returnDocument: FlowGraphDocument = {
+      ...baseDocument,
+      nodes: [
+        { id: "flowdoc:symbol:workflow:run:entry", kind: "entry", payload: {} },
+        { id: "flowdoc:symbol:workflow:run:return:0", kind: "return", payload: { expression: "value" } },
+        { id: "flowdoc:symbol:workflow:run:exit", kind: "exit", payload: {} },
+      ],
+      edges: [
+        {
+          id: "controls:flowdoc:symbol:workflow:run:entry:start->flowdoc:symbol:workflow:run:return:0:in",
+          sourceId: "flowdoc:symbol:workflow:run:entry",
+          sourceHandle: "start",
+          targetId: "flowdoc:symbol:workflow:run:return:0",
+          targetHandle: "in",
+        },
+      ],
+    };
+    const completionEdgeId = flowReturnCompletionEdgeId(
+      "flowdoc:symbol:workflow:run:return:0",
+      "flowdoc:symbol:workflow:run:exit",
+    );
+
+    expect(validateFlowConnection(returnDocument, {
+      sourceId: "flowdoc:symbol:workflow:run:return:0",
+      sourceHandle: "exit",
+      targetId: "flowdoc:symbol:workflow:run:exit",
+      targetHandle: "in",
+    })).toEqual({
+      ok: false,
+      message: "That control output is not available for the selected source node.",
+    });
+    expect(removeFlowEdges(returnDocument, [completionEdgeId])).toEqual(returnDocument);
+  });
+
   it("removes selected authored nodes and control edges while protecting entry nodes", () => {
     const withoutNode = removeFlowNodes(baseDocument, [
       "flowdoc:symbol:workflow:run:call:0",
@@ -198,18 +234,20 @@ describe("flowDocument logical helpers", () => {
         {
           id: "flowbinding:flowslot:flow:symbol:workflow:run:statement:0:a->flowinput:symbol:workflow:run:a",
           slotId: "flowslot:flow:symbol:workflow:run:statement:0:a",
+          sourceId: "flowinput:symbol:workflow:run:a",
           functionInputId: "flowinput:symbol:workflow:run:a",
         },
         {
           id: "flowbinding:flowslot:flow:symbol:workflow:run:statement:1:a->flowinput:symbol:workflow:run:a",
           slotId: "flowslot:flow:symbol:workflow:run:statement:1:a",
+          sourceId: "flowinput:symbol:workflow:run:a",
           functionInputId: "flowinput:symbol:workflow:run:a",
         },
       ],
     };
 
     expect(validateFlowInputBindingConnection(document, {
-      functionInputId: "flowinput:symbol:workflow:run:b",
+      sourceId: "flowinput:symbol:workflow:run:b",
       slotId: "flowslot:flow:symbol:workflow:run:statement:0:a",
     })).toEqual({ ok: true });
 
@@ -221,12 +259,13 @@ describe("flowDocument logical helpers", () => {
       {
         id: "flowbinding:flowslot:flow:symbol:workflow:run:statement:1:a->flowinput:symbol:workflow:run:a",
         slotId: "flowslot:flow:symbol:workflow:run:statement:1:a",
+        sourceId: "flowinput:symbol:workflow:run:a",
         functionInputId: "flowinput:symbol:workflow:run:a",
       },
     ]);
 
     const reconnected = upsertFlowInputBinding(withoutAssignBinding, {
-      functionInputId: "flowinput:symbol:workflow:run:b",
+      sourceId: "flowinput:symbol:workflow:run:b",
       slotId: "flowslot:flow:symbol:workflow:run:statement:0:a",
     });
 
@@ -234,13 +273,66 @@ describe("flowDocument logical helpers", () => {
       {
         id: "flowbinding:flowslot:flow:symbol:workflow:run:statement:1:a->flowinput:symbol:workflow:run:a",
         slotId: "flowslot:flow:symbol:workflow:run:statement:1:a",
+        sourceId: "flowinput:symbol:workflow:run:a",
         functionInputId: "flowinput:symbol:workflow:run:a",
       },
       {
         id: "flowbinding:flowslot:flow:symbol:workflow:run:statement:0:a->flowinput:symbol:workflow:run:b",
         slotId: "flowslot:flow:symbol:workflow:run:statement:0:a",
+        sourceId: "flowinput:symbol:workflow:run:b",
         functionInputId: "flowinput:symbol:workflow:run:b",
       },
     ]);
+  });
+
+  it("updates and deletes local value-source bindings independently of control edges", () => {
+    const sourceId = "flowsource:flow:symbol:workflow:run:statement:0:current";
+    const slotId = "flowslot:flow:symbol:workflow:run:statement:1:current";
+    const document: FlowGraphDocument = {
+      ...baseDocument,
+      nodes: [
+        { id: "flowdoc:symbol:workflow:run:entry", kind: "entry", payload: {} },
+        { id: "flowdoc:symbol:workflow:run:assign:0", kind: "assign", payload: { source: "current = prepare()" } },
+        { id: "flowdoc:symbol:workflow:run:return:1", kind: "return", payload: { expression: "current" } },
+        { id: "flowdoc:symbol:workflow:run:exit", kind: "exit", payload: {} },
+      ],
+      valueSources: [
+        {
+          id: sourceId,
+          nodeId: "flowdoc:symbol:workflow:run:assign:0",
+          name: "current",
+          label: "current",
+        },
+      ],
+      inputSlots: [
+        {
+          id: slotId,
+          nodeId: "flowdoc:symbol:workflow:run:return:1",
+          slotKey: "current",
+          label: "current",
+          required: true,
+        },
+      ],
+      inputBindings: [],
+    };
+
+    expect(validateFlowInputBindingConnection(document, {
+      sourceId,
+      slotId,
+    })).toEqual({ ok: true });
+
+    const connected = upsertFlowInputBinding(document, { sourceId, slotId });
+    expect(connected.inputBindings).toEqual([
+      {
+        id: `flowbinding:${slotId}->${sourceId}`,
+        sourceId,
+        slotId,
+      },
+    ]);
+
+    const removedSourceNode = removeFlowNodes(connected, ["flowdoc:symbol:workflow:run:assign:0"]);
+    expect(removedSourceNode.valueSources).toEqual([]);
+    expect(removedSourceNode.inputSlots).toEqual(document.inputSlots);
+    expect(removedSourceNode.inputBindings).toEqual([]);
   });
 });

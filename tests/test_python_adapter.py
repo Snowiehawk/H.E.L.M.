@@ -10,6 +10,7 @@ from helm.editor.flow_model import (
     FlowModelDocument,
     FlowModelEdge,
     FlowModelNode,
+    flow_return_completion_edge_id,
     import_flow_document_from_function_source,
     read_flow_document,
     write_flow_document,
@@ -149,6 +150,20 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 {edge.metadata["path_key"] for edge in branch_edges},
                 {"true", "after"},
             )
+            exit_node = next(node.node_id for node in flow.nodes if node.kind.value == "exit")
+            return_nodes = [node.node_id for node in flow.nodes if node.kind.value == "return"]
+            self.assertEqual(len(return_nodes), 2)
+            self.assertEqual(
+                {
+                    (edge.source_id, edge.target_id, edge.metadata.get("flow_return_completion"))
+                    for edge in control_edges
+                    if edge.metadata.get("flow_return_completion")
+                },
+                {
+                    (return_node, exit_node, True)
+                    for return_node in return_nodes
+                },
+            )
             param_node = next(node for node in flow.nodes if node.node_id.endswith(":param:value"))
             self.assertEqual(param_node.metadata["source_start_line"], 1)
             self.assertEqual(param_node.metadata["source_end_line"], 1)
@@ -258,6 +273,20 @@ class PythonRepoAdapterTests(unittest.TestCase):
                     edge.kind.value == "data"
                     and edge.source_id == "flow:symbol:service:run:param:value"
                     and edge.target_id == "flowdoc:symbol:service:run:return:draft"
+                )
+                for edge in flow.edges
+            )
+            exit_node = next(node.node_id for node in flow.nodes if node.kind.value == "exit")
+            self.assertTrue(
+                any(
+                    edge.kind.value == "controls"
+                    and edge.source_id == "flowdoc:symbol:service:run:return:draft"
+                    and edge.target_id == exit_node
+                    and edge.edge_id == flow_return_completion_edge_id(
+                        "flowdoc:symbol:service:run:return:draft",
+                        exit_node,
+                    )
+                    and edge.metadata.get("flow_return_completion") is True
                 )
                 for edge in flow.edges
             )
@@ -381,6 +410,93 @@ class PythonRepoAdapterTests(unittest.TestCase):
             assert stored is not None
             self.assertEqual(stored.input_slots, ())
             self.assertEqual(stored.input_bindings, ())
+
+    def test_flow_view_projects_local_value_sources_as_canonical_bindings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "def run(value):\n"
+                "    current = value + 1\n"
+                "    return current\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            adapter = PythonRepoAdapter.scan(root)
+            flow = adapter.get_flow_view("symbol:service:run")
+
+            document = flow.flow_state["document"] if flow.flow_state else None
+            self.assertIsNotNone(document)
+            assert document is not None
+            self.assertEqual(document["value_model_version"], 1)
+            self.assertEqual(
+                {source["name"] for source in document["value_sources"]},
+                {"current"},
+            )
+            self.assertTrue(
+                any(
+                    binding["source_id"].startswith("flowsource:")
+                    and binding["slot_id"].endswith(":current")
+                    for binding in document["input_bindings"]
+                )
+            )
+            self.assertTrue(
+                any(
+                    edge.kind.value == "data"
+                    and edge.metadata.get("source_id", "").startswith("flowsource:")
+                    and edge.metadata.get("slot_id", "").endswith(":current")
+                    for edge in flow.edges
+                )
+            )
+            assign_node = next(node for node in flow.nodes if node.kind.value == "assign")
+            self.assertEqual(
+                assign_node.metadata["flow_value_sources"][0]["name"],
+                "current",
+            )
+
+    def test_flow_view_preserves_prompt2_removed_bindings_when_backfilling_value_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "def run(value):\n"
+                "    current = value + 1\n"
+                "    return current\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:run",
+                relative_path="service.py",
+                qualname="run",
+                module_source=source,
+            )
+            value_slot_ids = {
+                slot.slot_id
+                for slot in imported.input_slots
+                if slot.slot_key == "value"
+            }
+            prompt2_document = replace(
+                imported,
+                value_model_version=None,
+                value_sources=(),
+                input_bindings=tuple(
+                    binding
+                    for binding in imported.input_bindings
+                    if binding.slot_id not in value_slot_ids
+                ),
+            )
+            write_flow_document(root, prompt2_document)
+
+            adapter = PythonRepoAdapter.scan(root)
+            flow = adapter.get_flow_view("symbol:service:run")
+
+            document = flow.flow_state["document"] if flow.flow_state else None
+            self.assertIsNotNone(document)
+            assert document is not None
+            self.assertEqual(document["value_model_version"], 1)
+            self.assertTrue(document["value_sources"])
+            self.assertFalse(
+                any(binding["slot_id"] in value_slot_ids for binding in document["input_bindings"])
+            )
 
     def test_flow_view_backfills_method_inputs_for_legacy_persisted_documents(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

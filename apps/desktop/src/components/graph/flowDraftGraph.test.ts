@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FlowGraphDocument, GraphView } from "../../lib/adapter";
 import { flowInputBindingEdgeId, inputSlotTargetHandle, projectFlowDraftGraph } from "./flowDraftGraph";
+import { flowReturnCompletionEdgeId } from "./flowDocument";
 
 describe("flowDraftGraph", () => {
   it("backfills legacy function input bindings onto draft nodes through indexedNodeId", () => {
@@ -128,6 +129,7 @@ describe("flowDraftGraph", () => {
     expect(paramMode.flowState?.document?.inputBindings).toEqual([
       expect.objectContaining({
         id: bindingId,
+        sourceId: "flowinput:symbol:workflow:run:value",
         functionInputId: "flowinput:symbol:workflow:run:value",
         slotId: "flowslot:flow:symbol:workflow:run:statement:0:value",
       }),
@@ -287,11 +289,13 @@ describe("flowDraftGraph", () => {
         {
           id: "flowbinding:flowslot:flow:symbol:calculator:add:statement:0:a->flowinput:symbol:calculator:add:a",
           slotId: "flowslot:flow:symbol:calculator:add:statement:0:a",
+          sourceId: "flowinput:symbol:calculator:add:a",
           functionInputId: "flowinput:symbol:calculator:add:a",
         },
         {
           id: "flowbinding:flowslot:flow:symbol:calculator:add:statement:0:b->flowinput:symbol:calculator:add:b",
           slotId: "flowslot:flow:symbol:calculator:add:statement:0:b",
+          sourceId: "flowinput:symbol:calculator:add:b",
           functionInputId: "flowinput:symbol:calculator:add:b",
         },
       ],
@@ -374,5 +378,141 @@ describe("flowDraftGraph", () => {
     );
     expect(entryMode.edges.some((edge) => edge.id === "data:legacy-a")).toBe(false);
     expect(paramMode.edges.some((edge) => edge.id === "data:legacy-a")).toBe(false);
+    expect(entryMode.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: flowReturnCompletionEdgeId(
+            "flowdoc:symbol:calculator:add:return:0",
+            "flowdoc:symbol:calculator:add:exit",
+          ),
+          kind: "controls",
+          source: "flowdoc:symbol:calculator:add:return:0",
+          target: "flowdoc:symbol:calculator:add:exit",
+          label: "exit",
+          metadata: expect.objectContaining({
+            source_handle: "exit",
+            target_handle: "in",
+            flow_return_completion: true,
+          }),
+        }),
+      ]),
+    );
+    expect(entryMode.flowState?.document?.edges).toEqual(document.edges);
+  });
+
+  it("projects canonical local value bindings as editable source handles", () => {
+    const assignId = "flowdoc:symbol:calculator:add:assign:0";
+    const returnId = "flowdoc:symbol:calculator:add:return:1";
+    const sourceId = "flowsource:flow:symbol:calculator:add:statement:0:total";
+    const slotId = "flowslot:flow:symbol:calculator:add:statement:1:total";
+    const bindingId = `flowbinding:${slotId}->${sourceId}`;
+    const baseGraph: GraphView = {
+      rootNodeId: "flow:symbol:calculator:add:entry",
+      targetId: "symbol:calculator:add",
+      level: "flow",
+      nodes: [],
+      edges: [
+        {
+          id: "data:indexed-total",
+          kind: "data",
+          source: "flow:symbol:calculator:add:statement:0",
+          target: "flow:symbol:calculator:add:statement:1",
+          label: "total",
+          metadata: {},
+        },
+      ],
+      breadcrumbs: [],
+      focus: null,
+      truncated: false,
+    };
+    const document: FlowGraphDocument = {
+      symbolId: "symbol:calculator:add",
+      relativePath: "calculator.py",
+      qualname: "add",
+      editable: true,
+      syncState: "clean",
+      diagnostics: [],
+      sourceHash: null,
+      valueModelVersion: 1,
+      nodes: [
+        {
+          id: "flowdoc:symbol:calculator:add:entry",
+          kind: "entry",
+          payload: {},
+          indexedNodeId: "flow:symbol:calculator:add:entry",
+        },
+        {
+          id: assignId,
+          kind: "assign",
+          payload: { source: "total = a + b" },
+          indexedNodeId: "flow:symbol:calculator:add:statement:0",
+        },
+        {
+          id: returnId,
+          kind: "return",
+          payload: { expression: "total" },
+          indexedNodeId: "flow:symbol:calculator:add:statement:1",
+        },
+        {
+          id: "flowdoc:symbol:calculator:add:exit",
+          kind: "exit",
+          payload: {},
+        },
+      ],
+      edges: [],
+      functionInputs: [],
+      valueSources: [
+        {
+          id: sourceId,
+          nodeId: assignId,
+          name: "total",
+          label: "total",
+        },
+      ],
+      inputSlots: [
+        {
+          id: slotId,
+          nodeId: returnId,
+          slotKey: "total",
+          label: "total",
+          required: true,
+        },
+      ],
+      inputBindings: [
+        {
+          id: bindingId,
+          sourceId,
+          slotId,
+        },
+      ],
+    };
+
+    const projected = projectFlowDraftGraph(baseGraph, document, "entry");
+    const assignNode = projected.nodes.find((node) => node.id === assignId);
+
+    expect(assignNode?.metadata.flow_value_sources).toEqual([
+      expect.objectContaining({
+        source_id: sourceId,
+        source_handle: `out:data:value-source:${sourceId}`,
+      }),
+    ]);
+    expect(projected.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: flowInputBindingEdgeId(bindingId),
+          kind: "data",
+          source: assignId,
+          target: returnId,
+          metadata: expect.objectContaining({
+            binding_id: bindingId,
+            source_id: sourceId,
+            slot_id: slotId,
+            source_handle: `out:data:value-source:${sourceId}`,
+            target_handle: inputSlotTargetHandle(slotId),
+          }),
+        }),
+      ]),
+    );
+    expect(projected.edges.some((edge) => edge.id === "data:indexed-total")).toBe(false);
   });
 });
