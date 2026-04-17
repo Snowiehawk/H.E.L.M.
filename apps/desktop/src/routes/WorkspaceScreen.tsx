@@ -80,6 +80,7 @@ import type {
   GraphNodeKind,
   GraphView,
   OverviewModule,
+  RevealedSource,
   SearchResult,
   SourceRange,
   StructuralEditRequest,
@@ -134,6 +135,97 @@ function graphNodeSourceRange(node: GraphNodeDto | undefined): SourceRange | und
     endLine,
     startColumn,
     endColumn,
+  };
+}
+
+type InspectorSourceFetchMode = "editable" | "revealed";
+type InspectorSourceReason = "pinned" | "selected" | "flow-owner" | "module-context";
+
+interface InspectorSourceTarget {
+  targetId: string;
+  fetchMode: InspectorSourceFetchMode;
+  node?: GraphNodeDto;
+  nodeKind?: GraphNodeKind;
+  reason: InspectorSourceReason;
+}
+
+function inspectorSourceTargetForNode(
+  node: GraphNodeDto | undefined,
+  reason: InspectorSourceReason,
+): InspectorSourceTarget | undefined {
+  if (!node) {
+    return undefined;
+  }
+
+  if (isInspectableGraphNodeKind(node.kind)) {
+    return {
+      targetId: node.id,
+      fetchMode: "editable",
+      node,
+      nodeKind: node.kind,
+      reason,
+    };
+  }
+
+  if (node.kind === "module") {
+    return {
+      targetId: node.id,
+      fetchMode: "revealed",
+      node,
+      nodeKind: "module",
+      reason,
+    };
+  }
+
+  return undefined;
+}
+
+function inspectorSourceTargetForId(
+  targetId: string | undefined,
+  reason: InspectorSourceReason,
+  node?: GraphNodeDto,
+): InspectorSourceTarget | undefined {
+  if (!targetId) {
+    return undefined;
+  }
+
+  const nodeTarget = inspectorSourceTargetForNode(node, reason);
+  if (nodeTarget) {
+    return nodeTarget;
+  }
+
+  if (targetId.startsWith("symbol:")) {
+    return {
+      targetId,
+      fetchMode: "editable",
+      node,
+      nodeKind: node?.kind,
+      reason,
+    };
+  }
+
+  if (targetId.startsWith("module:")) {
+    return {
+      targetId,
+      fetchMode: "revealed",
+      node,
+      nodeKind: "module",
+      reason,
+    };
+  }
+
+  return undefined;
+}
+
+function readonlyEditableSourceFromReveal(
+  source: RevealedSource,
+  nodeKind: GraphNodeKind | undefined,
+): EditableNodeSource {
+  return {
+    ...source,
+    editable: false,
+    nodeKind: nodeKind ?? "module",
+    reason: "Full-file editing is not available in the inspector yet.",
   };
 }
 
@@ -879,16 +971,25 @@ export function WorkspaceScreen() {
     }
     return undefined;
   }, [selectedGraphNode]);
+  const currentModuleBreadcrumb = useMemo(
+    () => [...(effectiveGraph?.breadcrumbs ?? [])]
+      .reverse()
+      .find((breadcrumb) => breadcrumb.level === "module"),
+    [effectiveGraph?.breadcrumbs],
+  );
+  const currentModulePath = currentModuleBreadcrumb?.subtitle ?? undefined;
+  const currentModuleNode = useMemo(() => {
+    const moduleBreadcrumbId = currentModuleBreadcrumb?.nodeId;
+    if (!moduleBreadcrumbId) {
+      return undefined;
+    }
+    return effectiveGraph?.nodes.find((node) => node.id === moduleBreadcrumbId && node.kind === "module");
+  }, [currentModuleBreadcrumb?.nodeId, effectiveGraph]);
   const narrowWorkspaceLayout = workspaceLayoutWidth <= 920;
   const clampedExplorerSidebarWidth = useMemo(
     () => clampExplorerSidebarWidth(explorerSidebarWidth, workspaceLayoutWidth),
     [explorerSidebarWidth, workspaceLayoutWidth],
   );
-  const symbolQuery = useQuery({
-    queryKey: ["symbol", inspectorTargetId],
-    queryFn: () => adapter.getSymbol(inspectorTargetId as string),
-    enabled: Boolean(inspectorTargetId && inspectorTargetId.startsWith("symbol:")),
-  });
   const flowOwnerSymbolQuery = useQuery({
     queryKey: ["flow-owner-symbol", graphTargetId],
     queryFn: () => adapter.getSymbol(graphTargetId as string),
@@ -937,6 +1038,64 @@ export function WorkspaceScreen() {
     }
     return undefined;
   }, [effectiveGraph, inspectorPanelMode, inspectorSnapshot, inspectorTargetId, selectedGraphNode]);
+  const inspectorSelectionNode =
+    inspectorPanelMode !== "hidden" ? selectedGraphNode : undefined;
+  const inspectorSourceTarget = useMemo(() => {
+    const pinnedTarget = inspectorSourceTargetForId(
+      inspectorTargetId,
+      "pinned",
+      inspectorNode,
+    );
+    if (pinnedTarget) {
+      return pinnedTarget;
+    }
+
+    if (activeLevel === "module" || activeLevel === "symbol") {
+      const selectedTarget = inspectorSourceTargetForNode(selectedGraphNode, "selected");
+      if (selectedTarget) {
+        return selectedTarget;
+      }
+    }
+
+    if (activeLevel === "flow") {
+      const flowOwnerTarget = inspectorSourceTargetForId(
+        graphTargetId,
+        "flow-owner",
+        inspectorNode?.id === graphTargetId ? inspectorNode : undefined,
+      );
+      if (flowOwnerTarget) {
+        return flowOwnerTarget;
+      }
+    }
+
+    if (activeLevel === "module") {
+      const moduleContextTarget =
+        inspectorSourceTargetForNode(currentModuleNode, "module-context")
+        ?? inspectorSourceTargetForId(graphTargetId, "module-context", currentModuleNode);
+      if (moduleContextTarget?.fetchMode === "revealed") {
+        return moduleContextTarget;
+      }
+    }
+
+    return undefined;
+  }, [
+    activeLevel,
+    currentModuleNode,
+    graphTargetId,
+    inspectorNode,
+    inspectorTargetId,
+    selectedGraphNode,
+  ]);
+  const inspectorSymbolTargetId =
+    inspectorSourceTarget?.fetchMode === "editable"
+    && inspectorSourceTarget.targetId.startsWith("symbol:")
+      ? inspectorSourceTarget.targetId
+      : undefined;
+  const symbolQuery = useQuery({
+    queryKey: ["symbol", inspectorSymbolTargetId],
+    queryFn: () => adapter.getSymbol(inspectorSymbolTargetId as string),
+    enabled: Boolean(inspectorSymbolTargetId),
+  });
   const shouldShowInspectorDrawer = Boolean(repoSession && (graphTargetId || effectiveGraph));
   const effectiveInspectorDrawerMode =
     inspectorPanelMode === "expanded"
@@ -955,31 +1114,42 @@ export function WorkspaceScreen() {
   );
 
   const editableSourceQuery = useQuery({
-    queryKey: ["editable-node-source", repoSession?.id, inspectorNode?.id],
-    queryFn: () => adapter.getEditableNodeSource(inspectorNode?.id as string),
-    enabled: Boolean(
-      inspectorPanelMode !== "hidden"
-      && inspectorNode
-      && isInspectableGraphNodeKind(inspectorNode.kind),
-    ),
+    queryKey: [
+      "editable-node-source",
+      repoSession?.id,
+      inspectorSourceTarget?.fetchMode,
+      inspectorSourceTarget?.targetId,
+    ],
+    queryFn: async () => {
+      if (!inspectorSourceTarget) {
+        throw new Error("Inspector source target is not available.");
+      }
+
+      if (inspectorSourceTarget.fetchMode === "editable") {
+        return adapter.getEditableNodeSource(inspectorSourceTarget.targetId);
+      }
+
+      const source = await adapter.revealSource(inspectorSourceTarget.targetId);
+      return readonlyEditableSourceFromReveal(source, inspectorSourceTarget.nodeKind);
+    },
+    enabled: Boolean(inspectorPanelMode !== "hidden" && inspectorSourceTarget),
   });
   const effectiveEditableSource =
-    inspectorEditableSourceOverride?.targetId === inspectorNode?.id
+    inspectorEditableSourceOverride?.targetId === inspectorSourceTarget?.targetId
       ? inspectorEditableSourceOverride
       : editableSourceQuery.data;
   const inspectorSourcePath =
     effectiveEditableSource?.path
-    ?? graphNodeRelativePath(inspectorNode?.metadata, inspectorNode?.subtitle);
+    ?? graphNodeRelativePath(inspectorSourceTarget?.node?.metadata, inspectorSourceTarget?.node?.subtitle);
 
   useEffect(() => {
     if (
       inspectorEditableSourceOverride
-      && inspectorNode?.id
-      && inspectorEditableSourceOverride.targetId !== inspectorNode.id
+      && inspectorEditableSourceOverride.targetId !== inspectorSourceTarget?.targetId
     ) {
       setInspectorEditableSourceOverride(undefined);
     }
-  }, [inspectorEditableSourceOverride, inspectorNode?.id]);
+  }, [inspectorEditableSourceOverride, inspectorSourceTarget?.targetId]);
 
   const effectiveBackendStatus = backendStatusQuery.data
     ? {
@@ -989,7 +1159,7 @@ export function WorkspaceScreen() {
     : overviewQuery.data?.backend;
 
   useEffect(() => {
-    if (!inspectorDirty || !inspectorTargetId) {
+    if (!inspectorDirty || !effectiveEditableSource?.targetId) {
       setInspectorDraftStale(false);
       return;
     }
@@ -1002,7 +1172,7 @@ export function WorkspaceScreen() {
     ) {
       setInspectorDraftStale(false);
     }
-  }, [effectiveEditableSource?.content, inspectorDirty, inspectorTargetId]);
+  }, [effectiveEditableSource?.content, effectiveEditableSource?.targetId, inspectorDirty]);
 
   useEffect(() => adapter.subscribeWorkspaceSync((event) => {
     if (!repoSession?.path || event.repoPath !== repoSession.path) {
@@ -1380,7 +1550,7 @@ export function WorkspaceScreen() {
 
     if (editableTargetId) {
       return queryClient.fetchQuery({
-        queryKey: ["editable-node-source", repoSession?.id, editableTargetId],
+        queryKey: ["editable-node-source", repoSession?.id, "editable", editableTargetId],
         queryFn: () => adapter.getEditableNodeSource(editableTargetId),
       });
     }
@@ -1531,6 +1701,10 @@ export function WorkspaceScreen() {
     }
   }, [adapter]);
 
+  const inspectorDraftTargetId = effectiveEditableSource?.editable
+    ? effectiveEditableSource.targetId
+    : undefined;
+
   const clearSelectionState = useCallback(() => {
     selectNode(undefined);
     setInspectorTargetId(undefined);
@@ -1546,7 +1720,7 @@ export function WorkspaceScreen() {
 
   const requestClearSelectionState = useCallback(async () => {
     const draftContent = inspectorDraftContentRef.current;
-    if (inspectorDirty && inspectorTargetId && draftContent !== undefined) {
+    if (inspectorDirty && inspectorDraftTargetId && draftContent !== undefined) {
       if (inspectorDraftStale) {
         const shouldDiscard = window.confirm(
           "This draft is stale because the file changed outside H.E.L.M. Click OK to discard it or Cancel to keep editing.",
@@ -1560,7 +1734,7 @@ export function WorkspaceScreen() {
         );
         if (shouldSave) {
           try {
-            await saveInspectorDraftRef.current(inspectorTargetId, draftContent);
+            await saveInspectorDraftRef.current(inspectorDraftTargetId, draftContent);
           } catch {
             return false;
           }
@@ -1572,26 +1746,11 @@ export function WorkspaceScreen() {
     return true;
   }, [
     clearSelectionState,
+    inspectorDraftTargetId,
     inspectorDirty,
     inspectorDraftStale,
-    inspectorTargetId,
   ]);
 
-  const currentModulePath = useMemo(
-    () => [...(effectiveGraph?.breadcrumbs ?? [])]
-      .reverse()
-      .find((breadcrumb) => breadcrumb.level === "module")?.subtitle ?? undefined,
-    [effectiveGraph?.breadcrumbs],
-  );
-  const currentModuleNode = useMemo(() => {
-    const moduleBreadcrumbId = [...(effectiveGraph?.breadcrumbs ?? [])]
-      .reverse()
-      .find((breadcrumb) => breadcrumb.level === "module")?.nodeId;
-    if (!moduleBreadcrumbId) {
-      return undefined;
-    }
-    return effectiveGraph?.nodes.find((node) => node.id === moduleBreadcrumbId && node.kind === "module");
-  }, [effectiveGraph]);
   const structuralDestinationModulePaths = useMemo(
     () => overviewQuery.data?.modules.map((module) => module.relativePath) ?? [],
     [overviewQuery.data?.modules],
@@ -2260,7 +2419,7 @@ export function WorkspaceScreen() {
 
   const requestInspectorClose = useCallback(async () => {
     const draftContent = inspectorDraftContentRef.current;
-    if (inspectorDirty && inspectorTargetId && draftContent !== undefined) {
+    if (inspectorDirty && inspectorDraftTargetId && draftContent !== undefined) {
       if (inspectorDraftStale) {
         const shouldDiscard = window.confirm(
           "This draft is stale because the file changed outside H.E.L.M. Click OK to discard it or Cancel to keep editing.",
@@ -2274,7 +2433,7 @@ export function WorkspaceScreen() {
         );
         if (shouldSave) {
           try {
-            await handleSaveInspectorDraft(inspectorTargetId, draftContent);
+            await handleSaveInspectorDraft(inspectorDraftTargetId, draftContent);
           } catch {
             return false;
           }
@@ -2295,6 +2454,7 @@ export function WorkspaceScreen() {
     return true;
   }, [
     handleSaveInspectorDraft,
+    inspectorDraftTargetId,
     inspectorDirty,
     inspectorDraftStale,
     inspectorTargetId,
@@ -2667,6 +2827,7 @@ export function WorkspaceScreen() {
               isSearching={sidebarSearchQuery.isFetching}
               selectedFilePath={
                 selectedFilePath
+                ?? inspectorSourcePath
                 ?? graphNodeRelativePath(inspectorNode?.metadata, inspectorNode?.subtitle)
               }
               selectedNodeId={activeNodeId}
@@ -2864,8 +3025,9 @@ export function WorkspaceScreen() {
                   >
                     {inspectorPanelMode !== "hidden" ? (
                       <BlueprintInspector
-                        key={`inspector:${inspectorNode?.id ?? "none"}:${inspectorSourceVersion}`}
-                        selectedNode={inspectorNode}
+                        key={`inspector:${inspectorSelectionNode?.id ?? "none"}:${inspectorSourceTarget?.targetId ?? "no-source"}:${inspectorSourceVersion}`}
+                        selectedNode={inspectorSelectionNode}
+                        sourceContextNode={inspectorSourceTarget?.node}
                         symbol={symbolQuery.data}
                         editableSource={effectiveEditableSource}
                         editableSourceLoading={editableSourceQuery.isFetching}

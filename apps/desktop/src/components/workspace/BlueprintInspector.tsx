@@ -29,6 +29,7 @@ function graphActionById(
 
 export function BlueprintInspector({
   selectedNode,
+  sourceContextNode,
   moduleActionNode,
   destinationModulePaths,
   symbol,
@@ -47,6 +48,7 @@ export function BlueprintInspector({
   onClose,
 }: {
   selectedNode?: GraphNodeDto;
+  sourceContextNode?: GraphNodeDto;
   moduleActionNode?: GraphNodeDto;
   destinationModulePaths?: string[];
   symbol?: SymbolDetails;
@@ -76,21 +78,29 @@ export function BlueprintInspector({
   const [removeImportModule, setRemoveImportModule] = useState("");
   const previousEditableTargetIdRef = useRef<string | undefined>(undefined);
   const selectedRelativePath = relativePathForNode(selectedNode);
+  const contextRelativePath = relativePathForNode(sourceContextNode);
   const selectedSummary = selectionSummary(selectedNode);
+  const contextSummary =
+    selectionSummary(sourceContextNode)
+    ?? symbol?.qualname
+    ?? editableSource?.path;
+  const inspectorTitle =
+    selectedNode?.label
+    ?? sourceContextNode?.label
+    ?? symbol?.name
+    ?? editableSource?.title
+    ?? "Current context";
+  const inspectorKind = selectedNode?.kind ?? editableSource?.nodeKind ?? sourceContextNode?.kind;
   const moduleRelativePath = relativePathForNode(moduleActionNode);
-  const nodePath = editableSource?.path ?? selectedRelativePath ?? symbol?.filePath;
+  const nodePath = editableSource?.path ?? selectedRelativePath ?? contextRelativePath ?? symbol?.filePath;
   const sourceLanguage = inferInspectorLanguage({
     editablePath: editableSource?.path,
-    selectedRelativePath,
+    selectedRelativePath: selectedRelativePath ?? contextRelativePath,
     symbolFilePath: symbol?.filePath,
-    metadata: selectedNode?.metadata,
+    metadata: selectedNode?.metadata ?? sourceContextNode?.metadata,
   });
-  const editableNodeKind = editableSource?.nodeKind ?? selectedNode?.kind;
-  const canEditInline = Boolean(
-    selectedNode
-    && editableSource
-    && editableSource.editable,
-  );
+  const editableNodeKind = editableSource?.nodeKind ?? selectedNode?.kind ?? sourceContextNode?.kind;
+  const canEditInline = Boolean(editableSource?.editable);
   const dirty = canEditInline && draftSource !== editableSource?.content;
   const topLevel = metadataBoolean(selectedNode, "top_level");
   const renameAction = graphActionById(selectedNode, "rename_symbol");
@@ -114,6 +124,13 @@ export function BlueprintInspector({
     left.localeCompare(right),
   );
   const inspectorClassName = `pane pane--inspector blueprint-inspector${revealedSource ? " blueprint-inspector--with-revealed-source" : ""}`;
+  const sourceSectionVisible = Boolean(
+    editableSourceLoading
+    || editableSourceError
+    || editableSource
+    || (selectedNode && isInspectableGraphNodeKind(selectedNode.kind)),
+  );
+  const contextSectionVisible = Boolean(!selectedNode && (sourceContextNode || sourceSectionVisible || symbol));
 
   useEffect(() => {
     const nextTargetId = editableSource?.targetId;
@@ -153,7 +170,7 @@ export function BlueprintInspector({
   }, [moduleActionNode?.id]);
 
   const handleSave = async () => {
-    if (!selectedNode || !canEditInline) {
+    if (!editableSource || !canEditInline) {
       return;
     }
 
@@ -166,7 +183,7 @@ export function BlueprintInspector({
 
     setSourceError(null);
     try {
-      await onSaveSource(selectedNode.id, draftSource);
+      await onSaveSource(editableSource.targetId, draftSource);
     } catch (reason) {
       setSourceError(reason instanceof Error ? reason.message : "Unable to save source right now.");
     }
@@ -200,7 +217,7 @@ export function BlueprintInspector({
     }
   };
 
-  if (!selectedNode) {
+  if (!selectedNode && !contextSectionVisible) {
     return (
       <aside className="pane pane--inspector blueprint-inspector">
         <section className="sidebar-card blueprint-inspector__card">
@@ -230,12 +247,12 @@ export function BlueprintInspector({
         <div className="sidebar-card__header">
           <div>
             <span className="window-bar__eyebrow">Inspector</span>
-            <h2>{selectedNode.label}</h2>
+            <h2>{inspectorTitle}</h2>
           </div>
           <div className="blueprint-inspector__chrome">
-            <StatusPill tone="default">{selectedNode.kind}</StatusPill>
+            {inspectorKind ? <StatusPill tone="default">{inspectorKind}</StatusPill> : null}
             <button
-              {...helpTargetProps("inspector.toggle", { label: selectedNode.label })}
+              {...helpTargetProps("inspector.toggle", { label: inspectorTitle })}
               className="ghost-button"
               data-testid="blueprint-inspector-panel-collapse"
               type="button"
@@ -250,32 +267,52 @@ export function BlueprintInspector({
           <div className="info-card">
             <span className="info-card__label">Path</span>
             <strong>{nodePath ?? "No file path"}</strong>
-            {selectedSummary && selectedSummary !== nodePath ? <p>{selectedSummary}</p> : null}
+            {selectedNode && selectedSummary && selectedSummary !== nodePath ? <p>{selectedSummary}</p> : null}
+            {!selectedNode && contextSummary && contextSummary !== nodePath ? <p>{contextSummary}</p> : null}
           </div>
         </div>
       </section>
 
-      <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--selection">
-        <div className="section-header">
-          <h3>Selection</h3>
-          <span>{selectedNode.kind}</span>
-        </div>
-        <div className="info-card">
-          <strong>{selectedNode.label}</strong>
-          {selectedSummary ? <p>{selectedSummary}</p> : null}
-          {topLevel === false && editableSource?.editable === false ? (
-            <p className="muted-copy">This symbol is nested and not editable inline in v1.</p>
-          ) : null}
-        </div>
-        {symbol ? (
+      {selectedNode ? (
+        <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--selection">
+          <div className="section-header">
+            <h3>Selection</h3>
+            <span>{selectedNode.kind}</span>
+          </div>
           <div className="info-card">
-            <strong>{symbol.signature}</strong>
-            <p>{symbol.docSummary}</p>
+            <strong>{selectedNode.label}</strong>
+            {selectedSummary ? <p>{selectedSummary}</p> : null}
+            {topLevel === false && editableSource?.editable === false ? (
+              <p className="muted-copy">This symbol is nested and not editable inline in v1.</p>
+            ) : null}
           </div>
-        ) : null}
-      </section>
+          {symbol ? (
+            <div className="info-card">
+              <strong>{symbol.signature}</strong>
+              <p>{symbol.docSummary}</p>
+            </div>
+          ) : null}
+        </section>
+      ) : contextSectionVisible ? (
+        <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--selection">
+          <div className="section-header">
+            <h3>Current Context</h3>
+            <span>{inspectorKind ?? "source"}</span>
+          </div>
+          <div className="info-card">
+            <strong>{inspectorTitle}</strong>
+            {contextSummary ? <p>{contextSummary}</p> : null}
+          </div>
+          {symbol ? (
+            <div className="info-card">
+              <strong>{symbol.signature}</strong>
+              <p>{symbol.docSummary}</p>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
-      {isInspectableGraphNodeKind(selectedNode.kind) ? (
+      {sourceSectionVisible ? (
         <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--editor">
           <div className="section-header">
             <h3>{canEditInline ? "Declaration editor" : "Code details"}</h3>
@@ -296,7 +333,7 @@ export function BlueprintInspector({
 
           {editableSourceLoading ? (
             <div className="info-card">
-              <p>Loading declaration source…</p>
+              <p>Loading source...</p>
             </div>
           ) : editableSourceError ? (
             <div className="info-card blueprint-inspector__error-card">
@@ -366,7 +403,7 @@ export function BlueprintInspector({
           ) : editableSource ? (
             <>
               <InspectorCodeSurface
-                ariaLabel={`Read-only ${selectedNode.kind} source`}
+                ariaLabel={`Read-only ${editableNodeKind ?? "code"} source`}
                 className="blueprint-code-details"
                 dataTestId="inspector-readonly-source"
                 height="clamp(220px, 28vh, 320px)"
@@ -408,7 +445,7 @@ export function BlueprintInspector({
             </div>
           ) : null}
 
-          {(renameAction || deleteAction || moveAction) ? (
+          {selectedNode && (renameAction || deleteAction || moveAction) ? (
             <div className="blueprint-structural-actions__group">
               <div className="info-card blueprint-structural-actions__card">
                 <strong>Symbol actions</strong>

@@ -13,6 +13,7 @@ import {
   applyGroupedLayoutPositions,
   buildEdgeLabelOffsets,
   collapseDuplicateEdgeLabels,
+  isValidFlowCanvasConnection,
   mergeGroupsForSelection,
   normalizeStoredGroups,
   renameGraphGroup,
@@ -828,6 +829,109 @@ function renderGraphCanvas(overrides: Partial<Parameters<typeof GraphCanvas>[0]>
       {...overrides}
     />,
   );
+}
+
+function mockGraphCanvasElementRect() {
+  const elementSize = function elementSize(this: HTMLElement) {
+    const isHandle = this.classList?.contains("react-flow__handle");
+    return {
+      width: isHandle ? 12 : 240,
+      height: isHandle ? 12 : 96,
+    };
+  };
+
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function mockClientWidth(this: HTMLElement) {
+    return elementSize.call(this).width;
+  });
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function mockClientHeight(this: HTMLElement) {
+    return elementSize.call(this).height;
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function mockWidth(this: HTMLElement) {
+    return elementSize.call(this).width;
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function mockHeight(this: HTMLElement) {
+    return elementSize.call(this).height;
+  });
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function mockRect(this: HTMLElement) {
+    const { width, height } = elementSize.call(this);
+    return {
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: width,
+      bottom: height,
+      width,
+      height,
+      toJSON: () => ({}),
+    } as DOMRect;
+  });
+}
+
+async function findGraphHandle(nodeId: string, handleId: string) {
+  const nodeHost = await screen.findByTestId(`rf__node-${nodeId}`);
+  await waitFor(() =>
+    expect(
+      nodeHost.querySelector(`.react-flow__handle[data-nodeid="${nodeId}"][data-handleid="${handleId}"]`),
+    ).not.toBeNull(),
+  );
+  return nodeHost.querySelector(
+    `.react-flow__handle[data-nodeid="${nodeId}"][data-handleid="${handleId}"]`,
+  ) as HTMLElement;
+}
+
+function centerPoint(element: Element) {
+  const rect = element.getBoundingClientRect();
+  return {
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  };
+}
+
+function beginConnectionDrag({
+  dragStart,
+  targetHandle,
+}: {
+  dragStart: Element;
+  targetHandle: HTMLElement;
+}) {
+  const targetPoint = centerPoint(targetHandle);
+  const originalElementFromPoint = document.elementFromPoint;
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    value: () => targetHandle,
+  });
+
+  fireEvent.mouseDown(dragStart, {
+    button: 0,
+    clientX: 0,
+    clientY: 0,
+  });
+  fireEvent.mouseMove(document, {
+    buttons: 1,
+    clientX: targetPoint.x + 8,
+    clientY: targetPoint.y + 8,
+  });
+
+  return {
+    finish() {
+      try {
+        fireEvent.mouseUp(document, {
+          clientX: targetPoint.x + 8,
+          clientY: targetPoint.y + 8,
+        });
+      } finally {
+        if (originalElementFromPoint) {
+          Object.defineProperty(document, "elementFromPoint", {
+            configurable: true,
+            value: originalElementFromPoint,
+          });
+        } else {
+          Reflect.deleteProperty(document, "elementFromPoint");
+        }
+      }
+    },
+  };
 }
 
 describe("GraphCanvas", () => {

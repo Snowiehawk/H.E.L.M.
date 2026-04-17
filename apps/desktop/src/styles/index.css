@@ -1492,6 +1492,31 @@ button {
     background 140ms ease;
 }
 
+.graph-panel .graph-node__handle.connectionindicator {
+  cursor: crosshair !important;
+}
+
+.graph-panel .graph-node__handle.connectionindicator:hover {
+  background: color-mix(in srgb, var(--accent-strong) 26%, var(--surface-solid) 74%) !important;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--accent-strong) 18%, transparent),
+    0 0 18px color-mix(in srgb, var(--accent-strong) 24%, transparent);
+}
+
+.graph-panel .graph-node__handle.connectingfrom,
+.graph-panel .graph-node__handle.connectingto.valid {
+  background: color-mix(in srgb, var(--accent-strong) 42%, var(--surface-solid) 58%) !important;
+  border-color: color-mix(in srgb, var(--accent-strong) 86%, white 14%) !important;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--accent-strong) 24%, transparent),
+    0 0 22px color-mix(in srgb, var(--accent-strong) 30%, transparent);
+}
+
+.graph-panel .graph-node__handle.connectingto:not(.valid) {
+  border-color: color-mix(in srgb, #ff6b6b 82%, white 18%) !important;
+  box-shadow: 0 0 0 5px color-mix(in srgb, #ff6b6b 18%, transparent);
+}
+
 .graph-node__port--input .graph-node__handle {
   left: -18px !important;
   top: 50% !important;
@@ -1597,6 +1622,50 @@ button {
 
 .graph-edge__interaction {
   cursor: cell;
+}
+
+.graph-connection-line {
+  --graph-connection-line: color-mix(in srgb, var(--accent-strong) 82%, white 18%);
+  --graph-connection-line-soft: color-mix(in srgb, var(--accent-strong) 44%, transparent);
+  pointer-events: none;
+}
+
+.graph-connection-line.is-invalid {
+  --graph-connection-line: color-mix(in srgb, #ff6b6b 82%, white 18%);
+  --graph-connection-line-soft: color-mix(in srgb, #ff6b6b 38%, transparent);
+}
+
+.graph-connection-line__halo,
+.graph-connection-line__path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.graph-connection-line__halo {
+  stroke: var(--graph-connection-line-soft);
+  stroke-width: 12px;
+}
+
+.graph-connection-line__path {
+  stroke: var(--graph-connection-line);
+  stroke-width: 3px;
+  stroke-dasharray: 10 7;
+  animation: graph-connection-dash 700ms linear infinite;
+  filter: drop-shadow(0 0 7px var(--graph-connection-line-soft));
+}
+
+.graph-connection-line__cursor {
+  fill: var(--surface-solid);
+  stroke: var(--graph-connection-line);
+  stroke-width: 3px;
+  filter: drop-shadow(0 0 8px var(--graph-connection-line-soft));
+}
+
+@keyframes graph-connection-dash {
+  to {
+    stroke-dashoffset: -17;
+  }
 }
 
 .graph-edge__create-trigger {
@@ -2379,6 +2448,11 @@ button {
 .graph-panel.is-create-mode .graph-group,
 .graph-panel.is-create-mode .graph-group * {
   cursor: copy !important;
+}
+
+.graph-panel.is-create-mode .graph-node__handle.connectionindicator,
+.graph-panel.is-create-mode .graph-node__handle.connectionindicator * {
+  cursor: crosshair !important;
 }
 
 body.graph-pan-cursor-active,

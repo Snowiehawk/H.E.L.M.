@@ -8,9 +8,11 @@ import {
   SelectionMode,
   ViewportPortal,
   applyNodeChanges,
+  getSmoothStepPath,
   useReactFlow,
   useKeyPress,
   type Connection,
+  type ConnectionLineComponentProps,
   type Edge,
   type EdgeTypes,
   type Node,
@@ -99,6 +101,8 @@ const edgeTypes: EdgeTypes = {
 
 const MIN_GRAPH_ZOOM = 0.12;
 const MAX_GRAPH_ZOOM = 1.8;
+const FLOW_CONNECTION_RADIUS = 32;
+const FLOW_RECONNECT_RADIUS = 16;
 
 type SemanticCanvasNode = Node<BlueprintNodeData, "blueprint">;
 type RerouteCanvasNode = Node<RerouteNodeData, "reroute">;
@@ -189,6 +193,72 @@ function isSemanticCanvasNode(node: GraphCanvasNode): node is SemanticCanvasNode
 
 function isRerouteCanvasNode(node: GraphCanvasNode): node is RerouteCanvasNode {
   return node.type === "reroute";
+}
+
+function isControlFlowConnectionPair(
+  sourceHandle: string | null | undefined,
+  targetHandle: string | null | undefined,
+) {
+  return sourceHandle?.startsWith("out:control:") === true
+    && targetHandle === "in:control:exec";
+}
+
+function isDataFlowConnectionPair(
+  sourceHandle: string | null | undefined,
+  targetHandle: string | null | undefined,
+) {
+  return sourceHandle?.startsWith("out:data:") === true
+    && targetHandle?.startsWith("in:data:") === true;
+}
+
+export function isValidFlowCanvasConnection(connection: {
+  source?: string | null;
+  sourceHandle?: string | null;
+  target?: string | null;
+  targetHandle?: string | null;
+}) {
+  if (!connection.source || !connection.target || connection.source === connection.target) {
+    return false;
+  }
+
+  return isControlFlowConnectionPair(connection.sourceHandle, connection.targetHandle)
+    || isDataFlowConnectionPair(connection.sourceHandle, connection.targetHandle);
+}
+
+function BlueprintConnectionLine({
+  connectionStatus,
+  fromPosition,
+  fromX,
+  fromY,
+  toPosition,
+  toX,
+  toY,
+}: ConnectionLineComponentProps<GraphCanvasNode>) {
+  const [edgePath] = getSmoothStepPath({
+    sourceX: fromX,
+    sourceY: fromY,
+    sourcePosition: fromPosition,
+    targetX: toX,
+    targetY: toY,
+    targetPosition: toPosition,
+  });
+  const statusClass =
+    connectionStatus === "invalid"
+      ? "is-invalid"
+      : connectionStatus === "valid"
+        ? "is-valid"
+        : "is-pending";
+
+  return (
+    <g
+      className={`graph-connection-line ${statusClass}`}
+      data-testid="graph-connection-line"
+    >
+      <path className="graph-connection-line__halo" d={edgePath} />
+      <path className="graph-connection-line__path" d={edgePath} />
+      <circle className="graph-connection-line__cursor" cx={toX} cy={toY} r={5.5} />
+    </g>
+  );
 }
 
 function metadataNumber(node: GraphNodeDto, key: string): number | undefined {
@@ -3521,6 +3591,13 @@ export function GraphCanvas({
         nodesDraggable
         nodesConnectable={flowAuthoringEnabled}
         edgesReconnectable={flowAuthoringEnabled}
+        connectionLineComponent={BlueprintConnectionLine}
+        connectionLineContainerStyle={{ pointerEvents: "none", zIndex: 30 }}
+        connectionRadius={FLOW_CONNECTION_RADIUS}
+        reconnectRadius={FLOW_RECONNECT_RADIUS}
+        isValidConnection={(connection) => (
+          flowAuthoringEnabled && isValidFlowCanvasConnection(connection)
+        )}
         selectionKeyCode={null}
         multiSelectionKeyCode={["Meta", "Control", "Shift"]}
         selectionOnDrag={!panModeActive && !createModeActive}
@@ -3534,7 +3611,12 @@ export function GraphCanvas({
         zoomActivationKeyCode="Alt"
         panOnDrag={panModeActive}
         onConnect={(connection: Connection) => {
-          if (!flowAuthoringEnabled || !connection.source || !connection.target) {
+          if (
+            !flowAuthoringEnabled
+            || !connection.source
+            || !connection.target
+            || !isValidFlowCanvasConnection(connection)
+          ) {
             return;
           }
           onConnectFlowEdge({
@@ -3552,6 +3634,7 @@ export function GraphCanvas({
             || !logicalEdgeId
             || !newConnection.source
             || !newConnection.target
+            || !isValidFlowCanvasConnection(newConnection)
           ) {
             return;
           }

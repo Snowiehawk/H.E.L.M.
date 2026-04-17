@@ -80,6 +80,62 @@ describe("BlueprintInspector", () => {
     expect(screen.getByLabelText(/Function source editor/i)).toHaveTextContent("def calculate");
   });
 
+  it("renders read-only module context source when no graph node is selected", () => {
+    render(
+      <BlueprintInspector
+        sourceContextNode={buildNode({
+          id: "module:calculator",
+          kind: "module",
+          label: "calculator.py",
+          subtitle: "calculator.py",
+          metadata: { relative_path: "calculator.py" },
+        })}
+        editableSource={buildEditableSource({
+          targetId: "module:calculator",
+          title: "calculator.py",
+          startLine: 1,
+          endLine: 8,
+          content: "def calculate(a, b):\n    return a + b\n",
+          editable: false,
+          nodeKind: "module",
+          reason: "Full-file editing is not available in the inspector yet.",
+        })}
+        editableSourceLoading={false}
+        isSavingSource={false}
+        onClose={vi.fn()}
+        onDismissSource={vi.fn()}
+        onEditorStateChange={vi.fn()}
+        onSaveSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: /Current Context/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /calculator\.py/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Nothing selected/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId("inspector-readonly-source")).toHaveAttribute("data-read-only", "true");
+    expect(screen.getByLabelText(/Read-only module source/i)).toHaveTextContent("def calculate");
+  });
+
+  it("renders editable symbol context source when no flow node is selected", () => {
+    render(
+      <BlueprintInspector
+        editableSource={buildEditableSource()}
+        editableSourceLoading={false}
+        isSavingSource={false}
+        onClose={vi.fn()}
+        onDismissSource={vi.fn()}
+        onEditorStateChange={vi.fn()}
+        onSaveSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: /Current Context/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /calculate/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Nothing selected/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-read-only", "false");
+    expect(screen.getByLabelText(/Function source editor/i)).toHaveTextContent("def calculate");
+  });
+
   it("renders the inline editor for editable class nodes", () => {
     render(
       <BlueprintInspector

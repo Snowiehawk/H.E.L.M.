@@ -1102,8 +1102,13 @@ describe("WorkspaceScreen", () => {
 
     const expandedDrawer = await screen.findByTestId("blueprint-inspector-drawer");
     expect(expandedDrawer).toHaveAttribute("data-mode", "expanded");
-    expect(within(expandedDrawer).getByRole("heading", { name: /Nothing selected/i })).toBeInTheDocument();
-    expect(within(expandedDrawer).queryByText(/Declaration editor/i)).not.toBeInTheDocument();
+    expect(within(expandedDrawer).getByRole("heading", { name: /Current Context/i })).toBeInTheDocument();
+    expect(within(expandedDrawer).getAllByText("src/helm/ui/api.py").length).toBeGreaterThan(0);
+    expect(within(expandedDrawer).getByText(/Code details/i)).toBeInTheDocument();
+    expect(within(expandedDrawer).queryByText(/Nothing selected/i)).not.toBeInTheDocument();
+    expect(await screen.findByTestId("inspector-readonly-source")).toHaveAttribute("data-read-only", "true");
+    expect(screen.getByText(/def build_graph_summary/i)).toBeInTheDocument();
+    expect(useUiStore.getState().activeNodeId).toBeUndefined();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("keeps sync progress inline and defers heavy refreshes until sync completes", async () => {
@@ -1307,7 +1312,9 @@ describe("WorkspaceScreen", () => {
     expect(await screen.findByTestId("graph-create-mode-badge")).toHaveTextContent(/Create mode/i);
     expect(screen.getByTestId("graph-create-mode-watermark")).toHaveTextContent("CREATE MODE");
     expect(screen.getByText("Click the graph to create a function or class in src/helm/ui/api.py.")).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: /Nothing selected/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Current Context/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Nothing selected/i })).not.toBeInTheDocument();
+    expect(await screen.findByTestId("inspector-readonly-source")).toHaveAttribute("data-read-only", "true");
     expect(useUiStore.getState().activeNodeId).toBeUndefined();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
@@ -1374,7 +1381,8 @@ describe("WorkspaceScreen", () => {
       expect(saveSpy).toHaveBeenCalled();
     });
     expect(await screen.findByTestId("graph-create-mode-badge")).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: /Nothing selected/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Current Context/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Nothing selected/i })).not.toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("prompts for unsaved changes before entering create mode and discards when declined", async () => {
@@ -1413,7 +1421,8 @@ describe("WorkspaceScreen", () => {
       expect(saveSpy).not.toHaveBeenCalled();
     });
     expect(await screen.findByTestId("graph-create-mode-badge")).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: /Nothing selected/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Current Context/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Nothing selected/i })).not.toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("creates a module from repo view create mode and selects it", async () => {
@@ -1561,6 +1570,66 @@ describe("WorkspaceScreen", () => {
     });
     expect(useUiStore.getState().activeLevel).toBe("module");
     expect(screen.getAllByText("GraphBuilder").length).toBeGreaterThan(0);
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("shows the flow owner source when the flow canvas selection is cleared", async () => {
+    const user = userEvent.setup();
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const { flowGraphPanel } = await openBuildGraphSummaryFlow(user);
+    const ownerEditor = await screen.findByRole("textbox", { name: /Function source editor/i });
+    expect((ownerEditor as HTMLTextAreaElement).value).toMatch(/def build_graph_summary/i);
+
+    const graphPane = flowGraphPanel.querySelector(".react-flow__pane");
+    expect(graphPane).not.toBeNull();
+    await user.click(graphPane as HTMLElement);
+
+    await waitFor(() => {
+      expect(useUiStore.getState().activeNodeId).toBeUndefined();
+    });
+    expect(await screen.findByRole("heading", { name: /Current Context/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Nothing selected/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId("inspector-inline-editor")).not.toHaveAttribute("data-highlight-start-line");
+    expect((screen.getByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement).value).toMatch(
+      /def build_graph_summary/i,
+    );
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("keeps the full flow owner source visible and highlights the selected flow node range", async () => {
+    const user = userEvent.setup();
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await openBuildGraphSummaryFlow(user);
+
+    fireEvent.click(await screen.findByTestId(`rf__node-${BUILD_GRAPH_SUMMARY_ASSIGN_MODULES_ID}`));
+    await waitFor(() => {
+      expect(useUiStore.getState().activeNodeId).toBe(BUILD_GRAPH_SUMMARY_ASSIGN_MODULES_ID);
+    });
+
+    expect(await screen.findByRole("heading", { name: /Selection/i })).toBeInTheDocument();
+    expect((screen.getByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement).value).toMatch(
+      /def build_graph_summary/i,
+    );
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-highlight-start-line", "19");
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-highlight-end-line", "19");
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("opens the flow composer from empty canvas, seeds the spawned node layout, and keeps node clicks selection-only", async () => {
@@ -2819,7 +2888,11 @@ describe("WorkspaceScreen", () => {
     expect(replaceRequest?.flowGraph?.nodes.find((node: { id: string }) => node.id === "flow:symbol:helm.ui.api:build_graph_summary:assign:modules")?.payload).toEqual({
       source: "module_summaries = rank_modules(graph)",
     });
-    expect(await screen.findByText("module_summaries = rank_modules(graph)")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("rf__node-flow:symbol:helm.ui.api:build_graph_summary:assign:modules")).toHaveTextContent(
+        "module_summaries = rank_modules(graph)",
+      ),
+    );
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("edits a newly spawned flow node through the same popover while create mode stays available", async () => {
@@ -3445,7 +3518,7 @@ describe("WorkspaceScreen", () => {
     fireEvent.click(await graph.findByText("to_payload"));
 
     const drawer = await screen.findByTestId("blueprint-inspector-drawer");
-    expect(within(drawer).getByRole("heading", { name: "GraphSummary" })).toBeInTheDocument();
+    expect(within(drawer).getByRole("heading", { name: "to_payload" })).toBeInTheDocument();
     expect(
       (screen.getByRole("textbox", { name: /Class source editor/i }) as HTMLTextAreaElement).value,
     ).toContain("class GraphSummary");
