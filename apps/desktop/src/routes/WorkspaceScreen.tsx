@@ -1106,11 +1106,11 @@ export function WorkspaceScreen() {
     if (returnExpressionGraphView.draftExpression !== undefined) {
       return returnExpressionGraphView.draftExpression;
     }
-    const payloadExpression = returnExpressionFromPayload(returnExpressionGraphViewNode.payload);
-    if (payloadExpression) {
-      return payloadExpression;
+    const graphExpression = expressionFromFlowExpressionGraph(returnExpressionGraphViewGraph);
+    if (!graphExpression.diagnostics.length && graphExpression.expression.trim()) {
+      return graphExpression.expression;
     }
-    return expressionFromFlowExpressionGraph(returnExpressionGraphViewGraph).expression;
+    return returnExpressionFromPayload(returnExpressionGraphViewNode.payload);
   }, [returnExpressionGraphView, returnExpressionGraphViewGraph, returnExpressionGraphViewNode]);
 
   const selectedGraphNode = effectiveGraph?.nodes.find((node) => node.id === activeNodeId);

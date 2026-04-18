@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
   Handle,
   MarkerType,
+  PanOnScrollMode,
   Position,
   ReactFlow,
+  SelectionMode,
   applyEdgeChanges,
   applyNodeChanges,
   getSmoothStepPath,
+  useKeyPress,
   type Connection,
   type ConnectionLineComponentProps,
   type Edge,
@@ -254,10 +257,14 @@ export function FlowExpressionGraphCanvas({
   onNavigateOut,
   onSelectExpressionNode,
 }: FlowExpressionGraphCanvasProps) {
+  const panelRef = useRef<HTMLElement>(null);
   const normalizedGraph = useMemo(
     () => normalizeExpressionGraphOrEmpty(graph),
     [graph],
   );
+  const panModeActive = useKeyPress("Space");
+  const [pointerInsidePanel, setPointerInsidePanel] = useState(false);
+  const [panPointerDragging, setPanPointerDragging] = useState(false);
   const [nodes, setNodes] = useState<ExpressionCanvasNode[]>(() =>
     expressionNodesForGraph(normalizedGraph, selectedExpressionNodeId),
   );
@@ -294,6 +301,30 @@ export function FlowExpressionGraphCanvas({
         : inputSlots[0]?.id ?? ""
     ));
   }, [inputSlots]);
+
+  useEffect(() => {
+    const handlePointerUp = () => {
+      setPanPointerDragging(false);
+    };
+
+    window.addEventListener("pointerup", handlePointerUp, true);
+    return () => window.removeEventListener("pointerup", handlePointerUp, true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const showPanCursor = panModeActive && (pointerInsidePanel || panPointerDragging);
+    document.body.classList.toggle("graph-pan-cursor-active", showPanCursor && !panPointerDragging);
+    document.body.classList.toggle("graph-pan-cursor-dragging", showPanCursor && panPointerDragging);
+
+    return () => {
+      document.body.classList.remove("graph-pan-cursor-active");
+      document.body.classList.remove("graph-pan-cursor-dragging");
+    };
+  }, [panModeActive, panPointerDragging, pointerInsidePanel]);
 
   const commitGraph = useCallback((
     nextGraph: FlowExpressionGraph,
@@ -433,7 +464,31 @@ export function FlowExpressionGraphCanvas({
   }, [normalizedGraph]);
 
   return (
-    <section className="flow-expression-canvas" data-testid="flow-expression-graph-canvas">
+    <section
+      ref={panelRef}
+      className={`flow-expression-canvas${panModeActive ? " is-pan-active" : ""}`}
+      data-testid="flow-expression-graph-canvas"
+      role="region"
+      tabIndex={0}
+      onPointerOverCapture={() => {
+        setPointerInsidePanel(true);
+      }}
+      onPointerOutCapture={(event) => {
+        const nextTarget = event.relatedTarget;
+        if (!(nextTarget instanceof globalThis.Node) || !event.currentTarget.contains(nextTarget)) {
+          setPointerInsidePanel(false);
+        }
+      }}
+      onPointerDownCapture={(event) => {
+        setPointerInsidePanel(true);
+        if (!isEditableEventTarget(event.target)) {
+          panelRef.current?.focus();
+        }
+        if (panModeActive && event.button === 0) {
+          setPanPointerDragging(true);
+        }
+      }}
+    >
       <header className="flow-expression-canvas__header">
         <div>
           <span className="window-bar__eyebrow">Return graph</span>
@@ -533,6 +588,11 @@ export function FlowExpressionGraphCanvas({
             nodesConnectable
             edgesReconnectable
             deleteKeyCode={["Backspace", "Delete"]}
+            selectionKeyCode={null}
+            multiSelectionKeyCode={["Meta", "Control", "Shift"]}
+            selectionOnDrag={!panModeActive}
+            selectionMode={SelectionMode.Partial}
+            paneClickDistance={4}
             connectionLineComponent={FlowExpressionConnectionLine}
             connectionLineContainerStyle={{ pointerEvents: "none", zIndex: 30 }}
             connectionRadius={28}
@@ -540,6 +600,11 @@ export function FlowExpressionGraphCanvas({
             isValidConnection={isValidConnection}
             minZoom={0.25}
             maxZoom={1.8}
+            zoomOnScroll={false}
+            panOnScroll
+            panOnScrollMode={PanOnScrollMode.Free}
+            zoomActivationKeyCode="Alt"
+            panOnDrag={panModeActive}
             onKeyDown={(event) => {
               if (event.key !== "Delete" && event.key !== "Backspace") {
                 return;

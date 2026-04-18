@@ -2996,6 +2996,26 @@ body.graph-pan-cursor-dragging * {
   stroke-width: 3px;
 }
 
+.flow-expression-canvas.is-pan-active .react-flow__renderer,
+.flow-expression-canvas.is-pan-active .react-flow__viewport,
+.flow-expression-canvas.is-pan-active .react-flow__pane,
+.flow-expression-canvas.is-pan-active .react-flow__pane.draggable,
+.flow-expression-canvas.is-pan-active .react-flow__node,
+.flow-expression-canvas.is-pan-active .react-flow__node *,
+.flow-expression-canvas.is-pan-active .react-flow__edge,
+.flow-expression-canvas.is-pan-active .react-flow__edge * {
+  cursor: grab !important;
+}
+
+.flow-expression-canvas.is-pan-active .react-flow__pane.dragging,
+.flow-expression-canvas.is-pan-active .react-flow__pane.dragging *,
+.flow-expression-canvas.is-pan-active .react-flow__node.dragging,
+.flow-expression-canvas.is-pan-active .react-flow__node.dragging *,
+.flow-expression-canvas.is-pan-active .react-flow__selection.dragging,
+.flow-expression-canvas.is-pan-active .react-flow__selection.dragging * {
+  cursor: grabbing !important;
+}
+
 .flow-expression-canvas__node {
   position: relative;
   width: 126px;

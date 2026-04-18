@@ -210,4 +210,30 @@ describe("FlowExpressionGraphCanvas", () => {
     expect(screen.getAllByText("Draft only")).not.toHaveLength(0);
     expect(screen.getByText("Expression graph needs a root node.")).toBeInTheDocument();
   });
+
+  it("activates the same Space-to-pan cursor mode as the parent graph", async () => {
+    mockCanvasElementRect();
+    renderCanvas();
+
+    const canvas = await screen.findByTestId("flow-expression-graph-canvas");
+    fireEvent.pointerOver(canvas);
+    fireEvent.keyDown(document, { key: " ", code: "Space" });
+
+    await waitFor(() => {
+      expect(canvas).toHaveClass("is-pan-active");
+      expect(document.body).toHaveClass("graph-pan-cursor-active");
+    });
+
+    fireEvent.pointerDown(canvas, { button: 0 });
+    await waitFor(() => {
+      expect(document.body).toHaveClass("graph-pan-cursor-dragging");
+    });
+
+    fireEvent.pointerUp(window);
+    fireEvent.keyUp(document, { key: " ", code: "Space" });
+    await waitFor(() => {
+      expect(document.body).not.toHaveClass("graph-pan-cursor-active");
+      expect(document.body).not.toHaveClass("graph-pan-cursor-dragging");
+    });
+  });
 });
