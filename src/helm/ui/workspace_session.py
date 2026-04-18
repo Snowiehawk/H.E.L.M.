@@ -113,6 +113,16 @@ class WorkspaceSession:
         response["payload"] = self.build_payload()
         return response
 
+    def parse_flow_expression(
+        self,
+        expression: str,
+        input_slot_by_name: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        return self.adapter.parse_flow_expression(
+            expression,
+            input_slot_by_name=input_slot_by_name,
+        )
+
     def full_resync(
         self,
         top_n: int = 24,

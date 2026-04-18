@@ -7,6 +7,8 @@ import type {
   DesktopAdapter,
   EditableNodeSource,
   FileContents,
+  FlowExpressionNodeKind,
+  FlowExpressionParseResult,
   FlowGraphDocument,
   GraphAbstractionLevel,
   GraphActionDto,
@@ -329,6 +331,33 @@ interface RawEditResult {
 interface RawApplyEditResponse {
   edit: RawEditResult;
   payload: RawScanPayload;
+}
+
+interface RawFlowExpressionParseResult {
+  expression: string;
+  graph?: {
+    version: number;
+    rootId?: string | null;
+    root_id?: string | null;
+    nodes: Array<{
+      id: string;
+      kind: FlowExpressionNodeKind;
+      label: string;
+      payload: Record<string, unknown>;
+    }>;
+    edges: Array<{
+      id: string;
+      source_id?: string;
+      sourceId?: string;
+      source_handle?: string;
+      sourceHandle?: string;
+      target_id?: string;
+      targetId?: string;
+      target_handle?: string;
+      targetHandle?: string;
+    }>;
+  } | null;
+  diagnostics?: string[];
 }
 
 interface RawUndoResult {
@@ -694,6 +723,41 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     return layoutGraphView(raw);
   }
 
+  async parseFlowExpression(
+    expression: string,
+    inputSlotByName: Record<string, string> = {},
+  ): Promise<FlowExpressionParseResult> {
+    const cache = this.requireScanCache();
+    const raw = await invoke<RawFlowExpressionParseResult>("parse_flow_expression", {
+      repoPath: cache.session.path,
+      expression,
+      inputSlotsJson: JSON.stringify(inputSlotByName),
+    });
+    return {
+      expression: raw.expression,
+      graph: raw.graph
+        ? {
+            version: raw.graph.version,
+            rootId: raw.graph.rootId ?? raw.graph.root_id ?? null,
+            nodes: raw.graph.nodes.map((node) => ({
+              id: node.id,
+              kind: node.kind,
+              label: node.label,
+              payload: node.payload,
+            })),
+            edges: raw.graph.edges.map((edge) => ({
+              id: edge.id,
+              sourceId: edge.sourceId ?? edge.source_id ?? "",
+              sourceHandle: edge.sourceHandle ?? edge.source_handle ?? "",
+              targetId: edge.targetId ?? edge.target_id ?? "",
+              targetHandle: edge.targetHandle ?? edge.target_handle ?? "",
+            })),
+          }
+        : null,
+      diagnostics: raw.diagnostics ?? [],
+    };
+  }
+
   async applyStructuralEdit(request: StructuralEditRequest): Promise<StructuralEditResult> {
     const cache = this.requireScanCache();
     const response = await invoke<RawApplyEditResponse>("apply_structural_edit", {
@@ -786,8 +850,12 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     if (!node?.file_path) {
       throw new Error(`No source file is associated with ${targetId}.`);
     }
+    await this.revealPathInFileExplorer(node.file_path);
+  }
+
+  async revealPathInFileExplorer(filePath: string): Promise<void> {
     await invoke("reveal_path_in_file_explorer", {
-      filePath: normalizePath(node.file_path),
+      filePath: normalizePath(filePath),
     });
   }
 

@@ -5,6 +5,7 @@ import type {
   DesktopAdapter,
   EditableNodeSource,
   FileContents,
+  FlowExpressionParseResult,
   GraphAbstractionLevel,
   GraphFilters,
   GraphSettings,
@@ -209,6 +210,38 @@ export class MockDesktopAdapter implements DesktopAdapter {
     return buildGraphView(this.currentSession, this.workspace, symbolId, "flow");
   }
 
+  async parseFlowExpression(expression: string): Promise<FlowExpressionParseResult> {
+    await delay(40);
+    const normalized = expression.trim();
+    if (!normalized) {
+      return {
+        expression: normalized,
+        graph: {
+          version: 1,
+          rootId: null,
+          nodes: [],
+          edges: [],
+        },
+        diagnostics: [],
+      };
+    }
+    return {
+      expression: normalized,
+      graph: {
+        version: 1,
+        rootId: "expr:raw:0",
+        nodes: [{
+          id: "expr:raw:0",
+          kind: "raw",
+          label: normalized,
+          payload: { expression: normalized },
+        }],
+        edges: [],
+      },
+      diagnostics: [],
+    };
+  }
+
   async applyStructuralEdit(request: StructuralEditRequest): Promise<StructuralEditResult> {
     await delay(120);
     const snapshot = cloneWorkspaceState(this.workspace);
@@ -268,6 +301,10 @@ export class MockDesktopAdapter implements DesktopAdapter {
   }
 
   async revealNodeInFileExplorer(_targetId: string): Promise<void> {
+    await delay(40);
+  }
+
+  async revealPathInFileExplorer(_filePath: string): Promise<void> {
     await delay(40);
   }
 

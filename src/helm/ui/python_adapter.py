@@ -26,6 +26,7 @@ from helm.editor.flow_model import (
     flow_edge_order,
     flow_model_node_source_identity,
     flow_node_label,
+    expression_graph_from_expression,
     function_inputs_from_function_source,
     function_source_for_qualname,
     function_source_hash,
@@ -627,6 +628,29 @@ class PythonRepoAdapter:
                 content=content,
             )
         )
+
+    def parse_flow_expression(
+        self,
+        expression: str,
+        *,
+        input_slot_by_name: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        try:
+            graph = expression_graph_from_expression(
+                expression,
+                input_slot_by_name=input_slot_by_name,
+            )
+        except SyntaxError as exc:
+            return {
+                "expression": expression,
+                "graph": None,
+                "diagnostics": [f"Invalid Python expression: {exc.msg}."],
+            }
+        return {
+            "expression": expression.strip(),
+            "graph": graph,
+            "diagnostics": [],
+        }
 
     def _reparse_touched_modules(self, touched_relative_paths: tuple[str, ...]) -> tuple[str, ...]:
         refreshed_inventory = discover_python_modules(self.root_path)

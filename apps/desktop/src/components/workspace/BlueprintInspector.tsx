@@ -108,6 +108,7 @@ export function BlueprintInspector({
   const moveAction = graphActionById(selectedNode, "move_symbol");
   const addImportAction = graphActionById(moduleActionNode, "add_import");
   const removeImportAction = graphActionById(moduleActionNode, "remove_import");
+  const flowDraftActivity = lastActivity?.flowSyncState === "draft";
   const structuralActionsVisible = Boolean(
     onApplyStructuralEdit
     && (renameAction || deleteAction || moveAction || addImportAction || removeImportAction),
@@ -714,6 +715,12 @@ export function BlueprintInspector({
             <span>{lastActivity.domain}</span>
           </div>
           <div className="info-card">
+            {flowDraftActivity ? (
+              <div className="blueprint-inspector__activity-status">
+                <StatusPill tone="warning">Draft only</StatusPill>
+                <span>Not applied to code</span>
+              </div>
+            ) : null}
             <strong>{lastActivity.summary}</strong>
             {lastActivity.touchedRelativePaths?.length || lastActivity.warnings?.length ? (
               <p>
@@ -724,6 +731,13 @@ export function BlueprintInspector({
                   ? `${lastActivity.touchedRelativePaths?.length ? " " : ""}Warnings: ${lastActivity.warnings.join(" ")}`
                   : ""}
               </p>
+            ) : null}
+            {lastActivity.diagnostics?.length ? (
+              <ul className="blueprint-inspector__diagnostics">
+                {lastActivity.diagnostics.map((diagnostic) => (
+                  <li key={diagnostic}>{diagnostic}</li>
+                ))}
+              </ul>
             ) : null}
           </div>
         </section>

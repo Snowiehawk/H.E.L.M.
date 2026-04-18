@@ -335,6 +335,7 @@ describe("buildBlueprintPresentation", () => {
                 target_handle: "in:data:input-slot:flowslot:flow:symbol:service:run:statement:0:value",
               },
             ],
+            flow_return_input_handle: "in:data:return-input:flowdoc:symbol:service:run:return:0",
           },
           availableActions: [],
         },
@@ -361,6 +362,11 @@ describe("buildBlueprintPresentation", () => {
         expect.objectContaining({
           id: "in:data:input-slot:flowslot:flow:symbol:service:run:statement:0:value",
           label: "value",
+          kind: "data",
+        }),
+        expect.objectContaining({
+          id: "in:data:return-input:flowdoc:symbol:service:run:return:0",
+          label: "input",
           kind: "data",
         }),
       ]),

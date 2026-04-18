@@ -12,6 +12,7 @@ from typing import Any
 
 FLOW_MODEL_VERSION = 1
 FLOW_VALUE_MODEL_VERSION = 1
+FLOW_EXPRESSION_GRAPH_VERSION = 1
 FLOW_MODEL_RELATIVE_PATH = ".helm/flow-models.v1.json"
 # Parameter nodes remain projected visual support nodes in flow views. The
 # persisted FlowModelDocument stores authored control-flow statements plus entry
@@ -25,6 +26,75 @@ FLOW_FUNCTION_INPUT_KINDS = {
     "keyword_only",
     "vararg",
     "kwarg",
+}
+FLOW_EXPRESSION_NODE_KINDS = {
+    "input",
+    "literal",
+    "operator",
+    "unary",
+    "bool",
+    "compare",
+    "call",
+    "attribute",
+    "subscript",
+    "conditional",
+    "collection",
+    "raw",
+}
+_RETURN_EXPRESSION_GRAPH_KEY = "expression_graph"
+
+_BINOP_SYMBOLS: dict[type[ast.operator], str] = {
+    ast.Add: "+",
+    ast.Sub: "-",
+    ast.Mult: "*",
+    ast.MatMult: "@",
+    ast.Div: "/",
+    ast.FloorDiv: "//",
+    ast.Mod: "%",
+    ast.Pow: "**",
+    ast.LShift: "<<",
+    ast.RShift: ">>",
+    ast.BitOr: "|",
+    ast.BitXor: "^",
+    ast.BitAnd: "&",
+}
+_BINOP_AST_BY_SYMBOL: dict[str, type[ast.operator]] = {
+    symbol: operator_type
+    for operator_type, symbol in _BINOP_SYMBOLS.items()
+}
+_UNARY_SYMBOLS: dict[type[ast.unaryop], str] = {
+    ast.UAdd: "+",
+    ast.USub: "-",
+    ast.Not: "not",
+    ast.Invert: "~",
+}
+_UNARY_AST_BY_SYMBOL: dict[str, type[ast.unaryop]] = {
+    symbol: operator_type
+    for operator_type, symbol in _UNARY_SYMBOLS.items()
+}
+_BOOL_SYMBOLS: dict[type[ast.boolop], str] = {
+    ast.And: "and",
+    ast.Or: "or",
+}
+_BOOL_AST_BY_SYMBOL: dict[str, type[ast.boolop]] = {
+    symbol: operator_type
+    for operator_type, symbol in _BOOL_SYMBOLS.items()
+}
+_COMPARE_SYMBOLS: dict[type[ast.cmpop], str] = {
+    ast.Eq: "==",
+    ast.NotEq: "!=",
+    ast.Lt: "<",
+    ast.LtE: "<=",
+    ast.Gt: ">",
+    ast.GtE: ">=",
+    ast.Is: "is",
+    ast.IsNot: "is not",
+    ast.In: "in",
+    ast.NotIn: "not in",
+}
+_COMPARE_AST_BY_SYMBOL: dict[str, type[ast.cmpop]] = {
+    symbol: operator_type
+    for operator_type, symbol in _COMPARE_SYMBOLS.items()
 }
 
 
@@ -208,6 +278,38 @@ class _ImportedBlock:
 
 
 @dataclass
+class _ExpressionGraphBuilder:
+    input_slot_by_name: dict[str, str]
+    nodes: list[dict[str, Any]]
+    edges: list[dict[str, Any]]
+    next_index: int = 0
+
+    def create_node(self, kind: str, label: str, payload: dict[str, Any] | None = None) -> str:
+        node_id = f"expr:{kind}:{self.next_index}"
+        self.next_index += 1
+        self.nodes.append(
+            {
+                "id": node_id,
+                "kind": kind,
+                "label": label,
+                "payload": payload or {},
+            }
+        )
+        return node_id
+
+    def connect(self, source_id: str, target_id: str, target_handle: str) -> None:
+        self.edges.append(
+            {
+                "id": f"expr-edge:{source_id}->{target_id}:{target_handle}",
+                "source_id": source_id,
+                "source_handle": "value",
+                "target_id": target_id,
+                "target_handle": target_handle,
+            }
+        )
+
+
+@dataclass
 class _ImportBuilder:
     symbol_id: str
     relative_path: str
@@ -245,6 +347,14 @@ class _ImportBuilder:
             )
         )
         return node_id
+
+    def update_node_payload(self, node_id: str, payload: dict[str, Any]) -> None:
+        self.nodes = [
+            replace(node, payload=payload)
+            if node.node_id == node_id
+            else node
+            for node in self.nodes
+        ]
 
     def connect(self, source_id: str, source_handle: str, target_id: str) -> None:
         self.edges.append(
@@ -817,8 +927,13 @@ def with_flow_document_derived_input_model(
             if source is not None:
                 definitions[flow_value_source_emitted_name(source)] = source.source_id
 
+    next_nodes = _with_return_expression_graph_slot_ids(
+        document.nodes,
+        tuple(next_slots),
+    )
     return replace(
         document,
+        nodes=next_nodes,
         value_model_version=FLOW_VALUE_MODEL_VERSION,
         value_sources=tuple(next_value_sources),
         input_slots=tuple(next_slots),
@@ -1202,6 +1317,512 @@ def function_inputs_from_function_source(
     return _function_inputs_for_ast_function(symbol_id, function_node)
 
 
+def expression_graph_from_expression(
+    expression: str,
+    *,
+    input_slot_by_name: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    expression = expression.strip()
+    if not expression:
+        return {
+            "version": FLOW_EXPRESSION_GRAPH_VERSION,
+            "rootId": None,
+            "nodes": [],
+            "edges": [],
+        }
+    parsed = ast.parse(expression, mode="eval")
+    return expression_graph_from_ast(
+        parsed.body,
+        input_slot_by_name=input_slot_by_name,
+    )
+
+
+def expression_graph_from_ast(
+    expression: ast.expr,
+    *,
+    input_slot_by_name: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    builder = _ExpressionGraphBuilder(
+        input_slot_by_name=input_slot_by_name or {},
+        nodes=[],
+        edges=[],
+    )
+    root_id = _append_expression_ast_node(builder, expression)
+    return {
+        "version": FLOW_EXPRESSION_GRAPH_VERSION,
+        "rootId": root_id,
+        "nodes": builder.nodes,
+        "edges": builder.edges,
+    }
+
+
+def expression_from_expression_graph(graph: dict[str, Any]) -> str:
+    expression_ast = _ast_from_expression_graph(graph)
+    expression_module = ast.Expression(body=expression_ast)
+    ast.fix_missing_locations(expression_module)
+    return ast.unparse(expression_module)
+
+
+def _return_expression_from_payload(payload: dict[str, Any]) -> str:
+    expression_graph = payload.get(_RETURN_EXPRESSION_GRAPH_KEY)
+    if isinstance(expression_graph, dict):
+        root_id = expression_graph.get("rootId") or expression_graph.get("root_id")
+        if isinstance(root_id, str) and root_id:
+            try:
+                return expression_from_expression_graph(expression_graph)
+            except ValueError:
+                pass
+    return str(payload.get("expression") or "").strip()
+
+
+def _expression_graph_input_names(graph: dict[str, Any]) -> set[str]:
+    raw_nodes = graph.get("nodes") or []
+    if not isinstance(raw_nodes, list):
+        return set()
+    names: set[str] = set()
+    for raw_node in raw_nodes:
+        if not isinstance(raw_node, dict) or raw_node.get("kind") != "input":
+            continue
+        payload = raw_node.get("payload") if isinstance(raw_node.get("payload"), dict) else {}
+        raw_name = payload.get("name") or raw_node.get("label")
+        if isinstance(raw_name, str) and raw_name.strip():
+            names.add(raw_name.strip())
+    return names
+
+
+def _rewrite_expression_graph_input_names(
+    graph: dict[str, Any],
+    replacements: dict[str, str],
+) -> dict[str, Any]:
+    if not replacements:
+        return graph
+    next_graph = json.loads(json.dumps(graph))
+    raw_nodes = next_graph.get("nodes") or []
+    if not isinstance(raw_nodes, list):
+        return next_graph
+    for raw_node in raw_nodes:
+        if not isinstance(raw_node, dict) or raw_node.get("kind") != "input":
+            continue
+        payload = raw_node.get("payload")
+        if not isinstance(payload, dict):
+            payload = {}
+            raw_node["payload"] = payload
+        raw_name = payload.get("name") or raw_node.get("label")
+        if not isinstance(raw_name, str):
+            continue
+        replacement = replacements.get(raw_name.strip())
+        if not replacement:
+            continue
+        payload["name"] = replacement
+        if raw_node.get("label") == raw_name:
+            raw_node["label"] = replacement
+    return next_graph
+
+
+def _rewrite_expression_graph_slot_ids(
+    graph: dict[str, Any],
+    slot_id_by_old_id: dict[str, str],
+) -> dict[str, Any]:
+    if not slot_id_by_old_id:
+        return graph
+    next_graph = json.loads(json.dumps(graph))
+    raw_nodes = next_graph.get("nodes") or []
+    if not isinstance(raw_nodes, list):
+        return next_graph
+    for raw_node in raw_nodes:
+        if not isinstance(raw_node, dict) or raw_node.get("kind") != "input":
+            continue
+        payload = raw_node.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        slot_id = payload.get("slot_id") or payload.get("slotId")
+        if isinstance(slot_id, str) and slot_id in slot_id_by_old_id:
+            payload["slot_id"] = slot_id_by_old_id[slot_id]
+            payload.pop("slotId", None)
+    return next_graph
+
+
+def _with_return_expression_graph_slot_ids(
+    nodes: tuple[FlowModelNode, ...],
+    input_slots: tuple[FlowInputSlot, ...],
+) -> tuple[FlowModelNode, ...]:
+    slot_id_by_node_name = {
+        (slot.node_id, slot.slot_key): slot.slot_id
+        for slot in input_slots
+    }
+    next_nodes: list[FlowModelNode] = []
+    for node in nodes:
+        expression_graph = node.payload.get(_RETURN_EXPRESSION_GRAPH_KEY)
+        if node.kind != "return" or not isinstance(expression_graph, dict):
+            next_nodes.append(node)
+            continue
+        next_graph = json.loads(json.dumps(expression_graph))
+        raw_nodes = next_graph.get("nodes") or []
+        changed = False
+        if isinstance(raw_nodes, list):
+            for raw_node in raw_nodes:
+                if not isinstance(raw_node, dict) or raw_node.get("kind") != "input":
+                    continue
+                payload = raw_node.get("payload")
+                if not isinstance(payload, dict):
+                    payload = {}
+                    raw_node["payload"] = payload
+                raw_name = payload.get("name") or raw_node.get("label")
+                if not isinstance(raw_name, str) or not raw_name.strip():
+                    continue
+                slot_id = slot_id_by_node_name.get((node.node_id, raw_name.strip()))
+                if slot_id and payload.get("slot_id") != slot_id:
+                    payload["slot_id"] = slot_id
+                    payload.pop("slotId", None)
+                    changed = True
+        next_nodes.append(
+            replace(node, payload={**node.payload, _RETURN_EXPRESSION_GRAPH_KEY: next_graph})
+            if changed
+            else node
+        )
+    return tuple(next_nodes)
+
+
+def _append_expression_ast_node(builder: _ExpressionGraphBuilder, expression: ast.expr) -> str:
+    if isinstance(expression, ast.Name):
+        payload: dict[str, Any] = {"name": expression.id}
+        slot_id = builder.input_slot_by_name.get(expression.id)
+        if slot_id:
+            payload["slot_id"] = slot_id
+        return builder.create_node("input", expression.id, payload)
+
+    if isinstance(expression, ast.Constant):
+        source = ast.unparse(expression)
+        return builder.create_node(
+            "literal",
+            source,
+            {
+                "value": expression.value,
+                "expression": source,
+            },
+        )
+
+    if isinstance(expression, ast.BinOp):
+        symbol = _BINOP_SYMBOLS.get(type(expression.op))
+        if symbol:
+            node_id = builder.create_node("operator", symbol, {"operator": symbol})
+            builder.connect(_append_expression_ast_node(builder, expression.left), node_id, "left")
+            builder.connect(_append_expression_ast_node(builder, expression.right), node_id, "right")
+            return node_id
+
+    if isinstance(expression, ast.UnaryOp):
+        symbol = _UNARY_SYMBOLS.get(type(expression.op))
+        if symbol:
+            node_id = builder.create_node("unary", symbol, {"operator": symbol})
+            builder.connect(_append_expression_ast_node(builder, expression.operand), node_id, "operand")
+            return node_id
+
+    if isinstance(expression, ast.BoolOp):
+        symbol = _BOOL_SYMBOLS.get(type(expression.op))
+        if symbol:
+            node_id = builder.create_node("bool", symbol, {"operator": symbol})
+            for index, value in enumerate(expression.values):
+                builder.connect(_append_expression_ast_node(builder, value), node_id, f"value:{index}")
+            return node_id
+
+    if isinstance(expression, ast.Compare):
+        operators = [
+            _COMPARE_SYMBOLS.get(type(operator), operator.__class__.__name__)
+            for operator in expression.ops
+        ]
+        node_id = builder.create_node("compare", " ".join(operators), {"operators": operators})
+        builder.connect(_append_expression_ast_node(builder, expression.left), node_id, "left")
+        for index, comparator in enumerate(expression.comparators):
+            builder.connect(_append_expression_ast_node(builder, comparator), node_id, f"comparator:{index}")
+        return node_id
+
+    if isinstance(expression, ast.Call):
+        label = _compact_source(expression)
+        node_id = builder.create_node("call", label, {"expression": label})
+        builder.connect(_append_expression_ast_node(builder, expression.func), node_id, "function")
+        for index, argument in enumerate(expression.args):
+            builder.connect(_append_expression_ast_node(builder, argument), node_id, f"arg:{index}")
+        for index, keyword in enumerate(expression.keywords):
+            if keyword.arg is None:
+                target_handle = f"kwarg:{index}:**"
+            else:
+                target_handle = f"kwarg:{index}:{keyword.arg}"
+            builder.connect(_append_expression_ast_node(builder, keyword.value), node_id, target_handle)
+        return node_id
+
+    if isinstance(expression, ast.Attribute):
+        node_id = builder.create_node("attribute", f".{expression.attr}", {"attr": expression.attr})
+        builder.connect(_append_expression_ast_node(builder, expression.value), node_id, "value")
+        return node_id
+
+    if isinstance(expression, ast.Subscript):
+        node_id = builder.create_node("subscript", "[]", {})
+        builder.connect(_append_expression_ast_node(builder, expression.value), node_id, "value")
+        builder.connect(_append_expression_ast_node(builder, expression.slice), node_id, "slice")
+        return node_id
+
+    if isinstance(expression, ast.IfExp):
+        node_id = builder.create_node("conditional", "if", {})
+        builder.connect(_append_expression_ast_node(builder, expression.test), node_id, "test")
+        builder.connect(_append_expression_ast_node(builder, expression.body), node_id, "body")
+        builder.connect(_append_expression_ast_node(builder, expression.orelse), node_id, "orelse")
+        return node_id
+
+    if isinstance(expression, (ast.List, ast.Tuple, ast.Set)):
+        collection_type = expression.__class__.__name__.lower()
+        node_id = builder.create_node("collection", collection_type, {"collection_type": collection_type})
+        for index, item in enumerate(expression.elts):
+            builder.connect(_append_expression_ast_node(builder, item), node_id, f"item:{index}")
+        return node_id
+
+    if isinstance(expression, ast.Dict):
+        node_id = builder.create_node("collection", "dict", {"collection_type": "dict"})
+        for index, key in enumerate(expression.keys):
+            if key is not None:
+                builder.connect(_append_expression_ast_node(builder, key), node_id, f"key:{index}")
+            builder.connect(_append_expression_ast_node(builder, expression.values[index]), node_id, f"value:{index}")
+        return node_id
+
+    return builder.create_node("raw", _compact_source(expression), {"expression": _compact_source(expression)})
+
+
+def _compact_source(expression: ast.AST) -> str:
+    try:
+        return " ".join(ast.unparse(expression).split())
+    except Exception:
+        return expression.__class__.__name__
+
+
+def _expression_graph_payload(graph: dict[str, Any]) -> tuple[str | None, dict[str, dict[str, Any]], dict[str, list[dict[str, str]]]]:
+    root_id = graph.get("rootId") or graph.get("root_id")
+    raw_nodes = graph.get("nodes") or []
+    raw_edges = graph.get("edges") or []
+    if root_id is not None and not isinstance(root_id, str):
+        raise ValueError("Expression graph rootId must be a string when provided.")
+    if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
+        raise ValueError("Expression graph nodes and edges must be lists.")
+
+    nodes: dict[str, dict[str, Any]] = {}
+    for raw_node in raw_nodes:
+        if not isinstance(raw_node, dict):
+            raise ValueError("Expression graph nodes must be objects.")
+        node_id = raw_node.get("id")
+        kind = raw_node.get("kind")
+        if not isinstance(node_id, str) or not node_id:
+            raise ValueError("Expression graph nodes require an id.")
+        if not isinstance(kind, str) or kind not in FLOW_EXPRESSION_NODE_KINDS:
+            raise ValueError(f"Expression graph node '{node_id}' has an unsupported kind.")
+        payload = raw_node.get("payload") or {}
+        if not isinstance(payload, dict):
+            raise ValueError("Expression graph node payloads must be objects.")
+        label = raw_node.get("label")
+        nodes[node_id] = {
+            "id": node_id,
+            "kind": kind,
+            "label": label if isinstance(label, str) else kind,
+            "payload": payload,
+        }
+
+    incoming_by_target: dict[str, list[dict[str, str]]] = {}
+    for raw_edge in raw_edges:
+        if not isinstance(raw_edge, dict):
+            raise ValueError("Expression graph edges must be objects.")
+        source_id = raw_edge.get("source_id") or raw_edge.get("sourceId")
+        target_id = raw_edge.get("target_id") or raw_edge.get("targetId")
+        target_handle = raw_edge.get("target_handle") or raw_edge.get("targetHandle")
+        if not isinstance(source_id, str) or not isinstance(target_id, str) or not isinstance(target_handle, str):
+            raise ValueError("Expression graph edges require source_id, target_id, and target_handle.")
+        if source_id not in nodes or target_id not in nodes:
+            raise ValueError("Expression graph edges must point at known nodes.")
+        incoming_by_target.setdefault(target_id, []).append(
+            {
+                "source_id": source_id,
+                "target_handle": target_handle,
+            }
+        )
+
+    return root_id, nodes, incoming_by_target
+
+
+def _ast_from_expression_graph(graph: dict[str, Any]) -> ast.expr:
+    root_id, nodes, incoming_by_target = _expression_graph_payload(graph)
+    if root_id is None:
+        raise ValueError("Expression graph needs a root node.")
+    if root_id not in nodes:
+        raise ValueError("Expression graph root node is missing.")
+
+    visiting: set[str] = set()
+
+    def children_for(node_id: str) -> dict[str, list[str]]:
+        children: dict[str, list[str]] = {}
+        for edge in incoming_by_target.get(node_id, []):
+            children.setdefault(edge["target_handle"], []).append(edge["source_id"])
+        return children
+
+    def single_child(node_id: str, handle: str) -> ast.expr:
+        candidates = children_for(node_id).get(handle) or []
+        if len(candidates) != 1:
+            raise ValueError(f"Expression node '{node_id}' needs one '{handle}' input.")
+        return visit(candidates[0])
+
+    def indexed_children(node_id: str, prefix: str) -> list[ast.expr]:
+        pairs: list[tuple[int, str]] = []
+        for handle, source_ids in children_for(node_id).items():
+            if not handle.startswith(prefix):
+                continue
+            try:
+                index = int(handle.split(":", 1)[1].split(":", 1)[0])
+            except (IndexError, ValueError):
+                index = len(pairs)
+            for source_id in source_ids:
+                pairs.append((index, source_id))
+        return [visit(source_id) for _, source_id in sorted(pairs, key=lambda item: item[0])]
+
+    def parse_expression_source(node_id: str, source: str) -> ast.expr:
+        try:
+            parsed = ast.parse(source, mode="eval")
+        except SyntaxError as exc:
+            raise ValueError(f"Expression node '{node_id}' has invalid Python: {exc.msg}.") from exc
+        return parsed.body
+
+    def visit(node_id: str) -> ast.expr:
+        if node_id in visiting:
+            raise ValueError(f"Expression graph has a cycle at '{node_id}'.")
+        node = nodes.get(node_id)
+        if node is None:
+            raise ValueError(f"Expression graph references missing node '{node_id}'.")
+        visiting.add(node_id)
+        kind = node["kind"]
+        payload = node["payload"]
+        try:
+            if kind == "input":
+                name = payload.get("name") or node.get("label")
+                if not isinstance(name, str) or not name.strip():
+                    raise ValueError(f"Input expression node '{node_id}' needs a name.")
+                return ast.Name(id=name.strip(), ctx=ast.Load())
+
+            if kind == "literal":
+                source = payload.get("expression")
+                if isinstance(source, str) and source.strip():
+                    return parse_expression_source(node_id, source)
+                return ast.Constant(value=payload.get("value"))
+
+            if kind == "operator":
+                operator_symbol = payload.get("operator") or node.get("label")
+                operator_type = _BINOP_AST_BY_SYMBOL.get(str(operator_symbol))
+                if operator_type is None:
+                    raise ValueError(f"Operator expression node '{node_id}' has an unsupported operator.")
+                return ast.BinOp(
+                    left=single_child(node_id, "left"),
+                    op=operator_type(),
+                    right=single_child(node_id, "right"),
+                )
+
+            if kind == "unary":
+                operator_symbol = payload.get("operator") or node.get("label")
+                operator_type = _UNARY_AST_BY_SYMBOL.get(str(operator_symbol))
+                if operator_type is None:
+                    raise ValueError(f"Unary expression node '{node_id}' has an unsupported operator.")
+                return ast.UnaryOp(op=operator_type(), operand=single_child(node_id, "operand"))
+
+            if kind == "bool":
+                operator_symbol = payload.get("operator") or node.get("label")
+                operator_type = _BOOL_AST_BY_SYMBOL.get(str(operator_symbol))
+                values = indexed_children(node_id, "value:")
+                if operator_type is None or len(values) < 2:
+                    raise ValueError(f"Boolean expression node '{node_id}' needs an operator and at least two values.")
+                return ast.BoolOp(op=operator_type(), values=values)
+
+            if kind == "compare":
+                operators = payload.get("operators")
+                operator_symbols = operators if isinstance(operators, list) else []
+                comparators = indexed_children(node_id, "comparator:")
+                if len(operator_symbols) != len(comparators):
+                    raise ValueError(f"Compare expression node '{node_id}' has mismatched operators and comparators.")
+                cmp_ops: list[ast.cmpop] = []
+                for symbol in operator_symbols:
+                    operator_type = _COMPARE_AST_BY_SYMBOL.get(str(symbol))
+                    if operator_type is None:
+                        raise ValueError(f"Compare expression node '{node_id}' has an unsupported operator.")
+                    cmp_ops.append(operator_type())
+                return ast.Compare(left=single_child(node_id, "left"), ops=cmp_ops, comparators=comparators)
+
+            if kind == "call":
+                children = children_for(node_id)
+                args = indexed_children(node_id, "arg:")
+                keywords: list[ast.keyword] = []
+                for handle, source_ids in sorted(children.items(), key=lambda item: item[0]):
+                    if not handle.startswith("kwarg:"):
+                        continue
+                    parts = handle.split(":", 2)
+                    keyword_name = parts[2] if len(parts) > 2 else None
+                    if keyword_name == "**":
+                        keyword_name = None
+                    for source_id in source_ids:
+                        keywords.append(ast.keyword(arg=keyword_name, value=visit(source_id)))
+                return ast.Call(
+                    func=single_child(node_id, "function"),
+                    args=args,
+                    keywords=keywords,
+                )
+
+            if kind == "attribute":
+                attr = payload.get("attr")
+                if not isinstance(attr, str) or not attr.strip():
+                    raise ValueError(f"Attribute expression node '{node_id}' needs an attribute name.")
+                return ast.Attribute(value=single_child(node_id, "value"), attr=attr.strip(), ctx=ast.Load())
+
+            if kind == "subscript":
+                return ast.Subscript(
+                    value=single_child(node_id, "value"),
+                    slice=single_child(node_id, "slice"),
+                    ctx=ast.Load(),
+                )
+
+            if kind == "conditional":
+                return ast.IfExp(
+                    test=single_child(node_id, "test"),
+                    body=single_child(node_id, "body"),
+                    orelse=single_child(node_id, "orelse"),
+                )
+
+            if kind == "collection":
+                collection_type = payload.get("collection_type") or payload.get("collectionType") or node.get("label")
+                if collection_type == "list":
+                    return ast.List(elts=indexed_children(node_id, "item:"), ctx=ast.Load())
+                if collection_type == "tuple":
+                    return ast.Tuple(elts=indexed_children(node_id, "item:"), ctx=ast.Load())
+                if collection_type == "set":
+                    return ast.Set(elts=indexed_children(node_id, "item:"))
+                if collection_type == "dict":
+                    children = children_for(node_id)
+                    indexes = sorted({
+                        int(handle.split(":", 1)[1])
+                        for handle in children
+                        if (handle.startswith("key:") or handle.startswith("value:")) and handle.split(":", 1)[1].isdigit()
+                    })
+                    keys: list[ast.expr | None] = []
+                    values: list[ast.expr] = []
+                    for index in indexes:
+                        key_candidates = children.get(f"key:{index}", [])
+                        value_candidates = children.get(f"value:{index}", [])
+                        keys.append(visit(key_candidates[0]) if key_candidates else None)
+                        if not value_candidates:
+                            raise ValueError(f"Dict expression node '{node_id}' is missing value {index}.")
+                        values.append(visit(value_candidates[0]))
+                    return ast.Dict(keys=keys, values=values)
+                raise ValueError(f"Collection expression node '{node_id}' has unsupported type.")
+
+            expression = payload.get("expression") or node.get("label")
+            if not isinstance(expression, str) or not expression.strip():
+                raise ValueError(f"Raw expression node '{node_id}' needs Python source.")
+            return parse_expression_source(node_id, expression)
+        finally:
+            visiting.remove(node_id)
+
+    return visit(root_id)
+
+
 def import_flow_document_from_function_source(
     *,
     symbol_id: str,
@@ -1292,12 +1913,28 @@ def _import_statement(
         return _ImportedBlock(root_id=None, continuation=None)
 
     if isinstance(statement, ast.Return):
+        expression = ast.unparse(statement.value) if statement.value is not None else ""
         node_id = builder.create_node(
             "return",
-            {"expression": ast.unparse(statement.value) if statement.value is not None else ""},
+            {"expression": expression},
         )
         if statement.value is not None:
             builder.bind_input_slots(node_id, statement.value)
+            input_slot_by_name = {
+                slot.slot_key: slot.slot_id
+                for slot in builder.input_slots
+                if slot.node_id == node_id
+            }
+            builder.update_node_payload(
+                node_id,
+                {
+                    "expression": expression,
+                    _RETURN_EXPRESSION_GRAPH_KEY: expression_graph_from_ast(
+                        statement.value,
+                        input_slot_by_name=input_slot_by_name,
+                    ),
+                },
+            )
         return _ImportedBlock(root_id=node_id, continuation=None)
 
     if isinstance(statement, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
@@ -1891,10 +2528,15 @@ def _names_used_by_flow_node_payload(node: FlowModelNode) -> set[str]:
                 return _names_used(statement.iter)
             return set()
         if node.kind == "return":
-            expression = str(node.payload.get("expression") or "").strip()
+            names: set[str] = set()
+            expression_graph = node.payload.get(_RETURN_EXPRESSION_GRAPH_KEY)
+            if isinstance(expression_graph, dict):
+                names.update(_expression_graph_input_names(expression_graph))
+            expression = _return_expression_from_payload(node.payload)
             if not expression:
-                return set()
-            return _names_used(ast.parse(expression, mode="eval"))
+                return names
+            names.update(_names_used(ast.parse(expression, mode="eval")))
+            return names
     except SyntaxError:
         return set()
     return set()
@@ -1979,7 +2621,19 @@ def _rewrite_flow_node_payload_input_names(
                 }
             return node.payload
         if node.kind == "return":
-            expression = str(node.payload.get("expression") or "").strip()
+            expression_graph = node.payload.get(_RETURN_EXPRESSION_GRAPH_KEY)
+            if isinstance(expression_graph, dict):
+                next_graph = _rewrite_expression_graph_input_names(expression_graph, replacements)
+                try:
+                    return {
+                        **node.payload,
+                        "expression": expression_from_expression_graph(next_graph),
+                        _RETURN_EXPRESSION_GRAPH_KEY: next_graph,
+                    }
+                except ValueError:
+                    return {**node.payload, _RETURN_EXPRESSION_GRAPH_KEY: next_graph}
+
+            expression = _return_expression_from_payload(node.payload)
             if not expression:
                 return node.payload
             parsed = ast.parse(expression, mode="eval")
@@ -2056,6 +2710,51 @@ def _rewrite_flow_node_payload_store_names(
     return node.payload
 
 
+def _validate_expression_graph_payload(node: FlowModelNode) -> list[str]:
+    graph = node.payload.get(_RETURN_EXPRESSION_GRAPH_KEY)
+    if graph is None:
+        return []
+    if not isinstance(graph, dict):
+        return [f"Return node '{node.node_id}' has an invalid expression graph payload."]
+
+    diagnostics: list[str] = []
+    try:
+        root_id, nodes, incoming_by_target = _expression_graph_payload(graph)
+    except ValueError as exc:
+        return [f"Return node '{node.node_id}' has an invalid expression graph: {exc}"]
+
+    if root_id is not None:
+        try:
+            expression_from_expression_graph(graph)
+        except ValueError as exc:
+            diagnostics.append(f"Return node '{node.node_id}' has an invalid expression graph: {exc}")
+
+    reachable: set[str] = set()
+
+    def visit(node_id: str) -> None:
+        if node_id in reachable:
+            return
+        reachable.add(node_id)
+        for edge in incoming_by_target.get(node_id, []):
+            visit(edge["source_id"])
+
+    if root_id is not None and root_id in nodes:
+        visit(root_id)
+
+    unwired_inputs = sorted(
+        str(candidate["payload"].get("name") or candidate["label"])
+        for node_id, candidate in nodes.items()
+        if candidate["kind"] == "input" and node_id not in reachable
+    )
+    if unwired_inputs:
+        diagnostics.append(
+            f"Return node '{node.node_id}' has expression input"
+            f"{'s' if len(unwired_inputs) != 1 else ''} not connected to the return expression: "
+            f"{', '.join(unwired_inputs)}."
+        )
+    return diagnostics
+
+
 def _validate_node_payload(
     node: FlowModelNode,
     output_edges: dict[tuple[str, str], FlowModelEdge],
@@ -2114,12 +2813,13 @@ def _validate_node_payload(
         if (node.node_id, "body") not in output_edges:
             diagnostics.append(f"Loop node '{node.node_id}' needs a body connection.")
     elif node.kind == "return":
-        expression = str(payload.get("expression") or "").strip()
+        expression = _return_expression_from_payload(payload)
         if expression:
             try:
                 ast.parse(expression, mode="eval")
             except SyntaxError as exc:
                 diagnostics.append(f"Return node '{node.node_id}' has an invalid expression: {exc.msg}.")
+        diagnostics.extend(_validate_expression_graph_payload(node))
     return diagnostics
 
 
@@ -2147,7 +2847,7 @@ def _compile_sequence(
             current_id = target_id_for_edge(output_edges.get((current_id, "next")))
             continue
         if node.kind == "return":
-            expression = str(node.payload.get("expression") or "").strip()
+            expression = _return_expression_from_payload(node.payload)
             lines.append(f"return {expression}" if expression else "return")
             break
         if node.kind == "branch":
@@ -2323,8 +3023,25 @@ def with_flow_document_normalized_input_ids(document: FlowModelDocument) -> Flow
             )
         )
 
+    normalized_nodes = tuple(
+        replace(
+            node,
+            payload={
+                **node.payload,
+                _RETURN_EXPRESSION_GRAPH_KEY: _rewrite_expression_graph_slot_ids(
+                    node.payload[_RETURN_EXPRESSION_GRAPH_KEY],
+                    slot_id_by_old_id,
+                ),
+            },
+        )
+        if node.kind == "return" and isinstance(node.payload.get(_RETURN_EXPRESSION_GRAPH_KEY), dict)
+        else node
+        for node in document.nodes
+    )
+
     return replace(
         document,
+        nodes=normalized_nodes,
         value_model_version=FLOW_VALUE_MODEL_VERSION,
         value_sources=tuple(normalized_sources),
         input_slots=tuple(normalized_slots),
@@ -2352,7 +3069,7 @@ def flow_node_label(node: FlowModelNode) -> str:
         header = str(node.payload.get("header") or "").strip()
         return header or "Loop"
     if node.kind == "return":
-        expression = str(node.payload.get("expression") or "").strip()
+        expression = _return_expression_from_payload(node.payload)
         return f"return {expression}" if expression else "return"
     return node.kind.title()
 

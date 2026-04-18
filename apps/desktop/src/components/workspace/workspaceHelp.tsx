@@ -191,25 +191,28 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.path.repo": () => ({
     title: "Graph path: repo",
-    description: "The repo boundary for the graph you are currently viewing.",
+    description: "Click to open the repo graph. Cmd/Ctrl-click reveals the repo root in Finder/Explorer.",
+    shortcut: "Cmd/Ctrl + click reveals",
   }),
   "graph.path.file": ({ label }) => ({
-    title: `${fallbackLabel(label, "File")} in Finder/Explorer`,
-    description: "Reveal the current file in the system file explorer and open its containing folder.",
+    title: `${fallbackLabel(label, "Path")} graph path`,
+    description: "Click to open this path in the graph. Cmd/Ctrl-click reveals the matching file or folder in Finder/Explorer.",
+    shortcut: "Cmd/Ctrl + click reveals",
   }),
   "graph.path.symbol": ({ label }) => ({
     title: `${fallbackLabel(label, "Symbol")} graph path`,
-    description: "Shows the current code symbol you are centered on inside the graph.",
+    description: "Click to open this symbol in the graph. Cmd/Ctrl-click reveals its source file in Finder/Explorer.",
+    shortcut: "Cmd/Ctrl + click reveals",
   }),
   "graph.path.flow": () => ({
     title: "Flow path",
-    description: "Shows that you are viewing the internal flow blueprint for the current function or class.",
-    shortcut: "Backspace",
+    description: "Click to open this function or class internal flow graph. Cmd/Ctrl-click reveals its source file in Finder/Explorer.",
+    shortcut: "Cmd/Ctrl + click reveals",
   }),
   "graph.canvas": () => ({
     title: "Graph canvas",
     description: "Main blueprint workspace. Click empty space to clear selection, drag to marquee-select, move nodes directly on the canvas, or press C to enter create mode and place new graph-backed code.",
-    shortcut: "C toggles create mode · Esc exits create mode · F fits view · Cmd/Ctrl + G groups · Cmd/Ctrl + Shift + G ungroups · Tap Space toggles inspector · Hold Space to pan · Alt/Option + scroll to zoom · Backspace to go out",
+    shortcut: "C toggles create mode · Esc exits create mode · F fits view · Cmd/Ctrl + G groups · Cmd/Ctrl + Shift + G ungroups · Tap Space toggles inspector · Hold Space to pan · Alt/Option + scroll to zoom",
   }),
   "graph.toolbar.drag": () => ({
     title: "Move graph controls",

@@ -90,6 +90,18 @@ def save_node_source_payload(repo: str | Path, target_id: str, content: str) -> 
     return session.save_node_source(target_id, content)
 
 
+def parse_flow_expression_payload(
+    repo: str | Path,
+    expression: str,
+    input_slot_by_name: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    session = WorkspaceSession.open(repo)
+    return session.parse_flow_expression(
+        expression,
+        input_slot_by_name=input_slot_by_name,
+    )
+
+
 def apply_undo_to_payload(repo: str | Path, transaction_payload: str | dict[str, Any]) -> dict[str, Any]:
     session = WorkspaceSession.open(repo)
     return session.apply_undo(transaction_payload)
@@ -161,6 +173,22 @@ def _handle_worker_command(
         if not isinstance(target_id, str) or not isinstance(content, str):
             raise ValueError("save-node-source requires 'target_id' and 'content' string parameters.")
         return session.save_node_source(target_id, content)
+
+    if command == "parse-flow-expression":
+        expression = params.get("expression")
+        input_slot_by_name = params.get("input_slot_by_name")
+        if not isinstance(expression, str):
+            raise ValueError("parse-flow-expression requires an 'expression' string parameter.")
+        if input_slot_by_name is not None and not isinstance(input_slot_by_name, dict):
+            raise ValueError("parse-flow-expression 'input_slot_by_name' must be an object when provided.")
+        return session.parse_flow_expression(
+            expression,
+            input_slot_by_name={
+                str(key): str(value)
+                for key, value in (input_slot_by_name or {}).items()
+                if isinstance(key, str) and isinstance(value, str)
+            },
+        )
 
     if command == "apply-undo":
         transaction_json = params.get("transaction_json")
@@ -275,6 +303,18 @@ def build_argument_parser() -> argparse.ArgumentParser:
     save_parser.add_argument("target_id", help="Target graph node id.")
     save_parser.add_argument("--content-json", required=True, help="Serialized replacement source string.")
 
+    expression_parser = subparsers.add_parser(
+        "parse-flow-expression",
+        help="Parse a Python expression into a visual expression graph.",
+    )
+    expression_parser.add_argument("repo", help="Path to the repository root.")
+    expression_parser.add_argument("expression", help="Python expression source.")
+    expression_parser.add_argument(
+        "--input-slots-json",
+        default="{}",
+        help="Serialized mapping from input name to flow input slot id.",
+    )
+
     undo_parser = subparsers.add_parser("apply-undo", help="Apply a serialized undo transaction.")
     undo_parser.add_argument("repo", help="Path to the repository root.")
     undo_parser.add_argument("--transaction-json", required=True, help="Serialized undo transaction JSON.")
@@ -316,6 +356,12 @@ def main(argv: list[str] | None = None) -> int:
                 args.repo,
                 args.target_id,
                 json.loads(args.content_json),
+            )
+        elif args.command == "parse-flow-expression":
+            payload = parse_flow_expression_payload(
+                args.repo,
+                args.expression,
+                json.loads(args.input_slots_json),
             )
         elif args.command == "apply-undo":
             payload = apply_undo_to_payload(args.repo, args.transaction_json)

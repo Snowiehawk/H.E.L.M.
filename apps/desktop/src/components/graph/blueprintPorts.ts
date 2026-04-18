@@ -316,6 +316,13 @@ function buildFlowPorts(
       };
     }),
   );
+  if (visualFlow && node.kind === "return") {
+    inputs.push({
+      id: nodeMetadataString(node, "flow_return_input_handle") ?? `in:data:return-input:${node.id}`,
+      label: "input",
+      kind: "data",
+    });
+  }
   inputs.push(...buildArchitecturePortList("input", incomingGraphEdges, nodeById));
 
   const outgoingControlPorts = mergePorts(

@@ -4,6 +4,7 @@ import {
   flowNodeContentFromPayload,
   type AuthoredFlowNodeKind,
 } from "../graph/flowDocument";
+import { useClampedFloatingPanel } from "../shared/floatingPanel";
 
 export interface GraphCreateComposerAnchor {
   x: number;
@@ -162,15 +163,14 @@ export function GraphCreateComposer({
     }
     return flowStatement.trim().length > 0;
   })();
+  const floatingPanel = useClampedFloatingPanel(composer.anchor);
 
   return (
     <div
+      ref={floatingPanel.ref}
       className="graph-create-composer"
       data-testid="graph-create-composer"
-      style={{
-        left: `${composer.anchor.x}px`,
-        top: `${composer.anchor.y}px`,
-      }}
+      style={floatingPanel.style}
     >
       <div className="graph-create-composer__header">
         <div>

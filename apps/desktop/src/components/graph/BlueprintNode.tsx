@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { GraphNodeKind } from "../../lib/adapter";
 import type { BlueprintPort } from "./blueprintPorts";
@@ -30,7 +30,111 @@ export interface BlueprintNodeData extends Record<string, unknown> {
     helpId: HelpDescriptorId;
     onAction: () => void;
   }>;
+  expressionPreview?: {
+    nodes: Array<{
+      id: string;
+      kind: string;
+      label: string;
+      isRoot?: boolean;
+    }>;
+    nodeCount: number;
+    onOpen?: (expressionNodeId?: string) => void;
+  };
   onDefaultAction?: () => void;
+}
+
+function ExpressionPreview({
+  preview,
+}: {
+  preview: NonNullable<BlueprintNodeData["expressionPreview"]>;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const visibleNodes = preview.nodes.slice(0, 7);
+  const extraCount = Math.max(0, preview.nodeCount - visibleNodes.length);
+  const openExpressionGraph = (expressionNodeId?: string) => {
+    preview.onOpen?.(expressionNodeId);
+  };
+
+  return (
+    <div className={`graph-node__expression-preview${collapsed ? " is-collapsed" : ""}`}>
+      <button
+        aria-label={collapsed ? "Expand expression preview" : "Collapse expression preview"}
+        className="graph-node__expression-toggle nodrag"
+        title={collapsed ? "Expand expression preview" : "Collapse expression preview"}
+        type="button"
+        onPointerDown={(event) => {
+          event.stopPropagation();
+        }}
+        onDoubleClick={(event) => {
+          event.stopPropagation();
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          setCollapsed((current) => !current);
+        }}
+      >
+        {collapsed ? "+" : "-"}
+      </button>
+      <div className="graph-node__expression-canvas" aria-hidden={collapsed}>
+        {!collapsed ? (
+          <>
+            {visibleNodes.map((node) => (
+              <button
+                key={node.id}
+                aria-label={`Open expression node ${node.label}`}
+                className={[
+                  "graph-node__expression-node",
+                  `graph-node__expression-node--${node.kind}`,
+                  node.isRoot ? "is-root" : "",
+                  preview.onOpen ? "is-interactive" : "",
+                  "nodrag",
+                ].filter(Boolean).join(" ")}
+                data-testid={`graph-expression-preview-node-${node.id}`}
+                title={node.label}
+                type="button"
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onDoubleClick={(event) => {
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openExpressionGraph(node.id);
+                }}
+              >
+                {node.label}
+              </button>
+            ))}
+            {extraCount > 0 ? (
+              <button
+                aria-label="Open expression graph"
+                className={[
+                  "graph-node__expression-node",
+                  "graph-node__expression-node--more",
+                  preview.onOpen ? "is-interactive" : "",
+                  "nodrag",
+                ].filter(Boolean).join(" ")}
+                type="button"
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onDoubleClick={(event) => {
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openExpressionGraph();
+                }}
+              >
+                +{extraCount}
+              </button>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function PortList({
@@ -167,6 +271,9 @@ export const BlueprintNode = memo(function BlueprintNode({
           <span className="graph-node__subtitle" title={blueprintData.summary}>
             {blueprintData.summary}
           </span>
+        ) : null}
+        {blueprintData.expressionPreview ? (
+          <ExpressionPreview preview={blueprintData.expressionPreview} />
         ) : null}
       </div>
 

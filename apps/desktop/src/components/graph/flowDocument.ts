@@ -1,4 +1,6 @@
 import type {
+  FlowExpressionGraph,
+  FlowExpressionNode,
   FlowGraphDocument,
   FlowGraphEdge,
   FlowGraphNode,
@@ -260,6 +262,11 @@ type FlowInputBindingConnection = {
   slotId: string;
 };
 
+type FlowReturnInputBindingConnection = {
+  sourceId: string;
+  targetNodeId: string;
+};
+
 export function validateFlowConnection(
   document: FlowGraphDocument,
   connection: FlowConnection,
@@ -369,6 +376,22 @@ export function validateFlowInputBindingConnection(
   return { ok: true };
 }
 
+export function validateFlowReturnInputBindingConnection(
+  document: FlowGraphDocument,
+  connection: FlowReturnInputBindingConnection,
+): { ok: true } | { ok: false; message: string } {
+  const sourceExists = (document.functionInputs ?? []).some((input) => input.id === connection.sourceId)
+    || (document.valueSources ?? []).some((source) => source.id === connection.sourceId);
+  if (!sourceExists) {
+    return { ok: false, message: "Unable to find the selected value source." };
+  }
+  const target = document.nodes.find((node) => node.id === connection.targetNodeId);
+  if (!target || target.kind !== "return") {
+    return { ok: false, message: "The generic value input is only available on return nodes." };
+  }
+  return { ok: true };
+}
+
 export function upsertFlowInputBinding(
   document: FlowGraphDocument,
   connection: FlowInputBindingConnection,
@@ -396,6 +419,60 @@ export function upsertFlowInputBinding(
       binding,
     ],
   };
+}
+
+export function upsertFlowReturnInputBinding(
+  document: FlowGraphDocument,
+  connection: FlowReturnInputBindingConnection,
+  previousBindingId?: string,
+): FlowGraphDocument {
+  const validation = validateFlowReturnInputBindingConnection(document, connection);
+  if (!validation.ok) {
+    return document;
+  }
+
+  const targetNode = document.nodes.find((node) => node.id === connection.targetNodeId);
+  const sourceLabel = flowSourceLabel(document, connection.sourceId);
+  if (!targetNode || !sourceLabel) {
+    return document;
+  }
+
+  const existingSlot = (document.inputSlots ?? []).find((slot) => (
+    slot.nodeId === targetNode.id
+    && slot.slotKey === sourceLabel
+  ));
+  const slot = existingSlot ?? {
+    id: flowInputSlotId(flowGraphNodeSourceIdentity(targetNode), sourceLabel),
+    nodeId: targetNode.id,
+    slotKey: sourceLabel,
+    label: sourceLabel,
+    required: true,
+  };
+  const documentWithSlot = existingSlot
+    ? document
+    : {
+        ...document,
+        inputSlots: [...(document.inputSlots ?? []), slot],
+      };
+  const documentWithExpressionInput = {
+    ...documentWithSlot,
+    nodes: documentWithSlot.nodes.map((node) => (
+      node.id === targetNode.id
+        ? {
+            ...node,
+            payload: withReturnExpressionInputNode(node.payload, slot.id, sourceLabel),
+          }
+        : node
+    )),
+  };
+  return upsertFlowInputBinding(
+    documentWithExpressionInput,
+    {
+      sourceId: connection.sourceId,
+      slotId: slot.id,
+    },
+    previousBindingId,
+  );
 }
 
 export function removeFlowInputBindings(
@@ -494,11 +571,149 @@ export function flowInputBindingId(slotId: string, sourceId: string) {
   return `flowbinding:${slotId}->${sourceId}`;
 }
 
+function flowInputSlotId(nodeSourceIdentity: string, slotKey: string) {
+  return `flowslot:${nodeSourceIdentity}:${slotKey}`;
+}
+
+export function returnInputTargetHandle(nodeId: string): string {
+  return `in:data:return-input:${nodeId}`;
+}
+
+export function parseReturnInputTargetHandle(handleId: string | null | undefined): string | undefined {
+  const prefix = "in:data:return-input:";
+  return handleId?.startsWith(prefix) ? handleId.slice(prefix.length) : undefined;
+}
+
 export function flowDocumentsEqual(
   left: FlowGraphDocument | undefined,
   right: FlowGraphDocument | undefined,
 ) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+export function mergeFlowDraftWithSourceDocument(
+  currentDocument: FlowGraphDocument,
+  baseDocument: FlowGraphDocument,
+  sourceDocument: FlowGraphDocument,
+): FlowGraphDocument {
+  const sourceNodeByIdentity = new Map<string, FlowGraphNode>();
+  sourceDocument.nodes.forEach((node) => {
+    flowGraphNodeIdentityCandidates(node).forEach((identity) => {
+      sourceNodeByIdentity.set(identity, node);
+    });
+  });
+  const baseSourceBackedIdentities = new Set(
+    baseDocument.nodes.flatMap((node) => flowGraphNodeIdentityCandidates(node)),
+  );
+  const sourceNodeIds = new Set(sourceDocument.nodes.map((node) => node.id));
+  const nodeIdByCurrentNodeId = new Map<string, string>();
+  currentDocument.nodes.forEach((node) => {
+    const sourceNode = flowGraphNodeIdentityCandidates(node)
+      .map((identity) => sourceNodeByIdentity.get(identity))
+      .find(Boolean);
+    if (sourceNode) {
+      nodeIdByCurrentNodeId.set(node.id, sourceNode.id);
+    }
+  });
+  const remapNodeId = (nodeId: string) => nodeIdByCurrentNodeId.get(nodeId) ?? nodeId;
+  const draftOnlyNodes = currentDocument.nodes.filter((node) => (
+    !baseSourceBackedIdentities.has(flowGraphNodeSourceIdentity(node))
+    && !sourceNodeByIdentity.has(flowGraphNodeSourceIdentity(node))
+    && !sourceNodeIds.has(node.id)
+  ));
+  const nextNodeIds = new Set([...sourceDocument.nodes.map((node) => node.id), ...draftOnlyNodes.map((node) => node.id)]);
+
+  const baseEdgeIds = new Set(baseDocument.edges.map((edge) => edge.id));
+  const sourceEdgeKeys = new Set(sourceDocument.edges.map(flowEdgeKey));
+  const sourceControlOutputs = new Set(sourceDocument.edges.map((edge) => `${edge.sourceId}\u0000${edge.sourceHandle}`));
+  const sourceControlInputs = new Set(sourceDocument.edges.map((edge) => `${edge.targetId}\u0000${edge.targetHandle}`));
+  const draftOnlyEdges = currentDocument.edges.flatMap((edge) => {
+    if (baseEdgeIds.has(edge.id)) {
+      return [];
+    }
+    const remapped = {
+      ...edge,
+      sourceId: remapNodeId(edge.sourceId),
+      targetId: remapNodeId(edge.targetId),
+    };
+    remapped.id = flowConnectionId(remapped);
+    if (!nextNodeIds.has(remapped.sourceId) || !nextNodeIds.has(remapped.targetId)) {
+      return [];
+    }
+    if (sourceEdgeKeys.has(flowEdgeKey(remapped))) {
+      return [];
+    }
+    if (sourceControlOutputs.has(`${remapped.sourceId}\u0000${remapped.sourceHandle}`)) {
+      return [];
+    }
+    if (remapped.targetHandle !== "in" && sourceControlInputs.has(`${remapped.targetId}\u0000${remapped.targetHandle}`)) {
+      return [];
+    }
+    return [remapped];
+  });
+
+  const baseValueSourceIds = new Set((baseDocument.valueSources ?? []).map((source) => source.id));
+  const sourceValueSourceIds = new Set((sourceDocument.valueSources ?? []).map((source) => source.id));
+  const nextValueSources = [
+    ...(sourceDocument.valueSources ?? []),
+    ...(currentDocument.valueSources ?? []).flatMap((source) => {
+      if (baseValueSourceIds.has(source.id) || sourceValueSourceIds.has(source.id)) {
+        return [];
+      }
+      const nodeId = remapNodeId(source.nodeId);
+      return nextNodeIds.has(nodeId) ? [{ ...source, nodeId }] : [];
+    }),
+  ];
+
+  const baseSlotIds = new Set((baseDocument.inputSlots ?? []).map((slot) => slot.id));
+  const sourceSlotKeys = new Set((sourceDocument.inputSlots ?? []).map((slot) => `${slot.nodeId}\u0000${slot.slotKey}`));
+  const sourceSlotIds = new Set((sourceDocument.inputSlots ?? []).map((slot) => slot.id));
+  const nextInputSlots = [
+    ...(sourceDocument.inputSlots ?? []),
+    ...(currentDocument.inputSlots ?? []).flatMap((slot) => {
+      if (baseSlotIds.has(slot.id) || sourceSlotIds.has(slot.id)) {
+        return [];
+      }
+      const nodeId = remapNodeId(slot.nodeId);
+      if (!nextNodeIds.has(nodeId) || sourceSlotKeys.has(`${nodeId}\u0000${slot.slotKey}`)) {
+        return [];
+      }
+      return [{ ...slot, nodeId }];
+    }),
+  ];
+
+  const nextSourceIds = new Set([
+    ...(sourceDocument.functionInputs ?? []).map((input) => input.id),
+    ...nextValueSources.map((source) => source.id),
+  ]);
+  const nextSlotIds = new Set(nextInputSlots.map((slot) => slot.id));
+  const baseBindingIds = new Set((baseDocument.inputBindings ?? []).map((binding) => binding.id));
+  const sourceBindingSlotIds = new Set((sourceDocument.inputBindings ?? []).map((binding) => binding.slotId));
+  const sourceBindingIds = new Set((sourceDocument.inputBindings ?? []).map((binding) => binding.id));
+  const nextInputBindings = [
+    ...(sourceDocument.inputBindings ?? []),
+    ...(currentDocument.inputBindings ?? []).flatMap((binding) => {
+      if (
+        baseBindingIds.has(binding.id)
+        || sourceBindingIds.has(binding.id)
+        || sourceBindingSlotIds.has(binding.slotId)
+        || !nextSourceIds.has(binding.sourceId)
+        || !nextSlotIds.has(binding.slotId)
+      ) {
+        return [];
+      }
+      return [binding];
+    }),
+  ];
+
+  return {
+    ...sourceDocument,
+    nodes: [...sourceDocument.nodes, ...draftOnlyNodes],
+    edges: [...sourceDocument.edges, ...draftOnlyEdges],
+    valueSources: nextValueSources,
+    inputSlots: nextInputSlots,
+    inputBindings: nextInputBindings,
+  };
 }
 
 function defaultFlowContinuationHandle(kind: AuthoredFlowNodeKind) {
@@ -509,4 +724,105 @@ function defaultFlowContinuationHandle(kind: AuthoredFlowNodeKind) {
     return "after";
   }
   return "next";
+}
+
+function flowSourceLabel(document: FlowGraphDocument, sourceId: string): string | undefined {
+  const input = (document.functionInputs ?? []).find((candidate) => candidate.id === sourceId);
+  if (input?.name) {
+    return input.name;
+  }
+  const valueSource = (document.valueSources ?? []).find((candidate) => candidate.id === sourceId);
+  return valueSource?.emittedName ?? valueSource?.label ?? valueSource?.name;
+}
+
+function withReturnExpressionInputNode(
+  payload: Record<string, unknown>,
+  slotId: string,
+  name: string,
+): Record<string, unknown> {
+  const graph = flowExpressionGraphFromPayload(payload.expression_graph);
+  const existing = graph.nodes.some((node) => {
+    const payloadSlotId = node.payload.slot_id ?? node.payload.slotId;
+    const payloadName = node.payload.name;
+    return node.kind === "input"
+      && (payloadSlotId === slotId || payloadName === name || node.label === name);
+  });
+  if (existing) {
+    return { ...payload, expression_graph: graph };
+  }
+  const inputNode: FlowExpressionNode = {
+    id: nextExpressionNodeId(graph, "input", name),
+    kind: "input",
+    label: name,
+    payload: {
+      name,
+      slot_id: slotId,
+    },
+  };
+  return {
+    ...payload,
+    expression_graph: {
+      ...graph,
+      nodes: [...graph.nodes, inputNode],
+    },
+  };
+}
+
+function flowExpressionGraphFromPayload(value: unknown): FlowExpressionGraph {
+  if (
+    value
+    && typeof value === "object"
+    && Array.isArray((value as Partial<FlowExpressionGraph>).nodes)
+    && Array.isArray((value as Partial<FlowExpressionGraph>).edges)
+  ) {
+    const graph = value as FlowExpressionGraph;
+    return {
+      version: typeof graph.version === "number" ? graph.version : 1,
+      rootId: typeof graph.rootId === "string" ? graph.rootId : null,
+      nodes: graph.nodes.map((node) => ({
+        id: node.id,
+        kind: node.kind,
+        label: node.label,
+        payload: { ...node.payload },
+      })),
+      edges: graph.edges.map((edge) => ({ ...edge })),
+      ...(graph.layout
+        ? {
+            layout: {
+              ...(graph.layout.nodes ? { nodes: { ...graph.layout.nodes } } : {}),
+            },
+          }
+        : {}),
+    };
+  }
+  return {
+    version: 1,
+    rootId: null,
+    nodes: [],
+    edges: [],
+  };
+}
+
+function nextExpressionNodeId(graph: FlowExpressionGraph, kind: string, label: string): string {
+  const safeLabel = label.trim().replace(/[^a-zA-Z0-9_-]+/g, "-") || "value";
+  const existingIds = new Set(graph.nodes.map((node) => node.id));
+  let index = graph.nodes.length;
+  let nodeId = `expr:${kind}:${safeLabel}:${index}`;
+  while (existingIds.has(nodeId)) {
+    index += 1;
+    nodeId = `expr:${kind}:${safeLabel}:${index}`;
+  }
+  return nodeId;
+}
+
+function flowGraphNodeSourceIdentity(node: FlowGraphNode): string {
+  return node.indexedNodeId || node.id;
+}
+
+function flowGraphNodeIdentityCandidates(node: FlowGraphNode): string[] {
+  return [...new Set([flowGraphNodeSourceIdentity(node), node.id])];
+}
+
+function flowEdgeKey(edge: FlowGraphEdge): string {
+  return `${edge.sourceId}\u0000${edge.sourceHandle}\u0000${edge.targetId}\u0000${edge.targetHandle}`;
 }

@@ -93,6 +93,7 @@ describe("MockDesktopAdapter", () => {
       flowGraph: disconnectedDocument,
     });
     const updated = await adapter.getFlowView("symbol:helm.ui.api:build_graph_summary");
+    const source = await adapter.getEditableNodeSource("symbol:helm.ui.api:build_graph_summary");
 
     expect(result.flowSyncState).toBe("draft");
     expect(result.touchedRelativePaths).toEqual([".helm/flow-models.v1.json"]);
@@ -100,6 +101,7 @@ describe("MockDesktopAdapter", () => {
     expect(updated.flowState?.syncState).toBe("draft");
     expect(updated.flowState?.document?.nodes.some((node) => node.id.endsWith(":assign:disconnected"))).toBe(true);
     expect(updated.nodes.some((node) => node.id.endsWith(":assign:disconnected"))).toBe(true);
+    expect(source.content).not.toContain("helper = rank_modules(graph)");
   });
 
   it("round-trips clean flow replacements through replace_flow_graph with source and flow-model touches", async () => {
@@ -128,6 +130,7 @@ describe("MockDesktopAdapter", () => {
       flowGraph: cleanDocument,
     });
     const updated = await adapter.getFlowView("symbol:helm.ui.api:build_graph_summary");
+    const source = await adapter.getEditableNodeSource("symbol:helm.ui.api:build_graph_summary");
 
     expect(result.flowSyncState).toBe("clean");
     expect(result.diagnostics).toEqual([]);
@@ -141,5 +144,6 @@ describe("MockDesktopAdapter", () => {
         ?.payload,
     ).toEqual({ source: "rank_modules(module_summaries, top_n)" });
     expect(updated.nodes.some((node) => node.label.includes("rank_modules(module_summaries, top_n)"))).toBe(true);
+    expect(source.content).toContain("rank_modules(module_summaries, top_n)");
   });
 });

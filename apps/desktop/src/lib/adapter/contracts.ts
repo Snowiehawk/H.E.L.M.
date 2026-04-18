@@ -68,6 +68,58 @@ export type FlowVisualNodeKind =
   | "return"
   | "exit";
 
+export type FlowExpressionNodeKind =
+  | "input"
+  | "literal"
+  | "operator"
+  | "unary"
+  | "bool"
+  | "compare"
+  | "call"
+  | "attribute"
+  | "subscript"
+  | "conditional"
+  | "collection"
+  | "raw";
+
+export interface FlowExpressionNode {
+  id: string;
+  kind: FlowExpressionNodeKind;
+  label: string;
+  payload: Record<string, unknown>;
+}
+
+export interface FlowExpressionEdge {
+  id: string;
+  sourceId: string;
+  sourceHandle: string;
+  targetId: string;
+  targetHandle: string;
+}
+
+export interface FlowExpressionGraphLayoutNode {
+  x: number;
+  y: number;
+}
+
+export interface FlowExpressionGraphLayout {
+  nodes?: Record<string, FlowExpressionGraphLayoutNode>;
+}
+
+export interface FlowExpressionGraph {
+  version: number;
+  rootId: string | null;
+  nodes: FlowExpressionNode[];
+  edges: FlowExpressionEdge[];
+  layout?: FlowExpressionGraphLayout;
+}
+
+export interface FlowExpressionParseResult {
+  expression: string;
+  graph: FlowExpressionGraph | null;
+  diagnostics: string[];
+}
+
 export interface FlowGraphNode {
   // Persisted flow documents describe authored control flow plus source-backed
   // identity and canonical function-input bindings. Visual support nodes such as
@@ -520,6 +572,10 @@ export interface DesktopAdapter {
     settings?: GraphSettings,
   ): Promise<GraphView>;
   getFlowView(symbolId: string): Promise<GraphView>;
+  parseFlowExpression(
+    expression: string,
+    inputSlotByName?: Record<string, string>,
+  ): Promise<FlowExpressionParseResult>;
   applyStructuralEdit(request: StructuralEditRequest): Promise<StructuralEditResult>;
   applyBackendUndo(transaction: BackendUndoTransaction): Promise<BackendUndoResult>;
   revealSource(targetId: string): Promise<RevealedSource>;
@@ -527,5 +583,6 @@ export interface DesktopAdapter {
   saveNodeSource(targetId: string, content: string): Promise<StructuralEditResult>;
   openNodeInDefaultEditor(targetId: string): Promise<void>;
   revealNodeInFileExplorer(targetId: string): Promise<void>;
+  revealPathInFileExplorer(filePath: string): Promise<void>;
   getOverview(): Promise<OverviewData>;
 }

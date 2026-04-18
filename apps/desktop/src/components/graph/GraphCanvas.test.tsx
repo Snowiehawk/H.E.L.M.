@@ -249,6 +249,49 @@ const editableFlowGraph: GraphView = {
   },
 };
 
+const returnExpressionGraph = {
+  version: 1,
+  rootId: "expr:operator:0",
+  nodes: [
+    {
+      id: "expr:operator:0",
+      kind: "operator" as const,
+      label: "+",
+      payload: { operator: "+" },
+    },
+    {
+      id: "expr:input:done",
+      kind: "input" as const,
+      label: "done",
+      payload: { name: "done", slot_id: "flowslot:return:done:done" },
+    },
+  ],
+  edges: [
+    {
+      id: "expr-edge:done->plus:left",
+      source_id: "expr:input:done",
+      source_handle: "value",
+      target_id: "expr:operator:0",
+      target_handle: "left",
+    },
+  ],
+};
+
+const editableFlowGraphWithReturnExpression: GraphView = {
+  ...editableFlowGraph,
+  nodes: editableFlowGraph.nodes.map((node) => (
+    node.id === "return:done"
+      ? {
+          ...node,
+          metadata: {
+            ...node.metadata,
+            flow_expression_graph: returnExpressionGraph,
+          },
+        }
+      : node
+  )),
+};
+
 const labeledPathGraph: GraphView = {
   rootNodeId: "symbol:workflow:run",
   targetId: "symbol:workflow:run",
@@ -533,6 +576,16 @@ const visualFlowGraph: GraphView = {
       },
     },
   ],
+};
+
+const editableVisualFlowGraph: GraphView = {
+  ...visualFlowGraph,
+  flowState: {
+    editable: true,
+    syncState: "clean",
+    diagnostics: [],
+    document: visualFlowDocument,
+  },
 };
 
 const branchLoopVisualDocument: FlowGraphDocument = {
@@ -840,19 +893,19 @@ function mockGraphCanvasElementRect() {
     };
   };
 
-  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function mockClientWidth(this: HTMLElement) {
+  const clientWidthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function mockClientWidth(this: HTMLElement) {
     return elementSize.call(this).width;
   });
-  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function mockClientHeight(this: HTMLElement) {
+  const clientHeightSpy = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function mockClientHeight(this: HTMLElement) {
     return elementSize.call(this).height;
   });
-  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function mockWidth(this: HTMLElement) {
+  const offsetWidthSpy = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function mockWidth(this: HTMLElement) {
     return elementSize.call(this).width;
   });
-  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function mockHeight(this: HTMLElement) {
+  const offsetHeightSpy = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function mockHeight(this: HTMLElement) {
     return elementSize.call(this).height;
   });
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function mockRect(this: HTMLElement) {
+  const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function mockRect(this: HTMLElement) {
     const { width, height } = elementSize.call(this);
     return {
       x: 0,
@@ -866,6 +919,14 @@ function mockGraphCanvasElementRect() {
       toJSON: () => ({}),
     } as DOMRect;
   });
+
+  return () => {
+    clientWidthSpy.mockRestore();
+    clientHeightSpy.mockRestore();
+    offsetWidthSpy.mockRestore();
+    offsetHeightSpy.mockRestore();
+    rectSpy.mockRestore();
+  };
 }
 
 async function findGraphHandle(nodeId: string, handleId: string) {
@@ -882,6 +943,17 @@ async function findGraphHandle(nodeId: string, handleId: string) {
 
 function centerPoint(element: Element) {
   const rect = element.getBoundingClientRect();
+  if (rect.width > 0 || rect.height > 0) {
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+  }
+  const cx = Number(element.getAttribute("cx"));
+  const cy = Number(element.getAttribute("cy"));
+  if (Number.isFinite(cx) && Number.isFinite(cy)) {
+    return { x: cx, y: cy };
+  }
   return {
     x: rect.left + rect.width / 2,
     y: rect.top + rect.height / 2,
@@ -895,6 +967,7 @@ function beginConnectionDrag({
   dragStart: Element;
   targetHandle: HTMLElement;
 }) {
+  const startPoint = centerPoint(dragStart);
   const targetPoint = centerPoint(targetHandle);
   const originalElementFromPoint = document.elementFromPoint;
   Object.defineProperty(document, "elementFromPoint", {
@@ -904,8 +977,8 @@ function beginConnectionDrag({
 
   fireEvent.mouseDown(dragStart, {
     button: 0,
-    clientX: 0,
-    clientY: 0,
+    clientX: startPoint.x,
+    clientY: startPoint.y,
   });
   fireEvent.mouseMove(document, {
     buttons: 1,
@@ -1886,6 +1959,68 @@ describe("GraphCanvas", () => {
     expect(onCreateIntent).not.toHaveBeenCalled();
   });
 
+  it("opens the return expression graph from return-node double-clicks", async () => {
+    const onOpenExpressionGraphIntent = vi.fn();
+    const onEditFlowNodeIntent = vi.fn();
+
+    renderGraphCanvas({
+      graph: editableFlowGraph,
+      activeNodeId: undefined,
+      onEditFlowNodeIntent,
+      onOpenExpressionGraphIntent,
+    });
+
+    const returnNode = await screen.findByTestId("rf__node-return:done");
+    fireEvent.doubleClick(returnNode);
+
+    await waitFor(() =>
+      expect(onOpenExpressionGraphIntent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodeId: "return:done",
+          flowPosition: expect.objectContaining({
+            x: expect.any(Number),
+            y: expect.any(Number),
+          }),
+          panelPosition: expect.objectContaining({
+            x: expect.any(Number),
+            y: expect.any(Number),
+          }),
+        }),
+      ),
+    );
+    expect(onEditFlowNodeIntent).not.toHaveBeenCalled();
+  });
+
+  it("opens the return expression graph from mini-preview nodes", async () => {
+    const onOpenExpressionGraphIntent = vi.fn();
+
+    renderGraphCanvas({
+      graph: editableFlowGraphWithReturnExpression,
+      activeNodeId: undefined,
+      onOpenExpressionGraphIntent,
+    });
+
+    const previewNode = await screen.findByTestId("graph-expression-preview-node-expr:input:done");
+    fireEvent.click(previewNode);
+
+    await waitFor(() =>
+      expect(onOpenExpressionGraphIntent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodeId: "return:done",
+          expressionNodeId: "expr:input:done",
+          flowPosition: expect.objectContaining({
+            x: expect.any(Number),
+            y: expect.any(Number),
+          }),
+          panelPosition: expect.objectContaining({
+            x: expect.any(Number),
+            y: expect.any(Number),
+          }),
+        }),
+      ),
+    );
+  });
+
   it("distinguishes plain edge selection from Alt-click disconnect in editable flow views", () => {
     expect(resolveFlowEdgeInteraction({
       flowAuthoringEnabled: true,
@@ -1904,6 +2039,167 @@ describe("GraphCanvas", () => {
       logicalEdgeKind: "calls",
       altKey: true,
     })).toBe("ignore");
+  });
+
+  it("validates only supported flow handle pairings at the canvas layer", () => {
+    expect(isValidFlowCanvasConnection({
+      source: "entry:calculate",
+      sourceHandle: "out:control:start",
+      target: "branch:left",
+      targetHandle: "in:control:exec",
+    })).toBe(true);
+
+    expect(isValidFlowCanvasConnection({
+      source: "entry:calculate",
+      sourceHandle: "out:data:function-input:graph",
+      target: "branch:left",
+      targetHandle: "in:data:input-slot:graph",
+    })).toBe(true);
+
+    expect(isValidFlowCanvasConnection({
+      source: "branch:left",
+      sourceHandle: "out:control:true",
+      target: "branch:left",
+      targetHandle: "in:control:exec",
+    })).toBe(false);
+
+    expect(isValidFlowCanvasConnection({
+      source: "entry:calculate",
+      sourceHandle: "out:control:start",
+      target: "branch:left",
+      targetHandle: "in:data:input-slot:graph",
+    })).toBe(false);
+  });
+
+  it("shows a visible connection line while dragging editable flow control handles", async () => {
+    const restoreRects = mockGraphCanvasElementRect();
+    const onConnectFlowEdge = vi.fn();
+
+    try {
+      renderGraphCanvas({
+        graph: editableVisualFlowGraph,
+        activeNodeId: undefined,
+        onConnectFlowEdge,
+      });
+
+      const sourceHandle = await findGraphHandle("entry:calculate", "out:control:start");
+      const targetHandle = await findGraphHandle("assign:calculate", "in:control:exec");
+      expect(sourceHandle).toHaveClass("connectable");
+      expect(targetHandle).toHaveClass("connectable");
+      const drag = beginConnectionDrag({
+        dragStart: sourceHandle,
+        targetHandle,
+      });
+
+      try {
+        expect(await screen.findByTestId("graph-connection-line")).toHaveClass("is-valid");
+      } finally {
+        drag.finish();
+      }
+
+      await waitFor(() =>
+        expect(onConnectFlowEdge).toHaveBeenCalledWith({
+          sourceId: "entry:calculate",
+          sourceHandle: "out:control:start",
+          targetId: "assign:calculate",
+          targetHandle: "in:control:exec",
+        }),
+      );
+    } finally {
+      restoreRects();
+    }
+  });
+
+  it("keeps editable flow edges reconnectable through their edge updater anchors", async () => {
+    const restoreRects = mockGraphCanvasElementRect();
+    const edgeId = "controls:entry:calculate:start->assign:calculate:in";
+
+    try {
+      renderGraphCanvas({
+        graph: editableVisualFlowGraph,
+        activeNodeId: undefined,
+      });
+
+      const edgeHost = await screen.findByTestId(`rf__edge-${edgeId}::segment:0`);
+      const targetUpdater = edgeHost.querySelector(".react-flow__edgeupdater-target");
+      expect(targetUpdater).not.toBeNull();
+      expect(isValidFlowCanvasConnection({
+        source: "entry:calculate",
+        sourceHandle: "out:control:start",
+        target: "return:done",
+        targetHandle: "in:control:exec",
+      })).toBe(true);
+    } finally {
+      restoreRects();
+    }
+  });
+
+  it("shows the same drag feedback for editable flow data handles", async () => {
+    const restoreRects = mockGraphCanvasElementRect();
+    const dataFlowGraph: GraphView = {
+      ...editableVisualFlowGraph,
+      edges: [
+        ...editableVisualFlowGraph.edges,
+        {
+          id: "data:assign:return",
+          kind: "data",
+          source: "assign:calculate",
+          target: "return:done",
+          label: "value",
+          metadata: {
+            source_handle: "out:data:value-source:assign-value",
+            target_handle: "in:data:input-slot:return-value",
+          },
+        },
+      ],
+    };
+
+    try {
+      renderGraphCanvas({
+        graph: dataFlowGraph,
+        activeNodeId: undefined,
+      });
+
+      const drag = beginConnectionDrag({
+        dragStart: await findGraphHandle("assign:calculate", "out:data:value-source:assign-value"),
+        targetHandle: await findGraphHandle("return:done", "in:data:input-slot:return-value"),
+      });
+
+      try {
+        expect(await screen.findByTestId("graph-connection-line")).toHaveClass("is-valid");
+      } finally {
+        drag.finish();
+      }
+    } finally {
+      restoreRects();
+    }
+  });
+
+  it("keeps non-flow graph handles read-only without connection drag feedback", async () => {
+    const restoreRects = mockGraphCanvasElementRect();
+    const onConnectFlowEdge = vi.fn();
+
+    try {
+      renderGraphCanvas({
+        graph: moduleGraph,
+        activeNodeId: undefined,
+        onConnectFlowEdge,
+      });
+
+      const drag = beginConnectionDrag({
+        dragStart: await findGraphHandle("module:left-a", "out:graph:calls"),
+        targetHandle: await findGraphHandle("module:focus", "in:graph:calls"),
+      });
+
+      try {
+        expect(screen.queryByTestId("graph-connection-line")).not.toBeInTheDocument();
+      } finally {
+        drag.finish();
+      }
+      expect(onConnectFlowEdge).not.toHaveBeenCalled();
+    } finally {
+      restoreRects();
+    }
   });
 
   it("does not render insertion-lane UI in the normal editable flow authoring path", async () => {

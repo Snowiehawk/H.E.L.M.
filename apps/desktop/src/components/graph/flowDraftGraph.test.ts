@@ -336,6 +336,9 @@ describe("flowDraftGraph", () => {
     );
 
     const returnNode = entryMode.nodes.find((node) => node.id === "flowdoc:symbol:calculator:add:return:0");
+    expect(returnNode?.metadata.flow_return_input_handle).toBe(
+      "in:data:return-input:flowdoc:symbol:calculator:add:return:0",
+    );
     expect(returnNode?.metadata.flow_input_slots).toEqual([
       expect.objectContaining({
         slot_id: "flowslot:flow:symbol:calculator:add:statement:0:a",

@@ -19,6 +19,7 @@ import {
   flowInputBindingId,
   flowReturnCompletionEdgeId,
   isFlowDocumentNodeKind,
+  returnInputTargetHandle,
   withoutFlowReturnCompletionEdges,
 } from "./flowDocument";
 
@@ -634,6 +635,10 @@ function graphNodeForFlowDraft(
       ...(node.indexedNodeId ? { indexed_node_id: node.indexedNodeId } : {}),
       ...(inputSlots.length ? { flow_input_slots: inputSlots } : {}),
       ...(valueSources.length ? { flow_value_sources: valueSources } : {}),
+      ...(node.kind === "return" ? { flow_return_input_handle: returnInputTargetHandle(node.id) } : {}),
+      ...(node.kind === "return" && node.payload.expression_graph
+        ? { flow_expression_graph: node.payload.expression_graph }
+        : {}),
     },
     availableActions: existing?.availableActions ?? [],
   };

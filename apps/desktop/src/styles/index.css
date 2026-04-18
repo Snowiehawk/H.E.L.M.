@@ -325,7 +325,7 @@ button {
 .palette__input {
   width: 100%;
   padding: 13px 14px;
-  border-radius: 16px;
+  border-radius: 8px;
   border: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface-solid) 78%, transparent);
   color: var(--text);
@@ -565,7 +565,7 @@ button {
   align-items: baseline;
   gap: 16px;
   padding: 4px 10px;
-  border-radius: 12px;
+  border-radius: 8px;
   font-family: "SF Mono", "JetBrains Mono", "Fira Code", monospace;
 }
 
@@ -1359,6 +1359,106 @@ button {
 .graph-node__subtitle {
   color: var(--node-subtitle-color);
   font-size: 0.82rem;
+}
+
+.graph-node__expression-preview {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-height: 28px;
+  margin-top: 4px;
+}
+
+.graph-node__expression-toggle {
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--node-chip-border) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+  color: var(--node-chip-text);
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.graph-node__expression-canvas {
+  min-width: 0;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--node-chip-border) 44%, transparent);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--node-chip-bg) 52%, transparent) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, var(--node-chip-bg) 48%, transparent), color-mix(in srgb, var(--surface-solid) 60%, transparent));
+  background-size: 14px 14px, auto;
+}
+
+.graph-node__expression-preview.is-collapsed .graph-node__expression-canvas {
+  min-height: 20px;
+  opacity: 0.62;
+}
+
+.graph-node__expression-node {
+  max-width: 72px;
+  min-height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--node-chip-border) 58%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
+  color: var(--node-title-color);
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-family: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.graph-node__expression-node.is-interactive {
+  cursor: pointer;
+}
+
+.graph-node__expression-node.is-interactive:hover,
+.graph-node__expression-node.is-interactive:focus-visible {
+  border-color: color-mix(in srgb, var(--accent-strong) 72%, var(--node-chip-border) 28%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent);
+  outline: none;
+}
+
+.graph-node__expression-node.is-root {
+  color: var(--accent-strong);
+}
+
+.graph-node__expression-node--input {
+  background: color-mix(in srgb, #214b5d 66%, var(--surface-solid) 34%);
+}
+
+.graph-node__expression-node--operator,
+.graph-node__expression-node--bool,
+.graph-node__expression-node--compare,
+.graph-node__expression-node--unary {
+  background: color-mix(in srgb, #273f2f 68%, var(--surface-solid) 32%);
+}
+
+.graph-node__expression-node--operator {
+  border-color: color-mix(in srgb, #ffbf5a 62%, var(--node-chip-border) 38%);
+  color: color-mix(in srgb, #ffd37a 82%, var(--node-title-color) 18%);
+}
+
+.graph-node__expression-node--more {
+  color: var(--node-subtitle-color);
 }
 
 .graph-node__kind {
@@ -2313,7 +2413,6 @@ button {
 }
 
 .graph-location__button,
-.graph-location__link,
 .graph-location__segment {
   max-width: min(28vw, 320px);
   padding: 0;
@@ -2335,22 +2434,24 @@ button {
   color: var(--text);
 }
 
-.graph-location__link {
-  border: none;
-  background: transparent;
-  color: color-mix(in srgb, var(--accent-strong) 84%, var(--text) 16%);
-  cursor: pointer;
+.graph-location__button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-strong) 64%, transparent);
+  outline-offset: 3px;
+}
+
+.graph-location__button--revealable {
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--accent-strong) 48%, transparent);
+  text-decoration-style: dotted;
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 56%, transparent);
   text-underline-offset: 0.16em;
 }
 
-.graph-location__link:hover {
-  color: color-mix(in srgb, var(--accent-strong) 56%, white 44%);
+.graph-location__button--revealable:hover {
   text-decoration-color: currentColor;
 }
 
-.graph-location__link.is-current {
+.graph-location__button.is-current {
+  color: var(--text);
   font-weight: 600;
 }
 
@@ -2534,7 +2635,7 @@ body.graph-pan-cursor-dragging * {
   padding: 5px 8px;
   text-align: left;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
   color: var(--text);
 }
@@ -2739,10 +2840,9 @@ body.graph-pan-cursor-dragging * {
   position: absolute;
   z-index: 4;
   width: min(360px, calc(100% - 24px));
-  transform: translate(14px, 14px);
   padding: 16px;
   border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line) 58%);
-  border-radius: 18px;
+  border-radius: 8px;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--surface-strong) 96%, transparent), color-mix(in srgb, var(--surface-solid) 94%, transparent));
   box-shadow: var(--shadow-card);
@@ -2765,6 +2865,317 @@ body.graph-pan-cursor-dragging * {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.flow-expression-canvas {
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-strong) 94%, transparent), color-mix(in srgb, var(--surface-solid) 88%, transparent));
+}
+
+.flow-expression-canvas__header,
+.flow-expression-canvas__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.flow-expression-canvas__header h3 {
+  margin: 4px 0 0;
+}
+
+.flow-expression-canvas__header-actions,
+.flow-expression-canvas__toolbar,
+.flow-expression-canvas__slot-picker,
+.flow-expression-canvas__selected-actions,
+.flow-expression-canvas__target-list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-expression-canvas__toolbar {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  background: color-mix(in srgb, var(--surface-solid) 54%, transparent);
+}
+
+.flow-expression-canvas__slot-picker span,
+.flow-expression-canvas__target-list span:first-child {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.flow-expression-canvas__slot-picker select,
+.flow-expression-canvas__selected select,
+.flow-expression-canvas__selected input {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
+  color: var(--text);
+}
+
+.flow-expression-canvas__slot-picker select {
+  max-width: 126px;
+  padding: 6px 8px;
+}
+
+.flow-expression-canvas__status {
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.flow-expression-canvas__status.is-draft {
+  border-color: color-mix(in srgb, #f6c356 48%, var(--line) 52%);
+  color: color-mix(in srgb, #ffdf91 88%, var(--text) 12%);
+}
+
+.flow-expression-canvas__body {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 260px);
+  gap: 12px;
+  padding: 12px;
+}
+
+.flow-expression-canvas__stage {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+}
+
+.flow-expression-canvas__stage .react-flow {
+  width: 100%;
+  height: 100%;
+}
+
+.flow-expression-canvas__stage .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow-card);
+}
+
+.flow-expression-canvas__stage .react-flow__controls-button {
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
+  color: var(--text);
+}
+
+.flow-expression-canvas__stage .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--accent-strong) 74%, white 26%);
+  stroke-width: 2.4px;
+}
+
+.flow-expression-canvas__stage .react-flow__edge.selected .react-flow__edge-path,
+.flow-expression-canvas__stage .react-flow__edge:focus .react-flow__edge-path {
+  stroke: color-mix(in srgb, #77d8ff 82%, white 18%);
+  stroke-width: 3px;
+}
+
+.flow-expression-canvas__node {
+  position: relative;
+  width: 126px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line) 62%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-solid) 90%, #183033 10%);
+  color: var(--text);
+  box-shadow: 0 8px 20px color-mix(in srgb, #02060b 38%, transparent);
+}
+
+.flow-expression-canvas__node-body {
+  min-height: 52px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  align-items: center;
+  justify-items: start;
+  gap: 2px;
+  padding: 8px 14px;
+}
+
+.flow-expression-canvas__node-body span {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.flow-expression-canvas__node-body strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.86rem;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-expression-canvas__node--input {
+  border-color: color-mix(in srgb, #77d8ff 48%, var(--line) 52%);
+}
+
+.flow-expression-canvas__node--operator,
+.flow-expression-canvas__node--bool,
+.flow-expression-canvas__node--compare,
+.flow-expression-canvas__node--unary,
+.flow-expression-canvas__node--call {
+  border-color: color-mix(in srgb, #9be77b 50%, var(--line) 50%);
+}
+
+.flow-expression-canvas__node.is-root {
+  border-color: color-mix(in srgb, var(--accent-strong) 76%, white 24%);
+}
+
+.flow-expression-canvas__node.is-selected {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 34%, transparent),
+    0 10px 24px color-mix(in srgb, #02060b 42%, transparent);
+}
+
+.flow-expression-canvas__target {
+  position: absolute;
+  left: -2px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  transform: translateX(-50%);
+  color: color-mix(in srgb, #bdeeff 88%, var(--text) 12%);
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.flow-expression-canvas__handle {
+  width: 13px;
+  height: 13px;
+  border: 1px solid color-mix(in srgb, #77d8ff 70%, var(--line) 30%);
+  background: color-mix(in srgb, var(--surface-solid) 92%, #102a36 8%);
+  cursor: crosshair;
+  pointer-events: auto;
+}
+
+.flow-expression-canvas__handle:hover {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.flow-expression-canvas__handle--source {
+  right: -7px;
+}
+
+.flow-expression-canvas__side {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  overflow: auto;
+}
+
+.flow-expression-canvas__stat,
+.flow-expression-canvas__selected,
+.flow-expression-canvas__source {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-solid) 76%, transparent);
+}
+
+.flow-expression-canvas__stat {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.flow-expression-canvas__selected-actions,
+.flow-expression-canvas__target-list {
+  flex-wrap: wrap;
+}
+
+.flow-expression-canvas__selected input,
+.flow-expression-canvas__selected select {
+  width: 100%;
+  padding: 7px 8px;
+}
+
+.flow-expression-canvas__selected strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-expression-canvas__target-list span:not(:first-child) {
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.flow-expression-canvas__source code {
+  display: block;
+  min-height: 44px;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, #02060b 18%, transparent);
+  color: var(--text);
+  font-family: var(--font-mono);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.flow-expression-canvas__diagnostics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.flow-expression-canvas__diagnostics span {
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, #f6c356 46%, var(--line) 54%);
+  border-radius: 8px;
+  background: color-mix(in srgb, #2b2414 78%, transparent);
+  color: color-mix(in srgb, #ffdf91 86%, var(--text) 14%);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+@media (max-width: 920px) {
+  .flow-expression-canvas__body {
+    grid-template-columns: 1fr;
+  }
 }
 
 .blueprint-inspector-drawer {
@@ -3021,6 +3432,21 @@ body.graph-pan-cursor-dragging * {
 .blueprint-inspector .blueprint-editor,
 .blueprint-inspector .blueprint-code-details {
   max-width: 100%;
+}
+
+.blueprint-inspector__activity-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.blueprint-inspector__diagnostics {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
 }
 
 .graph-hud {

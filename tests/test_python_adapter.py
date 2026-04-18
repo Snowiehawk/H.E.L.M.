@@ -10,6 +10,9 @@ from helm.editor.flow_model import (
     FlowModelDocument,
     FlowModelEdge,
     FlowModelNode,
+    compile_flow_document,
+    expression_from_expression_graph,
+    expression_graph_from_expression,
     flow_return_completion_edge_id,
     import_flow_document_from_function_source,
     read_flow_document,
@@ -224,6 +227,85 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 "kwarg",
             ],
         )
+
+    def test_flow_import_derives_return_expression_graph(self) -> None:
+        source = "def add(a, b, c):\n    return a + b + c\n"
+
+        document = import_flow_document_from_function_source(
+            symbol_id="symbol:service:add",
+            relative_path="service.py",
+            qualname="add",
+            module_source=source,
+        )
+        return_node = next(node for node in document.nodes if node.kind == "return")
+        expression_graph = return_node.payload["expression_graph"]
+
+        self.assertEqual([function_input.name for function_input in document.function_inputs], ["a", "b", "c"])
+        self.assertEqual({slot.slot_key for slot in document.input_slots}, {"a", "b", "c"})
+        self.assertEqual(
+            {binding.source_id for binding in document.input_bindings},
+            {
+                "flowinput:symbol:service:add:a",
+                "flowinput:symbol:service:add:b",
+                "flowinput:symbol:service:add:c",
+            },
+        )
+        self.assertEqual(expression_from_expression_graph(expression_graph), "a + b + c")
+        self.assertEqual(
+            {
+                node["payload"]["name"]
+                for node in expression_graph["nodes"]
+                if node["kind"] == "input"
+            },
+            {"a", "b", "c"},
+        )
+        self.assertTrue(any(node["kind"] == "operator" and node["label"] == "+" for node in expression_graph["nodes"]))
+        compiled = compile_flow_document(document)
+        self.assertEqual(compiled.sync_state, "clean")
+        self.assertEqual(compiled.body_source, "return a + b + c")
+
+    def test_expression_graph_preserves_unsupported_subtrees_as_raw_nodes(self) -> None:
+        graph = expression_graph_from_expression("[value for value in items]")
+
+        self.assertEqual(expression_from_expression_graph(graph), "[value for value in items]")
+        self.assertEqual(
+            [node["kind"] for node in graph["nodes"]],
+            ["raw"],
+        )
+
+    def test_return_expression_graph_reports_unconnected_inputs(self) -> None:
+        source = "def add(a, b, c):\n    return a + b\n"
+        document = import_flow_document_from_function_source(
+            symbol_id="symbol:service:add",
+            relative_path="service.py",
+            qualname="add",
+            module_source=source,
+        )
+        return_node = next(node for node in document.nodes if node.kind == "return")
+        graph = return_node.payload["expression_graph"]
+        graph["nodes"].append({
+            "id": "expr:input:c",
+            "kind": "input",
+            "label": "c",
+            "payload": {
+                "name": "c",
+                "slot_id": "flowslot:flow:symbol:service:add:statement:0:c",
+            },
+        })
+        document = replace(
+            document,
+            nodes=tuple(
+                replace(node, payload={**node.payload, "expression_graph": graph})
+                if node.node_id == return_node.node_id
+                else node
+                for node in document.nodes
+            ),
+        )
+
+        result = compile_flow_document(document)
+
+        self.assertEqual(result.sync_state, "draft")
+        self.assertTrue(any("not connected to the return expression: c" in diagnostic for diagnostic in result.diagnostics))
 
     def test_flow_view_marks_loop_body_and_exit_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -1087,6 +1087,25 @@ fn save_node_source(
 }
 
 #[tauri::command]
+fn parse_flow_expression(
+    service: State<'_, BackendService>,
+    repo_path: String,
+    expression: String,
+    input_slots_json: String,
+) -> Result<Value, String> {
+    let input_slot_by_name: Value = serde_json::from_str(&input_slots_json)
+        .map_err(|err| format!("Unable to decode expression input slots: {}", err))?;
+    service.request(
+        "parse-flow-expression",
+        json!({
+            "repo": repo_path,
+            "expression": expression,
+            "input_slot_by_name": input_slot_by_name,
+        }),
+    )
+}
+
+#[tauri::command]
 fn apply_backend_undo(
     service: State<'_, BackendService>,
     repo_path: String,
@@ -1751,6 +1770,7 @@ fn main() {
             reveal_source,
             editable_node_source,
             save_node_source,
+            parse_flow_expression,
             read_repo_graph_layout,
             write_repo_graph_layout,
             read_repo_file,

@@ -54,6 +54,10 @@ import {
 } from "../workspace/workspaceHelp";
 import { buildBlueprintPresentation } from "./blueprintPorts";
 import { declutterGraphLayout } from "./declutterLayout";
+import {
+  flowExpressionNodeDisplayLabel,
+  normalizeFlowExpressionGraph,
+} from "./flowExpressionGraph";
 import { layoutFlowGraph } from "./flowLayout";
 import {
   graphLayoutNodeKey,
@@ -103,6 +107,7 @@ const MIN_GRAPH_ZOOM = 0.12;
 const MAX_GRAPH_ZOOM = 1.8;
 const FLOW_CONNECTION_RADIUS = 32;
 const FLOW_RECONNECT_RADIUS = 16;
+const noopExpressionGraphIntent = () => {};
 
 type SemanticCanvasNode = Node<BlueprintNodeData, "blueprint">;
 type RerouteCanvasNode = Node<RerouteNodeData, "reroute">;
@@ -115,6 +120,12 @@ export interface GraphCreateIntent {
 }
 export interface GraphFlowEditIntent {
   nodeId: string;
+  flowPosition: { x: number; y: number };
+  panelPosition: { x: number; y: number };
+}
+export interface GraphExpressionGraphIntent {
+  nodeId: string;
+  expressionNodeId?: string;
   flowPosition: { x: number; y: number };
   panelPosition: { x: number; y: number };
 }
@@ -314,6 +325,35 @@ function nodeSummary(node: GraphNodeDto): string | undefined {
     }
   }
   return node.subtitle ?? undefined;
+}
+
+function expressionPreviewForNode(node: GraphNodeDto): BlueprintNodeData["expressionPreview"] | undefined {
+  if (node.kind !== "return") {
+    return undefined;
+  }
+  const graph = normalizeFlowExpressionGraph(
+    node.metadata.flow_expression_graph ?? node.metadata.flowExpressionGraph,
+  );
+  if (!graph?.nodes.length) {
+    return undefined;
+  }
+  const rootId = graph.rootId;
+  const rootNodes = rootId ? graph.nodes.filter((candidate) => candidate.id === rootId) : [];
+  const nonRootNodes = graph.nodes.filter((candidate) => candidate.id !== rootId);
+  const orderedNodes = [
+    ...rootNodes,
+    ...nonRootNodes.filter((candidate) => candidate.kind !== "input"),
+    ...nonRootNodes.filter((candidate) => candidate.kind === "input"),
+  ];
+  return {
+    nodes: orderedNodes.map((expressionNode) => ({
+      id: expressionNode.id,
+      kind: expressionNode.kind,
+      label: flowExpressionNodeDisplayLabel(expressionNode),
+      isRoot: expressionNode.id === rootId,
+    })),
+    nodeCount: graph.nodes.length,
+  };
 }
 
 function rerouteNodeId(rerouteId: string) {
@@ -592,6 +632,7 @@ function buildSemanticCanvasNodes(
   onTogglePinned: (nodeId: string) => void,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
   onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
+  onOpenExpressionGraph: (nodeId: string, expressionNodeId?: string) => void,
   onPortHoverStart: (edgeIds: string[]) => void,
   onPortHoverEnd: () => void,
 ): SemanticCanvasNode[] {
@@ -629,6 +670,7 @@ function buildSemanticCanvasNodes(
       });
     }
 
+    const expressionPreview = expressionPreviewForNode(node);
     return {
       id: node.id,
       position: savedPosition ?? { x: node.x, y: node.y },
@@ -637,6 +679,12 @@ function buildSemanticCanvasNodes(
         kind: node.kind,
         label: moduleDisplayLabel(node),
         summary: nodeSummary(node),
+        expressionPreview: expressionPreview
+          ? {
+              ...expressionPreview,
+              onOpen: (expressionNodeId?: string) => onOpenExpressionGraph(node.id, expressionNodeId),
+            }
+          : undefined,
         isPinned,
         inputPorts: decorateNodePorts(
           ports.inputs,
@@ -717,6 +765,7 @@ function buildCanvasNodes(
   onTogglePinned: (nodeId: string) => void,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
   onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
+  onOpenExpressionGraph: (nodeId: string, expressionNodeId?: string) => void,
   onPortHoverStart: (edgeIds: string[]) => void,
   onPortHoverEnd: () => void,
 ): GraphCanvasNode[] {
@@ -740,6 +789,7 @@ function buildCanvasNodes(
       onTogglePinned,
       onActivateNode,
       onInspectNode,
+      onOpenExpressionGraph,
       onPortHoverStart,
       onPortHoverEnd,
     ),
@@ -1270,24 +1320,6 @@ function isEditableEventTarget(target: EventTarget | null): boolean {
     'input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"]',
   );
   return editableHost instanceof HTMLElement;
-}
-
-function shouldHandleNavigateOutKey(event: {
-  key: string;
-  altKey: boolean;
-  ctrlKey: boolean;
-  metaKey: boolean;
-  shiftKey: boolean;
-  target: EventTarget | null;
-}) {
-  return !(
-    event.key !== "Backspace"
-    || event.altKey
-    || event.ctrlKey
-    || event.metaKey
-    || event.shiftKey
-    || isEditableEventTarget(event.target)
-  );
 }
 
 function shouldHandleRerouteDeleteKey(event: {
@@ -2085,7 +2117,6 @@ export function GraphCanvas({
   onSetFlowInputDisplayMode = () => {},
   onToggleGraphPathHighlight,
   onToggleEdgeLabels,
-  onNavigateOut,
   onClearSelection,
   createModeState = "inactive",
   createModeCanvasEnabled = false,
@@ -2093,6 +2124,7 @@ export function GraphCanvas({
   onToggleCreateMode = () => {},
   onCreateIntent = () => {},
   onEditFlowNodeIntent = () => {},
+  onOpenExpressionGraphIntent = noopExpressionGraphIntent,
   onConnectFlowEdge = () => {},
   onReconnectFlowEdge = () => {},
   onDisconnectFlowEdge = () => {},
@@ -2126,6 +2158,7 @@ export function GraphCanvas({
   onToggleCreateMode?: () => void;
   onCreateIntent?: (intent: GraphCreateIntent) => void;
   onEditFlowNodeIntent?: (intent: GraphFlowEditIntent) => void;
+  onOpenExpressionGraphIntent?: (intent: GraphExpressionGraphIntent) => void;
   onConnectFlowEdge?: (connection: GraphFlowConnectionIntent) => void;
   onReconnectFlowEdge?: (edgeId: string, connection: GraphFlowConnectionIntent) => void;
   onDisconnectFlowEdge?: (edgeId: string) => void;
@@ -2162,6 +2195,7 @@ export function GraphCanvas({
   const createModeActive = createModeState !== "inactive";
   const createModeReady = createModeState === "active";
   const [nodes, setNodes] = useState<GraphCanvasNode[]>([]);
+  const nodesRef = useRef<GraphCanvasNode[]>([]);
   const [groups, setGroups] = useState<StoredGraphGroup[]>([]);
   const [selectedSemanticNodeIds, setSelectedSemanticNodeIds] = useState<string[]>([]);
   const [selectedControlEdgeIds, setSelectedControlEdgeIds] = useState<string[]>([]);
@@ -2177,6 +2211,9 @@ export function GraphCanvas({
   const panModeActive = useKeyPress("Space");
   const [pointerInsidePanel, setPointerInsidePanel] = useState(false);
   const [panPointerDragging, setPanPointerDragging] = useState(false);
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
   const selectedRerouteNodes = useMemo(
     () => nodes.filter((node) => isRerouteCanvasNode(node) && Boolean(node.selected)),
     [nodes],
@@ -2340,6 +2377,35 @@ export function GraphCanvas({
     reactFlowInstanceRef.current?.screenToFlowPosition(clientPosition)
     ?? { x: clientPosition.x, y: clientPosition.y }
   ), []);
+  const requestExpressionGraphIntent = useCallback((
+    nodeId: string,
+    expressionNodeId?: string,
+    clientPosition?: { x: number; y: number },
+  ) => {
+    const panelBounds = panelRef.current?.getBoundingClientRect();
+    const canvasNode = nodesRef.current.find((node) => node.id === nodeId);
+    const fallbackFlowPosition = canvasNode
+      ? { x: canvasNode.position.x + 220, y: canvasNode.position.y + 48 }
+      : { x: 0, y: 0 };
+    const projectedPosition =
+      clientPosition
+      ?? (
+        canvasNode && reactFlowInstanceRef.current?.flowToScreenPosition
+          ? reactFlowInstanceRef.current.flowToScreenPosition(fallbackFlowPosition)
+          : undefined
+      );
+    onOpenExpressionGraphIntent({
+      nodeId,
+      expressionNodeId,
+      flowPosition: projectedPosition
+        ? screenToFlowPosition(projectedPosition)
+        : fallbackFlowPosition,
+      panelPosition: {
+        x: projectedPosition && panelBounds ? projectedPosition.x - panelBounds.left : projectedPosition?.x ?? 24,
+        y: projectedPosition && panelBounds ? projectedPosition.y - panelBounds.top : projectedPosition?.y ?? 24,
+      },
+    });
+  }, [onOpenExpressionGraphIntent, screenToFlowPosition]);
   const selectControlEdge = useCallback((edgeId: string) => {
     setSelectedControlEdgeIds([edgeId]);
     setSelectedGroupId(undefined);
@@ -2855,15 +2921,7 @@ export function GraphCanvas({
     if (selectedNodeId && shouldHandlePinKey(event) && canPinNodes) {
       event.preventDefault();
       togglePinnedNodes([selectedNodeId]);
-      return;
     }
-
-    if (!shouldHandleNavigateOutKey(event)) {
-      return;
-    }
-
-    event.preventDefault();
-    onNavigateOut();
   };
 
   useEffect(() => {
@@ -2897,7 +2955,6 @@ export function GraphCanvas({
         !(graphHotkeyActiveRef.current || panelContainsTarget || panelContainsFocus)
         || (!shouldHandleFitViewKey(event)
           && !shouldHandleCreateModeKey(event)
-          && !shouldHandleNavigateOutKey(event)
           && !shouldHandleRerouteDeleteKey(event)
           && !shouldHandlePinKey(event)
           && !shouldHandleGroupKey(event)
@@ -2913,7 +2970,6 @@ export function GraphCanvas({
       if (
         !shouldHandleFitViewKey(event)
         && !shouldHandleCreateModeKey(event)
-        && !shouldHandleNavigateOutKey(event)
         && !shouldHandleRerouteDeleteKey(event)
         && !shouldHandlePinKey(event)
         && !shouldHandleGroupKey(event)
@@ -2939,7 +2995,6 @@ export function GraphCanvas({
     canPinNodes,
     createGroupFromSelection,
     memberNodeIdsByGroupId,
-    onNavigateOut,
     selectedGroupId,
     selectedNodeId,
     selectedRerouteCount,
@@ -3059,6 +3114,7 @@ export function GraphCanvas({
       togglePinnedNode,
       onActivateNode,
       onInspectNode,
+      requestExpressionGraphIntent,
       setHoveredPortEdgeIds,
       () => setHoveredPortEdgeIds([]),
     );
@@ -3104,6 +3160,7 @@ export function GraphCanvas({
             togglePinnedNode,
             onActivateNode,
             onInspectNode,
+            requestExpressionGraphIntent,
             setHoveredPortEdgeIds,
             () => setHoveredPortEdgeIds([]),
           ),
@@ -3136,6 +3193,7 @@ export function GraphCanvas({
           togglePinnedNode,
           onActivateNode,
           onInspectNode,
+          requestExpressionGraphIntent,
           setHoveredPortEdgeIds,
           () => setHoveredPortEdgeIds([]),
         ),
@@ -3152,6 +3210,7 @@ export function GraphCanvas({
     flowAuthoringEnabled,
     onActivateNode,
     onInspectNode,
+    requestExpressionGraphIntent,
     repoPath,
     graphNodeIds,
     viewKey,
@@ -3178,6 +3237,7 @@ export function GraphCanvas({
         togglePinnedNode,
         onActivateNode,
         onInspectNode,
+        requestExpressionGraphIntent,
         setHoveredPortEdgeIds,
         () => setHoveredPortEdgeIds([]),
       ),
@@ -3190,6 +3250,7 @@ export function GraphCanvas({
     flowAuthoringEnabled,
     onActivateNode,
     onInspectNode,
+    requestExpressionGraphIntent,
     selectedConnectedEdgeIds,
     groupedNodeIds,
     selectedPreviewNodeIds,
@@ -3737,6 +3798,14 @@ export function GraphCanvas({
           if (isRerouteCanvasNode(node)) {
             return;
           }
+          if (flowAuthoringEnabled && node.data.kind === "return") {
+            requestExpressionGraphIntent(
+              node.id,
+              undefined,
+              { x: event.clientX, y: event.clientY },
+            );
+            return;
+          }
           if (flowAuthoringEnabled && authorableFlowNodeIds.has(node.id)) {
             onEditFlowNodeIntent({
               nodeId: node.id,
@@ -3843,6 +3912,7 @@ function applyNodeDecorations(
   onTogglePinned: (nodeId: string) => void,
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void,
   onInspectNode: (nodeId: string, kind: GraphNodeKind) => void,
+  onOpenExpressionGraph: (nodeId: string, expressionNodeId?: string) => void,
   onPortHoverStart: (edgeIds: string[]) => void,
   onPortHoverEnd: () => void,
 ) {
@@ -3906,6 +3976,7 @@ function applyNodeDecorations(
       });
     }
 
+    const expressionPreview = expressionPreviewForNode(graphNode);
     return {
       ...node,
       className: nextClassName,
@@ -3914,6 +3985,12 @@ function applyNodeDecorations(
         kind: graphNode.kind,
         label: moduleDisplayLabel(graphNode),
         summary: nodeSummary(graphNode),
+        expressionPreview: expressionPreview
+          ? {
+              ...expressionPreview,
+              onOpen: (expressionNodeId?: string) => onOpenExpressionGraph(graphNode.id, expressionNodeId),
+            }
+          : undefined,
         isPinned: node.data.isPinned,
         inputPorts: decorateNodePorts(
           ports.inputs,

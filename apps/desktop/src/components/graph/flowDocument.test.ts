@@ -3,16 +3,21 @@ import type { FlowGraphDocument } from "../../lib/adapter";
 import type { AuthoredFlowNode } from "./flowDocument";
 import {
   addDisconnectedFlowNode,
+  mergeFlowDraftWithSourceDocument,
   isFlowDocumentNodeKind,
   isFlowNodeAuthorableKind,
+  parseReturnInputTargetHandle,
   removeFlowEdges,
   removeFlowInputBindings,
   removeFlowNodes,
   flowReturnCompletionEdgeId,
+  returnInputTargetHandle,
   upsertFlowInputBinding,
   upsertFlowConnection,
+  upsertFlowReturnInputBinding,
   validateFlowConnection,
   validateFlowInputBindingConnection,
+  validateFlowReturnInputBindingConnection,
 } from "./flowDocument";
 
 const baseDocument: FlowGraphDocument = {
@@ -334,5 +339,143 @@ describe("flowDocument logical helpers", () => {
     expect(removedSourceNode.valueSources).toEqual([]);
     expect(removedSourceNode.inputSlots).toEqual(document.inputSlots);
     expect(removedSourceNode.inputBindings).toEqual([]);
+  });
+
+  it("creates a generic return slot, binding, and expression input node", () => {
+    const returnNodeId = "flowdoc:symbol:workflow:run:return:0";
+    const document: FlowGraphDocument = {
+      ...baseDocument,
+      nodes: [
+        { id: "flowdoc:symbol:workflow:run:entry", kind: "entry", payload: {} },
+        {
+          id: returnNodeId,
+          kind: "return",
+          indexedNodeId: "flow:symbol:workflow:run:statement:0",
+          payload: {
+            expression: "a",
+            expression_graph: {
+              version: 1,
+              rootId: "expr:input:0",
+              nodes: [{
+                id: "expr:input:0",
+                kind: "input",
+                label: "a",
+                payload: { name: "a" },
+              }],
+              edges: [],
+            },
+          },
+        },
+        { id: "flowdoc:symbol:workflow:run:exit", kind: "exit", payload: {} },
+      ],
+      functionInputs: [
+        { id: "flowinput:symbol:workflow:run:a", name: "a", index: 0 },
+        { id: "flowinput:symbol:workflow:run:c", name: "c", index: 1 },
+      ],
+      inputSlots: [],
+      inputBindings: [],
+    };
+
+    expect(parseReturnInputTargetHandle(returnInputTargetHandle(returnNodeId))).toBe(returnNodeId);
+    expect(validateFlowReturnInputBindingConnection(document, {
+      sourceId: "flowinput:symbol:workflow:run:c",
+      targetNodeId: returnNodeId,
+    })).toEqual({ ok: true });
+
+    const connected = upsertFlowReturnInputBinding(document, {
+      sourceId: "flowinput:symbol:workflow:run:c",
+      targetNodeId: returnNodeId,
+    });
+
+    expect(connected.inputSlots).toEqual([
+      expect.objectContaining({
+        id: "flowslot:flow:symbol:workflow:run:statement:0:c",
+        nodeId: returnNodeId,
+        slotKey: "c",
+      }),
+    ]);
+    expect(connected.inputBindings).toEqual([
+      expect.objectContaining({
+        id: "flowbinding:flowslot:flow:symbol:workflow:run:statement:0:c->flowinput:symbol:workflow:run:c",
+        sourceId: "flowinput:symbol:workflow:run:c",
+        slotId: "flowslot:flow:symbol:workflow:run:statement:0:c",
+        functionInputId: "flowinput:symbol:workflow:run:c",
+      }),
+    ]);
+    const returnPayload = connected.nodes.find((node) => node.id === returnNodeId)?.payload;
+    const expressionGraph = returnPayload?.expression_graph as { nodes: Array<{ kind: string; payload: Record<string, unknown> }> };
+    expect(expressionGraph.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "input",
+          payload: expect.objectContaining({
+            name: "c",
+            slot_id: "flowslot:flow:symbol:workflow:run:statement:0:c",
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("merges refreshed source flow documents into an open draft", () => {
+    const base: FlowGraphDocument = {
+      ...baseDocument,
+      symbolId: "symbol:calculator:add",
+      nodes: [
+        { id: "flowdoc:symbol:calculator:add:entry", kind: "entry", payload: {}, indexedNodeId: "flow:symbol:calculator:add:entry" },
+        { id: "flowdoc:symbol:calculator:add:return:0", kind: "return", payload: { expression: "a + b" }, indexedNodeId: "flow:symbol:calculator:add:statement:0" },
+        { id: "flowdoc:symbol:calculator:add:exit", kind: "exit", payload: {} },
+      ],
+      functionInputs: [
+        { id: "flowinput:symbol:calculator:add:a", name: "a", index: 0 },
+        { id: "flowinput:symbol:calculator:add:b", name: "b", index: 1 },
+      ],
+      inputSlots: [
+        { id: "flowslot:flow:symbol:calculator:add:statement:0:a", nodeId: "flowdoc:symbol:calculator:add:return:0", slotKey: "a", label: "a", required: true },
+        { id: "flowslot:flow:symbol:calculator:add:statement:0:b", nodeId: "flowdoc:symbol:calculator:add:return:0", slotKey: "b", label: "b", required: true },
+      ],
+      inputBindings: [
+        { id: "flowbinding:flowslot:flow:symbol:calculator:add:statement:0:a->flowinput:symbol:calculator:add:a", sourceId: "flowinput:symbol:calculator:add:a", functionInputId: "flowinput:symbol:calculator:add:a", slotId: "flowslot:flow:symbol:calculator:add:statement:0:a" },
+        { id: "flowbinding:flowslot:flow:symbol:calculator:add:statement:0:b->flowinput:symbol:calculator:add:b", sourceId: "flowinput:symbol:calculator:add:b", functionInputId: "flowinput:symbol:calculator:add:b", slotId: "flowslot:flow:symbol:calculator:add:statement:0:b" },
+      ],
+    };
+    const currentDraft: FlowGraphDocument = {
+      ...base,
+      nodes: [
+        ...base.nodes,
+        { id: "flowdoc:symbol:calculator:add:assign:draft", kind: "assign", payload: { source: "total = a + b" } },
+      ],
+    };
+    const refreshedSource: FlowGraphDocument = {
+      ...base,
+      nodes: base.nodes.map((node) => (
+        node.kind === "return"
+          ? { ...node, payload: { expression: "a + b + c" } }
+          : node
+      )),
+      functionInputs: [
+        ...base.functionInputs!,
+        { id: "flowinput:symbol:calculator:add:c", name: "c", index: 2 },
+      ],
+      inputSlots: [
+        ...base.inputSlots!,
+        { id: "flowslot:flow:symbol:calculator:add:statement:0:c", nodeId: "flowdoc:symbol:calculator:add:return:0", slotKey: "c", label: "c", required: true },
+      ],
+      inputBindings: [
+        ...base.inputBindings!,
+        { id: "flowbinding:flowslot:flow:symbol:calculator:add:statement:0:c->flowinput:symbol:calculator:add:c", sourceId: "flowinput:symbol:calculator:add:c", functionInputId: "flowinput:symbol:calculator:add:c", slotId: "flowslot:flow:symbol:calculator:add:statement:0:c" },
+      ],
+    };
+
+    const merged = mergeFlowDraftWithSourceDocument(currentDraft, base, refreshedSource);
+
+    expect(merged.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "flowdoc:symbol:calculator:add:assign:draft" }),
+        expect.objectContaining({ id: "flowdoc:symbol:calculator:add:return:0", payload: { expression: "a + b + c" } }),
+      ]),
+    );
+    expect(merged.functionInputs?.map((input) => input.name)).toEqual(["a", "b", "c"]);
+    expect(merged.inputBindings?.map((binding) => binding.sourceId)).toContain("flowinput:symbol:calculator:add:c");
   });
 });

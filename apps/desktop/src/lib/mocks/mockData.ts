@@ -2,6 +2,7 @@ import type {
   BackendStatus,
   EditableNodeSource,
   FileContents,
+  FlowFunctionInput,
   FlowGraphDocument,
   FlowSyncState,
   FlowVisualNodeKind,
@@ -502,6 +503,210 @@ function validateMockFlowDocument(document: FlowGraphDocument): { syncState: Flo
     syncState: diagnostics.length ? "draft" : "clean",
     diagnostics,
   };
+}
+
+function mockFlowDocumentSource(
+  symbol: SymbolDetails,
+  document: FlowGraphDocument,
+): string | undefined {
+  if (
+    symbol.kind !== "function"
+    && symbol.kind !== "async_function"
+    && symbol.kind !== "method"
+    && symbol.kind !== "async_method"
+  ) {
+    return undefined;
+  }
+
+  const signaturePrefix = symbol.kind === "async_function" || symbol.kind === "async_method"
+    ? "async def"
+    : "def";
+  const inputs = [...(document.functionInputs ?? [])]
+    .sort((left, right) => left.index - right.index)
+    .map((input) => {
+      const prefix = input.kind === "vararg" ? "*" : input.kind === "kwarg" ? "**" : "";
+      const defaultExpression = input.defaultExpression ? ` = ${input.defaultExpression}` : "";
+      return `${prefix}${input.name}${defaultExpression}`;
+    });
+  const bodyLines = mockFlowDocumentBodyLines(document);
+  const indentedBody = (bodyLines.length ? bodyLines : ["pass"])
+    .map((line) => `    ${line}`)
+    .join("\n");
+  return `${signaturePrefix} ${symbol.name}(${inputs.join(", ")}):\n${indentedBody}`;
+}
+
+function mockFlowDocumentBodyLines(document: FlowGraphDocument): string[] {
+  const nodeById = new Map(document.nodes.map((node) => [node.id, node] as const));
+  const outputEdgeByHandle = new Map(
+    document.edges.map((edge) => [`${edge.sourceId}\u0000${edge.sourceHandle}`, edge] as const),
+  );
+  const entryNode = document.nodes.find((node) => node.kind === "entry");
+  const exitNode = document.nodes.find((node) => node.kind === "exit");
+
+  const nextNodeId = (sourceId: string, handle: string) =>
+    outputEdgeByHandle.get(`${sourceId}\u0000${handle}`)?.targetId;
+  const indent = (lines: string[]) => (lines.length ? lines : ["pass"]).map((line) => `    ${line}`);
+
+  const compileFrom = (nodeId: string | undefined, visited = new Set<string>()): string[] => {
+    if (!nodeId || nodeId === exitNode?.id || visited.has(nodeId)) {
+      return [];
+    }
+
+    const node = nodeById.get(nodeId);
+    if (!node) {
+      return [];
+    }
+
+    const nextVisited = new Set(visited);
+    nextVisited.add(nodeId);
+
+    if (node.kind === "entry") {
+      return compileFrom(nextNodeId(node.id, "start"), nextVisited);
+    }
+
+    if (node.kind === "assign" || node.kind === "call") {
+      const source = typeof node.payload.source === "string" ? node.payload.source.trim() : "";
+      return [
+        ...(source ? source.split("\n") : []),
+        ...compileFrom(nextNodeId(node.id, "next"), nextVisited),
+      ];
+    }
+
+    if (node.kind === "return") {
+      const expression = typeof node.payload.expression === "string" ? node.payload.expression.trim() : "";
+      return [expression ? `return ${expression}` : "return"];
+    }
+
+    if (node.kind === "branch") {
+      const condition = typeof node.payload.condition === "string" ? node.payload.condition.trim() : "condition";
+      const trueLines = compileFrom(nextNodeId(node.id, "true"), nextVisited);
+      const falseLines = compileFrom(nextNodeId(node.id, "false"), nextVisited);
+      return [
+        `if ${condition}:`,
+        ...indent(trueLines),
+        ...(falseLines.length ? ["else:", ...indent(falseLines)] : []),
+      ];
+    }
+
+    if (node.kind === "loop") {
+      const header = typeof node.payload.header === "string" ? node.payload.header.trim() : "while condition:";
+      const normalizedHeader = header.endsWith(":") ? header : `${header}:`;
+      return [
+        normalizedHeader,
+        ...indent(compileFrom(nextNodeId(node.id, "body"), nextVisited)),
+        ...compileFrom(nextNodeId(node.id, "next"), nextVisited),
+      ];
+    }
+
+    return [];
+  };
+
+  return compileFrom(entryNode?.id);
+}
+
+function mockFlowDocumentFromFunctionSource(
+  symbol: SymbolDetails,
+  source: string,
+): FlowGraphDocument | undefined {
+  if (
+    symbol.kind !== "function"
+    && symbol.kind !== "async_function"
+    && symbol.kind !== "method"
+    && symbol.kind !== "async_method"
+  ) {
+    return undefined;
+  }
+
+  const signatureMatch = source.match(/^\s*(?:async\s+)?def\s+\w+\(([^)]*)\)\s*(?:->\s*[^:]+)?:/m);
+  if (!signatureMatch) {
+    return undefined;
+  }
+
+  const entryId = `flow:${symbol.nodeId}:entry`;
+  const exitId = `flow:${symbol.nodeId}:exit`;
+  const functionInputs = mockFunctionInputsFromSignature(symbol.nodeId, signatureMatch[1] ?? "");
+  const bodySource = source.slice((signatureMatch.index ?? 0) + signatureMatch[0].length);
+  const bodyLines = bodySource
+    .split("\n")
+    .map((line) => line.replace(/^\s{4}/, "").trimEnd())
+    .filter((line) => line.trim().length > 0 && !line.trimStart().startsWith("#"));
+  const nodes: FlowGraphDocument["nodes"] = [
+    { id: entryId, kind: "entry", payload: {}, indexedNodeId: entryId },
+  ];
+  const edges: FlowGraphDocument["edges"] = [];
+  let previousNodeId = entryId;
+  let previousHandle = "start";
+
+  bodyLines.forEach((line, index) => {
+    const trimmed = line.trim();
+    const kind = trimmed.startsWith("return ") || trimmed === "return"
+      ? "return"
+      : /^[A-Za-z_][\w.]*\s*=/.test(trimmed)
+        ? "assign"
+        : "call";
+    const nodeId = `flowdoc:${symbol.nodeId}:${kind}:${index}`;
+    nodes.push({
+      id: nodeId,
+      kind,
+      payload: kind === "return"
+        ? { expression: trimmed.replace(/^return\b/, "").trim() }
+        : { source: trimmed },
+      indexedNodeId: `flow:${symbol.nodeId}:statement:${index}`,
+    });
+    edges.push(flowDocumentEdge(previousNodeId, previousHandle, nodeId));
+    previousNodeId = nodeId;
+    previousHandle = "next";
+  });
+
+  nodes.push({ id: exitId, kind: "exit", payload: {}, indexedNodeId: exitId });
+  if (previousNodeId === entryId) {
+    edges.push(flowDocumentEdge(entryId, "start", exitId));
+  }
+
+  return {
+    symbolId: symbol.nodeId,
+    relativePath: symbol.filePath,
+    qualname: symbol.qualname,
+    editable: true,
+    syncState: "clean",
+    diagnostics: [],
+    sourceHash: null,
+    valueModelVersion: 1,
+    nodes,
+    edges,
+    functionInputs,
+    valueSources: [],
+    inputSlots: [],
+    inputBindings: [],
+  };
+}
+
+function mockFunctionInputsFromSignature(
+  symbolId: string,
+  parametersSource: string,
+): FlowGraphDocument["functionInputs"] {
+  return parametersSource
+    .split(",")
+    .map((parameter) => parameter.trim())
+    .filter((parameter) => parameter && parameter !== "/" && parameter !== "*")
+    .map((parameter, index) => {
+      const [nameFragment, defaultExpression] = parameter.split("=", 2);
+      const rawName = (nameFragment ?? "").split(":", 1)[0]?.trim() ?? "";
+      const prefixlessName = rawName.replace(/^\*\*/, "").replace(/^\*/, "");
+      const kind: NonNullable<FlowFunctionInput["kind"]> = rawName.startsWith("**")
+        ? "kwarg"
+        : rawName.startsWith("*")
+          ? "vararg"
+          : "positional_or_keyword";
+      return {
+        id: `flowinput:${symbolId}:${prefixlessName}`,
+        name: prefixlessName,
+        index,
+        kind,
+        defaultExpression: defaultExpression?.trim() || null,
+      };
+    })
+    .filter((input) => input.name.length > 0);
 }
 
 function buildMockVisualFlowView(
@@ -2279,6 +2484,12 @@ export function applyMockEdit(
       editable: true,
     };
     state.flowDocumentsBySymbolId[request.targetId] = cloneFlowDocument(persistedDocument);
+    if (validation.syncState === "clean") {
+      const compiledSource = mockFlowDocumentSource(symbol, persistedDocument);
+      if (compiledSource) {
+        state.editedSources[request.targetId] = compiledSource;
+      }
+    }
     const changedNodeIds = persistedDocument.nodes
       .filter((node) => !previousDocument?.nodes.some((candidate) => candidate.id === node.id))
       .map((node) => node.id);
@@ -2355,6 +2566,10 @@ export function applyMockEdit(
       throw new Error(support.reason ?? "This declaration is not inline editable yet.");
     }
     state.editedSources[request.targetId] = request.content;
+    const syncedFlowDocument = mockFlowDocumentFromFunctionSource(symbol, request.content);
+    if (syncedFlowDocument) {
+      state.flowDocumentsBySymbolId[request.targetId] = cloneFlowDocument(syncedFlowDocument);
+    }
     return {
       request: {
         kind: "replace_symbol_source",
@@ -2367,6 +2582,7 @@ export function applyMockEdit(
       changedNodeIds: [request.targetId],
       warnings: ["This edit is simulated in the mock adapter."],
       diagnostics: [],
+      flowSyncState: syncedFlowDocument ? "clean" : undefined,
     };
   }
 

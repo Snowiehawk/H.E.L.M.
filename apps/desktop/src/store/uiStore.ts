@@ -3,6 +3,7 @@ import type {
   GraphAbstractionLevel,
   GraphFilters,
   FlowInputDisplayMode,
+  FlowSyncState,
   GraphSettings,
   RepoSession,
   RevealedSource,
@@ -93,6 +94,8 @@ export interface WorkspaceActivity {
   summary: string;
   touchedRelativePaths?: string[];
   warnings?: string[];
+  flowSyncState?: FlowSyncState | null;
+  diagnostics?: string[];
 }
 
 interface UiState {
@@ -324,6 +327,8 @@ export const useUiStore = create<UiState>((set) => ({
             summary: lastEdit.summary,
             touchedRelativePaths: lastEdit.touchedRelativePaths,
             warnings: lastEdit.warnings,
+            flowSyncState: lastEdit.flowSyncState,
+            diagnostics: lastEdit.diagnostics,
           }
         : undefined,
     }),

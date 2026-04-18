@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,6 +11,7 @@ import {
   GraphCanvas,
   type CreateModeState,
   type GraphCreateIntent,
+  type GraphExpressionGraphIntent,
   type GraphFlowConnectionIntent,
   type GraphFlowDeleteIntent,
   type GraphFlowEditIntent,
@@ -35,14 +37,18 @@ import {
   flowDocumentsEqual,
   isFlowNodeAuthorableKind,
   flowNodePayloadFromContent,
+  mergeFlowDraftWithSourceDocument,
+  parseReturnInputTargetHandle,
   removeFlowEdges,
   removeFlowInputBindings,
   removeFlowNodes,
   updateFlowNodePayload,
   upsertFlowConnection,
   upsertFlowInputBinding,
+  upsertFlowReturnInputBinding,
   validateFlowConnection,
   validateFlowInputBindingConnection,
+  validateFlowReturnInputBindingConnection,
 } from "../components/graph/flowDocument";
 import { DesktopWindow } from "../components/layout/DesktopWindow";
 import { SidebarPane } from "../components/panes/SidebarPane";
@@ -53,6 +59,16 @@ import {
   type GraphCreateComposerState,
   type GraphCreateComposerSubmit,
 } from "../components/workspace/GraphCreateComposer";
+import { FlowExpressionGraphCanvas } from "../components/workspace/FlowExpressionGraphCanvas";
+import {
+  EMPTY_EXPRESSION_GRAPH,
+  normalizeExpressionGraphOrEmpty,
+  returnExpressionFromPayload,
+} from "../components/graph/flowExpressionGraphEditing";
+import {
+  expressionFromFlowExpressionGraph,
+  normalizeFlowExpressionGraph,
+} from "../components/graph/flowExpressionGraph";
 import {
   BlueprintInspectorDrawer,
   type BlueprintInspectorDrawerAction,
@@ -73,7 +89,9 @@ import type {
   BackendStatus,
   BackendUndoTransaction,
   EditableNodeSource,
+  FlowExpressionGraph,
   FlowGraphDocument,
+  FlowInputSlot,
   GraphAbstractionLevel,
   GraphBreadcrumbDto,
   GraphNodeDto,
@@ -255,33 +273,6 @@ function isShortcutBypassTarget(target: EventTarget | null) {
   return interactiveHost instanceof HTMLElement;
 }
 
-function shouldNavigateGraphOutFromKeyEvent(
-  event: Pick<
-    KeyboardEvent,
-    "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey" | "target"
-  >,
-) {
-  if (
-    event.key !== "Backspace"
-    || event.altKey
-    || event.ctrlKey
-    || event.metaKey
-    || event.shiftKey
-  ) {
-    return false;
-  }
-
-  if (!(event.target instanceof HTMLElement)) {
-    return false;
-  }
-
-  if (isTextEditingTarget(event.target)) {
-    return false;
-  }
-
-  return event.target.closest(".graph-panel") instanceof HTMLElement;
-}
-
 function shouldTrackInspectorSpaceTap(
   event: Pick<
     KeyboardEvent,
@@ -308,7 +299,7 @@ interface GraphPathItem {
   key: string;
   label: string;
   breadcrumb?: GraphBreadcrumbDto;
-  revealTargetId?: string;
+  revealPath?: string;
 }
 
 type InspectorPanelMode = "hidden" | "collapsed" | "expanded";
@@ -322,11 +313,35 @@ type FlowDraftStatus = "idle" | "dirty" | "saving" | "reconcile-pending";
 
 interface FlowDraftState {
   symbolId: string;
+  baseDocument: FlowGraphDocument;
   document: FlowGraphDocument;
   status: FlowDraftStatus;
   error: string | null;
   reconcileAfterUpdatedAt?: number;
 }
+
+interface ReturnExpressionGraphViewState {
+  symbolId: string;
+  returnNodeId: string;
+  selectedExpressionNodeId?: string;
+  draftGraph?: FlowExpressionGraph;
+  draftExpression?: string;
+  diagnostics: string[];
+  isDraftOnly: boolean;
+  error: string | null;
+}
+
+type ResolvedFlowInputBindingConnection =
+  | {
+    kind: "slot";
+    sourceId: string;
+    slotId: string;
+  }
+  | {
+    kind: "return-input";
+    sourceId: string;
+    targetNodeId: string;
+  };
 
 const INSPECTOR_DRAWER_HEIGHT_STORAGE_KEY = "helm.blueprint.inspectorDrawerHeight";
 const EXPLORER_SIDEBAR_WIDTH_STORAGE_KEY = "helm.blueprint.explorerSidebarWidth";
@@ -389,14 +404,33 @@ function breadcrumbRelativePath(breadcrumb: GraphBreadcrumbDto): string | undefi
     return undefined;
   }
 
-  if (typeof breadcrumb.subtitle === "string" && breadcrumb.subtitle.includes("/")) {
+  if (typeof breadcrumb.subtitle === "string" && breadcrumb.subtitle.trim()) {
     return breadcrumb.subtitle;
   }
 
   return undefined;
 }
 
-function buildGraphPathItems(graph?: GraphView): GraphPathItem[] {
+function joinRepoPath(repoPath: string | undefined, relativePath?: string): string | undefined {
+  if (!repoPath) {
+    return undefined;
+  }
+
+  const normalizedRoot = repoPath.replaceAll("\\", "/");
+  const root = normalizedRoot === "/" ? "/" : normalizedRoot.replace(/\/+$/u, "");
+  const normalizedRelative = (relativePath ?? "")
+    .replaceAll("\\", "/")
+    .replace(/^\/+/u, "")
+    .replace(/\/+$/u, "");
+
+  if (!normalizedRelative) {
+    return root;
+  }
+
+  return root === "/" ? `/${normalizedRelative}` : `${root}/${normalizedRelative}`;
+}
+
+function buildGraphPathItems(graph?: GraphView, repoPath?: string): GraphPathItem[] {
   if (!graph) {
     return [];
   }
@@ -415,29 +449,30 @@ function buildGraphPathItems(graph?: GraphView): GraphPathItem[] {
       key: `repo:${repoBreadcrumb.nodeId}`,
       label: repoBreadcrumb.label,
       breadcrumb: repoBreadcrumb,
+      revealPath: joinRepoPath(repoPath),
     });
   }
 
+  let moduleRevealPath: string | undefined;
   if (moduleBreadcrumb) {
     const relativePath = breadcrumbRelativePath(moduleBreadcrumb);
+    moduleRevealPath = joinRepoPath(repoPath, relativePath);
     if (relativePath) {
-      relativePath
-        .split("/")
-        .filter(Boolean)
-        .forEach((segment, index, parts) => {
-          items.push({
-            key: `module:${moduleBreadcrumb.nodeId}:${index}:${segment}`,
-            label: segment,
-            breadcrumb: index === parts.length - 1 ? moduleBreadcrumb : undefined,
-            revealTargetId: index === parts.length - 1 ? moduleBreadcrumb.nodeId : undefined,
-          });
+      const parts = relativePath.split("/").filter(Boolean);
+      parts.forEach((segment, index) => {
+        items.push({
+          key: `module:${moduleBreadcrumb.nodeId}:${index}:${segment}`,
+          label: segment,
+          breadcrumb: moduleBreadcrumb,
+          revealPath: joinRepoPath(repoPath, parts.slice(0, index + 1).join("/")),
         });
+      });
     } else {
       items.push({
         key: `module:${moduleBreadcrumb.nodeId}`,
         label: moduleBreadcrumb.label,
         breadcrumb: moduleBreadcrumb,
-        revealTargetId: moduleBreadcrumb.nodeId,
+        revealPath: moduleRevealPath,
       });
     }
   }
@@ -447,6 +482,7 @@ function buildGraphPathItems(graph?: GraphView): GraphPathItem[] {
       key: `symbol:${symbolBreadcrumb.nodeId}`,
       label: symbolBreadcrumb.label,
       breadcrumb: symbolBreadcrumb,
+      revealPath: moduleRevealPath,
     });
   }
 
@@ -455,6 +491,7 @@ function buildGraphPathItems(graph?: GraphView): GraphPathItem[] {
       key: `flow:${flowBreadcrumb.nodeId}`,
       label: flowBreadcrumb.label,
       breadcrumb: flowBreadcrumb,
+      revealPath: moduleRevealPath,
     });
   }
 
@@ -584,6 +621,7 @@ function buildFallbackGraphPathItems(
     | {
         id: string;
         name: string;
+        path: string;
       }
     | undefined,
   targetId: string | undefined,
@@ -603,6 +641,7 @@ function buildFallbackGraphPathItems(
         level: "repo",
         label: repoSession.name,
       },
+      revealPath: joinRepoPath(repoSession.path),
     },
   ];
 
@@ -613,27 +652,24 @@ function buildFallbackGraphPathItems(
         ? moduleIdFromSymbolId(targetId)
         : undefined;
   const modulePath = relativePathForModuleId(moduleId, modules);
+  const moduleRevealPath = joinRepoPath(repoSession.path, modulePath);
 
   if (moduleId && modulePath) {
-    modulePath
-      .split("/")
-      .filter(Boolean)
-      .forEach((segment, index, parts) => {
-        items.push({
-          key: `fallback-module:${moduleId}:${index}:${segment}`,
-          label: segment,
-          breadcrumb:
-            index === parts.length - 1
-              ? {
-                  nodeId: moduleId,
-                  level: "module",
-                  label: segment,
-                  subtitle: modulePath,
-                }
-              : undefined,
-          revealTargetId: index === parts.length - 1 ? moduleId : undefined,
-        });
+    const parts = modulePath.split("/").filter(Boolean);
+    const moduleBreadcrumb: GraphBreadcrumbDto = {
+      nodeId: moduleId,
+      level: "module",
+      label: parts[parts.length - 1] ?? modulePath,
+      subtitle: modulePath,
+    };
+    parts.forEach((segment, index) => {
+      items.push({
+        key: `fallback-module:${moduleId}:${index}:${segment}`,
+        label: segment,
+        breadcrumb: moduleBreadcrumb,
+        revealPath: joinRepoPath(repoSession.path, parts.slice(0, index + 1).join("/")),
       });
+    });
   }
 
   if (targetId?.startsWith("symbol:")) {
@@ -647,6 +683,7 @@ function buildFallbackGraphPathItems(
           level: "symbol",
           label: symbolName,
         },
+        revealPath: moduleRevealPath,
       });
     }
 
@@ -659,6 +696,7 @@ function buildFallbackGraphPathItems(
           level: "flow",
           label: "Flow",
         },
+        revealPath: moduleRevealPath,
       });
     }
   }
@@ -704,6 +742,9 @@ export function WorkspaceScreen() {
   const [createModeState, setCreateModeState] = useState<CreateModeState>("inactive");
   const [createComposer, setCreateComposer] = useState<GraphCreateComposerState | undefined>(undefined);
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
+  const [returnExpressionGraphView, setReturnExpressionGraphView] =
+    useState<ReturnExpressionGraphViewState | undefined>(undefined);
+  const [isSubmittingExpressionGraph, setIsSubmittingExpressionGraph] = useState(false);
   const [flowDraftState, setFlowDraftState] = useState<FlowDraftState | undefined>(undefined);
   const [inspectorDirty, setInspectorDirty] = useState(false);
   const [inspectorDraftStale, setInspectorDraftStale] = useState(false);
@@ -909,35 +950,47 @@ export function WorkspaceScreen() {
       if (!current || current.symbolId !== currentFlowSymbolId) {
         return {
           symbolId: currentFlowSymbolId,
+          baseDocument: flowDraftSeedDocument,
           document: flowDraftSeedDocument,
           status: "idle",
           error: null,
         };
       }
 
-      if (current.status !== "reconcile-pending") {
+      if (current.status === "saving") {
         return current;
       }
 
-      if ((current.reconcileAfterUpdatedAt ?? 0) >= graphQuery.dataUpdatedAt) {
+      if (
+        current.status === "reconcile-pending"
+        && (current.reconcileAfterUpdatedAt ?? 0) >= graphQuery.dataUpdatedAt
+      ) {
         return current;
       }
 
-      if (flowDocumentsEqual(current.document, flowDraftSeedDocument)) {
-        return {
-          ...current,
-          document: flowDraftSeedDocument,
-          status: "idle",
-          error: null,
-          reconcileAfterUpdatedAt: undefined,
-        };
+      const mergedDocument = mergeFlowDraftWithSourceDocument(
+        current.document,
+        current.baseDocument,
+        flowDraftSeedDocument,
+      );
+      const nextStatus = current.status === "reconcile-pending" ? "idle" : current.status;
+      const nextError = current.status === "reconcile-pending" ? null : current.error;
+      if (
+        flowDocumentsEqual(current.baseDocument, flowDraftSeedDocument)
+        && flowDocumentsEqual(current.document, mergedDocument)
+        && current.status === nextStatus
+        && current.error === nextError
+      ) {
+        return current;
       }
 
       return {
         symbolId: currentFlowSymbolId,
-        document: flowDraftSeedDocument,
-        status: "idle",
-        error: null,
+        baseDocument: flowDraftSeedDocument,
+        document: mergedDocument,
+        status: nextStatus,
+        error: nextError,
+        reconcileAfterUpdatedAt: undefined,
       };
     });
   }, [currentFlowSymbolId, flowDraftSeedDocument, graphQuery.dataUpdatedAt]);
@@ -951,6 +1004,114 @@ export function WorkspaceScreen() {
     }
     return graphQuery.data;
   }, [activeFlowDraft, activeLevel, flowInputDisplayMode, graphQuery.data]);
+  const returnExpressionFlowDocument = useMemo(() => {
+    if (!returnExpressionGraphView || activeLevel !== "flow") {
+      return undefined;
+    }
+    if (activeFlowDraft?.symbolId === returnExpressionGraphView.symbolId) {
+      return activeFlowDraft.document;
+    }
+    if (flowDraftSeedDocument?.symbolId === returnExpressionGraphView.symbolId) {
+      return flowDraftSeedDocument;
+    }
+    return undefined;
+  }, [
+    activeFlowDraft,
+    activeLevel,
+    flowDraftSeedDocument,
+    returnExpressionGraphView,
+  ]);
+
+  useEffect(() => {
+    if (!returnExpressionGraphView) {
+      return;
+    }
+    const returnNode =
+      activeLevel === "flow" && returnExpressionFlowDocument?.symbolId === returnExpressionGraphView.symbolId
+        ? returnExpressionFlowDocument.nodes.find((node) => (
+          node.id === returnExpressionGraphView.returnNodeId
+          && node.kind === "return"
+        ))
+        : undefined;
+
+    if (!returnNode) {
+      setReturnExpressionGraphView(undefined);
+      setIsSubmittingExpressionGraph(false);
+      return;
+    }
+
+    if (returnExpressionGraphView.isDraftOnly) {
+      return;
+    }
+
+    setReturnExpressionGraphView((current) => {
+      if (!current || current.isDraftOnly) {
+        return current;
+      }
+      const selectedExpressionNodeStillExists =
+        current.selectedExpressionNodeId
+        && normalizeExpressionGraphOrEmpty(returnNode.payload.expression_graph as FlowExpressionGraph | undefined)
+          .nodes.some((node) => node.id === current.selectedExpressionNodeId);
+      const nextSelectedExpressionNodeId = selectedExpressionNodeStillExists
+        ? current.selectedExpressionNodeId
+        : undefined;
+      if (
+        current.draftGraph === undefined
+        && current.draftExpression === undefined
+        && current.diagnostics.length === 0
+        && current.error === null
+        && current.selectedExpressionNodeId === nextSelectedExpressionNodeId
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        draftGraph: undefined,
+        draftExpression: undefined,
+        diagnostics: [],
+        error: null,
+        selectedExpressionNodeId: nextSelectedExpressionNodeId,
+      };
+    });
+  }, [activeLevel, returnExpressionFlowDocument, returnExpressionGraphView]);
+
+  const returnExpressionGraphViewNode = useMemo(() => (
+    returnExpressionGraphView && returnExpressionFlowDocument
+      ? returnExpressionFlowDocument.nodes.find((node) => (
+        node.id === returnExpressionGraphView.returnNodeId
+        && node.kind === "return"
+      ))
+      : undefined
+  ), [returnExpressionFlowDocument, returnExpressionGraphView]);
+  const returnExpressionGraphViewInputSlots = useMemo<FlowInputSlot[]>(() => {
+    if (!returnExpressionGraphView || !returnExpressionFlowDocument) {
+      return [];
+    }
+    return (returnExpressionFlowDocument.inputSlots ?? [])
+      .filter((slot) => slot.nodeId === returnExpressionGraphView.returnNodeId);
+  }, [returnExpressionFlowDocument, returnExpressionGraphView]);
+  const returnExpressionGraphViewGraph = useMemo(() => {
+    if (!returnExpressionGraphView) {
+      return EMPTY_EXPRESSION_GRAPH;
+    }
+    return normalizeExpressionGraphOrEmpty(
+      returnExpressionGraphView.draftGraph
+      ?? (returnExpressionGraphViewNode?.payload.expression_graph as FlowExpressionGraph | undefined),
+    );
+  }, [returnExpressionGraphView, returnExpressionGraphViewNode?.payload.expression_graph]);
+  const returnExpressionGraphViewExpression = useMemo(() => {
+    if (!returnExpressionGraphView || !returnExpressionGraphViewNode) {
+      return "";
+    }
+    if (returnExpressionGraphView.draftExpression !== undefined) {
+      return returnExpressionGraphView.draftExpression;
+    }
+    const payloadExpression = returnExpressionFromPayload(returnExpressionGraphViewNode.payload);
+    if (payloadExpression) {
+      return payloadExpression;
+    }
+    return expressionFromFlowExpressionGraph(returnExpressionGraphViewGraph).expression;
+  }, [returnExpressionGraphView, returnExpressionGraphViewGraph, returnExpressionGraphViewNode]);
 
   const selectedGraphNode = effectiveGraph?.nodes.find((node) => node.id === activeNodeId);
   const selectedInspectableNode =
@@ -1356,11 +1517,13 @@ export function WorkspaceScreen() {
 
   const handleSelectBreadcrumb = (breadcrumb: GraphBreadcrumbDto) => {
     if (breadcrumb.level === "flow") {
+      setReturnExpressionGraphView(undefined);
       if (activeGraphSymbolId) {
         focusGraph(activeGraphSymbolId, "flow");
       }
       return;
     }
+    setReturnExpressionGraphView(undefined);
     focusGraph(breadcrumb.nodeId, breadcrumb.level);
   };
 
@@ -1368,6 +1531,8 @@ export function WorkspaceScreen() {
     if (!effectiveGraph) {
       return;
     }
+
+    setReturnExpressionGraphView(undefined);
 
     if (level === "repo" && repoSession) {
       focusGraph(repoSession.id, "repo");
@@ -1399,6 +1564,11 @@ export function WorkspaceScreen() {
 
   const handleNavigateGraphOut = () => {
     if (!repoSession) {
+      return;
+    }
+
+    if (returnExpressionGraphView) {
+      setReturnExpressionGraphView(undefined);
       return;
     }
 
@@ -1796,11 +1966,13 @@ export function WorkspaceScreen() {
   const handleExitCreateMode = useCallback(() => {
     setCreateComposer(undefined);
     setCreateModeError(null);
+    setReturnExpressionGraphView(undefined);
     setCreateModeState("inactive");
   }, []);
 
   const handleOpenCreateComposer = useCallback((intent: GraphCreateIntent) => {
     setCreateModeError(null);
+    setReturnExpressionGraphView(undefined);
     const composerAnchor = {
       x: intent.panelPosition.x,
       y: intent.panelPosition.y,
@@ -1866,6 +2038,7 @@ export function WorkspaceScreen() {
 
     setCreateModeError(null);
     setCreateComposer(undefined);
+    setReturnExpressionGraphView(undefined);
     setCreateModeState("active");
   }, [
     createModeState,
@@ -1952,6 +2125,7 @@ export function WorkspaceScreen() {
       throw new Error("Editable flow draft state is no longer available for this symbol.");
     }
 
+    const flowTargetId = graphTargetId;
     const currentDocument = activeFlowDraft.document;
     const nextDocument = transform(currentDocument);
     if (flowDocumentsEqual(currentDocument, nextDocument)) {
@@ -1970,7 +2144,8 @@ export function WorkspaceScreen() {
 
     await syncFlowDraftLayout(currentDocument, optimisticDocument, seededNodes);
     setFlowDraftState({
-      symbolId: graphTargetId,
+      symbolId: flowTargetId,
+      baseDocument: activeFlowDraft.baseDocument,
       document: optimisticDocument,
       status: "saving",
       error: null,
@@ -1982,17 +2157,40 @@ export function WorkspaceScreen() {
     try {
       const result = await handleApplyEdit({
         kind: "replace_flow_graph",
-        targetId: graphTargetId,
+        targetId: flowTargetId,
         flowGraph: optimisticDocument,
       }, { preserveView: true });
 
+      if (
+        result.flowSyncState === "clean"
+        && inspectorSourceTarget?.fetchMode === "editable"
+        && inspectorSourceTarget.targetId === flowTargetId
+      ) {
+        try {
+          const refreshedSource = await queryClient.fetchQuery({
+            queryKey: ["editable-node-source", repoSession?.id, "editable", flowTargetId],
+            queryFn: () => adapter.getEditableNodeSource(flowTargetId),
+          });
+          setInspectorEditableSourceOverride(refreshedSource);
+          setInspectorSourceVersion((current) => current + 1);
+          setInspectorActionError(null);
+        } catch (reason) {
+          setInspectorActionError(
+            reason instanceof Error
+              ? `Graph updated, but source refresh failed: ${reason.message}`
+              : "Graph updated, but source refresh failed.",
+          );
+        }
+      }
+
       setFlowDraftState((current) => {
-        if (!current || current.symbolId !== graphTargetId) {
+        if (!current || current.symbolId !== flowTargetId) {
           return current;
         }
 
         return {
           symbolId: current.symbolId,
+          baseDocument: current.baseDocument,
           document: {
             ...optimisticDocument,
             syncState: result.flowSyncState ?? optimisticDocument.syncState,
@@ -2012,7 +2210,7 @@ export function WorkspaceScreen() {
       const message =
         reason instanceof Error ? reason.message : "Unable to update the current visual flow.";
       setFlowDraftState((current) => {
-        if (!current || current.symbolId !== graphTargetId) {
+        if (!current || current.symbolId !== flowTargetId) {
           return current;
         }
 
@@ -2027,9 +2225,14 @@ export function WorkspaceScreen() {
     }
   }, [
     activeFlowDraft,
+    adapter,
     graphQuery.dataUpdatedAt,
     graphTargetId,
     handleApplyEdit,
+    inspectorSourceTarget?.fetchMode,
+    inspectorSourceTarget?.targetId,
+    queryClient,
+    repoSession?.id,
     selectNode,
     syncFlowDraftLayout,
   ]);
@@ -2188,7 +2391,7 @@ export function WorkspaceScreen() {
     };
   }, [activeFlowDraft]);
 
-  const resolveFlowInputBindingConnection = useCallback((connection: GraphFlowConnectionIntent) => {
+  const resolveFlowInputBindingConnection = useCallback((connection: GraphFlowConnectionIntent): ResolvedFlowInputBindingConnection | undefined => {
     if (!activeFlowDraft) {
       return undefined;
     }
@@ -2208,21 +2411,36 @@ export function WorkspaceScreen() {
         return typeof value === "string" ? value : undefined;
       })();
     const slotId = parseInputSlotTargetHandle(connection.targetHandle);
-    if (!sourceId || !slotId) {
+    if (!sourceId) {
       return undefined;
     }
-    return {
-      sourceId,
-      slotId,
-    };
+    if (slotId) {
+      return {
+        kind: "slot",
+        sourceId,
+        slotId,
+      };
+    }
+    const targetNodeId = parseReturnInputTargetHandle(connection.targetHandle);
+    if (
+      targetNodeId
+      && activeFlowDraft.document.nodes.some((node) => node.id === targetNodeId && node.kind === "return")
+    ) {
+      return {
+        kind: "return-input",
+        sourceId,
+        targetNodeId,
+      };
+    }
+    return undefined;
   }, [activeFlowDraft, effectiveGraph?.nodes]);
 
   const handleOpenFlowEditComposer = useCallback((intent: GraphFlowEditIntent) => {
     if (
       activeLevel !== "flow"
-      || !flowDraftBackedCreateEnabled
       || !graphTargetId?.startsWith("symbol:")
       || activeFlowDraft?.symbolId !== graphTargetId
+      || !activeFlowDraft.document.editable
     ) {
       return;
     }
@@ -2233,6 +2451,7 @@ export function WorkspaceScreen() {
     }
 
     setCreateModeError(null);
+    setReturnExpressionGraphView(undefined);
     setCreateComposer({
       id: `${Date.now()}:flow:edit:${targetNode.id}`,
       kind: "flow",
@@ -2260,19 +2479,186 @@ export function WorkspaceScreen() {
     graphTargetId,
   ]);
 
+  const handleOpenExpressionGraphEditor = useCallback((intent: GraphExpressionGraphIntent) => {
+    const draftDocument =
+      activeFlowDraft && activeFlowDraft.symbolId === graphTargetId
+        ? activeFlowDraft.document
+        : flowDraftSeedDocument?.symbolId === graphTargetId
+          ? flowDraftSeedDocument
+          : undefined;
+
+    if (
+      activeLevel !== "flow"
+      || !graphTargetId?.startsWith("symbol:")
+      || !draftDocument?.editable
+    ) {
+      return;
+    }
+
+    const targetNode = draftDocument.nodes.find((node) => (
+      node.id === intent.nodeId
+      && node.kind === "return"
+    ));
+    if (!targetNode) {
+      return;
+    }
+
+    if (activeFlowDraft?.symbolId !== graphTargetId) {
+      setFlowDraftState({
+        symbolId: graphTargetId,
+        baseDocument: draftDocument,
+        document: draftDocument,
+        status: "idle",
+        error: null,
+      });
+    }
+    setCreateComposer(undefined);
+    setCreateModeError(null);
+    selectNode(targetNode.id);
+    const expressionGraph = normalizeExpressionGraphOrEmpty(
+      targetNode.payload.expression_graph as FlowExpressionGraph | undefined,
+    );
+    setReturnExpressionGraphView({
+      symbolId: graphTargetId,
+      returnNodeId: targetNode.id,
+      selectedExpressionNodeId: intent.expressionNodeId ?? expressionGraph.rootId ?? expressionGraph.nodes[0]?.id,
+      diagnostics: [],
+      isDraftOnly: false,
+      error: null,
+    });
+    if (createModeState !== "inactive") {
+      setCreateModeState("inactive");
+    }
+  }, [
+    activeFlowDraft,
+    activeLevel,
+    createModeState,
+    flowDraftSeedDocument,
+    graphTargetId,
+    selectNode,
+  ]);
+
+  const handleExitReturnExpressionGraph = useCallback(() => {
+    setReturnExpressionGraphView(undefined);
+  }, []);
+
+  const handleSelectReturnExpressionNode = useCallback((nodeId?: string) => {
+    setReturnExpressionGraphView((current) => (
+      current
+        ? { ...current, selectedExpressionNodeId: nodeId }
+        : current
+    ));
+  }, []);
+
+  const handleReturnExpressionGraphChange = useCallback((
+    nextGraph: FlowExpressionGraph,
+    options?: { selectedExpressionNodeId?: string },
+  ) => {
+    const view = returnExpressionGraphView;
+    if (!view) {
+      return;
+    }
+
+    const normalizedGraph = normalizeFlowExpressionGraph(nextGraph) ?? EMPTY_EXPRESSION_GRAPH;
+    const sourceResult = expressionFromFlowExpressionGraph(normalizedGraph);
+    const selectedExpressionNodeId = options?.selectedExpressionNodeId;
+
+    if (sourceResult.diagnostics.length || !sourceResult.expression.trim()) {
+      setReturnExpressionGraphView({
+        ...view,
+        selectedExpressionNodeId,
+        draftGraph: normalizedGraph,
+        draftExpression: sourceResult.expression,
+        diagnostics: sourceResult.diagnostics,
+        isDraftOnly: true,
+        error: null,
+      });
+      return;
+    }
+
+    setReturnExpressionGraphView({
+      ...view,
+      selectedExpressionNodeId,
+      draftGraph: normalizedGraph,
+      draftExpression: sourceResult.expression,
+      diagnostics: [],
+      isDraftOnly: false,
+      error: null,
+    });
+    setIsSubmittingExpressionGraph(true);
+    void (async () => {
+      try {
+        await applyFlowDraftMutation({
+          transform: (document) => {
+            const targetNode = document.nodes.find((node) => (
+              node.id === view.returnNodeId
+              && node.kind === "return"
+            ));
+            if (!targetNode) {
+              throw new Error("Return node is no longer available in this flow draft.");
+            }
+            return updateFlowNodePayload(
+              document,
+              view.returnNodeId,
+              {
+                ...targetNode.payload,
+                expression: sourceResult.expression,
+                expression_graph: normalizedGraph,
+              },
+            );
+          },
+          selectedNodeId: view.returnNodeId,
+        });
+        setReturnExpressionGraphView((current) => (
+          current && current.returnNodeId === view.returnNodeId
+            ? {
+                ...current,
+                diagnostics: [],
+                isDraftOnly: false,
+                error: null,
+              }
+            : current
+        ));
+      } catch (reason) {
+        const message =
+          reason instanceof Error ? reason.message : "Unable to save the return expression graph.";
+        setReturnExpressionGraphView((current) => (
+          current && current.returnNodeId === view.returnNodeId
+            ? {
+                ...current,
+                draftGraph: normalizedGraph,
+                draftExpression: sourceResult.expression,
+                diagnostics: [],
+                isDraftOnly: true,
+                error: message,
+              }
+            : current
+        ));
+      } finally {
+        setIsSubmittingExpressionGraph(false);
+      }
+    })();
+  }, [applyFlowDraftMutation, returnExpressionGraphView]);
+
   const handleConnectFlowEdge = useCallback((connectionIntent: GraphFlowConnectionIntent) => {
     if (!activeFlowDraft) {
       return;
     }
     const inputBindingConnection = resolveFlowInputBindingConnection(connectionIntent);
     if (inputBindingConnection) {
-      const validation = validateFlowInputBindingConnection(activeFlowDraft.document, inputBindingConnection);
+      const validation = inputBindingConnection.kind === "return-input"
+        ? validateFlowReturnInputBindingConnection(activeFlowDraft.document, inputBindingConnection)
+        : validateFlowInputBindingConnection(activeFlowDraft.document, inputBindingConnection);
       if (!validation.ok) {
         setCreateModeError(validation.message);
         return;
       }
       void applyFlowDraftMutation({
-        transform: (document) => upsertFlowInputBinding(document, inputBindingConnection),
+        transform: (document) => (
+          inputBindingConnection.kind === "return-input"
+            ? upsertFlowReturnInputBinding(document, inputBindingConnection)
+            : upsertFlowInputBinding(document, inputBindingConnection)
+        ),
       }).catch((reason) => {
         const message =
           reason instanceof Error ? reason.message : "Unable to bind the selected value source.";
@@ -2314,7 +2700,9 @@ export function WorkspaceScreen() {
     }
     const inputBindingConnection = resolveFlowInputBindingConnection(connectionIntent);
     if (inputBindingConnection) {
-      const validation = validateFlowInputBindingConnection(activeFlowDraft.document, inputBindingConnection);
+      const validation = inputBindingConnection.kind === "return-input"
+        ? validateFlowReturnInputBindingConnection(activeFlowDraft.document, inputBindingConnection)
+        : validateFlowInputBindingConnection(activeFlowDraft.document, inputBindingConnection);
       if (!validation.ok) {
         setCreateModeError(validation.message);
         return;
@@ -2323,7 +2711,11 @@ export function WorkspaceScreen() {
         ? edgeId.slice("data:".length)
         : undefined;
       void applyFlowDraftMutation({
-        transform: (document) => upsertFlowInputBinding(document, inputBindingConnection, previousBindingId),
+        transform: (document) => (
+          inputBindingConnection.kind === "return-input"
+            ? upsertFlowReturnInputBinding(document, inputBindingConnection, previousBindingId)
+            : upsertFlowInputBinding(document, inputBindingConnection, previousBindingId)
+        ),
       }).catch((reason) => {
         const message =
           reason instanceof Error ? reason.message : "Unable to reconnect the selected value source.";
@@ -2565,6 +2957,9 @@ export function WorkspaceScreen() {
   );
 
   const titleCopy = useMemo(() => {
+    if (returnExpressionGraphView) {
+      return "Return graph";
+    }
     if (activeLevel === "flow") {
       return "Internal flow";
     }
@@ -2575,29 +2970,39 @@ export function WorkspaceScreen() {
       return "Architecture graph";
     }
     return "Architecture graph";
-  }, [activeLevel]);
+  }, [activeLevel, returnExpressionGraphView]);
   const graphPathItems = useMemo(() => {
-    if (effectiveGraph) {
-      return buildGraphPathItems(effectiveGraph);
-    }
-
-    return buildFallbackGraphPathItems(
+    const baseItems = effectiveGraph
+      ? buildGraphPathItems(effectiveGraph, repoSession?.path)
+      : buildFallbackGraphPathItems(
       repoSession
         ? {
             id: repoSession.id,
             name: repoSession.name,
+            path: repoSession.path,
           }
         : undefined,
       graphTargetId,
       activeLevel,
       overviewQuery.data?.modules ?? [],
     );
+    if (!returnExpressionGraphView) {
+      return baseItems;
+    }
+    return [
+      ...baseItems,
+      {
+        key: `return-expression:${returnExpressionGraphView.returnNodeId}`,
+        label: "return",
+      },
+    ];
   }, [
     activeLevel,
     effectiveGraph,
     graphTargetId,
     overviewQuery.data?.modules,
     repoSession,
+    returnExpressionGraphView,
   ]);
   useEffect(() => {
     const previousContextKey = createModeContextKeyRef.current;
@@ -2728,12 +3133,6 @@ export function WorkspaceScreen() {
   }
 
   const handleWorkspaceKeyDownCapture = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (shouldNavigateGraphOutFromKeyEvent(event.nativeEvent)) {
-      event.preventDefault();
-      handleNavigateGraphOut();
-      return;
-    }
-
     if (!shouldTrackInspectorSpaceTap(event.nativeEvent)) {
       return;
     }
@@ -2782,18 +3181,33 @@ export function WorkspaceScreen() {
     }
   };
 
-  const handleRevealGraphPath = useCallback(async (targetId: string) => {
+  const handleRevealGraphPath = useCallback(async (filePath: string) => {
     setGraphPathRevealError(null);
     try {
-      await adapter.revealNodeInFileExplorer(targetId);
+      await adapter.revealPathInFileExplorer(filePath);
     } catch (reason) {
       setGraphPathRevealError(
         reason instanceof Error
           ? reason.message
-          : "Unable to reveal the current file in the system file explorer.",
+          : "Unable to reveal the current path in the system file explorer.",
       );
     }
   }, [adapter]);
+
+  const handleGraphPathItemClick = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    item: GraphPathItem,
+  ) => {
+    if ((event.metaKey || event.ctrlKey) && item.revealPath) {
+      event.preventDefault();
+      void handleRevealGraphPath(item.revealPath);
+      return;
+    }
+
+    if (item.breadcrumb) {
+      handleSelectBreadcrumb(item.breadcrumb);
+    }
+  };
 
   useEffect(() => {
     setGraphPathRevealError(null);
@@ -2869,7 +3283,7 @@ export function WorkspaceScreen() {
                     {graphPathItems.map((item, index) => {
                       const isCurrent = index === graphPathItems.length - 1;
                       const itemHelpId =
-                        item.revealTargetId || item.key.startsWith("module:") || item.key.startsWith("fallback-module:")
+                        item.key.startsWith("module:") || item.key.startsWith("fallback-module:")
                           ? "graph.path.file"
                           : item.breadcrumb?.level === "repo"
                             ? "graph.path.repo"
@@ -2878,6 +3292,9 @@ export function WorkspaceScreen() {
                               : item.breadcrumb?.level === "flow"
                                 ? "graph.path.flow"
                                 : undefined;
+                      const itemClassName = `graph-location__button${
+                        item.revealPath ? " graph-location__button--revealable" : ""
+                      }${isCurrent ? " is-current" : ""}`;
 
                       return (
                         <div key={item.key} className="graph-location__item">
@@ -2887,25 +3304,21 @@ export function WorkspaceScreen() {
                             </span>
                           ) : null}
 
-                          {item.revealTargetId ? (
-                            <button
-                              {...helpTargetProps("graph.path.file", { label: item.label })}
-                              className={`graph-location__link${isCurrent ? " is-current" : ""}`}
-                              type="button"
-                              title="Reveal this file in the system file explorer"
-                              onClick={() => void handleRevealGraphPath(item.revealTargetId as string)}
-                            >
-                              {item.label}
-                            </button>
-                          ) : !isCurrent && item.breadcrumb ? (
+                          {item.breadcrumb ? (
                             <button
                               {...helpTargetProps(
                                 itemHelpId ?? "graph.path.symbol",
                                 { label: item.label },
                               )}
-                              className="graph-location__button"
+                              aria-current={isCurrent ? "page" : undefined}
+                              className={itemClassName}
                               type="button"
-                              onClick={() => handleSelectBreadcrumb(item.breadcrumb as GraphBreadcrumbDto)}
+                              title={
+                                item.revealPath
+                                  ? "Click to navigate. Cmd/Ctrl-click to reveal in Finder/Explorer."
+                                  : "Click to navigate."
+                              }
+                              onClick={(event) => handleGraphPathItemClick(event, item)}
                             >
                               {item.label}
                             </button>
@@ -2939,51 +3352,69 @@ export function WorkspaceScreen() {
                 data-inspector-mode={effectiveInspectorDrawerMode}
               >
                 <div className="blueprint-graph-shell__canvas">
-                  <GraphCanvas
-                    repoPath={repoSession?.path}
-                    graph={effectiveGraph}
-                    isLoading={!effectiveGraph && graphQuery.isFetching}
-                    errorMessage={
-                      !effectiveGraph
-                        ? graphQuery.error instanceof Error
-                          ? graphQuery.error.message
-                          : graphQuery.error
-                            ? "Unable to load the current graph."
-                            : null
-                        : null
-                    }
-                    activeNodeId={activeNodeId}
-                    graphFilters={graphFilters}
-                    graphSettings={graphSettings}
-                    flowInputDisplayMode={flowInputDisplayMode}
-                    highlightGraphPath={highlightGraphPath}
-                    showEdgeLabels={showEdgeLabels}
-                    onSelectNode={handleGraphSelectNode}
-                    onActivateNode={handleGraphActivateNode}
-                    onInspectNode={handleGraphInspectNode}
-                    onSelectBreadcrumb={handleSelectBreadcrumb}
-                    onSelectLevel={handleSelectLevel}
-                    onToggleGraphFilter={toggleGraphFilter}
-                    onToggleGraphSetting={toggleGraphSetting}
-                    onSetFlowInputDisplayMode={setFlowInputDisplayMode}
-                    onToggleGraphPathHighlight={toggleGraphPathHighlight}
-                    onToggleEdgeLabels={toggleEdgeLabels}
-                    onNavigateOut={handleNavigateGraphOut}
-                    onClearSelection={() => void handleClearGraphSelection()}
-                    createModeState={createModeState}
-                    createModeCanvasEnabled={createModeCanvasEnabled}
-                    createModeHint={createModeHint}
-                    onToggleCreateMode={() => {
-                      void handleToggleCreateMode();
-                    }}
-                    onCreateIntent={handleOpenCreateComposer}
-                    onEditFlowNodeIntent={handleOpenFlowEditComposer}
-                    onConnectFlowEdge={handleConnectFlowEdge}
-                    onReconnectFlowEdge={handleReconnectFlowEdge}
-                    onDisconnectFlowEdge={handleDisconnectFlowEdge}
-                    onDeleteFlowSelection={handleDeleteFlowSelection}
-                  />
-                  {createComposer ? (
+                  {returnExpressionGraphView && returnExpressionGraphViewNode ? (
+                    <FlowExpressionGraphCanvas
+                      diagnostics={returnExpressionGraphView.diagnostics}
+                      error={returnExpressionGraphView.error}
+                      expression={returnExpressionGraphViewExpression}
+                      graph={returnExpressionGraphViewGraph}
+                      inputSlots={returnExpressionGraphViewInputSlots}
+                      isDraftOnly={returnExpressionGraphView.isDraftOnly}
+                      isSaving={isSubmittingExpressionGraph}
+                      ownerLabel={flowOwnerSymbolQuery.data?.qualname ?? effectiveGraph?.focus?.label ?? "Return"}
+                      selectedExpressionNodeId={returnExpressionGraphView.selectedExpressionNodeId}
+                      onGraphChange={handleReturnExpressionGraphChange}
+                      onNavigateOut={handleExitReturnExpressionGraph}
+                      onSelectExpressionNode={handleSelectReturnExpressionNode}
+                    />
+                  ) : (
+                    <GraphCanvas
+                      repoPath={repoSession?.path}
+                      graph={effectiveGraph}
+                      isLoading={!effectiveGraph && graphQuery.isFetching}
+                      errorMessage={
+                        !effectiveGraph
+                          ? graphQuery.error instanceof Error
+                            ? graphQuery.error.message
+                            : graphQuery.error
+                              ? "Unable to load the current graph."
+                              : null
+                          : null
+                      }
+                      activeNodeId={activeNodeId}
+                      graphFilters={graphFilters}
+                      graphSettings={graphSettings}
+                      flowInputDisplayMode={flowInputDisplayMode}
+                      highlightGraphPath={highlightGraphPath}
+                      showEdgeLabels={showEdgeLabels}
+                      onSelectNode={handleGraphSelectNode}
+                      onActivateNode={handleGraphActivateNode}
+                      onInspectNode={handleGraphInspectNode}
+                      onSelectBreadcrumb={handleSelectBreadcrumb}
+                      onSelectLevel={handleSelectLevel}
+                      onToggleGraphFilter={toggleGraphFilter}
+                      onToggleGraphSetting={toggleGraphSetting}
+                      onSetFlowInputDisplayMode={setFlowInputDisplayMode}
+                      onToggleGraphPathHighlight={toggleGraphPathHighlight}
+                      onToggleEdgeLabels={toggleEdgeLabels}
+                      onNavigateOut={handleNavigateGraphOut}
+                      onClearSelection={() => void handleClearGraphSelection()}
+                      createModeState={createModeState}
+                      createModeCanvasEnabled={createModeCanvasEnabled}
+                      createModeHint={createModeHint}
+                      onToggleCreateMode={() => {
+                        void handleToggleCreateMode();
+                      }}
+                      onCreateIntent={handleOpenCreateComposer}
+                      onEditFlowNodeIntent={handleOpenFlowEditComposer}
+                      onOpenExpressionGraphIntent={handleOpenExpressionGraphEditor}
+                      onConnectFlowEdge={handleConnectFlowEdge}
+                      onReconnectFlowEdge={handleReconnectFlowEdge}
+                      onDisconnectFlowEdge={handleDisconnectFlowEdge}
+                      onDeleteFlowSelection={handleDeleteFlowSelection}
+                    />
+                  )}
+                  {createComposer && !returnExpressionGraphView ? (
                     <GraphCreateComposer
                       key={createComposer.id}
                       composer={createComposer}

@@ -487,9 +487,11 @@ function centerPoint(element: Element) {
 
 function dragConnectionToHandle({
   dragStart,
+  onDragMove,
   targetHandle,
 }: {
   dragStart: Element;
+  onDragMove?: () => void;
   targetHandle: HTMLElement;
 }) {
   const targetPoint = centerPoint(targetHandle);
@@ -510,6 +512,7 @@ function dragConnectionToHandle({
       clientX: targetPoint.x + 8,
       clientY: targetPoint.y + 8,
     });
+    onDragMove?.();
     fireEvent.mouseUp(document, {
       clientX: targetPoint.x + 8,
       clientY: targetPoint.y + 8,
@@ -795,7 +798,49 @@ function importedAddFlowDocument(): FlowGraphDocument {
       {
         id: ADD_RETURN_ID,
         kind: "return",
-        payload: { expression: "a + b" },
+        payload: {
+          expression: "a + b",
+          expression_graph: {
+            version: 1,
+            rootId: "expr:operator:add",
+            nodes: [
+              {
+                id: "expr:input:a",
+                kind: "input",
+                label: "a",
+                payload: { name: "a", slot_id: ADD_SLOT_A_ID },
+              },
+              {
+                id: "expr:input:b",
+                kind: "input",
+                label: "b",
+                payload: { name: "b", slot_id: ADD_SLOT_B_ID },
+              },
+              {
+                id: "expr:operator:add",
+                kind: "operator",
+                label: "+",
+                payload: { operator: "+" },
+              },
+            ],
+            edges: [
+              {
+                id: "expr-edge:expr:input:a->expr:operator:add:left",
+                sourceId: "expr:input:a",
+                sourceHandle: "value",
+                targetId: "expr:operator:add",
+                targetHandle: "left",
+              },
+              {
+                id: "expr-edge:expr:input:b->expr:operator:add:right",
+                sourceId: "expr:input:b",
+                sourceHandle: "value",
+                targetId: "expr:operator:add",
+                targetHandle: "right",
+              },
+            ],
+          },
+        },
         indexedNodeId: ADD_INDEXED_RETURN_ID,
       },
       {
@@ -1694,8 +1739,8 @@ describe("WorkspaceScreen", () => {
     const composer = await screen.findByTestId("graph-create-composer");
     expect(await screen.findByRole("heading", { name: /Create flow node/i })).toBeInTheDocument();
     expect(composer).toHaveStyle({
-      left: `${firstClick.clientX}px`,
-      top: `${firstClick.clientY}px`,
+      left: "12px",
+      top: "12px",
     });
     await user.type(screen.getByRole("textbox", { name: /Flow statement/i }), "helper = rank_modules(graph)");
     await user.click(screen.getByRole("button", { name: /Create node/i }));
@@ -2219,6 +2264,59 @@ describe("WorkspaceScreen", () => {
     ])).toBeInTheDocument();
     expect(lastReplaceFlowGraphRequest(editSpy)).toBeUndefined();
     expect(adapter.replacePayloads).toEqual([]);
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("opens a return expression graph as the main canvas and live-saves valid graph edits", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    const adapter = new ImportedAddFlowMockDesktopAdapter();
+    await adapter.seedAddSymbol();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await openFunctionFlow(user, "add");
+    await user.click(await screen.findByTestId("graph-expression-preview-node-expr:operator:add"));
+
+    expect(await screen.findByTestId("flow-expression-graph-canvas")).toBeInTheDocument();
+    expect(screen.queryByTestId("flow-expression-graph-editor")).not.toBeInTheDocument();
+    const graphPath = screen.getByRole("navigation", { name: "Graph path" });
+    expect(within(graphPath).getByText("return")).toBeInTheDocument();
+
+    const replaceCallsBeforeEdit = editSpy.mock.calls.length;
+    fireEvent.change(await screen.findByLabelText("Expression operator"), {
+      target: { value: "*" },
+    });
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeEdit),
+    );
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    const returnDraftNode = replaceRequest?.flowGraph?.nodes.find((node) => node.id === ADD_RETURN_ID);
+    expect(returnDraftNode?.payload.expression).toBe("a * b");
+    expect(returnDraftNode?.payload.expression_graph).toEqual(
+      expect.objectContaining({
+        nodes: expect.arrayContaining([
+          expect.objectContaining({
+            id: "expr:operator:add",
+            label: "*",
+            payload: expect.objectContaining({ operator: "*" }),
+          }),
+        ]),
+      }),
+    );
+
+    await user.click(within(graphPath).getByRole("button", { name: "Flow" }));
+    expect(await screen.findByTestId(`rf__node-${ADD_RETURN_ID}`)).toBeInTheDocument();
+    expect(screen.queryByTestId("flow-expression-graph-canvas")).not.toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("rewires imported add input in parameter mode and preserves it across refetch and reopen", async () => {
@@ -3011,6 +3109,9 @@ describe("WorkspaceScreen", () => {
     const replaceCallsBeforeConnect = editSpy.mock.calls.length;
     dragConnectionToHandle({
       dragStart: await findFlowHandle(branchNodeId, "out:control:true"),
+      onDragMove: () => {
+        expect(screen.getByTestId("graph-connection-line")).toBeInTheDocument();
+      },
       targetHandle: await findFlowHandle(returnNodeId, "in:control:exec"),
     });
 
@@ -3139,7 +3240,7 @@ describe("WorkspaceScreen", () => {
     expect(await screen.findByTestId("rf__node-flow:symbol:helm.ui.api:build_graph_summary:return")).toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
-  it("deletes ordinary source-backed flow nodes through replace_flow_graph", async () => {
+  it("keeps invalid flow deletions as visible drafts with source unchanged", async () => {
     const user = userEvent.setup();
     const adapter = new MockDesktopAdapter();
     const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
@@ -3165,10 +3266,11 @@ describe("WorkspaceScreen", () => {
 
     const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
     (flowGraphPanel as HTMLElement).focus();
+    const sourceBeforeDelete = (await screen.findByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement).value;
     const sourceBackedNodeId = "flow:symbol:helm.ui.api:build_graph_summary:assign:modules";
     fireEvent.click(await screen.findByTestId(`rf__node-${sourceBackedNodeId}`));
     const replaceCallsBeforeDelete = editSpy.mock.calls.length;
-    fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "Delete" });
+    fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "Backspace" });
 
     await waitFor(() =>
       expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeDelete),
@@ -3182,6 +3284,54 @@ describe("WorkspaceScreen", () => {
     await waitFor(() =>
       expect(screen.queryByTestId(`rf__node-${sourceBackedNodeId}`)).not.toBeInTheDocument(),
     );
+    expect(screen.getByRole("heading", { name: /Internal flow/i })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("navigation", { name: /Graph path/i })).getByText("Flow"),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Draft only")).toBeInTheDocument();
+    expect(await screen.findByText("Not applied to code")).toBeInTheDocument();
+    expect(await screen.findByText(/Python source was left unchanged/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/disconnected/i)).length).toBeGreaterThan(0);
+    expect((screen.getByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement).value).toBe(sourceBeforeDelete);
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("refreshes inspector source immediately after clean flow deletions update code", async () => {
+    const user = userEvent.setup();
+    const adapter = new MockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const { flowGraphPanel } = await openBuildGraphSummaryFlow(user);
+    const editor = await screen.findByRole("textbox", { name: /Function source editor/i });
+    expect((editor as HTMLTextAreaElement).value).toContain("return GraphSummary");
+
+    (flowGraphPanel as HTMLElement).focus();
+    fireEvent.click(await screen.findByTestId(`rf__node-${BUILD_GRAPH_SUMMARY_RETURN_ID}`));
+    const replaceCallsBeforeDelete = editSpy.mock.calls.length;
+    fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "Backspace" });
+
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeDelete),
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement).value,
+      ).not.toContain("return GraphSummary"),
+    );
+    expect(
+      (screen.getByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement).value,
+    ).toContain("collect_module_stats(graph)");
+    expect(screen.queryByText("Draft only")).not.toBeInTheDocument();
+    expect(lastReplaceFlowGraphRequest(editSpy)?.flowGraph?.nodes.map((node: { id: string }) => node.id)).not.toContain(BUILD_GRAPH_SUMMARY_RETURN_ID);
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("deletes newly spawned flow nodes through replace_flow_graph", async () => {
@@ -3376,7 +3526,7 @@ describe("WorkspaceScreen", () => {
     );
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
-  it("navigates one layer out with Backspace from flow to symbol", async () => {
+  it("keeps function flow focused when Backspace is pressed without a selected flow deletion", async () => {
     const user = userEvent.setup();
     const router = createMemoryRouter(
       [{ path: "/workspace", element: <WorkspaceScreen /> }],
@@ -3404,12 +3554,10 @@ describe("WorkspaceScreen", () => {
     (graphPanel as HTMLElement).focus();
     fireEvent.keyDown(graphPanel as HTMLElement, { key: "Backspace" });
 
-    await waitFor(() =>
-      expect(screen.getByText(/Symbol blueprint/i)).toBeInTheDocument(),
-    );
     expect(
-      within(screen.getByRole("navigation", { name: /Graph path/i })).queryByText("Flow"),
-    ).not.toBeInTheDocument();
+      within(screen.getByRole("navigation", { name: /Graph path/i })).getByText("Flow"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Symbol blueprint/i)).not.toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("treats class nodes as both inspectable and enterable", async () => {
@@ -3526,7 +3674,7 @@ describe("WorkspaceScreen", () => {
     expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-highlight-end-line", "15");
   });
 
-  it("navigates one layer out with Backspace from class flow to class blueprint", async () => {
+  it("keeps class flow focused when Backspace is pressed without a selected flow deletion", async () => {
     const user = userEvent.setup();
     const router = createMemoryRouter(
       [{ path: "/workspace", element: <WorkspaceScreen /> }],
@@ -3554,17 +3702,17 @@ describe("WorkspaceScreen", () => {
     (graphPanel as HTMLElement).focus();
     fireEvent.keyDown(graphPanel as HTMLElement, { key: "Backspace" });
 
-    await waitFor(() =>
-      expect(screen.getByText(/Symbol blueprint/i)).toBeInTheDocument(),
-    );
+    expect(screen.getByRole("heading", { name: /Internal flow/i })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("navigation", { name: /Graph path/i })).getByText("Flow"),
+    ).toBeInTheDocument();
     expect(await graph.findByText("to_payload")).toBeInTheDocument();
   });
 
   it("reveals the current graph file from the graph path", async () => {
-    const user = userEvent.setup();
     const adapter = new MockDesktopAdapter();
     const revealSpy = vi
-      .spyOn(adapter, "revealNodeInFileExplorer")
+      .spyOn(adapter, "revealPathInFileExplorer")
       .mockResolvedValue(undefined);
     const router = createMemoryRouter(
       [{ path: "/workspace", element: <WorkspaceScreen /> }],
@@ -3587,7 +3735,113 @@ describe("WorkspaceScreen", () => {
     const fileButton = await within(graphPath).findByRole("button", { name: "api.py" });
     fireEvent.click(fileButton);
 
-    await waitFor(() => expect(revealSpy).toHaveBeenCalledWith("module:helm.ui.api"));
+    expect(revealSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(fileButton, { metaKey: true });
+
+    await waitFor(() =>
+      expect(revealSpy).toHaveBeenCalledWith(`${defaultRepoPath}/src/helm/ui/api.py`),
+    );
+  });
+
+  it("navigates from a graph path file segment back to the module graph", async () => {
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const classNode = (await graph.findByText("GraphSummary")).closest(".graph-node");
+    expect(classNode).not.toBeNull();
+    fireEvent.click(within(classNode as HTMLElement).getByText("Enter"));
+
+    expect(await screen.findByText(/Symbol blueprint/i)).toBeInTheDocument();
+
+    const graphPath = await screen.findByRole("navigation", { name: /Graph path/i });
+    fireEvent.click(within(graphPath).getByRole("button", { name: "api.py" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText(/Symbol blueprint/i)).not.toBeInTheDocument(),
+    );
+    expect(
+      within(screen.getByRole("navigation", { name: /Graph path/i })).queryByText("GraphSummary"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("navigates from a graph path folder segment to the containing module graph", async () => {
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const classNode = (await graph.findByText("GraphSummary")).closest(".graph-node");
+    expect(classNode).not.toBeNull();
+    fireEvent.click(within(classNode as HTMLElement).getByText("Enter"));
+
+    expect(await screen.findByText(/Symbol blueprint/i)).toBeInTheDocument();
+
+    const graphPath = await screen.findByRole("navigation", { name: /Graph path/i });
+    fireEvent.click(within(graphPath).getByRole("button", { name: "src" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText(/Symbol blueprint/i)).not.toBeInTheDocument(),
+    );
+    expect(
+      within(screen.getByRole("navigation", { name: /Graph path/i })).queryByText("GraphSummary"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("reveals an intermediate graph path folder with a modifier click", async () => {
+    const adapter = new MockDesktopAdapter();
+    const revealSpy = vi
+      .spyOn(adapter, "revealPathInFileExplorer")
+      .mockResolvedValue(undefined);
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const graphPath = await screen.findByRole("navigation", { name: /Graph path/i });
+    fireEvent.click(within(graphPath).getByRole("button", { name: "src" }), { metaKey: true });
+
+    await waitFor(() =>
+      expect(revealSpy).toHaveBeenCalledWith(`${defaultRepoPath}/src`),
+    );
   });
 
   it("tracks inline edits, supports cancel, and saves through the existing callback", async () => {
@@ -3646,6 +3900,46 @@ describe("WorkspaceScreen", () => {
     expect(saveSpy.mock.calls[0]?.[1]).toContain("# saved note");
     await waitFor(() => expect(screen.getAllByText("Synced").length).toBeGreaterThan(0));
   });
+
+  it("refreshes the flow graph after inline source saves", async () => {
+    const user = userEvent.setup();
+    const adapter = new MockDesktopAdapter();
+    const saveSpy = vi.spyOn(adapter, "saveNodeSource");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+
+    const nextSource = [
+      "def build_graph_summary(graph: RepoGraph, top_n: int = 10) -> GraphSummary:",
+      "    return GraphSummary(repo_path=graph.root_path, module_count=0)",
+    ].join("\n");
+    fireEvent.change(await screen.findByRole("textbox", { name: /Function source editor/i }), {
+      target: { value: nextSource },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save/i }));
+
+    await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1));
+    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+
+    expect(await graph.findByText("return GraphSummary(repo_path=graph.root_path, module_count=0)")).toBeInTheDocument();
+    expect(graph.queryByText(/ranked_modules/i)).not.toBeInTheDocument();
+  }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("marks dirty inspector drafts stale after same-file live sync events", async () => {
     const adapter = new MockDesktopAdapter();
@@ -4203,7 +4497,8 @@ describe("WorkspaceScreen", () => {
 
     const graphPath = await screen.findByRole("navigation", { name: /Graph path/i });
     await user.hover(within(graphPath).getByRole("button", { name: "api.py" }));
-    expect(help.getByText("api.py in Finder/Explorer")).toBeInTheDocument();
+    expect(help.getByText("api.py graph path")).toBeInTheDocument();
+    expect(help.getByText("Cmd/Ctrl + click reveals")).toBeInTheDocument();
 
     const moduleNode = (await graph.findByText("api.py")).closest(".graph-node");
     expect(moduleNode).not.toBeNull();
