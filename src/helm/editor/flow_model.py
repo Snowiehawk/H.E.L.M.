@@ -274,7 +274,7 @@ class FlowImportError(ValueError):
 @dataclass
 class _ImportedBlock:
     root_id: str | None
-    continuation: tuple[str, str] | None = None
+    continuations: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass
@@ -477,6 +477,146 @@ def without_flow_return_completion_edges(document: FlowModelDocument) -> FlowMod
     if len(next_edges) == len(document.edges):
         return document
     return replace(document, edges=next_edges)
+
+
+def without_branch_after_edges(document: FlowModelDocument) -> FlowModelDocument:
+    node_by_id = {node.node_id: node for node in document.nodes}
+    branch_after_edges = tuple(
+        edge
+        for edge in document.edges
+        if node_by_id.get(edge.source_id) is not None
+        and node_by_id[edge.source_id].kind == "branch"
+        and edge.source_handle == "after"
+        and edge.target_handle == "in"
+    )
+    if not branch_after_edges:
+        return document
+
+    output_edges = {(edge.source_id, edge.source_handle): edge for edge in document.edges}
+    removed_edge_ids = {edge.edge_id for edge in branch_after_edges}
+    next_edges = [edge for edge in document.edges if edge.edge_id not in removed_edge_ids]
+    occupied_outputs = {(edge.source_id, edge.source_handle) for edge in next_edges}
+
+    for edge in branch_after_edges:
+        continuations = _legacy_branch_continuations_for_after_edge(
+            edge.source_id,
+            edge.target_id,
+            node_by_id=node_by_id,
+            output_edges=output_edges,
+        )
+        for source_id, source_handle in continuations:
+            output_key = (source_id, source_handle)
+            if output_key in occupied_outputs:
+                continue
+            next_edges.append(
+                FlowModelEdge(
+                    edge_id=flow_edge_id(source_id, source_handle, edge.target_id, "in"),
+                    source_id=source_id,
+                    source_handle=source_handle,
+                    target_id=edge.target_id,
+                    target_handle="in",
+                )
+            )
+            occupied_outputs.add(output_key)
+
+    return replace(document, edges=tuple(next_edges))
+
+
+def _legacy_branch_continuations_for_after_edge(
+    branch_node_id: str,
+    after_target_id: str,
+    *,
+    node_by_id: dict[str, FlowModelNode],
+    output_edges: dict[tuple[str, str], FlowModelEdge],
+) -> tuple[tuple[str, str], ...]:
+    continuations: list[tuple[str, str]] = []
+    for handle in ("true", "false"):
+        start_id = target_id_for_edge(output_edges.get((branch_node_id, handle)))
+        if start_id is None:
+            continuations.append((branch_node_id, handle))
+            continue
+        continuations.extend(
+            _legacy_open_continuations(
+                start_id,
+                stop_node_id=after_target_id,
+                node_by_id=node_by_id,
+                output_edges=output_edges,
+                visited=set(),
+            )
+        )
+    return tuple(dict.fromkeys(continuations))
+
+
+def _legacy_open_continuations(
+    node_id: str | None,
+    *,
+    stop_node_id: str,
+    node_by_id: dict[str, FlowModelNode],
+    output_edges: dict[tuple[str, str], FlowModelEdge],
+    visited: set[str],
+) -> tuple[tuple[str, str], ...]:
+    if node_id is None or node_id == stop_node_id or node_id in visited:
+        return ()
+    node = node_by_id.get(node_id)
+    if node is None:
+        return ()
+    visited.add(node_id)
+
+    if node.kind in {"assign", "call"}:
+        next_id = target_id_for_edge(output_edges.get((node_id, "next")))
+        if next_id is None:
+            return ((node_id, "next"),)
+        return _legacy_open_continuations(
+            next_id,
+            stop_node_id=stop_node_id,
+            node_by_id=node_by_id,
+            output_edges=output_edges,
+            visited=visited,
+        )
+
+    if node.kind == "return":
+        return ()
+
+    if node.kind == "branch":
+        after_id = target_id_for_edge(output_edges.get((node_id, "after")))
+        if after_id is not None:
+            return _legacy_open_continuations(
+                after_id,
+                stop_node_id=stop_node_id,
+                node_by_id=node_by_id,
+                output_edges=output_edges,
+                visited=visited,
+            )
+        continuations: list[tuple[str, str]] = []
+        for handle in ("true", "false"):
+            start_id = target_id_for_edge(output_edges.get((node_id, handle)))
+            if start_id is None:
+                continuations.append((node_id, handle))
+                continue
+            continuations.extend(
+                _legacy_open_continuations(
+                    start_id,
+                    stop_node_id=stop_node_id,
+                    node_by_id=node_by_id,
+                    output_edges=output_edges,
+                    visited=set(visited),
+                )
+            )
+        return tuple(dict.fromkeys(continuations))
+
+    if node.kind == "loop":
+        after_id = target_id_for_edge(output_edges.get((node_id, "after")))
+        if after_id is None:
+            return ((node_id, "after"),)
+        return _legacy_open_continuations(
+            after_id,
+            stop_node_id=stop_node_id,
+            node_by_id=node_by_id,
+            output_edges=output_edges,
+            visited=visited,
+        )
+
+    return ()
 
 
 def indexed_flow_entry_node_id(symbol_id: str) -> str:
@@ -758,7 +898,7 @@ def flow_document_from_payload(payload: dict[str, Any]) -> FlowModelDocument:
     diagnostics = tuple(str(item) for item in payload.get("diagnostics") or ())
     source_hash = payload.get("source_hash")
     editable = bool(payload.get("editable", True))
-    return FlowModelDocument(
+    document = FlowModelDocument(
         symbol_id=symbol_id,
         relative_path=relative_path,
         qualname=qualname,
@@ -774,6 +914,7 @@ def flow_document_from_payload(payload: dict[str, Any]) -> FlowModelDocument:
         source_hash=str(source_hash) if isinstance(source_hash, str) and source_hash else None,
         editable=editable,
     )
+    return without_branch_after_edges(document)
 
 
 def with_flow_document_status(
@@ -883,10 +1024,20 @@ def with_flow_document_derived_input_model(
             continue
         for used_name in sorted(_names_used_by_flow_node_payload(node)):
             definition_id = definitions.get(used_name)
-            if definition_id not in known_source_ids:
-                continue
             source_identity = flow_model_node_source_identity(node)
             existing_slot = existing_slot_by_node_key.get((node.node_id, used_name))
+            existing_binding = (
+                existing_binding_by_slot_id.get(existing_slot.slot_id)
+                if existing_slot is not None
+                else None
+            )
+            existing_binding_source_id = (
+                existing_binding.source_id
+                if existing_binding is not None and existing_binding.source_id in known_source_ids
+                else None
+            )
+            if definition_id not in known_source_ids and existing_binding_source_id is None:
+                continue
             slot_id = existing_slot.slot_id if existing_slot else flow_input_slot_id(source_identity, used_name)
             if slot_id in seen_slot_ids:
                 continue
@@ -900,12 +1051,11 @@ def with_flow_document_derived_input_model(
             next_slots.append(slot)
             seen_slot_ids.add(slot.slot_id)
 
-            existing_binding = existing_binding_by_slot_id.get(slot.slot_id)
             if existing_slot and existing_binding is None:
                 continue
             source_id = (
-                existing_binding.source_id
-                if existing_binding and existing_binding.source_id in known_source_ids
+                existing_binding_source_id
+                if existing_binding_source_id is not None
                 else definition_id
             )
             if source_id not in known_source_ids or slot.slot_id in seen_bound_slot_ids:
@@ -1864,8 +2014,8 @@ def import_flow_document_from_function_source(
     imported = _import_block(builder, function_node.body)
     if imported.root_id:
         builder.connect(entry_id, "start", imported.root_id)
-        if imported.continuation:
-            builder.connect(imported.continuation[0], imported.continuation[1], exit_id)
+        for continuation in imported.continuations:
+            builder.connect(continuation[0], continuation[1], exit_id)
     else:
         builder.connect(entry_id, "start", exit_id)
 
@@ -1892,16 +2042,16 @@ def _import_block(
     builder: _ImportBuilder,
     statements: list[ast.stmt],
 ) -> _ImportedBlock:
-    block = _ImportedBlock(root_id=None, continuation=None)
+    block = _ImportedBlock(root_id=None, continuations=())
     for statement in statements:
         imported = _import_statement(builder, statement)
         if imported.root_id is None:
             continue
         if block.root_id is None:
             block.root_id = imported.root_id
-        if block.continuation is not None:
-            builder.connect(block.continuation[0], block.continuation[1], imported.root_id)
-        block.continuation = imported.continuation
+        for continuation in block.continuations:
+            builder.connect(continuation[0], continuation[1], imported.root_id)
+        block.continuations = imported.continuations
     return block
 
 
@@ -1910,7 +2060,7 @@ def _import_statement(
     statement: ast.stmt,
 ) -> _ImportedBlock:
     if isinstance(statement, ast.Pass):
-        return _ImportedBlock(root_id=None, continuation=None)
+        return _ImportedBlock(root_id=None)
 
     if isinstance(statement, ast.Return):
         expression = ast.unparse(statement.value) if statement.value is not None else ""
@@ -1935,21 +2085,21 @@ def _import_statement(
                     ),
                 },
             )
-        return _ImportedBlock(root_id=node_id, continuation=None)
+        return _ImportedBlock(root_id=node_id)
 
     if isinstance(statement, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
         node_id = builder.create_node("assign", {"source": ast.unparse(statement)})
         builder.bind_input_slots(node_id, statement)
         builder.record_assigned_names(node_id, statement)
-        return _ImportedBlock(root_id=node_id, continuation=(node_id, "next"))
+        return _ImportedBlock(root_id=node_id, continuations=((node_id, "next"),))
 
     if isinstance(statement, ast.Expr):
         if _is_docstring_expression(statement):
-            return _ImportedBlock(root_id=None, continuation=None)
+            return _ImportedBlock(root_id=None)
         if any(isinstance(node, ast.Call) for node in ast.walk(statement)):
             node_id = builder.create_node("call", {"source": ast.unparse(statement)})
             builder.bind_input_slots(node_id, statement)
-            return _ImportedBlock(root_id=node_id, continuation=(node_id, "next"))
+            return _ImportedBlock(root_id=node_id, continuations=((node_id, "next"),))
         raise FlowImportError("Expression statements without a call are not supported in visual flow mode.")
 
     if isinstance(statement, ast.If):
@@ -1961,7 +2111,12 @@ def _import_statement(
             builder.connect(node_id, "true", true_block.root_id)
         if false_block.root_id:
             builder.connect(node_id, "false", false_block.root_id)
-        return _ImportedBlock(root_id=node_id, continuation=(node_id, "after"))
+        true_continuations = true_block.continuations if true_block.root_id else ((node_id, "true"),)
+        false_continuations = false_block.continuations if false_block.root_id else ((node_id, "false"),)
+        return _ImportedBlock(
+            root_id=node_id,
+            continuations=(*true_continuations, *false_continuations),
+        )
 
     if isinstance(statement, ast.While):
         node_id = builder.create_node("loop", {"header": f"while {ast.unparse(statement.test)}"})
@@ -1969,7 +2124,7 @@ def _import_statement(
         body_block = _import_block(builder, statement.body)
         if body_block.root_id:
             builder.connect(node_id, "body", body_block.root_id)
-        return _ImportedBlock(root_id=node_id, continuation=(node_id, "after"))
+        return _ImportedBlock(root_id=node_id, continuations=((node_id, "after"),))
 
     if isinstance(statement, ast.For):
         header = f"for {ast.unparse(statement.target)} in {ast.unparse(statement.iter)}"
@@ -1979,7 +2134,7 @@ def _import_statement(
         body_block = _import_block(builder, statement.body)
         if body_block.root_id:
             builder.connect(node_id, "body", body_block.root_id)
-        return _ImportedBlock(root_id=node_id, continuation=(node_id, "after"))
+        return _ImportedBlock(root_id=node_id, continuations=((node_id, "after"),))
 
     raise FlowImportError(
         f"Visual flow mode does not support importing {statement.__class__.__name__} yet."
@@ -1987,8 +2142,8 @@ def _import_statement(
 
 
 def compile_flow_document(document: FlowModelDocument) -> FlowCompileResult:
-    document = without_flow_return_completion_edges(
-        with_flow_document_derived_input_model(document)
+    document = with_flow_document_derived_input_model(
+        without_branch_after_edges(without_flow_return_completion_edges(document))
     )
     node_by_id = {node.node_id: node for node in document.nodes}
     diagnostics: list[str] = []
@@ -2010,8 +2165,6 @@ def compile_flow_document(document: FlowModelDocument) -> FlowCompileResult:
         )
 
     output_edges: dict[tuple[str, str], FlowModelEdge] = {}
-    target_counts: dict[tuple[str, str], int] = {}
-    allowed_input_counts = {"exit": None}
     for edge in document.edges:
         if edge.source_id not in node_by_id or edge.target_id not in node_by_id:
             diagnostics.append(f"Flow edge '{edge.edge_id}' points at an unknown node.")
@@ -2035,15 +2188,6 @@ def compile_flow_document(document: FlowModelDocument) -> FlowCompileResult:
             )
             continue
         output_edges[output_key] = edge
-        target_key = (edge.target_id, edge.target_handle)
-        target_counts[target_key] = target_counts.get(target_key, 0) + 1
-
-    for node in document.nodes:
-        if node.kind == "entry":
-            continue
-        target_count = target_counts.get((node.node_id, "in"), 0)
-        if node.kind != "exit" and target_count > 1:
-            diagnostics.append(f"Node '{node.node_id}' can only accept one inbound control connection.")
 
     reachable = reachable_flow_node_ids(document)
     visible_node_ids = {
@@ -2217,10 +2361,15 @@ def _flow_document_node_positions(document: FlowModelDocument) -> dict[str, _Flo
         positions[node_id] = _FlowNodePosition(order=next_order, context=context)
         next_order += 1
 
-    def visit_sequence(start_node_id: str | None, context: tuple[str, ...]) -> None:
+    def visit_sequence(
+        start_node_id: str | None,
+        context: tuple[str, ...],
+        *,
+        stop_node_id: str | None = None,
+    ) -> None:
         current_id = start_node_id
         visited_in_sequence: set[str] = set()
-        while current_id and current_id != exit_node_id:
+        while current_id and current_id != exit_node_id and current_id != stop_node_id:
             if current_id in visited_in_sequence:
                 return
             visited_in_sequence.add(current_id)
@@ -2235,15 +2384,28 @@ def _flow_document_node_positions(document: FlowModelDocument) -> dict[str, _Flo
             if node.kind == "return":
                 return
             if node.kind == "branch":
+                true_start_id = target_id_for_edge(output_edges.get((current_id, "true")))
+                false_start_id = target_id_for_edge(output_edges.get((current_id, "false")))
+                merge_id = _branch_merge_node_id(
+                    true_start_id,
+                    false_start_id,
+                    stop_node_id=stop_node_id,
+                    exit_node_id=exit_node_id,
+                    node_by_id=node_by_id,
+                    output_edges=output_edges,
+                )
+                branch_stop_id = merge_id or stop_node_id
                 visit_sequence(
-                    target_id_for_edge(output_edges.get((current_id, "true"))),
+                    true_start_id,
                     (*context, f"branch:{current_id}:true"),
+                    stop_node_id=branch_stop_id,
                 )
                 visit_sequence(
-                    target_id_for_edge(output_edges.get((current_id, "false"))),
+                    false_start_id,
                     (*context, f"branch:{current_id}:false"),
+                    stop_node_id=branch_stop_id,
                 )
-                current_id = target_id_for_edge(output_edges.get((current_id, "after")))
+                current_id = merge_id
                 continue
             if node.kind == "loop":
                 visit_sequence(
@@ -2435,6 +2597,72 @@ def target_id_for_edge(edge: FlowModelEdge | None) -> str | None:
     return edge.target_id
 
 
+def _reachable_flow_distances(
+    start_node_id: str | None,
+    *,
+    stop_node_id: str | None,
+    exit_node_id: str | None,
+    node_by_id: dict[str, FlowModelNode],
+    output_edges: dict[tuple[str, str], FlowModelEdge],
+) -> dict[str, int]:
+    if start_node_id is None:
+        return {}
+
+    distances: dict[str, int] = {}
+    queue: list[tuple[str, int]] = [(start_node_id, 0)]
+    while queue:
+        node_id, distance = queue.pop(0)
+        if node_id in distances and distances[node_id] <= distance:
+            continue
+        node = node_by_id.get(node_id)
+        if node is None:
+            continue
+        distances[node_id] = distance
+        if node_id == stop_node_id or node_id == exit_node_id:
+            continue
+        for handle in allowed_flow_output_handles(node.kind):
+            target_id = target_id_for_edge(output_edges.get((node_id, handle)))
+            if target_id is not None:
+                queue.append((target_id, distance + 1))
+    return distances
+
+
+def _branch_merge_node_id(
+    true_start_id: str | None,
+    false_start_id: str | None,
+    *,
+    stop_node_id: str | None,
+    exit_node_id: str | None,
+    node_by_id: dict[str, FlowModelNode],
+    output_edges: dict[tuple[str, str], FlowModelEdge],
+) -> str | None:
+    true_distances = _reachable_flow_distances(
+        true_start_id,
+        stop_node_id=stop_node_id,
+        exit_node_id=exit_node_id,
+        node_by_id=node_by_id,
+        output_edges=output_edges,
+    )
+    false_distances = _reachable_flow_distances(
+        false_start_id,
+        stop_node_id=stop_node_id,
+        exit_node_id=exit_node_id,
+        node_by_id=node_by_id,
+        output_edges=output_edges,
+    )
+    common_ids = set(true_distances) & set(false_distances)
+    if not common_ids:
+        return None
+    return min(
+        common_ids,
+        key=lambda node_id: (
+            max(true_distances[node_id], false_distances[node_id]),
+            true_distances[node_id] + false_distances[node_id],
+            node_id,
+        ),
+    )
+
+
 def reachable_flow_node_ids(document: FlowModelDocument) -> set[str]:
     node_by_id = {node.node_id: node for node in document.nodes}
     output_edges = {(edge.source_id, edge.source_handle): edge for edge in document.edges}
@@ -2463,7 +2691,7 @@ def allowed_flow_output_handles(kind: str) -> tuple[str, ...]:
     if kind in {"assign", "call"}:
         return ("next",)
     if kind == "branch":
-        return ("true", "false", "after")
+        return ("true", "false")
     if kind == "loop":
         return ("body", "after")
     return ()
@@ -2829,11 +3057,12 @@ def _compile_sequence(
     exit_node_id: str,
     node_by_id: dict[str, FlowModelNode],
     output_edges: dict[tuple[str, str], FlowModelEdge],
+    stop_node_id: str | None = None,
 ) -> list[str]:
     lines: list[str] = []
     current_id = start_node_id
     visited: set[str] = set()
-    while current_id and current_id != exit_node_id:
+    while current_id and current_id != exit_node_id and current_id != stop_node_id:
         if current_id in visited:
             raise ValueError(f"Cycle detected in flow graph at '{current_id}'.")
         visited.add(current_id)
@@ -2852,24 +3081,37 @@ def _compile_sequence(
             break
         if node.kind == "branch":
             condition = str(node.payload.get("condition") or "").strip()
-            true_lines = _compile_sequence(
-                start_node_id=target_id_for_edge(output_edges.get((current_id, "true"))),
+            true_start_id = target_id_for_edge(output_edges.get((current_id, "true")))
+            false_start_id = target_id_for_edge(output_edges.get((current_id, "false")))
+            merge_id = _branch_merge_node_id(
+                true_start_id,
+                false_start_id,
+                stop_node_id=stop_node_id,
                 exit_node_id=exit_node_id,
                 node_by_id=node_by_id,
                 output_edges=output_edges,
             )
-            false_lines = _compile_sequence(
-                start_node_id=target_id_for_edge(output_edges.get((current_id, "false"))),
+            branch_stop_id = merge_id or stop_node_id
+            true_lines = _compile_sequence(
+                start_node_id=true_start_id,
                 exit_node_id=exit_node_id,
                 node_by_id=node_by_id,
                 output_edges=output_edges,
+                stop_node_id=branch_stop_id,
+            )
+            false_lines = _compile_sequence(
+                start_node_id=false_start_id,
+                exit_node_id=exit_node_id,
+                node_by_id=node_by_id,
+                output_edges=output_edges,
+                stop_node_id=branch_stop_id,
             )
             lines.append(f"if {condition}:")
             lines.extend(_indent_lines(true_lines or ["pass"]))
             if false_lines:
                 lines.append("else:")
                 lines.extend(_indent_lines(false_lines))
-            current_id = target_id_for_edge(output_edges.get((current_id, "after")))
+            current_id = merge_id
             continue
         if node.kind == "loop":
             header = str(node.payload.get("header") or "").strip().rstrip(":")
@@ -2904,9 +3146,10 @@ def flow_document_compile_order_node_ids(document: FlowModelDocument) -> tuple[s
     ordered: list[str] = []
     visited: set[str] = set()
 
-    def visit(start_node_id: str | None) -> None:
+    def visit(start_node_id: str | None, *, stop_node_id: str | None = None) -> None:
         current_id = start_node_id
-        while current_id and current_id != (exit_node.node_id if exit_node else None):
+        exit_node_id = exit_node.node_id if exit_node else None
+        while current_id and current_id != exit_node_id and current_id != stop_node_id:
             if current_id in visited:
                 return
             visited.add(current_id)
@@ -2921,9 +3164,20 @@ def flow_document_compile_order_node_ids(document: FlowModelDocument) -> tuple[s
             if node.kind == "return":
                 return
             if node.kind == "branch":
-                visit(target_id_for_edge(output_edges.get((current_id, "true"))))
-                visit(target_id_for_edge(output_edges.get((current_id, "false"))))
-                current_id = target_id_for_edge(output_edges.get((current_id, "after")))
+                true_start_id = target_id_for_edge(output_edges.get((current_id, "true")))
+                false_start_id = target_id_for_edge(output_edges.get((current_id, "false")))
+                merge_id = _branch_merge_node_id(
+                    true_start_id,
+                    false_start_id,
+                    stop_node_id=stop_node_id,
+                    exit_node_id=exit_node_id,
+                    node_by_id=node_by_id,
+                    output_edges=output_edges,
+                )
+                branch_stop_id = merge_id or stop_node_id
+                visit(true_start_id, stop_node_id=branch_stop_id)
+                visit(false_start_id, stop_node_id=branch_stop_id)
+                current_id = merge_id
                 continue
             if node.kind == "loop":
                 visit(target_id_for_edge(output_edges.get((current_id, "body"))))

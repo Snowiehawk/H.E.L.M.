@@ -1,12 +1,16 @@
 import type {
+  FlowExpressionEdge,
   FlowExpressionGraph,
   FlowExpressionNode,
+  FlowFunctionInput,
   FlowGraphDocument,
   FlowGraphEdge,
   FlowGraphNode,
   FlowInputBinding,
+  FlowInputSlot,
   FlowVisualNodeKind,
 } from "../../lib/adapter";
+import { expressionFromFlowExpressionGraph } from "./flowExpressionGraph";
 
 export const FLOW_DOCUMENT_NODE_KINDS = [
   "entry",
@@ -134,7 +138,7 @@ export function allowedOutputHandles(kind: FlowVisualNodeKind): string[] {
     return ["next"];
   }
   if (kind === "branch") {
-    return ["true", "false", "after"];
+    return ["true", "false"];
   }
   if (kind === "loop") {
     return ["body", "after"];
@@ -267,6 +271,11 @@ type FlowReturnInputBindingConnection = {
   targetNodeId: string;
 };
 
+export type FlowFunctionInputDraft = {
+  name?: string;
+  defaultExpression?: string | null;
+};
+
 export function validateFlowConnection(
   document: FlowGraphDocument,
   connection: FlowConnection,
@@ -309,16 +318,6 @@ export function validateFlowConnection(
     && edge.sourceHandle === connection.sourceHandle
   ))) {
     return { ok: false, message: "That control output is already connected." };
-  }
-
-  if (
-    targetNode.kind !== "exit"
-    && competingEdges.some((edge) => (
-      edge.targetId === connection.targetId
-      && edge.targetHandle === connection.targetHandle
-    ))
-  ) {
-    return { ok: false, message: "That control input is already connected." };
   }
 
   return { ok: true };
@@ -489,6 +488,217 @@ export function removeFlowInputBindings(
   };
 }
 
+export function flowFunctionInputUsage(
+  document: FlowGraphDocument,
+  inputId: string,
+): {
+  input?: FlowFunctionInput;
+  bindings: FlowInputBinding[];
+} {
+  return {
+    input: (document.functionInputs ?? []).find((input) => input.id === inputId),
+    bindings: (document.inputBindings ?? []).filter((binding) => (
+      binding.sourceId === inputId || binding.functionInputId === inputId
+    )),
+  };
+}
+
+export function flowFunctionInputRemovalSummary(
+  document: FlowGraphDocument,
+  inputId: string,
+): {
+  input?: FlowFunctionInput;
+  bindings: FlowInputBinding[];
+  connectionCount: number;
+  downstreamUseCount: number;
+  expressionInputCount: number;
+  inputSlots: FlowInputSlot[];
+} {
+  const usage = flowFunctionInputUsage(document, inputId);
+  const slotIds = new Set(usage.bindings.map((binding) => binding.slotId));
+  const inputSlots = (document.inputSlots ?? []).filter((slot) => slotIds.has(slot.id));
+  const slotNames = new Set<string>();
+  inputSlots.forEach((slot) => {
+    if (slot.label.trim()) {
+      slotNames.add(slot.label.trim());
+    }
+    if (slot.slotKey.trim()) {
+      slotNames.add(slot.slotKey.trim());
+    }
+  });
+  if (usage.input?.name.trim()) {
+    slotNames.add(usage.input.name.trim());
+  }
+
+  const expressionInputCount = document.nodes.reduce((count, node) => {
+    if (node.kind !== "return" || !node.payload.expression_graph) {
+      return count;
+    }
+    const graph = flowExpressionGraphFromPayload(node.payload.expression_graph);
+    return count + graph.nodes.filter((expressionNode) => {
+      if (expressionNode.kind !== "input") {
+        return false;
+      }
+      const payloadSlotId = expressionNode.payload.slot_id ?? expressionNode.payload.slotId;
+      const payloadName = typeof expressionNode.payload.name === "string"
+        ? expressionNode.payload.name.trim()
+        : "";
+      return (
+        (typeof payloadSlotId === "string" && slotIds.has(payloadSlotId))
+        || (payloadName && slotNames.has(payloadName))
+        || slotNames.has(expressionNode.label.trim())
+      );
+    }).length;
+  }, 0);
+
+  const connectionCount = usage.bindings.length;
+  return {
+    ...usage,
+    connectionCount,
+    downstreamUseCount: Math.max(connectionCount, inputSlots.length, expressionInputCount),
+    expressionInputCount,
+    inputSlots,
+  };
+}
+
+export function addFlowFunctionInput(
+  document: FlowGraphDocument,
+  draft: FlowFunctionInputDraft = {},
+): FlowGraphDocument {
+  const inputs = sortedFlowFunctionInputs(document.functionInputs ?? []);
+  const name = uniqueFlowFunctionInputName(inputs, draft.name ?? "input");
+  const existingIds = new Set(inputs.map((input) => input.id));
+  const input: FlowFunctionInput = {
+    id: uniqueFlowFunctionInputId(document.symbolId, name, existingIds),
+    name,
+    index: inputs.length,
+    kind: "positional_or_keyword",
+    defaultExpression: normalizeOptionalExpression(draft.defaultExpression),
+  };
+  return {
+    ...document,
+    functionInputs: [...inputs, input],
+  };
+}
+
+export function updateFlowFunctionInput(
+  document: FlowGraphDocument,
+  inputId: string,
+  draft: FlowFunctionInputDraft,
+): FlowGraphDocument {
+  const inputs = sortedFlowFunctionInputs(document.functionInputs ?? []);
+  const target = inputs.find((input) => input.id === inputId);
+  if (!target) {
+    return document;
+  }
+  const otherInputs = inputs.filter((input) => input.id !== inputId);
+  const nextName = draft.name === undefined
+    ? target.name
+    : uniqueFlowFunctionInputName(otherInputs, draft.name, target.name);
+  const nextDefaultExpression = draft.defaultExpression === undefined
+    ? target.defaultExpression ?? null
+    : normalizeOptionalExpression(draft.defaultExpression);
+  return {
+    ...document,
+    functionInputs: reindexFlowFunctionInputs(inputs.map((input) => (
+      input.id === inputId
+        ? {
+            ...input,
+            name: nextName,
+            defaultExpression: nextDefaultExpression,
+          }
+        : input
+    ))),
+  };
+}
+
+export function moveFlowFunctionInput(
+  document: FlowGraphDocument,
+  inputId: string,
+  direction: -1 | 1,
+): FlowGraphDocument {
+  const inputs = sortedFlowFunctionInputs(document.functionInputs ?? []);
+  const index = inputs.findIndex((input) => input.id === inputId);
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= inputs.length) {
+    return document;
+  }
+  const nextInputs = [...inputs];
+  const [input] = nextInputs.splice(index, 1);
+  nextInputs.splice(nextIndex, 0, input);
+  return {
+    ...document,
+    functionInputs: reindexFlowFunctionInputs(nextInputs),
+  };
+}
+
+export function removeFlowFunctionInput(
+  document: FlowGraphDocument,
+  inputId: string,
+): FlowGraphDocument {
+  const inputs = document.functionInputs ?? [];
+  if (!inputs.some((input) => input.id === inputId)) {
+    return document;
+  }
+  return {
+    ...document,
+    functionInputs: reindexFlowFunctionInputs(inputs.filter((input) => input.id !== inputId)),
+    inputBindings: (document.inputBindings ?? []).filter((binding) => (
+      binding.sourceId !== inputId && binding.functionInputId !== inputId
+    )),
+  };
+}
+
+export function removeFlowFunctionInputAndDownstreamUses(
+  document: FlowGraphDocument,
+  inputId: string,
+): FlowGraphDocument {
+  const usage = flowFunctionInputUsage(document, inputId);
+  if (!usage.input) {
+    return document;
+  }
+
+  const slotIdsToRemove = new Set(usage.bindings.map((binding) => binding.slotId));
+  const slotNamesToRemove = new Set<string>();
+  (document.inputSlots ?? []).forEach((slot) => {
+    if (!slotIdsToRemove.has(slot.id)) {
+      return;
+    }
+    if (slot.label.trim()) {
+      slotNamesToRemove.add(slot.label.trim());
+    }
+    if (slot.slotKey.trim()) {
+      slotNamesToRemove.add(slot.slotKey.trim());
+    }
+  });
+  if (usage.input.name.trim()) {
+    slotNamesToRemove.add(usage.input.name.trim());
+  }
+
+  const withoutInput = removeFlowFunctionInput(document, inputId);
+  if (!slotIdsToRemove.size && !slotNamesToRemove.size) {
+    return withoutInput;
+  }
+
+  return {
+    ...withoutInput,
+    nodes: withoutInput.nodes.map((node) => (
+      node.kind === "return"
+        ? {
+            ...node,
+            payload: withoutExpressionInputSlots(
+              node.payload,
+              slotIdsToRemove,
+              slotNamesToRemove,
+            ),
+          }
+        : node
+    )),
+    inputSlots: (withoutInput.inputSlots ?? []).filter((slot) => !slotIdsToRemove.has(slot.id)),
+    inputBindings: (withoutInput.inputBindings ?? []).filter((binding) => !slotIdsToRemove.has(binding.slotId)),
+  };
+}
+
 export function removeFlowNodes(
   document: FlowGraphDocument,
   nodeIds: Iterable<string>,
@@ -573,6 +783,66 @@ export function flowInputBindingId(slotId: string, sourceId: string) {
 
 function flowInputSlotId(nodeSourceIdentity: string, slotKey: string) {
   return `flowslot:${nodeSourceIdentity}:${slotKey}`;
+}
+
+function sortedFlowFunctionInputs(inputs: FlowFunctionInput[]): FlowFunctionInput[] {
+  return [...inputs].sort((left, right) => left.index - right.index || left.name.localeCompare(right.name));
+}
+
+function reindexFlowFunctionInputs(inputs: FlowFunctionInput[]): FlowFunctionInput[] {
+  return inputs.map((input, index) => ({ ...input, index }));
+}
+
+function normalizeFlowFunctionInputName(value: string, fallback = "input"): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+  const identifier = trimmed
+    .replace(/^[^A-Za-z_]+/, "")
+    .replace(/[^A-Za-z0-9_]+/g, "_");
+  return identifier || fallback;
+}
+
+function uniqueFlowFunctionInputName(
+  inputs: FlowFunctionInput[],
+  requestedName: string,
+  fallbackName?: string,
+): string {
+  const baseName = normalizeFlowFunctionInputName(requestedName, fallbackName ?? "input");
+  const usedNames = new Set(inputs.map((input) => input.name));
+  if (!usedNames.has(baseName)) {
+    return baseName;
+  }
+  if (fallbackName && !usedNames.has(fallbackName)) {
+    return fallbackName;
+  }
+  for (let suffix = 2; suffix < 1000; suffix += 1) {
+    const candidate = `${baseName}_${suffix}`;
+    if (!usedNames.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${baseName}_${Date.now()}`;
+}
+
+function uniqueFlowFunctionInputId(symbolId: string, name: string, existingIds: Set<string>): string {
+  const baseId = `flowinput:${symbolId}:${name}`;
+  if (!existingIds.has(baseId)) {
+    return baseId;
+  }
+  for (let suffix = 2; suffix < 1000; suffix += 1) {
+    const candidate = `${baseId}:${suffix}`;
+    if (!existingIds.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${baseId}:${Date.now()}`;
+}
+
+function normalizeOptionalExpression(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed ? trimmed : null;
 }
 
 export function returnInputTargetHandle(nodeId: string): string {
@@ -718,7 +988,7 @@ export function mergeFlowDraftWithSourceDocument(
 
 function defaultFlowContinuationHandle(kind: AuthoredFlowNodeKind) {
   if (kind === "branch") {
-    return "after";
+    return "true";
   }
   if (kind === "loop") {
     return "after";
@@ -765,6 +1035,245 @@ function withReturnExpressionInputNode(
       ...graph,
       nodes: [...graph.nodes, inputNode],
     },
+  };
+}
+
+function withoutExpressionInputSlots(
+  payload: Record<string, unknown>,
+  slotIdsToRemove: Set<string>,
+  slotNamesToRemove: Set<string>,
+): Record<string, unknown> {
+  if (!payload.expression_graph) {
+    return payload;
+  }
+  const graph = flowExpressionGraphFromPayload(payload.expression_graph);
+  const removedNodeIds = new Set(
+    graph.nodes
+      .filter((node) => {
+        if (node.kind !== "input") {
+          return false;
+        }
+        const payloadSlotId = node.payload.slot_id ?? node.payload.slotId;
+        const payloadName = typeof node.payload.name === "string" ? node.payload.name.trim() : "";
+        return (
+          (typeof payloadSlotId === "string" && slotIdsToRemove.has(payloadSlotId))
+          || (payloadName && slotNamesToRemove.has(payloadName))
+          || slotNamesToRemove.has(node.label.trim())
+        );
+      })
+      .map((node) => node.id),
+  );
+  if (!removedNodeIds.size) {
+    return payload;
+  }
+
+  const nextGraph = simplifyExpressionGraphWithoutNodes(graph, removedNodeIds);
+  const expressionResult = expressionFromFlowExpressionGraph(nextGraph);
+  return {
+    ...payload,
+    expression_graph: nextGraph,
+    ...(expressionResult.diagnostics.length ? {} : { expression: expressionResult.expression }),
+  };
+}
+
+function simplifyExpressionGraphWithoutNodes(
+  graph: FlowExpressionGraph,
+  removedNodeIds: Set<string>,
+): FlowExpressionGraph {
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node] as const));
+  const incomingByTarget = new Map<string, FlowExpressionEdge[]>();
+  graph.edges.forEach((edge) => {
+    incomingByTarget.set(edge.targetId, [...(incomingByTarget.get(edge.targetId) ?? []), edge]);
+  });
+
+  const keptNodes = new Map<string, FlowExpressionNode>();
+  const keptEdges = new Map<string, FlowExpressionEdge>();
+  const visiting = new Set<string>();
+
+  const keepNode = (node: FlowExpressionNode) => {
+    if (!keptNodes.has(node.id)) {
+      keptNodes.set(node.id, {
+        ...node,
+        payload: { ...node.payload },
+      });
+    }
+  };
+  const keepEdge = (sourceId: string, targetId: string, targetHandle: string) => {
+    const id = `expr-edge:${sourceId}->${targetId}:${targetHandle}`;
+    keptEdges.set(id, {
+      id,
+      sourceId,
+      sourceHandle: "value",
+      targetId,
+      targetHandle,
+    });
+  };
+  const singleChild = (nodeId: string, handle: string) => (
+    (incomingByTarget.get(nodeId) ?? []).find((edge) => edge.targetHandle === handle)
+  );
+  const indexedChildren = (nodeId: string, prefix: string) => (
+    (incomingByTarget.get(nodeId) ?? [])
+      .filter((edge) => edge.targetHandle.startsWith(prefix))
+      .slice()
+      .sort((left, right) => left.targetHandle.localeCompare(right.targetHandle))
+  );
+
+  const visit = (nodeId: string): string | undefined => {
+    if (removedNodeIds.has(nodeId) || visiting.has(nodeId)) {
+      return undefined;
+    }
+    const node = nodeById.get(nodeId);
+    if (!node) {
+      return undefined;
+    }
+    visiting.add(nodeId);
+
+    const keepWithRequiredChildren = (children: Array<[FlowExpressionEdge | undefined, string]>) => {
+      const resolved = children.map(([edge, handle]) => [edge ? visit(edge.sourceId) : undefined, handle] as const);
+      if (resolved.some(([sourceId]) => !sourceId)) {
+        visiting.delete(nodeId);
+        return undefined;
+      }
+      keepNode(node);
+      resolved.forEach(([sourceId, handle]) => {
+        keepEdge(sourceId as string, node.id, handle);
+      });
+      visiting.delete(nodeId);
+      return node.id;
+    };
+
+    if (node.kind === "operator") {
+      const left = singleChild(node.id, "left");
+      const right = singleChild(node.id, "right");
+      const leftSourceId = left ? visit(left.sourceId) : undefined;
+      const rightSourceId = right ? visit(right.sourceId) : undefined;
+      if (!leftSourceId || !rightSourceId) {
+        visiting.delete(nodeId);
+        return leftSourceId ?? rightSourceId;
+      }
+      keepNode(node);
+      keepEdge(leftSourceId, node.id, "left");
+      keepEdge(rightSourceId, node.id, "right");
+      visiting.delete(nodeId);
+      return node.id;
+    }
+
+    if (node.kind === "bool") {
+      const children = indexedChildren(node.id, "value:")
+        .map((edge) => visit(edge.sourceId))
+        .filter((sourceId): sourceId is string => Boolean(sourceId));
+      if (children.length <= 1) {
+        visiting.delete(nodeId);
+        return children[0];
+      }
+      keepNode(node);
+      children.forEach((sourceId, index) => keepEdge(sourceId, node.id, `value:${index}`));
+      visiting.delete(nodeId);
+      return node.id;
+    }
+
+    if (node.kind === "call") {
+      const functionEdge = singleChild(node.id, "function");
+      const functionSourceId = functionEdge ? visit(functionEdge.sourceId) : undefined;
+      if (!functionSourceId) {
+        visiting.delete(nodeId);
+        return undefined;
+      }
+      keepNode(node);
+      keepEdge(functionSourceId, node.id, "function");
+      let argumentIndex = 0;
+      indexedChildren(node.id, "arg:").forEach((edge) => {
+        const sourceId = visit(edge.sourceId);
+        if (sourceId) {
+          keepEdge(sourceId, node.id, `arg:${argumentIndex}`);
+          argumentIndex += 1;
+        }
+      });
+      (incomingByTarget.get(node.id) ?? [])
+        .filter((edge) => edge.targetHandle.startsWith("kwarg:"))
+        .forEach((edge) => {
+          const sourceId = visit(edge.sourceId);
+          if (sourceId) {
+            keepEdge(sourceId, node.id, edge.targetHandle);
+          }
+        });
+      visiting.delete(nodeId);
+      return node.id;
+    }
+
+    if (node.kind === "collection") {
+      const childPrefix = node.payload.collection_type === "dict" || node.payload.collectionType === "dict"
+        ? "value:"
+        : "item:";
+      const children = indexedChildren(node.id, childPrefix)
+        .map((edge) => visit(edge.sourceId))
+        .filter((sourceId): sourceId is string => Boolean(sourceId));
+      keepNode(node);
+      children.forEach((sourceId, index) => keepEdge(sourceId, node.id, `${childPrefix}${index}`));
+      visiting.delete(nodeId);
+      return node.id;
+    }
+
+    if (node.kind === "unary") {
+      return keepWithRequiredChildren([[singleChild(node.id, "operand"), "operand"]]);
+    }
+    if (node.kind === "attribute") {
+      return keepWithRequiredChildren([[singleChild(node.id, "value"), "value"]]);
+    }
+    if (node.kind === "subscript") {
+      return keepWithRequiredChildren([
+        [singleChild(node.id, "value"), "value"],
+        [singleChild(node.id, "slice"), "slice"],
+      ]);
+    }
+    if (node.kind === "conditional") {
+      return keepWithRequiredChildren([
+        [singleChild(node.id, "test"), "test"],
+        [singleChild(node.id, "body"), "body"],
+        [singleChild(node.id, "orelse"), "orelse"],
+      ]);
+    }
+    if (node.kind === "compare") {
+      const left = singleChild(node.id, "left");
+      const leftSourceId = left ? visit(left.sourceId) : undefined;
+      const comparators = indexedChildren(node.id, "comparator:")
+        .map((edge) => visit(edge.sourceId))
+        .filter((sourceId): sourceId is string => Boolean(sourceId));
+      if (!leftSourceId) {
+        visiting.delete(nodeId);
+        return undefined;
+      }
+      if (!comparators.length) {
+        visiting.delete(nodeId);
+        return leftSourceId;
+      }
+      keepNode(node);
+      keepEdge(leftSourceId, node.id, "left");
+      comparators.forEach((sourceId, index) => keepEdge(sourceId, node.id, `comparator:${index}`));
+      visiting.delete(nodeId);
+      return node.id;
+    }
+
+    keepNode(node);
+    visiting.delete(nodeId);
+    return node.id;
+  };
+
+  const rootId = graph.rootId ? visit(graph.rootId) : undefined;
+  const keptNodeIds = new Set(keptNodes.keys());
+  const layoutNodes = graph.layout?.nodes
+    ? Object.fromEntries(
+        Object.entries(graph.layout.nodes).filter(([nodeId]) => keptNodeIds.has(nodeId)),
+      )
+    : undefined;
+  return {
+    ...graph,
+    rootId: rootId ?? null,
+    nodes: graph.nodes
+      .filter((node) => keptNodeIds.has(node.id))
+      .map((node) => keptNodes.get(node.id) ?? node),
+    edges: [...keptEdges.values()],
+    ...(layoutNodes && Object.keys(layoutNodes).length ? { layout: { nodes: layoutNodes } } : {}),
   };
 }
 

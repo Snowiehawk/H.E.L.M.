@@ -11,6 +11,7 @@ export interface BlueprintPort {
   id: string;
   label: string;
   kind: BlueprintPortKind;
+  tooltip?: string;
   memberLabels?: string[];
   memberEdgeIds?: string[];
 }
@@ -33,6 +34,15 @@ export interface BlueprintPresentation {
 const FLOW_KINDS = new Set<GraphNodeKind>([
   "entry",
   "param",
+  "assign",
+  "call",
+  "branch",
+  "loop",
+  "return",
+  "exit",
+]);
+
+const FLOW_CONTROL_INPUT_KINDS = new Set<GraphNodeKind>([
   "assign",
   "call",
   "branch",
@@ -66,6 +76,7 @@ function mergePorts(ports: BlueprintPort[]): BlueprintPort[] {
 
     merged.set(port.id, {
       ...existing,
+      tooltip: existing.tooltip ?? port.tooltip,
       memberLabels: [
         ...(existing.memberLabels ?? []),
         ...(port.memberLabels ?? []),
@@ -150,6 +161,7 @@ function resolveControlPortLabels(
   ordered.forEach((edge, index) => {
     const explicitLabel =
       edgeMetadataString(edge, "path_label")
+      ?? (sourceNode.metadata["flow_visual"] === true ? edgeMetadataString(edge, "source_handle") : undefined)
       ?? edge.label?.trim()
       ?? ((sourceNode.kind === "branch" || sourceNode.kind === "loop") ? undefined : undefined);
     labels.set(edge.id, explicitLabel || (needsDistinctLabels ? `path ${index + 1}` : "exec"));
@@ -196,6 +208,17 @@ function metadataStringFromRecord(value: Record<string, unknown>, key: string): 
     value[key]
     ?? value[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
   return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+}
+
+function entryArgumentPortLabel(argumentInput: Record<string, unknown>): string {
+  const label = metadataStringFromRecord(argumentInput, "label");
+  return label === "arguments" ? "args" : label ?? "args";
+}
+
+function entryArgumentPortTooltip(argumentInput: Record<string, unknown>): string | undefined {
+  return metadataStringFromRecord(argumentInput, "full_label")
+    ?? metadataStringFromRecord(argumentInput, "tooltip")
+    ?? (metadataStringFromRecord(argumentInput, "label") === "arguments" ? "arguments" : undefined);
 }
 
 function nodeMetadataString(node: GraphNodeDto, key: string): string | undefined {
@@ -255,6 +278,39 @@ function buildArchitecturePorts(
   };
 }
 
+function flowControlSourceHandle(edge: GraphEdgeDto): string | undefined {
+  return edgeMetadataString(edge, "source_handle")
+    ?? edgeMetadataString(edge, "path_key")
+    ?? edge.label?.trim()
+    ?? undefined;
+}
+
+function normalizeLegacyBranchAfterEdge(
+  edge: GraphEdgeDto,
+  nodeById: Map<string, GraphNodeDto>,
+): GraphEdgeDto {
+  const sourceNode = nodeById.get(edge.source);
+  if (
+    edge.kind !== "controls"
+    || sourceNode?.kind !== "branch"
+    || flowControlSourceHandle(edge) !== "after"
+  ) {
+    return edge;
+  }
+
+  return {
+    ...edge,
+    label: edge.label === "after" || !edge.label ? "false" : edge.label,
+    metadata: {
+      ...edge.metadata,
+      source_handle: "false",
+      path_key: "false",
+      path_label: "false",
+      path_order: edgeMetadataNumber(edge, "path_order") ?? 1,
+    },
+  };
+}
+
 function flowPortMemberLabel(
   direction: "input" | "output",
   edge: GraphEdgeDto,
@@ -286,7 +342,7 @@ function buildFlowPorts(
   const outgoingGraphEdges = outgoing.filter((edge) => edge.kind !== "controls" && edge.kind !== "data");
 
   const incomingControlEdges = incoming.filter((edge) => edge.kind === "controls");
-  if (incomingControlEdges.length || (visualFlow && node.kind !== "entry")) {
+  if (FLOW_CONTROL_INPUT_KINDS.has(node.kind) && (incomingControlEdges.length || visualFlow)) {
     inputs.push(buildControlPort("input", "exec", incomingControlEdges, nodeById));
   }
 
@@ -300,6 +356,7 @@ function buildFlowPorts(
             id: edgeMetadataString(edge, "target_handle") ?? dataInputPortId(label),
             label,
             kind: "data" as const,
+            tooltip: edgeMetadataString(edge, "target_full_label") ?? edgeMetadataString(edge, "target_tooltip"),
             memberLabels: [flowPortMemberLabel("input", edge, nodeById)],
             memberEdgeIds: [edge.id],
           };
@@ -323,9 +380,22 @@ function buildFlowPorts(
       kind: "data",
     });
   }
+  if (node.kind === "entry") {
+    inputs.push(
+      ...nodeMetadataList(node, "flow_entry_arguments").map((argumentInput) => {
+        const label = entryArgumentPortLabel(argumentInput);
+        return {
+          id: metadataStringFromRecord(argumentInput, "target_handle") ?? dataInputPortId(label),
+          label,
+          kind: "data" as const,
+          tooltip: entryArgumentPortTooltip(argumentInput),
+        };
+      }),
+    );
+  }
   inputs.push(...buildArchitecturePortList("input", incomingGraphEdges, nodeById));
 
-  const outgoingControlPorts = mergePorts(
+  const outgoingControlPortsFromEdges = mergePorts(
     outgoing
       .filter((edge) => edge.kind === "controls")
       .map((edge) => {
@@ -339,7 +409,27 @@ function buildFlowPorts(
         };
       }),
   );
-  outputs.push(...outgoingControlPorts);
+  const outgoingControlPorts = visualFlow
+    ? mergePorts([
+        ...outgoingControlPortsFromEdges,
+        ...fixedFlowOutputHandles(node.kind).map((label) => {
+          const existing = outgoing.filter((edge) =>
+            edge.kind === "controls"
+            && (controlPortLabels.get(edge.id) ?? "exec") === label,
+          );
+          return buildControlPort("output", label, existing, nodeById);
+        }),
+      ])
+    : outgoingControlPortsFromEdges;
+  outputs.push(
+    ...(node.kind === "entry" && !visualFlow && !outgoingControlPorts.length
+      ? [{
+          id: controlOutputPortId("exec"),
+          label: "exec",
+          kind: "control" as const,
+        }]
+      : outgoingControlPorts),
+  );
 
   const outgoingDataPorts = mergePorts(
     outgoing
@@ -392,25 +482,6 @@ function buildFlowPorts(
     );
   }
 
-  if (visualFlow) {
-    outputs.push(
-      ...mergePorts(
-        fixedFlowOutputHandles(node.kind).map((label) => {
-          const existing = outgoing.filter((edge) =>
-            edge.kind === "controls"
-            && (controlPortLabels.get(edge.id) ?? "exec") === label,
-          );
-          return buildControlPort("output", label, existing, nodeById);
-        }),
-      ).filter((port) => !outputs.some((existing) => existing.id === port.id)),
-    );
-  } else if (node.kind === "entry" && !outgoingControlPorts.length) {
-    outputs.push({
-      id: controlOutputPortId("exec"),
-      label: "exec",
-      kind: "control",
-    });
-  }
   outputs.push(...buildArchitecturePortList("output", outgoingGraphEdges, nodeById));
 
   return {
@@ -456,8 +527,9 @@ export function buildBlueprintPresentation(graph: GraphView): BlueprintPresentat
   const incomingByNodeId = new Map<string, GraphEdgeDto[]>();
   const outgoingByNodeId = new Map<string, GraphEdgeDto[]>();
   const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const edges = graph.edges.map((edge) => normalizeLegacyBranchAfterEdge(edge, nodeById));
 
-  graph.edges.forEach((edge) => {
+  edges.forEach((edge) => {
     incomingByNodeId.set(edge.target, [...(incomingByNodeId.get(edge.target) ?? []), edge]);
     outgoingByNodeId.set(edge.source, [...(outgoingByNodeId.get(edge.source) ?? []), edge]);
   });
@@ -483,7 +555,7 @@ export function buildBlueprintPresentation(graph: GraphView): BlueprintPresentat
   });
 
   const edgeHandles = new Map<string, BlueprintEdgeHandles>();
-  graph.edges.forEach((edge) => {
+  edges.forEach((edge) => {
     edgeHandles.set(edge.id, resolveEdgeHandles(edge, controlPortLabelsByEdgeId));
   });
 
@@ -498,7 +570,7 @@ function fixedFlowOutputHandles(kind: GraphNodeKind): string[] {
     return ["next"];
   }
   if (kind === "branch") {
-    return ["true", "false", "after"];
+    return ["true", "false"];
   }
   if (kind === "loop") {
     return ["body", "after"];

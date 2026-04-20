@@ -1,15 +1,21 @@
 import { describe, expect, it } from "vitest";
-import type { FlowGraphDocument } from "../../lib/adapter";
+import type { FlowExpressionGraph, FlowGraphDocument } from "../../lib/adapter";
 import type { AuthoredFlowNode } from "./flowDocument";
 import {
   addDisconnectedFlowNode,
+  addFlowFunctionInput,
+  flowFunctionInputUsage,
   mergeFlowDraftWithSourceDocument,
   isFlowDocumentNodeKind,
   isFlowNodeAuthorableKind,
+  moveFlowFunctionInput,
   parseReturnInputTargetHandle,
   removeFlowEdges,
+  removeFlowFunctionInput,
+  removeFlowFunctionInputAndDownstreamUses,
   removeFlowInputBindings,
   removeFlowNodes,
+  updateFlowFunctionInput,
   flowReturnCompletionEdgeId,
   returnInputTargetHandle,
   upsertFlowInputBinding,
@@ -19,6 +25,7 @@ import {
   validateFlowInputBindingConnection,
   validateFlowReturnInputBindingConnection,
 } from "./flowDocument";
+import { expressionFromFlowExpressionGraph } from "./flowExpressionGraph";
 
 const baseDocument: FlowGraphDocument = {
   symbolId: "symbol:workflow:run",
@@ -70,6 +77,139 @@ describe("flowDocument logical helpers", () => {
 
     expect(result.nodes.map((candidate) => candidate.id)).toContain(node.id);
     expect(result.edges).toEqual(baseDocument.edges);
+  });
+
+  it("edits canonical flow function inputs and prunes downstream bindings on removal", () => {
+    const withFirstInput = addFlowFunctionInput(baseDocument, {
+      name: "repo path",
+      defaultExpression: "'/tmp/repo'",
+    });
+    expect(withFirstInput.functionInputs).toEqual([
+      expect.objectContaining({
+        id: "flowinput:symbol:workflow:run:repo_path",
+        name: "repo_path",
+        index: 0,
+        kind: "positional_or_keyword",
+        defaultExpression: "'/tmp/repo'",
+      }),
+    ]);
+
+    const withSecondInput = addFlowFunctionInput(withFirstInput, { name: "repo_path" });
+    expect(withSecondInput.functionInputs?.map((input) => input.name)).toEqual(["repo_path", "repo_path_2"]);
+
+    const firstInputId = withSecondInput.functionInputs?.[0]?.id ?? "";
+    const secondInputId = withSecondInput.functionInputs?.[1]?.id ?? "";
+    const renamed = updateFlowFunctionInput(withSecondInput, firstInputId, {
+      name: "root",
+      defaultExpression: null,
+    });
+    expect(renamed.functionInputs?.[0]).toEqual(
+      expect.objectContaining({
+        id: firstInputId,
+        name: "root",
+        defaultExpression: null,
+      }),
+    );
+
+    const moved = moveFlowFunctionInput(renamed, secondInputId, -1);
+    expect(moved.functionInputs?.map((input) => `${input.index}:${input.id}`)).toEqual([
+      `0:${secondInputId}`,
+      `1:${firstInputId}`,
+    ]);
+
+    const boundDocument: FlowGraphDocument = {
+      ...moved,
+      inputSlots: [
+        {
+          id: "flowslot:flow:symbol:workflow:run:call:0:root",
+          nodeId: "flowdoc:symbol:workflow:run:call:0",
+          slotKey: "root",
+          label: "root",
+          required: true,
+        },
+      ],
+      inputBindings: [
+        {
+          id: `flowbinding:flowslot:flow:symbol:workflow:run:call:0:root->${firstInputId}`,
+          sourceId: firstInputId,
+          functionInputId: firstInputId,
+          slotId: "flowslot:flow:symbol:workflow:run:call:0:root",
+        },
+      ],
+    };
+    expect(flowFunctionInputUsage(boundDocument, firstInputId).bindings).toHaveLength(1);
+
+    const removed = removeFlowFunctionInput(boundDocument, firstInputId);
+    expect(removed.functionInputs?.map((input) => input.id)).toEqual([secondInputId]);
+    expect(removed.functionInputs?.[0]?.index).toBe(0);
+    expect(removed.inputBindings).toEqual([]);
+  });
+
+  it("removes downstream slots and expression inputs when deleting a function input with cleanup", () => {
+    const returnNodeId = "flowdoc:symbol:workflow:run:return:0";
+    const document: FlowGraphDocument = {
+      ...baseDocument,
+      nodes: [
+        { id: "flowdoc:symbol:workflow:run:entry", kind: "entry", payload: {} },
+        {
+          id: returnNodeId,
+          kind: "return",
+          payload: {
+            expression: "a + b + c",
+            expression_graph: {
+              version: 1,
+              rootId: "expr:operator:plus:2",
+              nodes: [
+                { id: "expr:input:a", kind: "input", label: "a", payload: { name: "a", slot_id: "flowslot:return:a" } },
+                { id: "expr:input:b", kind: "input", label: "b", payload: { name: "b", slot_id: "flowslot:return:b" } },
+                { id: "expr:input:c", kind: "input", label: "c", payload: { name: "c", slot_id: "flowslot:return:c" } },
+                { id: "expr:operator:plus:1", kind: "operator", label: "+", payload: { operator: "+" } },
+                { id: "expr:operator:plus:2", kind: "operator", label: "+", payload: { operator: "+" } },
+              ],
+              edges: [
+                { id: "expr-edge:a", sourceId: "expr:input:a", sourceHandle: "value", targetId: "expr:operator:plus:1", targetHandle: "left" },
+                { id: "expr-edge:b", sourceId: "expr:input:b", sourceHandle: "value", targetId: "expr:operator:plus:1", targetHandle: "right" },
+                { id: "expr-edge:plus", sourceId: "expr:operator:plus:1", sourceHandle: "value", targetId: "expr:operator:plus:2", targetHandle: "left" },
+                { id: "expr-edge:c", sourceId: "expr:input:c", sourceHandle: "value", targetId: "expr:operator:plus:2", targetHandle: "right" },
+              ],
+            },
+          },
+        },
+        { id: "flowdoc:symbol:workflow:run:exit", kind: "exit", payload: {} },
+      ],
+      functionInputs: [
+        { id: "flowinput:symbol:workflow:run:a", name: "a", index: 0 },
+        { id: "flowinput:symbol:workflow:run:b", name: "b", index: 1 },
+        { id: "flowinput:symbol:workflow:run:c", name: "c", index: 2 },
+      ],
+      inputSlots: [
+        { id: "flowslot:return:a", nodeId: returnNodeId, slotKey: "a", label: "a", required: true },
+        { id: "flowslot:return:b", nodeId: returnNodeId, slotKey: "b", label: "b", required: true },
+        { id: "flowslot:return:c", nodeId: returnNodeId, slotKey: "c", label: "c", required: true },
+      ],
+      inputBindings: [
+        { id: "binding:a", sourceId: "flowinput:symbol:workflow:run:a", functionInputId: "flowinput:symbol:workflow:run:a", slotId: "flowslot:return:a" },
+        { id: "binding:b", sourceId: "flowinput:symbol:workflow:run:b", functionInputId: "flowinput:symbol:workflow:run:b", slotId: "flowslot:return:b" },
+        { id: "binding:c", sourceId: "flowinput:symbol:workflow:run:c", functionInputId: "flowinput:symbol:workflow:run:c", slotId: "flowslot:return:c" },
+      ],
+    };
+
+    const removed = removeFlowFunctionInputAndDownstreamUses(document, "flowinput:symbol:workflow:run:b");
+    const returnPayload = removed.nodes.find((node) => node.id === returnNodeId)?.payload;
+    const expressionGraph = returnPayload?.expression_graph;
+
+    expect(removed.functionInputs?.map((input) => input.name)).toEqual(["a", "c"]);
+    expect(removed.inputSlots?.map((slot) => slot.label)).toEqual(["a", "c"]);
+    expect(removed.inputBindings?.map((binding) => binding.sourceId)).toEqual([
+      "flowinput:symbol:workflow:run:a",
+      "flowinput:symbol:workflow:run:c",
+    ]);
+    expect(JSON.stringify(expressionGraph)).not.toContain("expr:input:b");
+    expect(expressionFromFlowExpressionGraph(expressionGraph as FlowExpressionGraph)).toEqual({
+      diagnostics: [],
+      expression: "a + c",
+    });
+    expect(returnPayload?.expression).toBe("a + c");
   });
 
   it("validates control-flow connections before mutating the logical document", () => {

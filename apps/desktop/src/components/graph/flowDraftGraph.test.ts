@@ -1,9 +1,65 @@
 import { describe, expect, it } from "vitest";
 import type { FlowGraphDocument, GraphView } from "../../lib/adapter";
-import { flowInputBindingEdgeId, inputSlotTargetHandle, projectFlowDraftGraph } from "./flowDraftGraph";
+import {
+  entryArgumentsTargetHandle,
+  establishFlowDraftDocument,
+  flowInputBindingEdgeId,
+  inputSlotTargetHandle,
+  parameterEntryEdgeId,
+  projectFlowDraftGraph,
+} from "./flowDraftGraph";
 import { flowReturnCompletionEdgeId } from "./flowDocument";
 
 describe("flowDraftGraph", () => {
+  it("normalizes legacy branch after handles when synthesizing a draft document", () => {
+    const graph: GraphView = {
+      rootNodeId: "flow:entry",
+      targetId: "symbol:service:run",
+      level: "flow",
+      truncated: false,
+      breadcrumbs: [
+        { targetId: "module:service", level: "module", label: "service.py", subtitle: "service.py", availableLevels: ["module"] },
+        { targetId: "symbol:service:run", level: "symbol", label: "run", subtitle: "run", availableLevels: ["flow"] },
+      ],
+      focus: { targetId: "symbol:service:run", level: "flow", label: "run", subtitle: "run", availableLevels: ["flow"] },
+      nodes: [
+        { id: "flow:entry", kind: "entry", label: "Entry", x: 0, y: 0, metadata: {}, availableActions: [] },
+        { id: "flow:branch", kind: "branch", label: "if ready", x: 240, y: 0, metadata: {}, availableActions: [] },
+        { id: "flow:return:true", kind: "return", label: "return True", x: 480, y: -80, metadata: {}, availableActions: [] },
+        { id: "flow:return:false", kind: "return", label: "return False", x: 480, y: 80, metadata: {}, availableActions: [] },
+      ],
+      edges: [
+        {
+          id: "controls:entry-branch",
+          kind: "controls",
+          source: "flow:entry",
+          target: "flow:branch",
+          metadata: { source_handle: "start", target_handle: "in" },
+        },
+        {
+          id: "controls:branch-true",
+          kind: "controls",
+          source: "flow:branch",
+          target: "flow:return:true",
+          metadata: { source_handle: "true", target_handle: "in" },
+        },
+        {
+          id: "controls:branch-after",
+          kind: "controls",
+          source: "flow:branch",
+          target: "flow:return:false",
+          metadata: { source_handle: "after", target_handle: "in" },
+        },
+      ],
+    };
+
+    const document = establishFlowDraftDocument(graph);
+
+    expect(document?.edges.find((edge) => edge.id === "controls:branch-after")).toEqual(
+      expect.objectContaining({ sourceHandle: "false" }),
+    );
+  });
+
   it("backfills legacy function input bindings onto draft nodes through indexedNodeId", () => {
     const baseGraph: GraphView = {
       rootNodeId: "flow:symbol:workflow:run:entry",
@@ -139,7 +195,7 @@ describe("flowDraftGraph", () => {
         expect.objectContaining({
           id: flowInputBindingEdgeId(bindingId),
           kind: "data",
-          source: "flow:symbol:workflow:run:param:value",
+          source: "flowdoc:symbol:workflow:run:entry",
           target: "flowdoc:symbol:workflow:run:assign:draft",
           metadata: expect.objectContaining({
             binding_id: bindingId,
@@ -237,6 +293,7 @@ describe("flowDraftGraph", () => {
       syncState: "draft",
       diagnostics: [],
       sourceHash: null,
+      valueModelVersion: 1,
       nodes: [
         {
           id: "flowdoc:symbol:calculator:add:entry",
@@ -326,6 +383,27 @@ describe("flowDraftGraph", () => {
       }),
     ]);
 
+    const paramModeEntryNode = paramMode.nodes.find((node) => node.id === "flowdoc:symbol:calculator:add:entry");
+    expect(paramModeEntryNode?.metadata.flow_entry_arguments).toEqual([
+      expect.objectContaining({
+        label: "args",
+        full_label: "arguments",
+        target_handle: entryArgumentsTargetHandle("flowdoc:symbol:calculator:add:entry"),
+      }),
+    ]);
+    expect(paramModeEntryNode?.metadata.flow_function_inputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          function_input_id: "flowinput:symbol:calculator:add:a",
+          source_handle: "out:data:function-input:flowinput:symbol:calculator:add:a",
+        }),
+        expect.objectContaining({
+          function_input_id: "flowinput:symbol:calculator:add:b",
+          source_handle: "out:data:function-input:flowinput:symbol:calculator:add:b",
+        }),
+      ]),
+    );
+
     const paramNode = paramMode.nodes.find((node) => node.id === "flow:symbol:calculator:add:param:a");
     expect(paramNode?.metadata).toEqual(
       expect.objectContaining({
@@ -333,6 +411,27 @@ describe("flowDraftGraph", () => {
         signature_owner_id: "flowdoc:symbol:calculator:add:entry",
         signature_order: 0,
       }),
+    );
+    expect(paramMode.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: parameterEntryEdgeId(
+            "flowinput:symbol:calculator:add:a",
+            "flowdoc:symbol:calculator:add:entry",
+          ),
+          kind: "data",
+          source: "flow:symbol:calculator:add:param:a",
+          target: "flowdoc:symbol:calculator:add:entry",
+          metadata: expect.objectContaining({
+            flow_parameter_entry: true,
+            function_input_id: "flowinput:symbol:calculator:add:a",
+            target_label: "args",
+            target_full_label: "arguments",
+            source_handle: "out:data:function-input:flowinput:symbol:calculator:add:a",
+            target_handle: entryArgumentsTargetHandle("flowdoc:symbol:calculator:add:entry"),
+          }),
+        }),
+      ]),
     );
 
     const returnNode = entryMode.nodes.find((node) => node.id === "flowdoc:symbol:calculator:add:return:0");
@@ -370,7 +469,7 @@ describe("flowDraftGraph", () => {
     expect(paramBindingEdge).toEqual(
       expect.objectContaining({
         kind: "data",
-        source: "flow:symbol:calculator:add:param:a",
+        source: "flowdoc:symbol:calculator:add:entry",
         target: "flowdoc:symbol:calculator:add:return:0",
         metadata: expect.objectContaining({
           binding_id: firstBindingId,
@@ -379,6 +478,10 @@ describe("flowDraftGraph", () => {
         }),
       }),
     );
+    expect(paramMode.edges.some((edge) => (
+      edge.source === "flow:symbol:calculator:add:param:a"
+      && edge.target === "flowdoc:symbol:calculator:add:return:0"
+    ))).toBe(false);
     expect(entryMode.edges.some((edge) => edge.id === "data:legacy-a")).toBe(false);
     expect(paramMode.edges.some((edge) => edge.id === "data:legacy-a")).toBe(false);
     expect(entryMode.edges).toEqual(
@@ -401,6 +504,97 @@ describe("flowDraftGraph", () => {
       ]),
     );
     expect(entryMode.flowState?.document?.edges).toEqual(document.edges);
+  });
+
+  it("does not resurrect stale base parameter nodes once function inputs are canonical", () => {
+    const baseGraph: GraphView = {
+      rootNodeId: "flow:symbol:calculator:add:entry",
+      targetId: "symbol:calculator:add",
+      level: "flow",
+      nodes: [
+        {
+          id: "flow:symbol:calculator:add:entry",
+          kind: "entry",
+          label: "Entry",
+          subtitle: "calculator.add",
+          x: 0,
+          y: 0,
+          metadata: { flow_order: 0 },
+          availableActions: [],
+        },
+        {
+          id: "flow:symbol:calculator:add:param:a",
+          kind: "param",
+          label: "a",
+          subtitle: "parameter",
+          x: 0,
+          y: 120,
+          metadata: { signature_order: 0 },
+          availableActions: [],
+        },
+        {
+          id: "flow:symbol:calculator:add:param:b",
+          kind: "param",
+          label: "b",
+          subtitle: "parameter",
+          x: 0,
+          y: 240,
+          metadata: { signature_order: 1 },
+          availableActions: [],
+        },
+      ],
+      edges: [],
+      breadcrumbs: [],
+      focus: null,
+      truncated: false,
+    };
+    const document: FlowGraphDocument = {
+      symbolId: "symbol:calculator:add",
+      relativePath: "calculator.py",
+      qualname: "calculator.add",
+      editable: true,
+      syncState: "draft",
+      diagnostics: [],
+      sourceHash: null,
+      valueModelVersion: 1,
+      nodes: [
+        {
+          id: "flowdoc:symbol:calculator:add:entry",
+          kind: "entry",
+          payload: {},
+          indexedNodeId: "flow:symbol:calculator:add:entry",
+        },
+        {
+          id: "flowdoc:symbol:calculator:add:return:0",
+          kind: "return",
+          payload: { expression: "a" },
+        },
+        {
+          id: "flowdoc:symbol:calculator:add:exit",
+          kind: "exit",
+          payload: {},
+        },
+      ],
+      edges: [],
+      functionInputs: [
+        { id: "flowinput:symbol:calculator:add:a", name: "a", index: 0 },
+      ],
+      valueSources: [],
+      inputSlots: [],
+      inputBindings: [],
+    };
+
+    const projected = projectFlowDraftGraph(baseGraph, document, "param_nodes");
+
+    expect(projected.nodes.map((node) => node.id)).toContain("flow:symbol:calculator:add:param:a");
+    expect(projected.nodes.map((node) => node.id)).not.toContain("flow:symbol:calculator:add:param:b");
+    expect(projected.flowState?.document?.functionInputs).toEqual(document.functionInputs);
+    expect(projected.edges.some((edge) => (
+      edge.id === parameterEntryEdgeId(
+        "flowinput:symbol:calculator:add:b",
+        "flowdoc:symbol:calculator:add:entry",
+      )
+    ))).toBe(false);
   });
 
   it("projects canonical local value bindings as editable source handles", () => {

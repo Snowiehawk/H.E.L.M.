@@ -86,7 +86,7 @@ function persistFlowInputDisplayMode(mode: FlowInputDisplayMode) {
 }
 
 export type WorkspaceActivityDomain = "backend" | "layout" | "editor";
-export type WorkspaceActivityKind = "mutation" | "undo" | "error";
+export type WorkspaceActivityKind = "mutation" | "undo" | "redo" | "error";
 
 export interface WorkspaceActivity {
   domain: WorkspaceActivityDomain;
@@ -101,6 +101,7 @@ export interface WorkspaceActivity {
 interface UiState {
   theme: ThemeMode;
   uiScale: number;
+  preferencesOpen: boolean;
   paletteOpen: boolean;
   sidebarQuery: string;
   activeTab: WorkspaceTab;
@@ -124,6 +125,7 @@ interface UiState {
   increaseUiScale: () => void;
   decreaseUiScale: () => void;
   resetUiScale: () => void;
+  setPreferencesOpen: (isOpen: boolean) => void;
   setPaletteOpen: (isOpen: boolean) => void;
   setSidebarQuery: (query: string) => void;
   setSession: (session: RepoSession) => void;
@@ -161,6 +163,7 @@ const defaultGraphSettings: GraphSettings = {
 export const useUiStore = create<UiState>((set) => ({
   theme: "system",
   uiScale: readStoredUiScale(),
+  preferencesOpen: false,
   paletteOpen: false,
   sidebarQuery: "",
   activeTab: "graph",
@@ -193,6 +196,7 @@ export const useUiStore = create<UiState>((set) => ({
     persistUiScale(DEFAULT_UI_SCALE);
     set({ uiScale: DEFAULT_UI_SCALE });
   },
+  setPreferencesOpen: (preferencesOpen) => set({ preferencesOpen }),
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
   setSidebarQuery: (sidebarQuery) => set({ sidebarQuery }),
   setSession: (repoSession) =>

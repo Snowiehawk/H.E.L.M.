@@ -25,6 +25,14 @@ export interface BlueprintEdgeData extends Record<string, unknown> {
     modifiers: { altKey: boolean },
     logicalEdgeLabel?: string,
   ) => void;
+  onContextMenu?: (
+    logicalEdgeId: string,
+    logicalEdgeKind: GraphEdgeKind,
+    segmentIndex: number,
+    position: { x: number; y: number },
+    clientPosition: { x: number; y: number },
+    logicalEdgeLabel?: string,
+  ) => void;
   onHoverStart?: (
     logicalEdgeId: string,
     logicalEdgeKind: GraphEdgeKind,
@@ -157,6 +165,29 @@ export const BlueprintEdge = memo(function BlueprintEdge({
     );
   };
 
+  const handleContextMenu = (event: ReactMouseEvent<SVGPathElement>) => {
+    if (!edgeData?.onContextMenu) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    edgeData.onContextMenu(
+      edgeData.logicalEdgeId,
+      edgeData.logicalEdgeKind,
+      edgeData.segmentIndex,
+      screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      }),
+      {
+        x: event.clientX,
+        y: event.clientY,
+      },
+      edgeData.logicalEdgeLabel,
+    );
+  };
+
   const labelText = typeof label === "string" ? label : undefined;
   const labelCount = typeof edgeData?.labelCount === "number" && edgeData.labelCount > 1
     ? edgeData.labelCount
@@ -185,6 +216,7 @@ export const BlueprintEdge = memo(function BlueprintEdge({
         stroke="transparent"
         strokeWidth={20}
         onClick={handleClick}
+        onContextMenu={handleContextMenu}
         onDoubleClick={handleDoubleClick}
         onMouseEnter={handleHoverStart}
         onMouseLeave={() => edgeData?.onHoverEnd?.()}

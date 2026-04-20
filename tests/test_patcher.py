@@ -583,6 +583,11 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertIn("def helper():", (root / "service.py").read_text(encoding="utf-8"))
             self.assertEqual(undo_result.focus_target.target_id, "symbol:service:helper")
             self.assertEqual(undo_result.focus_target.level, "symbol")
+            self.assertIsNotNone(undo_result.redo_transaction)
+
+            redo_result = apply_backend_undo(root, undo_result.redo_transaction)
+            self.assertNotIn("def helper():", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertIsNotNone(redo_result.redo_transaction)
 
     def test_backend_undo_restores_saved_function_source_and_flow_document(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1198,6 +1203,80 @@ class EditorIntegrationTests(unittest.TestCase):
                 },
             )
 
+    def test_replace_flow_graph_rewrites_function_signature_from_flow_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = (
+                "def run(a: int, b=1):\n"
+                "    return a + b\n"
+            )
+            write_repo_files(root, {"service.py": source})
+
+            imported = import_flow_document_from_function_source(
+                symbol_id="symbol:service:run",
+                relative_path="service.py",
+                qualname="run",
+                module_source=source,
+            )
+            payload = imported.to_dict()
+            input_ids = {item["name"]: item["id"] for item in payload["function_inputs"]}
+            payload["function_inputs"] = [
+                payload["function_inputs"][0],
+                {
+                    **payload["function_inputs"][1],
+                    "name": "limit",
+                    "default_expression": "2",
+                },
+                {
+                    "id": "flowinput:symbol:service:run:c",
+                    "name": "c",
+                    "index": 2,
+                    "kind": "positional_or_keyword",
+                    "default_expression": "10",
+                },
+            ]
+            payload["input_bindings"] = [
+                (
+                    {
+                        **binding,
+                        "function_input_id": input_ids["b"],
+                    }
+                    if binding["source_id"] == input_ids["b"]
+                    else binding
+                )
+                for binding in payload["input_bindings"]
+            ]
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_flow_graph",
+                        "target_id": "symbol:service:run",
+                        "flow_graph": payload,
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertEqual(result.flow_sync_state, "clean")
+            updated_source = (root / "service.py").read_text(encoding="utf-8")
+            self.assertIn("def run(a: int, limit=2, c=10):", updated_source)
+            self.assertIn("return a + limit", updated_source)
+            stored = read_flow_document(root, "symbol:service:run")
+            self.assertIsNotNone(stored)
+            assert stored is not None
+            self.assertEqual(
+                [(item.input_id, item.name, item.default_expression) for item in stored.function_inputs],
+                [
+                    ("flowinput:symbol:service:run:a", "a", None),
+                    ("flowinput:symbol:service:run:b", "limit", "2"),
+                    ("flowinput:symbol:service:run:c", "c", "10"),
+                ],
+            )
+
     def test_replace_flow_graph_rewrites_rewired_function_input_bindings_semantically(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -1788,13 +1867,6 @@ class EditorIntegrationTests(unittest.TestCase):
                         "target_handle": "in",
                     },
                     {
-                        "id": "controls:flowdoc:symbol:service:run:branch:ready:after->flowdoc:symbol:service:run:return:after:in",
-                        "source_id": "flowdoc:symbol:service:run:branch:ready",
-                        "source_handle": "after",
-                        "target_id": "flowdoc:symbol:service:run:return:after",
-                        "target_handle": "in",
-                    },
-                    {
                         "id": "controls:flowdoc:symbol:service:run:loop:items:body->flowdoc:symbol:service:run:call:tick:in",
                         "source_id": "flowdoc:symbol:service:run:loop:items",
                         "source_handle": "body",
@@ -1809,10 +1881,10 @@ class EditorIntegrationTests(unittest.TestCase):
                         "target_handle": "in",
                     },
                     {
-                        "id": "controls:flowdoc:symbol:service:run:loop:items:after->flowdoc:symbol:service:run:exit:in",
+                        "id": "controls:flowdoc:symbol:service:run:loop:items:after->flowdoc:symbol:service:run:return:after:in",
                         "source_id": "flowdoc:symbol:service:run:loop:items",
                         "source_handle": "after",
-                        "target_id": "flowdoc:symbol:service:run:exit",
+                        "target_id": "flowdoc:symbol:service:run:return:after",
                         "target_handle": "in",
                     },
                 ],

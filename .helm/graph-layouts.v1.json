@@ -271,6 +271,587 @@
       "pinned_node_ids": [],
       "groups": []
     },
+    "module|module:src.helm.editor.flow_model": {
+      "nodes": {
+        "module:src.helm.editor.flow_model": {
+          "x": 273.4453273881642,
+          "y": -449.4636877784562
+        },
+        "symbol:src.helm.editor.flow_model:FLOW_EXPRESSION_GRAPH_VERSION": {
+          "x": -2469.5833987516576,
+          "y": -221.82043354019777
+        },
+        "symbol:src.helm.editor.flow_model:FLOW_EXPRESSION_NODE_KINDS": {
+          "x": -2468.5833987516576,
+          "y": -81.82043354019777
+        },
+        "symbol:src.helm.editor.flow_model:FLOW_FUNCTION_INPUT_KINDS": {
+          "x": -2461.5833987516576,
+          "y": 58.17956645980223
+        },
+        "symbol:src.helm.editor.flow_model:FLOW_MODEL_RELATIVE_PATH": {
+          "x": -2457.5833987516576,
+          "y": 198.17956645980232
+        },
+        "symbol:src.helm.editor.flow_model:FLOW_MODEL_VERSION": {
+          "x": -2449.5833987516576,
+          "y": 338.17956645980246
+        },
+        "symbol:src.helm.editor.flow_model:FLOW_NODE_KINDS": {
+          "x": -2449.5833987516576,
+          "y": 478.17956645980234
+        },
+        "symbol:src.helm.editor.flow_model:FLOW_SYNC_STATES": {
+          "x": -2449.5833987516576,
+          "y": 618.1795664598023
+        },
+        "symbol:src.helm.editor.flow_model:FLOW_VALUE_MODEL_VERSION": {
+          "x": -2458.5833987516576,
+          "y": 758.1795664598025
+        },
+        "symbol:src.helm.editor.flow_model:FlowCompileResult": {
+          "x": 1834.1101302435632,
+          "y": -475.77733630591774
+        },
+        "symbol:src.helm.editor.flow_model:FlowFunctionInput": {
+          "x": 1834.1101302435632,
+          "y": -335.77733630591774
+        },
+        "symbol:src.helm.editor.flow_model:FlowImportError": {
+          "x": 1834.1101302435632,
+          "y": -195.77733630591763
+        },
+        "symbol:src.helm.editor.flow_model:FlowInputBinding": {
+          "x": 1834.1101302435632,
+          "y": -55.77733630591763
+        },
+        "symbol:src.helm.editor.flow_model:FlowInputSlot": {
+          "x": 1834.1101302435632,
+          "y": 84.22266369408237
+        },
+        "symbol:src.helm.editor.flow_model:FlowModelDocument": {
+          "x": 1834.1101302435632,
+          "y": 224.22266369408237
+        },
+        "symbol:src.helm.editor.flow_model:FlowModelEdge": {
+          "x": 1834.1101302435632,
+          "y": 364.22266369408226
+        },
+        "symbol:src.helm.editor.flow_model:FlowModelNode": {
+          "x": 1834.1101302435632,
+          "y": 504.222663694082
+        },
+        "symbol:src.helm.editor.flow_model:FlowValueSource": {
+          "x": 1834.1101302435632,
+          "y": 644.2226636940821
+        },
+        "symbol:src.helm.editor.flow_model:_BINOP_AST_BY_SYMBOL": {
+          "x": -2449.5833987516576,
+          "y": -1481.8204335401977
+        },
+        "symbol:src.helm.editor.flow_model:_BINOP_SYMBOLS": {
+          "x": -2449.5833987516576,
+          "y": -1341.8204335401972
+        },
+        "symbol:src.helm.editor.flow_model:_BOOL_AST_BY_SYMBOL": {
+          "x": -2449.5833987516576,
+          "y": -1201.8204335401972
+        },
+        "symbol:src.helm.editor.flow_model:_BOOL_SYMBOLS": {
+          "x": -2449.5833987516576,
+          "y": -1061.8204335401977
+        },
+        "symbol:src.helm.editor.flow_model:_COMPARE_AST_BY_SYMBOL": {
+          "x": -2451.5833987516576,
+          "y": -921.8204335401978
+        },
+        "symbol:src.helm.editor.flow_model:_COMPARE_SYMBOLS": {
+          "x": -2449.5833987516576,
+          "y": -781.8204335401978
+        },
+        "symbol:src.helm.editor.flow_model:_ExpressionGraphBuilder": {
+          "x": 1834.1101302435632,
+          "y": -1455.7773363059182
+        },
+        "symbol:src.helm.editor.flow_model:_FlowNodePosition": {
+          "x": 1834.1101302435632,
+          "y": -1315.7773363059182
+        },
+        "symbol:src.helm.editor.flow_model:_ImportBuilder": {
+          "x": 1834.1101302435632,
+          "y": -1175.7773363059182
+        },
+        "symbol:src.helm.editor.flow_model:_ImportedBlock": {
+          "x": 1834.1101302435632,
+          "y": -1035.7773363059182
+        },
+        "symbol:src.helm.editor.flow_model:_InputNameRewriteTransformer": {
+          "x": 1830.1101302435632,
+          "y": -895.7773363059176
+        },
+        "symbol:src.helm.editor.flow_model:_RETURN_EXPRESSION_GRAPH_KEY": {
+          "x": -2469.5833987516576,
+          "y": -641.8204335401978
+        },
+        "symbol:src.helm.editor.flow_model:_StoreNameRewriteTransformer": {
+          "x": 1828.1101302435632,
+          "y": -755.7773363059177
+        },
+        "symbol:src.helm.editor.flow_model:_UNARY_AST_BY_SYMBOL": {
+          "x": -2449.5833987516576,
+          "y": -501.82043354019777
+        },
+        "symbol:src.helm.editor.flow_model:_UNARY_SYMBOLS": {
+          "x": -2449.5833987516576,
+          "y": -361.82043354019777
+        },
+        "symbol:src.helm.editor.flow_model:_ValueBindingNormalizationResult": {
+          "x": 1821.1101302435632,
+          "y": -615.7773363059177
+        },
+        "symbol:src.helm.editor.flow_model:_append_expression_ast_node": {
+          "x": -1492.5546726118357,
+          "y": -1289.463687778457
+        },
+        "symbol:src.helm.editor.flow_model:_assigned_names": {
+          "x": -597.5546726118355,
+          "y": -1289.463687778457
+        },
+        "symbol:src.helm.editor.flow_model:_assigned_names_by_flow_node_payload": {
+          "x": 718.4453273881632,
+          "y": -1289.463687778457
+        },
+        "symbol:src.helm.editor.flow_model:_ast_from_expression_graph": {
+          "x": -1042.5546726118357,
+          "y": -1149.463687778457
+        },
+        "symbol:src.helm.editor.flow_model:_compact_source": {
+          "x": -152.55467261183594,
+          "y": -1149.463687778457
+        },
+        "symbol:src.helm.editor.flow_model:_compile_sequence": {
+          "x": 737.4453273881632,
+          "y": -1149.463687778457
+        },
+        "symbol:src.helm.editor.flow_model:_expression_graph_input_names": {
+          "x": -1055.5546726118357,
+          "y": -1009.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_expression_graph_payload": {
+          "x": -152.55467261183594,
+          "y": -1009.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_flow_context_is_prefix": {
+          "x": -1487.5546726118357,
+          "y": -869.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_flow_document_node_positions": {
+          "x": -1054.5546726118357,
+          "y": -1289.463687778457
+        },
+        "symbol:src.helm.editor.flow_model:_flow_model_node_identity_candidates": {
+          "x": -171.55467261183588,
+          "y": -1289.463687778457
+        },
+        "symbol:src.helm.editor.flow_model:_flow_value_source_aliases": {
+          "x": 292.4453273881642,
+          "y": -1289.463687778457
+        },
+        "symbol:src.helm.editor.flow_model:_function_inputs_for_ast_function": {
+          "x": -1506.5546726118357,
+          "y": -1149.463687778457
+        },
+        "symbol:src.helm.editor.flow_model:_import_block": {
+          "x": -597.5546726118355,
+          "y": -1149.463687778457
+        },
+        "symbol:src.helm.editor.flow_model:_import_statement": {
+          "x": 292.4453273881642,
+          "y": -1149.463687778457
+        },
+        "symbol:src.helm.editor.flow_model:_indent_lines": {
+          "x": -1487.5546726118357,
+          "y": -1009.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_inherited_value_sources_for_document": {
+          "x": -616.5546726118356,
+          "y": -1009.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_is_docstring_expression": {
+          "x": 292.4453273881642,
+          "y": -1009.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_latest_available_source_id_for_name": {
+          "x": 718.4453273881632,
+          "y": -1009.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_merge_flow_function_inputs": {
+          "x": -1042.5546726118357,
+          "y": -869.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_names_used": {
+          "x": -597.5546726118355,
+          "y": -869.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_names_used_by_flow_node_payload": {
+          "x": -171.55467261183588,
+          "y": -869.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_normalize_flow_document_value_bindings": {
+          "x": 718.4453273881632,
+          "y": -869.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_return_expression_from_payload": {
+          "x": 274.4453273881642,
+          "y": -869.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_rewrite_ast_input_names": {
+          "x": -1487.5546726118357,
+          "y": -729.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_rewrite_ast_store_names": {
+          "x": -1042.5546726118357,
+          "y": -729.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_rewrite_expression_graph_input_names": {
+          "x": -616.5546726118356,
+          "y": -729.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_rewrite_expression_graph_slot_ids": {
+          "x": -171.55467261183588,
+          "y": -729.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_rewrite_flow_document_value_source_stores": {
+          "x": 273.4453273881642,
+          "y": -729.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_rewrite_flow_node_payload_input_names": {
+          "x": 718.4453273881632,
+          "y": -729.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_rewrite_flow_node_payload_store_names": {
+          "x": -1506.5546726118357,
+          "y": -589.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_validate_expression_graph_payload": {
+          "x": -1061.5546726118357,
+          "y": -589.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_validate_node_payload": {
+          "x": -152.55467261183594,
+          "y": -589.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_value_source_availability_diagnostic": {
+          "x": -616.5546726118356,
+          "y": -589.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_value_source_unavailable_reason": {
+          "x": 718.4453273881632,
+          "y": -589.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_with_flow_document_value_source_emitted_names": {
+          "x": 273.4453273881642,
+          "y": -589.4636877784563
+        },
+        "symbol:src.helm.editor.flow_model:_with_return_expression_graph_slot_ids": {
+          "x": -1061.5546726118357,
+          "y": -449.4636877784562
+        },
+        "symbol:src.helm.editor.flow_model:allowed_flow_input_handles": {
+          "x": -1487.5546726118357,
+          "y": -449.4636877784562
+        },
+        "symbol:src.helm.editor.flow_model:allowed_flow_output_handles": {
+          "x": -152.55467261183594,
+          "y": -449.4636877784562
+        },
+        "symbol:src.helm.editor.flow_model:compile_flow_document": {
+          "x": 737.4453273881632,
+          "y": -449.4636877784562
+        },
+        "symbol:src.helm.editor.flow_model:expression_from_expression_graph": {
+          "x": -1506.5546726118357,
+          "y": -309.4636877784562
+        },
+        "symbol:src.helm.editor.flow_model:expression_graph_from_ast": {
+          "x": -597.5546726118355,
+          "y": -309.4636877784562
+        },
+        "symbol:src.helm.editor.flow_model:expression_graph_from_expression": {
+          "x": -171.55467261183588,
+          "y": -309.4636877784562
+        },
+        "symbol:src.helm.editor.flow_model:find_ast_symbol": {
+          "x": 292.4453273881642,
+          "y": -309.4636877784562
+        },
+        "symbol:src.helm.editor.flow_model:flow_document_compile_order_node_ids": {
+          "x": 718.4453273881632,
+          "y": -309.4636877784562
+        },
+        "symbol:src.helm.editor.flow_model:flow_document_from_payload": {
+          "x": -153.55467261183594,
+          "y": -169.46368777845615
+        },
+        "symbol:src.helm.editor.flow_model:flow_document_source_names_by_id": {
+          "x": -616.5546726118356,
+          "y": -169.46368777845615
+        },
+        "symbol:src.helm.editor.flow_model:flow_edge_id": {
+          "x": -1487.5546726118357,
+          "y": -169.46368777845615
+        },
+        "symbol:src.helm.editor.flow_model:flow_edge_label": {
+          "x": 737.4453273881632,
+          "y": -169.46368777845615
+        },
+        "symbol:src.helm.editor.flow_model:flow_edge_order": {
+          "x": 292.4453273881642,
+          "y": -169.46368777845615
+        },
+        "symbol:src.helm.editor.flow_model:flow_function_input_id": {
+          "x": -1487.5546726118357,
+          "y": -29.46368777845629
+        },
+        "symbol:src.helm.editor.flow_model:flow_input_binding_id": {
+          "x": -597.5546726118355,
+          "y": -29.46368777845629
+        },
+        "symbol:src.helm.editor.flow_model:flow_input_slot_id": {
+          "x": -152.55467261183594,
+          "y": -29.46368777845629
+        },
+        "symbol:src.helm.editor.flow_model:flow_model_node_source_identity": {
+          "x": 275.4453273881642,
+          "y": -29.46368777845629
+        },
+        "symbol:src.helm.editor.flow_model:flow_models_path": {
+          "x": 737.4453273881632,
+          "y": -29.46368777845629
+        },
+        "symbol:src.helm.editor.flow_model:flow_node_label": {
+          "x": -1042.5546726118357,
+          "y": 110.53631222154388
+        },
+        "symbol:src.helm.editor.flow_model:flow_return_completion_edge_id": {
+          "x": -608.5546726118356,
+          "y": 110.53631222154388
+        },
+        "symbol:src.helm.editor.flow_model:flow_value_source_emitted_name": {
+          "x": 276.4453273881642,
+          "y": 110.53631222154388
+        },
+        "symbol:src.helm.editor.flow_model:flow_value_source_id": {
+          "x": 737.4453273881632,
+          "y": 110.53631222154388
+        },
+        "symbol:src.helm.editor.flow_model:function_inputs_from_function_source": {
+          "x": -1061.5546726118357,
+          "y": 250.5363122215439
+        },
+        "symbol:src.helm.editor.flow_model:function_source_for_qualname": {
+          "x": -601.5546726118355,
+          "y": 250.5363122215439
+        },
+        "symbol:src.helm.editor.flow_model:function_source_hash": {
+          "x": 292.4453273881642,
+          "y": 250.5363122215439
+        },
+        "symbol:src.helm.editor.flow_model:import_flow_document_from_function_source": {
+          "x": -1506.5546726118357,
+          "y": 390.5363122215437
+        },
+        "symbol:src.helm.editor.flow_model:indexed_flow_entry_node_id": {
+          "x": -597.5546726118355,
+          "y": 390.5363122215437
+        },
+        "symbol:src.helm.editor.flow_model:indexed_flow_statement_node_id": {
+          "x": -167.55467261183594,
+          "y": 390.5363122215437
+        },
+        "symbol:src.helm.editor.flow_model:is_flow_return_completion_edge": {
+          "x": 281.4453273881642,
+          "y": 390.5363122215437
+        },
+        "symbol:src.helm.editor.flow_model:reachable_flow_node_ids": {
+          "x": 737.4453273881632,
+          "y": 390.5363122215437
+        },
+        "symbol:src.helm.editor.flow_model:read_flow_document": {
+          "x": -597.5546726118355,
+          "y": -449.4636877784562
+        },
+        "symbol:src.helm.editor.flow_model:target_id_for_edge": {
+          "x": -1042.5546726118357,
+          "y": -309.4636877784562
+        },
+        "symbol:src.helm.editor.flow_model:with_flow_document_applied_input_bindings": {
+          "x": -1061.5546726118357,
+          "y": -169.46368777845615
+        },
+        "symbol:src.helm.editor.flow_model:with_flow_document_derived_input_model": {
+          "x": -1061.5546726118357,
+          "y": -29.46368777845629
+        },
+        "symbol:src.helm.editor.flow_model:with_flow_document_indexed_node_ids": {
+          "x": -1506.5546726118357,
+          "y": 110.53631222154388
+        },
+        "symbol:src.helm.editor.flow_model:with_flow_document_inherited_input_model": {
+          "x": -171.55467261183588,
+          "y": 110.53631222154388
+        },
+        "symbol:src.helm.editor.flow_model:with_flow_document_normalized_input_ids": {
+          "x": -1506.5546726118357,
+          "y": 250.5363122215439
+        },
+        "symbol:src.helm.editor.flow_model:with_flow_document_status": {
+          "x": -152.55467261183594,
+          "y": 250.5363122215439
+        },
+        "symbol:src.helm.editor.flow_model:without_flow_return_completion_edges": {
+          "x": 718.4453273881632,
+          "y": 250.5363122215439
+        },
+        "symbol:src.helm.editor.flow_model:write_flow_document": {
+          "x": -1042.5546726118357,
+          "y": 390.5363122215437
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": [
+        {
+          "id": "group-271234b5-b009-4c22-a48c-1ba129e7cfcf",
+          "title": "Group",
+          "memberNodeIds": [
+            "symbol:src.helm.editor.flow_model:_BINOP_AST_BY_SYMBOL",
+            "symbol:src.helm.editor.flow_model:_BINOP_SYMBOLS",
+            "symbol:src.helm.editor.flow_model:_BOOL_AST_BY_SYMBOL",
+            "symbol:src.helm.editor.flow_model:_BOOL_SYMBOLS",
+            "symbol:src.helm.editor.flow_model:_COMPARE_AST_BY_SYMBOL",
+            "symbol:src.helm.editor.flow_model:_COMPARE_SYMBOLS",
+            "symbol:src.helm.editor.flow_model:_RETURN_EXPRESSION_GRAPH_KEY",
+            "symbol:src.helm.editor.flow_model:_UNARY_AST_BY_SYMBOL",
+            "symbol:src.helm.editor.flow_model:_UNARY_SYMBOLS",
+            "symbol:src.helm.editor.flow_model:FLOW_EXPRESSION_GRAPH_VERSION",
+            "symbol:src.helm.editor.flow_model:FLOW_EXPRESSION_NODE_KINDS",
+            "symbol:src.helm.editor.flow_model:FLOW_FUNCTION_INPUT_KINDS",
+            "symbol:src.helm.editor.flow_model:FLOW_MODEL_RELATIVE_PATH",
+            "symbol:src.helm.editor.flow_model:FLOW_MODEL_VERSION",
+            "symbol:src.helm.editor.flow_model:FLOW_NODE_KINDS",
+            "symbol:src.helm.editor.flow_model:FLOW_SYNC_STATES",
+            "symbol:src.helm.editor.flow_model:FLOW_VALUE_MODEL_VERSION"
+          ]
+        },
+        {
+          "id": "group-6196c094-6f13-4527-881b-ec825c57ff33",
+          "title": "functions",
+          "memberNodeIds": [
+            "module:src.helm.editor.flow_model",
+            "symbol:src.helm.editor.flow_model:_append_expression_ast_node",
+            "symbol:src.helm.editor.flow_model:_assigned_names",
+            "symbol:src.helm.editor.flow_model:_assigned_names_by_flow_node_payload",
+            "symbol:src.helm.editor.flow_model:_ast_from_expression_graph",
+            "symbol:src.helm.editor.flow_model:_compact_source",
+            "symbol:src.helm.editor.flow_model:_compile_sequence",
+            "symbol:src.helm.editor.flow_model:_expression_graph_input_names",
+            "symbol:src.helm.editor.flow_model:_expression_graph_payload",
+            "symbol:src.helm.editor.flow_model:_flow_context_is_prefix",
+            "symbol:src.helm.editor.flow_model:_flow_document_node_positions",
+            "symbol:src.helm.editor.flow_model:_flow_model_node_identity_candidates",
+            "symbol:src.helm.editor.flow_model:_flow_value_source_aliases",
+            "symbol:src.helm.editor.flow_model:_function_inputs_for_ast_function",
+            "symbol:src.helm.editor.flow_model:_import_block",
+            "symbol:src.helm.editor.flow_model:_import_statement",
+            "symbol:src.helm.editor.flow_model:_indent_lines",
+            "symbol:src.helm.editor.flow_model:_inherited_value_sources_for_document",
+            "symbol:src.helm.editor.flow_model:_is_docstring_expression",
+            "symbol:src.helm.editor.flow_model:_latest_available_source_id_for_name",
+            "symbol:src.helm.editor.flow_model:_merge_flow_function_inputs",
+            "symbol:src.helm.editor.flow_model:_names_used",
+            "symbol:src.helm.editor.flow_model:_names_used_by_flow_node_payload",
+            "symbol:src.helm.editor.flow_model:_normalize_flow_document_value_bindings",
+            "symbol:src.helm.editor.flow_model:_return_expression_from_payload",
+            "symbol:src.helm.editor.flow_model:_rewrite_ast_input_names",
+            "symbol:src.helm.editor.flow_model:_rewrite_ast_store_names",
+            "symbol:src.helm.editor.flow_model:_rewrite_expression_graph_input_names",
+            "symbol:src.helm.editor.flow_model:_rewrite_expression_graph_slot_ids",
+            "symbol:src.helm.editor.flow_model:_rewrite_flow_document_value_source_stores",
+            "symbol:src.helm.editor.flow_model:_rewrite_flow_node_payload_input_names",
+            "symbol:src.helm.editor.flow_model:_rewrite_flow_node_payload_store_names",
+            "symbol:src.helm.editor.flow_model:_validate_expression_graph_payload",
+            "symbol:src.helm.editor.flow_model:_validate_node_payload",
+            "symbol:src.helm.editor.flow_model:_value_source_availability_diagnostic",
+            "symbol:src.helm.editor.flow_model:_value_source_unavailable_reason",
+            "symbol:src.helm.editor.flow_model:_with_flow_document_value_source_emitted_names",
+            "symbol:src.helm.editor.flow_model:_with_return_expression_graph_slot_ids",
+            "symbol:src.helm.editor.flow_model:allowed_flow_input_handles",
+            "symbol:src.helm.editor.flow_model:allowed_flow_output_handles",
+            "symbol:src.helm.editor.flow_model:compile_flow_document",
+            "symbol:src.helm.editor.flow_model:expression_from_expression_graph",
+            "symbol:src.helm.editor.flow_model:expression_graph_from_ast",
+            "symbol:src.helm.editor.flow_model:expression_graph_from_expression",
+            "symbol:src.helm.editor.flow_model:find_ast_symbol",
+            "symbol:src.helm.editor.flow_model:flow_document_compile_order_node_ids",
+            "symbol:src.helm.editor.flow_model:flow_document_from_payload",
+            "symbol:src.helm.editor.flow_model:flow_document_source_names_by_id",
+            "symbol:src.helm.editor.flow_model:flow_edge_id",
+            "symbol:src.helm.editor.flow_model:flow_edge_label",
+            "symbol:src.helm.editor.flow_model:flow_edge_order",
+            "symbol:src.helm.editor.flow_model:flow_function_input_id",
+            "symbol:src.helm.editor.flow_model:flow_input_binding_id",
+            "symbol:src.helm.editor.flow_model:flow_input_slot_id",
+            "symbol:src.helm.editor.flow_model:flow_model_node_source_identity",
+            "symbol:src.helm.editor.flow_model:flow_models_path",
+            "symbol:src.helm.editor.flow_model:flow_node_label",
+            "symbol:src.helm.editor.flow_model:flow_return_completion_edge_id",
+            "symbol:src.helm.editor.flow_model:flow_value_source_emitted_name",
+            "symbol:src.helm.editor.flow_model:flow_value_source_id",
+            "symbol:src.helm.editor.flow_model:function_inputs_from_function_source",
+            "symbol:src.helm.editor.flow_model:function_source_for_qualname",
+            "symbol:src.helm.editor.flow_model:function_source_hash",
+            "symbol:src.helm.editor.flow_model:import_flow_document_from_function_source",
+            "symbol:src.helm.editor.flow_model:indexed_flow_entry_node_id",
+            "symbol:src.helm.editor.flow_model:indexed_flow_statement_node_id",
+            "symbol:src.helm.editor.flow_model:is_flow_return_completion_edge",
+            "symbol:src.helm.editor.flow_model:reachable_flow_node_ids",
+            "symbol:src.helm.editor.flow_model:read_flow_document",
+            "symbol:src.helm.editor.flow_model:target_id_for_edge",
+            "symbol:src.helm.editor.flow_model:with_flow_document_applied_input_bindings",
+            "symbol:src.helm.editor.flow_model:with_flow_document_derived_input_model",
+            "symbol:src.helm.editor.flow_model:with_flow_document_indexed_node_ids",
+            "symbol:src.helm.editor.flow_model:with_flow_document_inherited_input_model",
+            "symbol:src.helm.editor.flow_model:with_flow_document_normalized_input_ids",
+            "symbol:src.helm.editor.flow_model:with_flow_document_status",
+            "symbol:src.helm.editor.flow_model:without_flow_return_completion_edges",
+            "symbol:src.helm.editor.flow_model:write_flow_document"
+          ]
+        },
+        {
+          "id": "group-f3935960-f36f-443a-9a04-775b6d5d8a97",
+          "title": "Group",
+          "memberNodeIds": [
+            "symbol:src.helm.editor.flow_model:_ExpressionGraphBuilder",
+            "symbol:src.helm.editor.flow_model:_FlowNodePosition",
+            "symbol:src.helm.editor.flow_model:_ImportBuilder",
+            "symbol:src.helm.editor.flow_model:_ImportedBlock",
+            "symbol:src.helm.editor.flow_model:_InputNameRewriteTransformer",
+            "symbol:src.helm.editor.flow_model:_StoreNameRewriteTransformer",
+            "symbol:src.helm.editor.flow_model:_ValueBindingNormalizationResult",
+            "symbol:src.helm.editor.flow_model:FlowCompileResult",
+            "symbol:src.helm.editor.flow_model:FlowFunctionInput",
+            "symbol:src.helm.editor.flow_model:FlowImportError",
+            "symbol:src.helm.editor.flow_model:FlowInputBinding",
+            "symbol:src.helm.editor.flow_model:FlowInputSlot",
+            "symbol:src.helm.editor.flow_model:FlowModelDocument",
+            "symbol:src.helm.editor.flow_model:FlowModelEdge",
+            "symbol:src.helm.editor.flow_model:FlowModelNode",
+            "symbol:src.helm.editor.flow_model:FlowValueSource"
+          ]
+        }
+      ]
+    },
     "module|module:src.helm.editor.patcher": {
       "nodes": {
         "module:src.helm.editor.patcher": {
@@ -797,6 +1378,14 @@
           "x": -815.7060323384071,
           "y": -662.0695757211472
         },
+        "module:src.helm.editor.declaration_support": {
+          "x": 1170.7267935098578,
+          "y": -979.1004325790906
+        },
+        "module:src.helm.editor.flow_model": {
+          "x": 1426.3228572305902,
+          "y": -797.6917603687203
+        },
         "module:src.helm.editor.models": {
           "x": -323.66248495547484,
           "y": 432.3491443075442
@@ -857,6 +1446,10 @@
           "x": -323.66248495547484,
           "y": 292.3491443075442
         },
+        "module:src.helm.ui.workspace_session": {
+          "x": 981.764621666018,
+          "y": 98.8150939483406
+        },
         "module:src.helm.utils": {
           "x": -815.7060323384071,
           "y": -382.06957572114715
@@ -878,36 +1471,40 @@
           "y": -524.3530593146924
         },
         "module:tests.test_cli": {
-          "x": -314.18717827109936,
-          "y": -943.393247308527
+          "x": -303.4101939543287,
+          "y": -1079.0610546598564
         },
         "module:tests.test_config": {
-          "x": -314.18717827109936,
-          "y": 36.60675269147316
+          "x": -303.4101939543287,
+          "y": 40.93894534014373
         },
         "module:tests.test_desktop_bridge": {
-          "x": -314.18717827109936,
-          "y": -663.3932473085268
+          "x": -303.4101939543287,
+          "y": -799.0610546598563
         },
         "module:tests.test_graph_builder": {
-          "x": -314.18717827109936,
-          "y": -803.3932473085268
+          "x": -303.4101939543287,
+          "y": -939.0610546598564
         },
         "module:tests.test_patcher": {
-          "x": -314.18717827109936,
-          "y": -523.3932473085268
+          "x": -303.4101939543287,
+          "y": -659.0610546598563
         },
         "module:tests.test_python_adapter": {
-          "x": -314.18717827109936,
-          "y": -383.3932473085269
+          "x": -303.4101939543287,
+          "y": -519.0610546598563
         },
         "module:tests.test_python_parser": {
-          "x": -314.18717827109936,
-          "y": -243.39324730852684
+          "x": -303.4101939543287,
+          "y": -379.06105465985627
         },
         "module:tests.test_repo_loader": {
-          "x": -314.18717827109936,
-          "y": -103.39324730852684
+          "x": -303.4101939543287,
+          "y": -99.06105465985628
+        },
+        "module:tests.test_workspace_session": {
+          "x": -303.4101939543287,
+          "y": -239.06105465985627
         },
         "repo-root": {
           "x": -813.2060951601666,
@@ -931,8 +1528,8 @@
           ]
         },
         {
-          "id": "group-7ed5e2c1-414f-4fe3-869c-e5d81863a820",
-          "title": "Testing",
+          "id": "group-7e50a263-17e1-4fb8-a0b9-2ef7a6485307",
+          "title": "testing",
           "memberNodeIds": [
             "module:tests.test_cli",
             "module:tests.test_config",
@@ -941,7 +1538,8 @@
             "module:tests.test_patcher",
             "module:tests.test_python_adapter",
             "module:tests.test_python_parser",
-            "module:tests.test_repo_loader"
+            "module:tests.test_repo_loader",
+            "module:tests.test_workspace_session"
           ]
         },
         {
@@ -990,6 +1588,14 @@
         "module:src.helm.editor": {
           "x": 1646.3159985568332,
           "y": -392.03894417297545
+        },
+        "module:src.helm.editor.declaration_support": {
+          "x": 164.59414187920666,
+          "y": -1893.168658570336
+        },
+        "module:src.helm.editor.flow_model": {
+          "x": 420.19020559993913,
+          "y": -1711.7599863599655
         },
         "module:src.helm.editor.models": {
           "x": 585.8142093617844,
@@ -1051,6 +1657,10 @@
           "x": 585.8142093617844,
           "y": -54.18583795184543
         },
+        "module:src.helm.ui.workspace_session": {
+          "x": 587.4127169644933,
+          "y": 646.110092100587
+        },
         "module:src.helm.utils": {
           "x": 1646.3159985568332,
           "y": 307.96105582702364
@@ -1102,6 +1712,10 @@
         "module:tests.test_repo_loader": {
           "x": 2170.5364062075214,
           "y": 380.97418695399375
+        },
+        "module:tests.test_workspace_session": {
+          "x": 452.9019041562864,
+          "y": 1808.538487016231
         },
         "repo-root": {
           "x": 1011.2275997957918,

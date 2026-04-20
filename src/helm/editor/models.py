@@ -70,6 +70,7 @@ class BackendUndoResult:
     restored_relative_paths: tuple[str, ...] = field(default_factory=tuple)
     warnings: tuple[str, ...] = field(default_factory=tuple)
     focus_target: UndoFocusTarget | None = None
+    redo_transaction: BackendUndoTransaction | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -77,6 +78,11 @@ class BackendUndoResult:
             "restored_relative_paths": list(self.restored_relative_paths),
             "warnings": list(self.warnings),
             "focus_target": self.focus_target.to_dict() if self.focus_target else None,
+            "redo_transaction": (
+                self.redo_transaction.to_dict()
+                if self.redo_transaction is not None
+                else None
+            ),
         }
 
 

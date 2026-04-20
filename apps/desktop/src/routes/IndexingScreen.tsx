@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { DesktopWindow } from "../components/layout/DesktopWindow";
-import { ThemeCycleButton } from "../components/shared/ThemeCycleButton";
+import { AppWindowActions } from "../components/shared/AppWindowActions";
 import { StatusPill } from "../components/shared/StatusPill";
 import { useIndexingProgress } from "../lib/adapter/useIndexingProgress";
 import { useUiStore } from "../store/uiStore";
@@ -75,7 +75,7 @@ export function IndexingScreen() {
       eyebrow="Indexing"
       title="Preparing the workspace."
       subtitle="This is where the desktop shell stays honest about what it knows, what it is still scanning, and when the blueprint is ready."
-      actions={<ThemeCycleButton />}
+      actions={<AppWindowActions />}
       compact
     >
       <main className="indexing-layout">

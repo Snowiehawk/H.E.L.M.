@@ -13,6 +13,7 @@ from helm.editor.declaration_support import require_editable_declaration_support
 from helm.editor.flow_model import (
     FLOW_MODEL_RELATIVE_PATH,
     FlowImportError,
+    FlowFunctionInput,
     compile_flow_document,
     find_ast_symbol,
     flow_document_from_payload,
@@ -170,6 +171,13 @@ def apply_backend_undo(
             snapshot.relative_path for snapshot in transaction.file_snapshots
         ),
         focus_target=transaction.focus_target,
+        redo_transaction=BackendUndoTransaction(
+            summary=transaction.summary,
+            request_kind=transaction.request_kind,
+            file_snapshots=current_snapshots,
+            changed_node_ids=transaction.changed_node_ids,
+            focus_target=transaction.focus_target,
+        ),
     )
 
 
@@ -651,6 +659,13 @@ def _replace_flow_graph(
     document = without_flow_return_completion_edges(flow_document_from_payload(request.flow_graph))
     if document.symbol_id != symbol.symbol_id:
         raise ValueError("Flow graph payload does not match the requested symbol.")
+    function_inputs_requested = (
+        "function_inputs" in request.flow_graph
+        or "functionInputs" in request.flow_graph
+    )
+    requested_function_inputs = tuple(
+        sorted(document.function_inputs, key=lambda item: (item.index, item.name))
+    )
     try:
         source_document = import_flow_document_from_function_source(
             symbol_id=symbol.symbol_id,
@@ -660,10 +675,23 @@ def _replace_flow_graph(
         )
     except FlowImportError:
         source_document = None
+    rewrite_signature = False
     if source_document is not None:
+        rewrite_signature = (
+            function_inputs_requested
+            and _flow_function_inputs_signature_changed(
+                requested_function_inputs,
+                source_document.function_inputs,
+            )
+        )
+        inheritance_source_document = (
+            dataclass_replace(source_document, function_inputs=requested_function_inputs)
+            if rewrite_signature
+            else source_document
+        )
         document = with_flow_document_inherited_input_model(
             document,
-            source_document=source_document,
+            source_document=inheritance_source_document,
         )
     document = with_flow_document_status(
         document,
@@ -679,9 +707,10 @@ def _replace_flow_graph(
         updated = _replace_qualname_declaration(
             module,
             symbol.qualname.split("."),
-            lambda declaration: _replace_function_body_with_source(
+            lambda declaration: _replace_function_declaration_with_flow_source(
                 declaration,
                 compiled.body_source or "pass",
+                compiled.document.function_inputs if rewrite_signature else None,
             ),
         )
         source_path.write_text(updated.code, encoding="utf-8")
@@ -1289,6 +1318,202 @@ def _replace_function_body_with_source(
     if not isinstance(temp_function, cst.FunctionDef):
         raise ValueError("Unable to parse generated flow function body.")
     return declaration.with_changes(body=suite.with_changes(body=_suite_to_block(temp_function.body).body))
+
+
+def _replace_function_declaration_with_flow_source(
+    declaration: cst.FunctionDef | cst.ClassDef,
+    body_source: str,
+    function_inputs: tuple[FlowFunctionInput, ...] | None,
+) -> cst.FunctionDef | cst.ClassDef:
+    updated = _replace_function_body_with_source(declaration, body_source)
+    if function_inputs is None:
+        return updated
+    if not isinstance(updated, cst.FunctionDef):
+        raise ValueError("Visual flow replacement only supports function declarations.")
+    return updated.with_changes(
+        params=_parameters_for_flow_function_inputs(function_inputs, updated.params)
+    )
+
+
+def _flow_function_inputs_signature_changed(
+    requested: tuple[FlowFunctionInput, ...],
+    current: tuple[FlowFunctionInput, ...],
+) -> bool:
+    def comparable(function_inputs: tuple[FlowFunctionInput, ...]) -> tuple[tuple[str, str, str | None], ...]:
+        return tuple(
+            (
+                function_input.name,
+                function_input.kind,
+                function_input.default_expression,
+            )
+            for function_input in sorted(function_inputs, key=lambda item: (item.index, item.name))
+        )
+
+    return comparable(requested) != comparable(current)
+
+
+def _parameters_for_flow_function_inputs(
+    function_inputs: tuple[FlowFunctionInput, ...],
+    existing_parameters: cst.Parameters,
+) -> cst.Parameters:
+    inputs = _validated_flow_function_inputs(function_inputs)
+    signature = _flow_function_input_signature_source(inputs)
+    temp_module = cst.parse_module(f"def _flow_temp({signature}):\n    pass\n")
+    temp_function = temp_module.body[0]
+    if not isinstance(temp_function, cst.FunctionDef):
+        raise ValueError("Unable to parse generated flow function signature.")
+    return _with_preserved_parameter_annotations(temp_function.params, existing_parameters)
+
+
+def _validated_flow_function_inputs(
+    function_inputs: tuple[FlowFunctionInput, ...],
+) -> tuple[FlowFunctionInput, ...]:
+    inputs = tuple(sorted(function_inputs, key=lambda item: (item.index, item.name)))
+    names: set[str] = set()
+    state = 0
+    seen_vararg = False
+    seen_kwarg = False
+    positional_default_seen = False
+    for function_input in inputs:
+        name = function_input.name.strip()
+        if not name.isidentifier() or keyword.iskeyword(name):
+            raise ValueError(f"Flow input name '{function_input.name}' is not a valid Python parameter name.")
+        if name in names:
+            raise ValueError(f"Flow input name '{name}' is duplicated.")
+        names.add(name)
+
+        kind = function_input.kind or "positional_or_keyword"
+        if kind == "positional_only":
+            if state > 0:
+                raise ValueError("Positional-only flow inputs must appear before regular parameters.")
+        elif kind == "positional_or_keyword":
+            if state > 1:
+                raise ValueError("Regular flow inputs must appear before *args and keyword-only parameters.")
+            state = max(state, 1)
+        elif kind == "vararg":
+            if seen_vararg or state > 2 or seen_kwarg:
+                raise ValueError("A flow signature can only include one *args parameter before keyword-only inputs.")
+            seen_vararg = True
+            state = 2
+        elif kind == "keyword_only":
+            if seen_kwarg:
+                raise ValueError("Keyword-only flow inputs must appear before **kwargs.")
+            state = max(state, 3)
+        elif kind == "kwarg":
+            if seen_kwarg:
+                raise ValueError("A flow signature can only include one **kwargs parameter.")
+            seen_kwarg = True
+            state = 4
+        else:
+            raise ValueError(f"Unsupported flow input kind '{kind}'.")
+
+        default_expression = function_input.default_expression
+        if kind in {"vararg", "kwarg"} and default_expression is not None:
+            raise ValueError("*args and **kwargs flow inputs cannot have default expressions.")
+        if default_expression is not None:
+            try:
+                ast.parse(default_expression, mode="eval")
+                cst.parse_expression(default_expression)
+            except (SyntaxError, cst.ParserSyntaxError) as exc:
+                raise ValueError(
+                    f"Default expression for flow input '{name}' is not valid Python."
+                ) from exc
+        if kind in {"positional_only", "positional_or_keyword"}:
+            if default_expression is None and positional_default_seen:
+                raise ValueError("Flow inputs without defaults cannot follow inputs with defaults.")
+            positional_default_seen = positional_default_seen or default_expression is not None
+
+    return inputs
+
+
+def _flow_function_input_signature_source(
+    function_inputs: tuple[FlowFunctionInput, ...],
+) -> str:
+    posonly: list[str] = []
+    positional: list[str] = []
+    vararg: str | None = None
+    keyword_only: list[str] = []
+    kwarg: str | None = None
+    for function_input in function_inputs:
+        fragment = _flow_function_input_signature_fragment(function_input)
+        kind = function_input.kind or "positional_or_keyword"
+        if kind == "positional_only":
+            posonly.append(fragment)
+        elif kind == "positional_or_keyword":
+            positional.append(fragment)
+        elif kind == "vararg":
+            vararg = f"*{function_input.name}"
+        elif kind == "keyword_only":
+            keyword_only.append(fragment)
+        elif kind == "kwarg":
+            kwarg = f"**{function_input.name}"
+
+    parts: list[str] = []
+    if posonly:
+        parts.extend(posonly)
+        parts.append("/")
+    parts.extend(positional)
+    if vararg is not None:
+        parts.append(vararg)
+    elif keyword_only:
+        parts.append("*")
+    parts.extend(keyword_only)
+    if kwarg is not None:
+        parts.append(kwarg)
+    return ", ".join(parts)
+
+
+def _flow_function_input_signature_fragment(function_input: FlowFunctionInput) -> str:
+    if function_input.default_expression is None:
+        return function_input.name
+    return f"{function_input.name}={function_input.default_expression}"
+
+
+def _with_preserved_parameter_annotations(
+    next_parameters: cst.Parameters,
+    existing_parameters: cst.Parameters,
+) -> cst.Parameters:
+    existing_by_kind = {
+        "positional_only": list(existing_parameters.posonly_params),
+        "positional_or_keyword": list(existing_parameters.params),
+        "keyword_only": list(existing_parameters.kwonly_params),
+        "vararg": [existing_parameters.star_arg]
+        if isinstance(existing_parameters.star_arg, cst.Param)
+        else [],
+        "kwarg": [existing_parameters.star_kwarg]
+        if isinstance(existing_parameters.star_kwarg, cst.Param)
+        else [],
+    }
+
+    def preserve(kind: str, params: tuple[cst.Param, ...]) -> tuple[cst.Param, ...]:
+        existing_params = existing_by_kind[kind]
+        existing_by_name = {param.name.value: param for param in existing_params}
+        updated: list[cst.Param] = []
+        for index, param in enumerate(params):
+            source = existing_by_name.get(param.name.value)
+            if source is None and index < len(existing_params):
+                source = existing_params[index]
+            updated.append(
+                param.with_changes(annotation=source.annotation)
+                if source is not None and source.annotation is not None
+                else param
+            )
+        return tuple(updated)
+
+    star_arg = next_parameters.star_arg
+    if isinstance(star_arg, cst.Param):
+        star_arg = preserve("vararg", (star_arg,))[0]
+    star_kwarg = next_parameters.star_kwarg
+    if isinstance(star_kwarg, cst.Param):
+        star_kwarg = preserve("kwarg", (star_kwarg,))[0]
+
+    return next_parameters.with_changes(
+        posonly_params=preserve("positional_only", next_parameters.posonly_params),
+        params=preserve("positional_or_keyword", next_parameters.params),
+        star_arg=star_arg,
+        kwonly_params=preserve("keyword_only", next_parameters.kwonly_params),
+        star_kwarg=star_kwarg,
+    )
 
 
 def _indent_block(block: str) -> str:

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { BlueprintInspector } from "./BlueprintInspector";
 import type { EditableNodeSource, GraphNodeDto, SourceRange } from "../../lib/adapter";
@@ -78,6 +78,38 @@ describe("BlueprintInspector", () => {
     expect(screen.getByRole("heading", { name: /Declaration editor/i })).toBeInTheDocument();
     expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-read-only", "false");
     expect(screen.getByLabelText(/Function source editor/i)).toHaveTextContent("def calculate");
+  });
+
+  it("opens an inspector context menu with source actions", async () => {
+    const onRevealNodeInFileExplorer = vi.fn();
+    const onOpenNodeInDefaultEditor = vi.fn();
+
+    render(
+      <BlueprintInspector
+        selectedNode={buildNode()}
+        editableSource={buildEditableSource()}
+        editableSourceLoading={false}
+        isSavingSource={false}
+        onClose={vi.fn()}
+        onDismissSource={vi.fn()}
+        onEditorStateChange={vi.fn()}
+        onOpenNodeInDefaultEditor={onOpenNodeInDefaultEditor}
+        onRevealNodeInFileExplorer={onRevealNodeInFileExplorer}
+        onSaveSource={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByTestId("inspector-inline-editor"), {
+      clientX: 120,
+      clientY: 140,
+    });
+
+    const menu = await screen.findByRole("menu", { name: "calculate actions" });
+    expect(menu).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Show in/ }));
+
+    expect(onRevealNodeInFileExplorer).toHaveBeenCalledWith("node:calculate");
+    expect(onOpenNodeInDefaultEditor).not.toHaveBeenCalled();
   });
 
   it("renders read-only module context source when no graph node is selected", () => {
@@ -202,6 +234,71 @@ describe("BlueprintInspector", () => {
 
     expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-highlight-start-line", "21");
     expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-highlight-end-line", "21");
+  });
+
+  it("renders and edits flow entry inputs", () => {
+    const onAddFlowFunctionInput = vi.fn();
+    const onUpdateFlowFunctionInput = vi.fn();
+    const onMoveFlowFunctionInput = vi.fn();
+    const onRemoveFlowFunctionInput = vi.fn();
+    render(
+      <BlueprintInspector
+        selectedNode={buildNode({
+          id: "flowdoc:symbol:service:run:entry",
+          kind: "entry",
+          label: "Entry",
+        })}
+        editableSourceLoading={false}
+        flowFunctionInputs={[
+          {
+            id: "flowinput:symbol:service:run:root",
+            name: "root",
+            index: 0,
+            kind: "positional_or_keyword",
+            defaultExpression: "None",
+          },
+        ]}
+        flowInputDisplayMode="entry"
+        flowInputsEditable
+        isSavingSource={false}
+        onAddFlowFunctionInput={onAddFlowFunctionInput}
+        onClose={vi.fn()}
+        onDismissSource={vi.fn()}
+        onEditorStateChange={vi.fn()}
+        onMoveFlowFunctionInput={onMoveFlowFunctionInput}
+        onRemoveFlowFunctionInput={onRemoveFlowFunctionInput}
+        onSaveSource={vi.fn()}
+        onUpdateFlowFunctionInput={onUpdateFlowFunctionInput}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: /Inputs/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("New flow input name"), {
+      target: { value: "limit" },
+    });
+    fireEvent.change(screen.getByLabelText("New flow input default expression"), {
+      target: { value: "10" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Add input/i }));
+    expect(onAddFlowFunctionInput).toHaveBeenCalledWith({
+      name: "limit",
+      defaultExpression: "10",
+    });
+
+    fireEvent.change(screen.getByLabelText("Flow input root name"), {
+      target: { value: "repo_root" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save/i }));
+    expect(onUpdateFlowFunctionInput).toHaveBeenCalledWith(
+      "flowinput:symbol:service:run:root",
+      {
+        name: "repo_root",
+        defaultExpression: "None",
+      },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Remove/i }));
+    expect(onRemoveFlowFunctionInput).toHaveBeenCalledWith("flowinput:symbol:service:run:root");
   });
 
   it("marks stale inline drafts as reload-only after outside file changes", () => {

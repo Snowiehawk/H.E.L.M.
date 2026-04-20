@@ -14,6 +14,7 @@ function resetStore() {
     ...current,
     theme: "system",
     uiScale: 1,
+    preferencesOpen: false,
     paletteOpen: false,
     sidebarQuery: "",
     activeTab: "graph",

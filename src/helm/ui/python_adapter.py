@@ -617,6 +617,7 @@ class PythonRepoAdapter:
             restored_relative_paths=result.restored_relative_paths,
             warnings=result.warnings,
             focus_target=result.focus_target,
+            redo_transaction=result.redo_transaction,
         )
         return {"undo": enriched.to_dict(), "payload": self.build_payload()}
 

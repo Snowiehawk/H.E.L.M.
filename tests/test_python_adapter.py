@@ -148,10 +148,10 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertTrue(any(edge.source_id.endswith(":param:value") for edge in data_edges))
             branch_node = next(node.node_id for node in flow.nodes if node.kind.value == "branch")
             branch_edges = [edge for edge in control_edges if edge.source_id == branch_node]
-            self.assertEqual({edge.label for edge in branch_edges}, {"true", "after"})
+            self.assertEqual({edge.label for edge in branch_edges}, {"true", "false"})
             self.assertEqual(
                 {edge.metadata["path_key"] for edge in branch_edges},
-                {"true", "after"},
+                {"true", "false"},
             )
             exit_node = next(node.node_id for node in flow.nodes if node.kind.value == "exit")
             return_nodes = [node.node_id for node in flow.nodes if node.kind.value == "return"]
@@ -1066,6 +1066,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
                     "level": "module",
                 },
             )
+            self.assertIsNotNone(undo_response["undo"]["redo_transaction"])
             symbol_names = {
                 node["name"]
                 for node in undo_response["payload"]["graph"]["nodes"]

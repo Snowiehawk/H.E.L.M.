@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { DesktopWindow } from "../components/layout/DesktopWindow";
-import { ThemeCycleButton } from "../components/shared/ThemeCycleButton";
+import { AppWindowActions } from "../components/shared/AppWindowActions";
 import { StatusPill } from "../components/shared/StatusPill";
 import { useDesktopAdapter } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
@@ -47,7 +47,7 @@ export function WelcomeScreen() {
       eyebrow="H.E.L.M."
       title="Open a repo."
       subtitle="Index it, then live inside the blueprint."
-      actions={<ThemeCycleButton />}
+      actions={<AppWindowActions />}
       compact
     >
       <main className="launch-layout">

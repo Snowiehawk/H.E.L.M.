@@ -48,7 +48,10 @@ export function projectFlowDraftGraph(
   inputDisplayMode: FlowInputDisplayMode = "param_nodes",
 ): GraphView {
   document = withoutFlowReturnCompletionEdges(withLegacyInputModelFromBaseGraph(baseGraph, document));
-  const functionInputs = document.functionInputs ?? [];
+  const functionInputs = uniqueFlowFunctionInputs(document.functionInputs ?? []);
+  if (functionInputs.length !== (document.functionInputs ?? []).length) {
+    document = { ...document, functionInputs };
+  }
   const inputSlots = document.inputSlots ?? [];
   const inputBindings = document.inputBindings ?? [];
   const logicalNodeIds = new Set(document.nodes.map((node) => node.id));
@@ -56,6 +59,7 @@ export function projectFlowDraftGraph(
   const preservedNodes = baseGraph.nodes.filter((node) => (
     !logicalNodeIds.has(node.id)
     && !isFlowDocumentNodeKind(node.kind)
+    && node.kind !== "param"
     && !functionInputParamNodeIds.has(node.id)
   ));
   const baseNodesById = new Map(baseGraph.nodes.map((node) => [node.id, node] as const));
@@ -76,7 +80,11 @@ export function projectFlowDraftGraph(
           ? withEntryFunctionInputMetadata(node, functionInputs)
           : node
       ))
-    : draftNodes.map((node) => (node.id === entryNodeId ? withoutEntryFunctionInputMetadata(node) : node));
+    : draftNodes.map((node) => (
+        node.id === entryNodeId
+          ? withEntryParameterInputMetadata(withEntryFunctionInputMetadata(node, functionInputs))
+          : node
+      ));
   const inputSourceNodes = inputDisplayMode === "param_nodes"
     ? functionInputs.map((input) => graphNodeForFunctionInput(document.symbolId, input, entryNodeId, baseNodesById.get(functionInputParamNodeId(document.symbolId, input))))
     : [];
@@ -114,8 +122,11 @@ export function projectFlowDraftGraph(
   const draftEdges = document.edges.map((edge) => graphEdgeForFlowDraft(edge, baseEdgesById.get(edge.id)));
   const returnCompletionEdges = graphEdgesForReturnCompletion(document);
   const inputBindingEdges = inputBindings.flatMap((binding) =>
-    graphEdgeForInputBinding(document, binding, inputDisplayMode, entryNodeId),
+    graphEdgeForInputBinding(document, binding, entryNodeId),
   );
+  const parameterEntryEdges = inputDisplayMode === "param_nodes" && entryNodeId
+    ? functionInputs.map((input) => graphEdgeForParameterEntryInput(document.symbolId, entryNodeId, input))
+    : [];
 
   return {
     ...baseGraph,
@@ -123,7 +134,7 @@ export function projectFlowDraftGraph(
       ? (projectedNodeIds.get(baseGraph.rootNodeId) ?? baseGraph.rootNodeId)
       : document.nodes[0]?.id ?? baseGraph.rootNodeId,
     nodes: [...preservedNodes, ...inputSourceNodes, ...projectedDraftNodes],
-    edges: [...preservedEdges, ...inputBindingEdges, ...draftEdges, ...returnCompletionEdges],
+    edges: [...preservedEdges, ...parameterEntryEdges, ...inputBindingEdges, ...draftEdges, ...returnCompletionEdges],
     flowState: {
       editable: document.editable,
       syncState: document.syncState,
@@ -131,6 +142,22 @@ export function projectFlowDraftGraph(
       document: cloneFlowDocument(document),
     },
   };
+}
+
+function uniqueFlowFunctionInputs(functionInputs: FlowFunctionInput[]): FlowFunctionInput[] {
+  const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
+  return functionInputs
+    .slice()
+    .sort((left, right) => left.index - right.index || left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
+    .flatMap((input, index) => {
+      if (seenIds.has(input.id) || seenNames.has(input.name)) {
+        return [];
+      }
+      seenIds.add(input.id);
+      seenNames.add(input.name);
+      return [{ ...input, index }];
+    });
 }
 
 function flowDocumentFromVisualGraph(graph: GraphView): FlowGraphDocument | undefined {
@@ -163,6 +190,7 @@ function flowDocumentFromVisualGraph(graph: GraphView): FlowGraphDocument | unde
   }
 
   const edges: FlowGraphEdge[] = [];
+  const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
   for (const graphEdge of graph.edges) {
     if (graphEdge.kind !== "controls") {
       return undefined;
@@ -175,11 +203,15 @@ function flowDocumentFromVisualGraph(graph: GraphView): FlowGraphDocument | unde
     if (!handles) {
       return undefined;
     }
+    const sourceNode = nodeById.get(graphEdge.source);
+    const sourceHandle = sourceNode?.kind === "branch" && handles.sourceHandle === "after"
+      ? "false"
+      : handles.sourceHandle;
 
     edges.push({
       id: graphEdge.id,
       sourceId: graphEdge.source,
-      sourceHandle: handles.sourceHandle,
+      sourceHandle,
       targetId: graphEdge.target,
       targetHandle: handles.targetHandle,
     });
@@ -207,12 +239,13 @@ function withLegacyInputModelFromBaseGraph(
   baseGraph: GraphView,
   document: FlowGraphDocument,
 ): FlowGraphDocument {
+  if (document.valueModelVersion === 1) {
+    return document;
+  }
+
   const paramNodes = functionInputParamNodesFromBaseGraph(baseGraph);
   const functionInputs = functionInputsFromParamNodes(paramNodes, document);
   if ((document.inputSlots ?? []).length > 0) {
-    if (document.valueModelVersion === 1) {
-      return functionInputs.length ? { ...document, functionInputs } : document;
-    }
     return {
       ...document,
       valueModelVersion: 1,
@@ -446,6 +479,10 @@ export function inputSlotTargetHandle(slotId: string): string {
   return `in:data:input-slot:${slotId}`;
 }
 
+export function entryArgumentsTargetHandle(entryNodeId: string): string {
+  return `in:data:entry-arguments:${entryNodeId}`;
+}
+
 export function parseFunctionInputSourceHandle(handleId: string | null | undefined): string | undefined {
   const prefix = "out:data:function-input:";
   return handleId?.startsWith(prefix) ? handleId.slice(prefix.length) : undefined;
@@ -463,6 +500,19 @@ export function parseInputSlotTargetHandle(handleId: string | null | undefined):
 
 export function flowInputBindingEdgeId(bindingId: string): string {
   return `data:${bindingId}`;
+}
+
+export function parameterEntryEdgeId(functionInputId: string, entryNodeId: string): string {
+  return `data:flowparam:${functionInputId}->${entryNodeId}`;
+}
+
+export function parseParameterEntryEdgeInputId(edgeId: string): string | undefined {
+  const prefix = "data:flowparam:";
+  if (!edgeId.startsWith(prefix)) {
+    return undefined;
+  }
+  const separator = edgeId.lastIndexOf("->");
+  return separator > prefix.length ? edgeId.slice(prefix.length, separator) : undefined;
 }
 
 function functionInputParamNodeId(symbolId: string, input: FlowFunctionInput): string {
@@ -494,9 +544,20 @@ function withEntryFunctionInputMetadata(
   };
 }
 
-function withoutEntryFunctionInputMetadata(node: GraphNodeDto): GraphNodeDto {
-  const { flow_function_inputs: _flowFunctionInputs, ...metadata } = node.metadata;
-  return { ...node, metadata };
+function withEntryParameterInputMetadata(node: GraphNodeDto): GraphNodeDto {
+  return {
+    ...node,
+    metadata: {
+      ...node.metadata,
+      flow_entry_arguments: [
+        {
+          label: "args",
+          full_label: "arguments",
+          target_handle: entryArgumentsTargetHandle(node.id),
+        },
+      ],
+    },
+  };
 }
 
 function graphNodeForFunctionInput(
@@ -530,7 +591,6 @@ function isFunctionInputBindingEdge(edge: GraphEdgeDto): boolean {
 function graphEdgeForInputBinding(
   document: FlowGraphDocument,
   binding: FlowInputBinding,
-  inputDisplayMode: FlowInputDisplayMode,
   entryNodeId: string | undefined,
 ): GraphEdgeDto[] {
   const input = (document.functionInputs ?? []).find((candidate) => candidate.id === binding.sourceId);
@@ -540,11 +600,7 @@ function graphEdgeForInputBinding(
     return [];
   }
   const source = input
-    ? (
-        inputDisplayMode === "entry"
-          ? entryNodeId
-          : functionInputParamNodeId(document.symbolId, input)
-      )
+    ? entryNodeId
     : valueSource?.nodeId;
   if (!source) {
     return [];
@@ -571,6 +627,31 @@ function graphEdgeForInputBinding(
       target_handle: inputSlotTargetHandle(slot.id),
     },
   }];
+}
+
+function graphEdgeForParameterEntryInput(
+  symbolId: string,
+  entryNodeId: string,
+  input: FlowFunctionInput,
+): GraphEdgeDto {
+  const sourceNodeId = functionInputParamNodeId(symbolId, input);
+  return {
+    id: parameterEntryEdgeId(input.id, entryNodeId),
+    kind: "data",
+    source: sourceNodeId,
+    target: entryNodeId,
+    label: input.name,
+    metadata: {
+      flow_parameter_entry: true,
+      function_input_id: input.id,
+      source_id: input.id,
+      source_label: input.name,
+      target_label: "args",
+      target_full_label: "arguments",
+      source_handle: functionInputSourceHandle(input.id),
+      target_handle: entryArgumentsTargetHandle(entryNodeId),
+    },
+  };
 }
 
 function payloadFromGraphNode(

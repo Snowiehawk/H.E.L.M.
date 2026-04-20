@@ -81,6 +81,13 @@ const { peekStoredGraphLayoutMock, storedGraphLayoutSnapshots } = vi.hoisted(() 
   peekStoredGraphLayoutMock: vi.fn(),
   storedGraphLayoutSnapshots: new Map<string, StoredGraphLayout>(),
 }));
+const { confirmDialogMock } = vi.hoisted(() => ({
+  confirmDialogMock: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  confirm: confirmDialogMock,
+}));
 
 function mockStoredGraphLayoutKey(repoPath: string | undefined, viewKey: string | undefined) {
   if (!repoPath || !viewKey) {
@@ -683,49 +690,6 @@ class ImportErrorFlowMockDesktopAdapter extends MockDesktopAdapter {
   }
 }
 
-class ParamVisualSupportFlowMockDesktopAdapter extends MockDesktopAdapter {
-  override async getFlowView(symbolId: string): Promise<GraphView> {
-    const graph = await super.getFlowView(symbolId);
-    if (symbolId !== "symbol:helm.ui.api:build_graph_summary") {
-      return graph;
-    }
-
-    return {
-      ...graph,
-      nodes: [
-        {
-          id: "flow:symbol:helm.ui.api:build_graph_summary:param:graph",
-          kind: "param",
-          label: "graph",
-          subtitle: "parameter",
-          x: 140,
-          y: 40,
-          metadata: {
-            flow_visual: true,
-            flow_order: 0,
-          },
-          availableActions: [],
-        },
-        ...graph.nodes,
-      ],
-      edges: [
-        {
-          id: "data:flow:symbol:helm.ui.api:build_graph_summary:param:graph->flow:symbol:helm.ui.api:build_graph_summary:assign:modules",
-          kind: "data",
-          source: "flow:symbol:helm.ui.api:build_graph_summary:param:graph",
-          target: "flow:symbol:helm.ui.api:build_graph_summary:assign:modules",
-          label: "graph",
-          metadata: {
-            path_key: "graph",
-            path_label: "graph",
-          },
-        },
-        ...graph.edges,
-      ],
-    };
-  }
-}
-
 class IndexedDraftFlowMockDesktopAdapter extends SyncAwareMockDesktopAdapter {
   override async getFlowView(symbolId: string): Promise<GraphView> {
     const graph = await super.getFlowView(symbolId);
@@ -1043,6 +1007,8 @@ describe("WorkspaceScreen", () => {
     peekStoredGraphLayoutMock.mockImplementation((repoPath: string | undefined, viewKey: string | undefined) => (
       getMockStoredGraphLayout(repoPath, viewKey)
     ));
+    confirmDialogMock.mockReset();
+    confirmDialogMock.mockResolvedValue(true);
   });
 
   it("resizes the explorer panel and restores the saved width", async () => {
@@ -2020,10 +1986,13 @@ describe("WorkspaceScreen", () => {
     expect((await screen.findAllByText("while module_summaries")).length).toBeGreaterThan(0);
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
-  it("keeps visual parameter nodes selection-only in editable flow views", async () => {
+  it("deletes visual parameter nodes as function inputs after confirming downstream removal", async () => {
     const user = userEvent.setup();
-    const adapter = new ParamVisualSupportFlowMockDesktopAdapter();
+    mockGraphElementRect();
+    useUiStore.setState({ flowInputDisplayMode: "param_nodes" });
+    const adapter = new SyncAwareMockDesktopAdapter();
     const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    confirmDialogMock.mockResolvedValue(true);
     const router = createMemoryRouter(
       [{ path: "/workspace", element: <WorkspaceScreen /> }],
       { initialEntries: ["/workspace"] },
@@ -2035,28 +2004,85 @@ describe("WorkspaceScreen", () => {
       </AppProviders>,
     );
 
-    const graphPanel = document.querySelector(".graph-panel");
-    expect(graphPanel).not.toBeNull();
-    const graph = within(graphPanel as HTMLElement);
-    fireEvent.doubleClick(await graph.findByText("api.py"));
-    const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
-    expect(functionNode).not.toBeNull();
-    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
-    await user.click(await screen.findByRole("button", { name: /Open flow/i }));
+    const { flowGraphPanel } = await openBuildGraphSummaryFlow(user);
+    await setFlowInputMode(user, "param_nodes");
 
-    const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
-    const paramNodeId = "flow:symbol:helm.ui.api:build_graph_summary:param:graph";
+    const paramNodeId = BUILD_GRAPH_SUMMARY_GRAPH_PARAM_ID;
     const paramNode = await screen.findByTestId(`rf__node-${paramNodeId}`);
     fireEvent.doubleClick(paramNode);
     expect(screen.queryByTestId("graph-create-composer")).not.toBeInTheDocument();
 
     fireEvent.click(paramNode);
     expect(useUiStore.getState().activeNodeId).toBe(paramNodeId);
-    (flowGraphPanel as HTMLElement).focus();
-    fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "Delete" });
+    flowGraphPanel.focus();
+    const replaceCallsBeforeDelete = editSpy.mock.calls.length;
+    fireEvent.keyDown(flowGraphPanel, { key: "Delete" });
 
-    expect(editSpy).not.toHaveBeenCalled();
-    expect(await screen.findByTestId(`rf__node-${paramNodeId}`)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeDelete),
+    );
+    expect(confirmDialogMock).toHaveBeenCalledWith(
+      expect.stringContaining('delete param node "graph"'),
+      expect.objectContaining({ kind: "warning", title: "Delete param node" }),
+    );
+    expect(confirmDialogMock).toHaveBeenCalledWith(
+      expect.stringContaining('remove downstream uses and connections for "graph"'),
+      expect.objectContaining({ kind: "warning", title: "Remove downstream uses" }),
+    );
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expect(replaceRequest?.flowGraph?.functionInputs?.some((input) => input.id === BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID)).toBe(false);
+    expect(replaceRequest?.flowGraph?.inputBindings?.some((binding) => (
+      binding.sourceId === BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID
+      || binding.functionInputId === BUILD_GRAPH_SUMMARY_GRAPH_INPUT_ID
+    ))).toBe(false);
+    await waitFor(() =>
+      expect(screen.queryByTestId(`rf__node-${paramNodeId}`)).not.toBeInTheDocument(),
+    );
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("keeps visual parameter nodes when downstream removal is declined", async () => {
+    const user = userEvent.setup();
+    mockGraphElementRect();
+    useUiStore.setState({ flowInputDisplayMode: "param_nodes" });
+    const adapter = new SyncAwareMockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    confirmDialogMock
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const { flowGraphPanel } = await openBuildGraphSummaryFlow(user);
+    await setFlowInputMode(user, "param_nodes");
+
+    const paramNodeId = BUILD_GRAPH_SUMMARY_GRAPH_PARAM_ID;
+    const paramNode = await screen.findByTestId(`rf__node-${paramNodeId}`);
+    fireEvent.click(paramNode);
+    flowGraphPanel.focus();
+    const replaceCallsBeforeDelete = editSpy.mock.calls.length;
+    fireEvent.keyDown(flowGraphPanel, { key: "Delete" });
+
+    await waitFor(() =>
+      expect(confirmDialogMock).toHaveBeenCalledTimes(2),
+    );
+    expect(confirmDialogMock).toHaveBeenCalledWith(
+      expect.stringContaining('delete param node "graph"'),
+      expect.objectContaining({ kind: "warning", title: "Delete param node" }),
+    );
+    expect(confirmDialogMock).toHaveBeenCalledWith(
+      expect.stringContaining('remove downstream uses and connections for "graph"'),
+      expect.objectContaining({ kind: "warning", title: "Remove downstream uses" }),
+    );
+    expect(editSpy.mock.calls.length).toBe(replaceCallsBeforeDelete);
+    expect(screen.getByTestId(`rf__node-${paramNodeId}`)).toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
   it("keeps a draft-backed disconnected flow node visible across a same-symbol refetch", async () => {
@@ -4057,6 +4083,24 @@ describe("WorkspaceScreen", () => {
     expect(screen.getByText("Latest Activity")).toBeInTheDocument();
     expect(screen.getByText("backend")).toBeInTheDocument();
     expect(screen.getByText(/Undid:/i)).toBeInTheDocument();
+
+    expect(useUndoStore.getState().getPreferredRedoDomain()).toBe("backend");
+
+    await act(async () => {
+      await useUndoStore.getState().performRedo();
+    });
+
+    await waitFor(() => expect(undoSpy).toHaveBeenCalledTimes(2));
+    await expect(
+      adapter.getEditableNodeSource("symbol:helm.ui.api:build_graph_summary"),
+    ).resolves.toMatchObject({ content: `${originalValue}\n# saved note` });
+
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: /Function source editor/i })).toHaveValue(
+        `${originalValue}\n# saved note`,
+      ),
+    );
+    expect(screen.getByText(/Redid:/i)).toBeInTheDocument();
   });
 
   it("toggles the inspector drawer with a Space tap outside text editing surfaces", async () => {
@@ -4264,6 +4308,50 @@ describe("WorkspaceScreen", () => {
       expect(useUiStore.getState().activeNodeId).toBe("module:helm.ui.api");
     }, { timeout: 4000 });
     expect(screen.queryByRole("heading", { name: "build_issue_cleanup" })).not.toBeInTheDocument();
+  });
+
+  it("deletes a selected graph symbol with Backspace without reindexing", async () => {
+    const adapter = new MockDesktopAdapter();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const startIndexSpy = vi.spyOn(adapter, "startIndex");
+    const symbolId = await seedMockFunctionSymbol(adapter, "build_issue_cleanup_key");
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const graphPanel = document.querySelector(".graph-panel");
+    expect(graphPanel).not.toBeNull();
+    const graph = within(graphPanel as HTMLElement);
+
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+
+    const functionNode = (await graph.findByText("build_issue_cleanup_key")).closest(".graph-node");
+    expect(functionNode).not.toBeNull();
+    fireEvent.click(functionNode as HTMLElement);
+    expect(useUiStore.getState().activeNodeId).toBe(symbolId);
+
+    (graphPanel as HTMLElement).focus();
+    expect(fireEvent.keyDown(graphPanel as HTMLElement, { key: "Backspace" })).toBe(false);
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalled();
+      expect(editSpy).toHaveBeenCalledWith({
+        kind: "delete_symbol",
+        targetId: symbolId,
+      });
+      expect(useUiStore.getState().activeLevel).toBe("module");
+      expect(useUiStore.getState().activeNodeId).toBe("module:helm.ui.api");
+    }, { timeout: 4000 });
+    expect(startIndexSpy).not.toHaveBeenCalled();
+    expect(within(graphPanel as HTMLElement).queryByText("build_issue_cleanup_key")).not.toBeInTheDocument();
   });
 
   it("moves a created symbol through the inspector and focuses the destination module", async () => {

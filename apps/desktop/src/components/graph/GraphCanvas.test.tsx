@@ -223,16 +223,30 @@ const editableFlowDocument: FlowGraphDocument = {
       targetHandle: "in",
     },
     {
-      id: "controls:left:right",
+      id: "controls:left:true->right",
       sourceId: "branch:left",
-      sourceHandle: "after",
+      sourceHandle: "true",
       targetId: "branch:right",
       targetHandle: "in",
     },
     {
-      id: "controls:right:return",
+      id: "controls:left:false->right",
+      sourceId: "branch:left",
+      sourceHandle: "false",
+      targetId: "branch:right",
+      targetHandle: "in",
+    },
+    {
+      id: "controls:right:true->return",
       sourceId: "branch:right",
-      sourceHandle: "after",
+      sourceHandle: "true",
+      targetId: "return:done",
+      targetHandle: "in",
+    },
+    {
+      id: "controls:right:false->return",
+      sourceId: "branch:right",
+      sourceHandle: "false",
       targetId: "return:done",
       targetHandle: "in",
     },
@@ -1032,6 +1046,54 @@ describe("GraphCanvas", () => {
     confirmDialogMock.mockResolvedValue(true);
   });
 
+  it("opens a node context menu with graph actions", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    renderGraphCanvas();
+
+    const entryNode = await screen.findByTestId("rf__node-entry:calculate");
+    fireEvent.contextMenu(entryNode, { clientX: 160, clientY: 140 });
+
+    const menu = await screen.findByRole("menu", { name: "Entry actions" });
+    expect(within(menu).getByRole("menuitem", { name: "Pin Node" })).toBeInTheDocument();
+
+    await user.click(within(menu).getByRole("menuitem", { name: "Copy Node ID" }));
+
+    expect(writeText).toHaveBeenCalledWith("entry:calculate");
+  });
+
+  it("opens a canvas context menu for flow creation", async () => {
+    const onCreateIntent = vi.fn();
+    const { container } = renderGraphCanvas({
+      graph: editableFlowGraph,
+      onCreateIntent,
+    });
+
+    const pane = await waitFor(() => {
+      const element = container.querySelector(".react-flow__pane");
+      expect(element).not.toBeNull();
+      return element as Element;
+    });
+
+    fireEvent.contextMenu(pane, { clientX: 220, clientY: 180 });
+
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Create Flow Node Here" }));
+
+    expect(onCreateIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flowPosition: expect.objectContaining({
+          x: expect.any(Number),
+          y: expect.any(Number),
+        }),
+      }),
+    );
+  });
+
   it("initializes and persists a structured flow layout on first open when no layout is saved", async () => {
     readStoredGraphLayoutMock.mockResolvedValueOnce({
       nodes: {},
@@ -1214,6 +1276,16 @@ describe("GraphCanvas", () => {
 
     await waitFor(() => expect(writeStoredGraphLayoutMock).toHaveBeenCalledTimes(2));
     expect(writeStoredGraphLayoutMock.mock.calls[1]?.[2]).toEqual(originalLayout);
+    expect(useUndoStore.getState().getPreferredRedoDomain()).toBe("layout");
+
+    await act(async () => {
+      await useUndoStore.getState().performRedo();
+    });
+
+    await waitFor(() => expect(writeStoredGraphLayoutMock).toHaveBeenCalledTimes(3));
+    expect(writeStoredGraphLayoutMock.mock.calls[2]?.[2]).toEqual(
+      writeStoredGraphLayoutMock.mock.calls[0]?.[2],
+    );
   });
 
   it("emphasizes the selected node and dims unrelated nodes", async () => {
@@ -2086,6 +2158,8 @@ describe("GraphCanvas", () => {
       const targetHandle = await findGraphHandle("assign:calculate", "in:control:exec");
       expect(sourceHandle).toHaveClass("connectable");
       expect(targetHandle).toHaveClass("connectable");
+      expect(sourceHandle).toHaveClass("is-flow-connectable");
+      expect(targetHandle).toHaveClass("is-flow-connectable");
       const drag = beginConnectionDrag({
         dragStart: sourceHandle,
         targetHandle,
@@ -2160,9 +2234,13 @@ describe("GraphCanvas", () => {
         activeNodeId: undefined,
       });
 
+      const sourceHandle = await findGraphHandle("assign:calculate", "out:data:value-source:assign-value");
+      const targetHandle = await findGraphHandle("return:done", "in:data:input-slot:return-value");
+      expect(sourceHandle).toHaveClass("is-flow-connectable");
+      expect(targetHandle).toHaveClass("is-flow-connectable");
       const drag = beginConnectionDrag({
-        dragStart: await findGraphHandle("assign:calculate", "out:data:value-source:assign-value"),
-        targetHandle: await findGraphHandle("return:done", "in:data:input-slot:return-value"),
+        dragStart: sourceHandle,
+        targetHandle,
       });
 
       try {
@@ -2186,9 +2264,13 @@ describe("GraphCanvas", () => {
         onConnectFlowEdge,
       });
 
+      const sourceHandle = await findGraphHandle("module:left-a", "out:graph:calls");
+      const targetHandle = await findGraphHandle("module:focus", "in:graph:calls");
+      expect(sourceHandle).not.toHaveClass("is-flow-connectable");
+      expect(targetHandle).not.toHaveClass("is-flow-connectable");
       const drag = beginConnectionDrag({
-        dragStart: await findGraphHandle("module:left-a", "out:graph:calls"),
-        targetHandle: await findGraphHandle("module:focus", "in:graph:calls"),
+        dragStart: sourceHandle,
+        targetHandle,
       });
 
       try {
@@ -2381,6 +2463,7 @@ describe("GraphCanvas", () => {
 
     const groupBox = await screen.findByTestId(`graph-group-${flowGroup.id}`);
     expect(groupBox).toBeInTheDocument();
+    expect(within(groupBox).getByTitle("2 nodes grouped")).toHaveTextContent("2");
     expect(await screen.findByTestId("rf__node-entry:calculate")).toHaveClass("is-group-member");
     fireEvent.pointerDown(within(groupBox).getByTestId(`graph-group-hit-area-${flowGroup.id}-top`), {
       button: 0,

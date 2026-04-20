@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -14,6 +14,8 @@ function renderSidebarPane() {
   const overview = buildOverview(buildRepoSession(), state);
   const onSelectModule = vi.fn();
   const onSelectSymbol = vi.fn();
+  const onOpenPathInDefaultEditor = vi.fn();
+  const onRevealPathInFileExplorer = vi.fn();
 
   render(
     <SidebarPane
@@ -29,12 +31,16 @@ function renderSidebarPane() {
       onFocusRepoGraph={vi.fn()}
       onReindexRepo={vi.fn()}
       onOpenRepo={vi.fn()}
+      onOpenPathInDefaultEditor={onOpenPathInDefaultEditor}
+      onRevealPathInFileExplorer={onRevealPathInFileExplorer}
     />,
   );
 
   return {
     onSelectModule,
     onSelectSymbol,
+    onOpenPathInDefaultEditor,
+    onRevealPathInFileExplorer,
   };
 }
 
@@ -179,6 +185,8 @@ describe("SidebarPane", () => {
       onFocusRepoGraph: vi.fn(),
       onReindexRepo: vi.fn(),
       onOpenRepo: vi.fn(),
+      onOpenPathInDefaultEditor: vi.fn(),
+      onRevealPathInFileExplorer: vi.fn(),
     };
 
     const { rerender } = render(
@@ -205,5 +213,49 @@ describe("SidebarPane", () => {
       expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
       expect(lastScrolledElement).toBe(symbolRow);
     });
+  });
+
+  it("opens a file context menu with native file actions", async () => {
+    const user = userEvent.setup();
+    const { onOpenPathInDefaultEditor, onRevealPathInFileExplorer } = renderSidebarPane();
+
+    await user.click(screen.getByRole("treeitem", { name: "helm" }));
+    await user.click(screen.getByRole("treeitem", { name: "ui" }));
+
+    const apiFile = screen.getByRole("treeitem", { name: "api.py" });
+    fireEvent.contextMenu(apiFile, { clientX: 120, clientY: 80 });
+
+    const menu = screen.getByRole("menu", { name: "api.py actions" });
+    expect(within(menu).getByRole("menuitem", { name: "Open in H.E.L.M." })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: /Show in/ })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Open in Default App" })).toBeInTheDocument();
+
+    await user.click(within(menu).getByRole("menuitem", { name: /Show in/ }));
+
+    expect(onRevealPathInFileExplorer).toHaveBeenCalledWith(
+      "/Users/noahphillips/Documents/git-repos/H.E.L.M./src/helm/ui/api.py",
+    );
+    expect(onOpenPathInDefaultEditor).not.toHaveBeenCalled();
+  });
+
+  it("copies explorer paths from the context menu", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    renderSidebarPane();
+
+    await user.click(screen.getByRole("treeitem", { name: "helm" }));
+    await user.click(screen.getByRole("treeitem", { name: "ui" }));
+
+    const apiFile = screen.getByRole("treeitem", { name: "api.py" });
+    fireEvent.contextMenu(apiFile, { clientX: 120, clientY: 80 });
+
+    await user.click(screen.getByRole("menuitem", { name: "Copy Relative Path" }));
+
+    expect(writeText).toHaveBeenCalledWith("src/helm/ui/api.py");
   });
 });

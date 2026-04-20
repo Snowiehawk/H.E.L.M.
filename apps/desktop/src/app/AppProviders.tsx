@@ -8,6 +8,7 @@ import {
   createDesktopAdapter,
   DesktopAdapter,
 } from "../lib/adapter";
+import { PreferencesDialog } from "../components/shared/PreferencesDialog";
 import { useUiStore } from "../store/uiStore";
 import { useUndoStore } from "../store/undoStore";
 
@@ -115,6 +116,7 @@ function NativeMacMenuBridge() {
   const increaseUiScale = useUiStore((state) => state.increaseUiScale);
   const decreaseUiScale = useUiStore((state) => state.decreaseUiScale);
   const resetUiScale = useUiStore((state) => state.resetUiScale);
+  const setPreferencesOpen = useUiStore((state) => state.setPreferencesOpen);
   const toggleGraphFilter = useUiStore((state) => state.toggleGraphFilter);
   const toggleGraphPathHighlight = useUiStore((state) => state.toggleGraphPathHighlight);
   const toggleEdgeLabels = useUiStore((state) => state.toggleEdgeLabels);
@@ -133,6 +135,9 @@ function NativeMacMenuBridge() {
           case "undo":
             dispatchGlobalUndo();
             break;
+          case "redo":
+            dispatchGlobalRedo();
+            break;
           case "zoom-in":
             increaseUiScale();
             break;
@@ -141,6 +146,9 @@ function NativeMacMenuBridge() {
             break;
           case "zoom-reset":
             resetUiScale();
+            break;
+          case "preferences":
+            setPreferencesOpen(true);
             break;
           case "toggle-calls":
             toggleGraphFilter("includeCalls");
@@ -178,6 +186,7 @@ function NativeMacMenuBridge() {
     decreaseUiScale,
     increaseUiScale,
     resetUiScale,
+    setPreferencesOpen,
     toggleEdgeLabels,
     toggleGraphFilter,
     toggleGraphPathHighlight,
@@ -210,6 +219,32 @@ function NativeMacMenuBridge() {
   return null;
 }
 
+function PreferencesShortcutBridge() {
+  const setPreferencesOpen = useUiStore((state) => state.setPreferencesOpen);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented
+        || !(event.metaKey || event.ctrlKey)
+        || event.altKey
+        || event.shiftKey
+        || (event.key !== "," && event.code !== "Comma")
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      setPreferencesOpen(true);
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [setPreferencesOpen]);
+
+  return null;
+}
+
 function isMonacoEditingTarget(target: EventTarget | null) {
   return target instanceof HTMLElement
     && Boolean(target.closest(".monaco-editor, .monaco-diff-editor"));
@@ -230,19 +265,19 @@ function isNativeTextEditingTarget(target: EventTarget | null) {
   return editableHost instanceof HTMLElement;
 }
 
-function dispatchNativeBrowserUndo() {
-  const documentWithUndo = document as Document & {
+function dispatchNativeBrowserEditCommand(commandId: "undo" | "redo") {
+  const documentWithEditCommand = document as Document & {
     execCommand?: (commandId: string) => boolean;
   };
-  if (typeof documentWithUndo.execCommand === "function") {
-    documentWithUndo.execCommand("undo");
+  if (typeof documentWithEditCommand.execCommand === "function") {
+    documentWithEditCommand.execCommand(commandId);
   }
 }
 
 function dispatchGlobalUndo() {
   const activeTarget = document.activeElement;
   if (isNativeTextEditingTarget(activeTarget)) {
-    dispatchNativeBrowserUndo();
+    dispatchNativeBrowserEditCommand("undo");
     return;
   }
 
@@ -254,7 +289,22 @@ function dispatchGlobalUndo() {
   void useUndoStore.getState().performUndo();
 }
 
-function GlobalUndoBridge() {
+function dispatchGlobalRedo() {
+  const activeTarget = document.activeElement;
+  if (isNativeTextEditingTarget(activeTarget)) {
+    dispatchNativeBrowserEditCommand("redo");
+    return;
+  }
+
+  const domain = useUndoStore.getState().getPreferredRedoDomain();
+  if (!domain) {
+    return;
+  }
+
+  void useUndoStore.getState().performRedo();
+}
+
+function GlobalUndoRedoBridge() {
   const repoSessionId = useUiStore((state) => state.repoSession?.id);
   const resetUndoSession = useUndoStore((state) => state.resetSession);
 
@@ -268,7 +318,6 @@ function GlobalUndoBridge() {
         event.defaultPrevented
         || !(event.metaKey || event.ctrlKey)
         || event.altKey
-        || event.shiftKey
         || event.key.toLowerCase() !== "z"
       ) {
         return;
@@ -278,13 +327,17 @@ function GlobalUndoBridge() {
         return;
       }
 
-      const domain = useUndoStore.getState().getPreferredUndoDomain();
+      const isRedo = event.shiftKey;
+      const undoStore = useUndoStore.getState();
+      const domain = isRedo
+        ? undoStore.getPreferredRedoDomain()
+        : undoStore.getPreferredUndoDomain();
       if (!domain) {
         return;
       }
 
       event.preventDefault();
-      void useUndoStore.getState().performUndo();
+      void (isRedo ? undoStore.performRedo() : undoStore.performUndo());
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
@@ -317,9 +370,11 @@ export function AppProviders({
       <AdapterProvider adapter={resolvedAdapter}>
         <ThemeBridge />
         <UiScaleBridge />
-        <GlobalUndoBridge />
+        <GlobalUndoRedoBridge />
+        <PreferencesShortcutBridge />
         <NativeMacMenuBridge />
         <div className="app-scale-shell">{children}</div>
+        <PreferencesDialog />
       </AdapterProvider>
     </QueryClientProvider>
   );

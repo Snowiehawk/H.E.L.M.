@@ -1,5 +1,6 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AppWindowActions } from "../components/shared/AppWindowActions";
 import { MockDesktopAdapter } from "../lib/adapter/mockDesktopAdapter";
 import { useUiStore } from "../store/uiStore";
 import { useUndoStore } from "../store/undoStore";
@@ -19,6 +20,7 @@ function resetStore() {
     ...current,
     theme: "system",
     uiScale: 1,
+    preferencesOpen: false,
     paletteOpen: false,
     sidebarQuery: "",
     activeTab: "graph",
@@ -37,6 +39,7 @@ function resetStore() {
     graphSettings: {
       includeExternalDependencies: false,
     },
+    flowInputDisplayMode: "param_nodes",
     highlightGraphPath: true,
     showEdgeLabels: true,
     revealedSource: undefined,
@@ -70,6 +73,59 @@ describe("AppProviders", () => {
 
     fireEvent.keyDown(window, { key: "0", ctrlKey: true });
     expect(useUiStore.getState().uiScale).toBe(1);
+  });
+
+  it("opens preferences from the global shortcut", () => {
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <div>Preferences target</div>
+      </AppProviders>,
+    );
+
+    expect(screen.queryByRole("dialog", { name: /preferences/i })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: ",", code: "Comma", ctrlKey: true });
+    expect(screen.getByRole("dialog", { name: /preferences/i })).toBeInTheDocument();
+
+    const sectionNav = screen.getByRole("navigation", { name: "Preferences" });
+    expect(within(sectionNav).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "General",
+      "Appearance",
+      "Graph",
+      "Flow",
+    ]);
+    expect(screen.getByRole("heading", { name: "General" })).toBeInTheDocument();
+    expect(screen.getByText("Interface scale")).toBeInTheDocument();
+
+    fireEvent.click(within(sectionNav).getByRole("button", { name: "Appearance" }));
+    expect(screen.getByRole("heading", { name: "Appearance" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dark" }));
+    expect(useUiStore.getState().theme).toBe("dark");
+
+    fireEvent.click(within(sectionNav).getByRole("button", { name: "Graph" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Show external dependencies" }));
+    expect(useUiStore.getState().graphSettings.includeExternalDependencies).toBe(true);
+
+    fireEvent.click(within(sectionNav).getByRole("button", { name: "Flow" }));
+    fireEvent.click(screen.getByRole("button", { name: "Entry inputs" }));
+    expect(useUiStore.getState().flowInputDisplayMode).toBe("entry");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: /preferences/i })).not.toBeInTheDocument();
+  });
+
+  it("opens preferences from the window gear button", () => {
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <AppWindowActions />
+      </AppProviders>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /open preferences/i }));
+    expect(screen.getByRole("dialog", { name: /preferences/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /back to app/i }));
+    expect(screen.queryByRole("dialog", { name: /preferences/i })).not.toBeInTheDocument();
   });
 
   it("routes global undo to the focused editor first, then falls through to saved domain history", async () => {
@@ -106,6 +162,49 @@ describe("AppProviders", () => {
     editorCanUndo = false;
     fireEvent.keyDown(window, { key: "z", ctrlKey: true });
     await waitFor(() => expect(backendUndo).toHaveBeenCalledTimes(1));
+
+    unregisterEditor();
+    unregisterBackend();
+  });
+
+  it("routes global redo to the focused editor first, then falls through to saved domain history", async () => {
+    render(
+      <AppProviders adapter={new MockDesktopAdapter()}>
+        <div>Redo target</div>
+      </AppProviders>,
+    );
+
+    let editorCanRedo = true;
+    let editorOwnsFocus = true;
+    const editorRedo = vi.fn().mockResolvedValue({ domain: "editor", handled: true });
+    const backendRedo = vi.fn().mockResolvedValue({ domain: "backend", handled: true });
+
+    const unregisterEditor = useUndoStore.getState().registerDomain("editor", {
+      canUndo: () => false,
+      canRedo: () => editorCanRedo,
+      ownsFocus: () => editorOwnsFocus,
+      undo: vi.fn(),
+      redo: editorRedo,
+    });
+    const unregisterBackend = useUndoStore.getState().registerDomain("backend", {
+      canUndo: () => false,
+      canRedo: () => true,
+      peekRedoEntry: () => ({
+        domain: "backend",
+        summary: "Saved backend edit",
+        createdAt: Date.now(),
+      }),
+      undo: vi.fn(),
+      redo: backendRedo,
+    });
+
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true, shiftKey: true });
+    await waitFor(() => expect(editorRedo).toHaveBeenCalledTimes(1));
+    expect(backendRedo).not.toHaveBeenCalled();
+
+    editorCanRedo = false;
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true, shiftKey: true });
+    await waitFor(() => expect(backendRedo).toHaveBeenCalledTimes(1));
 
     unregisterEditor();
     unregisterBackend();

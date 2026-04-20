@@ -151,6 +151,7 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
 
     return useUndoStore.getState().registerDomain("editor", {
       canUndo: () => Boolean(editorRef.current?.getModel()?.canUndo()),
+      canRedo: () => Boolean(editorRef.current?.getModel()?.canRedo()),
       ownsFocus: () => Boolean(editorRef.current?.hasTextFocus()),
       undo: async () => {
         const model = editorRef.current?.getModel();
@@ -162,6 +163,21 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
         }
 
         await model.undo();
+        return {
+          domain: "editor" as const,
+          handled: true,
+        };
+      },
+      redo: async () => {
+        const model = editorRef.current?.getModel();
+        if (!model?.canRedo()) {
+          return {
+            domain: "editor" as const,
+            handled: false,
+          };
+        }
+
+        await model.redo();
         return {
           domain: "editor" as const,
           handled: true,

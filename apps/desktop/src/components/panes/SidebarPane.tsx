@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+} from "react";
+import type {
   BackendStatus,
   OverviewData,
   OverviewModule,
@@ -31,6 +35,23 @@ interface ExplorerTreeData {
   nodesById: Map<string, ExplorerTreeNode>;
   rootIds: string[];
 }
+
+interface ExplorerContextMenuState {
+  rowId: string;
+  x: number;
+  y: number;
+}
+
+interface ExplorerContextMenuItem {
+  id: string;
+  label: string;
+  action: () => void | Promise<void>;
+  separatorBefore?: boolean;
+}
+
+const CONTEXT_MENU_WIDTH = 248;
+const CONTEXT_MENU_MAX_HEIGHT = 336;
+const CONTEXT_MENU_MARGIN = 8;
 
 function compareExplorerNodes(
   left: ExplorerTreeNode,
@@ -275,6 +296,54 @@ function explorerKindBadge(row: ExplorerTreeNode): string | null {
   }
 }
 
+function clampContextMenuPosition(x: number, y: number) {
+  const viewportWidth = window.innerWidth || CONTEXT_MENU_WIDTH + CONTEXT_MENU_MARGIN * 2;
+  const viewportHeight = window.innerHeight || CONTEXT_MENU_MAX_HEIGHT + CONTEXT_MENU_MARGIN * 2;
+  return {
+    x: Math.max(
+      CONTEXT_MENU_MARGIN,
+      Math.min(x, viewportWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_MARGIN),
+    ),
+    y: Math.max(
+      CONTEXT_MENU_MARGIN,
+      Math.min(y, viewportHeight - CONTEXT_MENU_MAX_HEIGHT - CONTEXT_MENU_MARGIN),
+    ),
+  };
+}
+
+function joinRepoPath(repoPath: string | undefined, relativePath: string) {
+  if (!repoPath) {
+    return relativePath;
+  }
+
+  const normalizedRepoPath = repoPath.replaceAll("\\", "/").replace(/\/+$/, "");
+  const normalizedRelativePath = relativePath.replaceAll("\\", "/").replace(/^\/+/, "");
+  return `${normalizedRepoPath}/${normalizedRelativePath}`;
+}
+
+function systemFileExplorerLabel() {
+  const platform = navigator.platform.toLowerCase();
+  if (platform.includes("mac")) {
+    return "Show in Finder";
+  }
+  if (platform.includes("win")) {
+    return "Show in File Explorer";
+  }
+  return "Show in File Manager";
+}
+
+async function copyToClipboard(value: string) {
+  if (!navigator.clipboard?.writeText) {
+    throw new Error("Clipboard access is unavailable in this window.");
+  }
+
+  await navigator.clipboard.writeText(value);
+}
+
+function contextActionError(reason: unknown, fallback: string) {
+  return reason instanceof Error ? reason.message : fallback;
+}
+
 export function SidebarPane({
   backendStatus,
   overview,
@@ -290,6 +359,8 @@ export function SidebarPane({
   onFocusRepoGraph,
   onReindexRepo,
   onOpenRepo,
+  onOpenPathInDefaultEditor,
+  onRevealPathInFileExplorer,
 }: {
   backendStatus?: BackendStatus;
   overview?: OverviewData;
@@ -305,6 +376,8 @@ export function SidebarPane({
   onFocusRepoGraph: () => void;
   onReindexRepo: () => void;
   onOpenRepo: (path?: string) => void;
+  onOpenPathInDefaultEditor: (filePath: string) => void | Promise<void>;
+  onRevealPathInFileExplorer: (filePath: string) => void | Promise<void>;
 }) {
   const tree = useMemo(
     () => buildExplorerTree(overview?.modules ?? []),
@@ -325,8 +398,11 @@ export function SidebarPane({
   );
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<ExplorerContextMenuState | null>(null);
+  const [contextActionErrorMessage, setContextActionErrorMessage] = useState<string | null>(null);
   const previousRepoPathRef = useRef<string | undefined>(undefined);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const pendingSelectedRowScrollIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -434,6 +510,48 @@ export function SidebarPane({
     });
   };
 
+  const openContextMenuAt = (
+    row: ExplorerTreeNode,
+    x: number,
+    y: number,
+  ) => {
+    const position = clampContextMenuPosition(x, y);
+    setActiveRowId(row.id);
+    setContextActionErrorMessage(null);
+    setContextMenu({
+      rowId: row.id,
+      x: position.x,
+      y: position.y,
+    });
+  };
+
+  const openPointerContextMenu = (
+    event: ReactMouseEvent<HTMLDivElement>,
+    row: ExplorerTreeNode,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openContextMenuAt(row, event.clientX, event.clientY);
+  };
+
+  const openKeyboardContextMenu = (row: ExplorerTreeNode) => {
+    const rowElement = rowRefs.current.get(row.id);
+    const rect = rowElement?.getBoundingClientRect();
+    openContextMenuAt(
+      row,
+      rect ? rect.left + Math.min(rect.width - 8, 180) : CONTEXT_MENU_MARGIN,
+      rect ? rect.top + rect.height / 2 : CONTEXT_MENU_MARGIN,
+    );
+  };
+
+  const closeContextMenu = (restoreFocus = false) => {
+    const rowId = contextMenu?.rowId;
+    setContextMenu(null);
+    if (restoreFocus && rowId) {
+      window.requestAnimationFrame(() => rowRefs.current.get(rowId)?.focus());
+    }
+  };
+
   const activateRow = (row: ExplorerTreeNode) => {
     setActiveRowId(row.id);
     if (row.kind === "directory") {
@@ -451,11 +569,186 @@ export function SidebarPane({
     }
   };
 
+  const buildContextMenuItems = (row: ExplorerTreeNode): ExplorerContextMenuItem[] => {
+    const absolutePath = joinRepoPath(overview?.repo.path, row.path);
+    const revealLabel = systemFileExplorerLabel();
+    const items: ExplorerContextMenuItem[] = [];
+
+    if (row.kind === "directory") {
+      items.push({
+        id: "toggle-folder",
+        label: expandedIds.has(row.id) ? "Collapse Folder" : "Expand Folder",
+        action: () => toggleExpansion(row.id),
+      });
+    }
+
+    if (row.kind === "file") {
+      items.push({
+        id: "open-file",
+        label: "Open in H.E.L.M.",
+        action: () => {
+          if (row.module) {
+            onSelectModule(row.module);
+          }
+        },
+      });
+
+      if (isExpandableNode(row)) {
+        items.push({
+          id: "toggle-outline",
+          label: expandedIds.has(row.id) ? "Collapse Outline" : "Expand Outline",
+          action: () => toggleExpansion(row.id),
+        });
+      }
+    }
+
+    if (row.kind === "outline" && row.outlineItem) {
+      items.push(
+        {
+          id: "open-symbol",
+          label: "Open Symbol",
+          action: () => onSelectSymbol(row.outlineItem!.nodeId),
+        },
+        {
+          id: "open-parent-file",
+          label: "Open File",
+          action: () => {
+            if (row.module) {
+              onSelectModule(row.module);
+            }
+          },
+        },
+      );
+    }
+
+    items.push(
+      {
+        id: "reveal-path",
+        label: revealLabel,
+        action: () => onRevealPathInFileExplorer(absolutePath),
+        separatorBefore: true,
+      },
+      {
+        id: "open-default",
+        label: row.kind === "directory" ? "Open Folder" : "Open in Default App",
+        action: () => onOpenPathInDefaultEditor(absolutePath),
+      },
+      {
+        id: "copy-relative-path",
+        label: "Copy Relative Path",
+        action: () => copyToClipboard(row.path),
+        separatorBefore: true,
+      },
+      {
+        id: "copy-absolute-path",
+        label: "Copy Absolute Path",
+        action: () => copyToClipboard(absolutePath),
+      },
+    );
+
+    if (row.kind === "file" && row.module) {
+      items.push({
+        id: "copy-module-id",
+        label: "Copy Module ID",
+        action: () => copyToClipboard(row.module!.moduleId),
+      });
+    }
+
+    if (row.kind === "outline" && row.outlineItem) {
+      items.push({
+        id: "copy-symbol-id",
+        label: "Copy Symbol ID",
+        action: () => copyToClipboard(row.outlineItem!.nodeId),
+      });
+    }
+
+    return items;
+  };
+
+  const runContextMenuItem = async (item: ExplorerContextMenuItem) => {
+    setContextMenu(null);
+    try {
+      await item.action();
+      setContextActionErrorMessage(null);
+    } catch (reason) {
+      setContextActionErrorMessage(
+        contextActionError(reason, `Unable to run ${item.label.toLowerCase()}.`),
+      );
+    }
+  };
+
+  const handleContextMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(
+      contextMenuRef.current?.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitem"]:not(:disabled)',
+      ) ?? [],
+    );
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+
+    switch (event.key) {
+      case "ArrowDown": {
+        event.preventDefault();
+        items[(currentIndex + 1 + items.length) % items.length]?.focus();
+        break;
+      }
+      case "ArrowUp": {
+        event.preventDefault();
+        items[(currentIndex - 1 + items.length) % items.length]?.focus();
+        break;
+      }
+      case "Home":
+        event.preventDefault();
+        items[0]?.focus();
+        break;
+      case "End":
+        event.preventDefault();
+        items[items.length - 1]?.focus();
+        break;
+      case "Escape":
+        event.preventDefault();
+        closeContextMenu(true);
+        break;
+      default:
+        break;
+    }
+  };
+
   const focusParent = (row: ExplorerTreeNode) => {
     if (row.parentId) {
       focusRow(row.parentId);
     }
   };
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return undefined;
+    }
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      contextMenuRef.current
+        ?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')
+        ?.focus();
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [contextMenu]);
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return undefined;
+    }
+
+    const close = () => setContextMenu(null);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [contextMenu]);
+
+  const contextRow = contextMenu ? tree.nodesById.get(contextMenu.rowId) : undefined;
+  const contextMenuItems = contextRow ? buildContextMenuItems(contextRow) : [];
 
   return (
     <aside className="pane pane--sidebar explorer-shell">
@@ -496,6 +789,10 @@ export function SidebarPane({
           Repo Graph
         </button>
       </div>
+
+      {contextActionErrorMessage ? (
+        <p className="error-copy explorer-context-error">{contextActionErrorMessage}</p>
+      ) : null}
 
       <div className="sidebar-section">
         <div className="section-header">
@@ -577,8 +874,15 @@ export function SidebarPane({
                     tabIndex={activeRowId === row.id ? 0 : -1}
                     style={{ paddingLeft: `${12 + row.depth * 16}px` }}
                     onClick={() => activateRow(row)}
+                    onContextMenu={(event) => openPointerContextMenu(event, row)}
                     onFocus={() => setActiveRowId(row.id)}
                     onKeyDown={(event) => {
+                      if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+                        event.preventDefault();
+                        openKeyboardContextMenu(row);
+                        return;
+                      }
+
                       switch (event.key) {
                         case "ArrowDown":
                           event.preventDefault();
@@ -674,6 +978,47 @@ export function SidebarPane({
       )}
 
       <WorkspaceHelpBox />
+
+      {contextMenu && contextRow ? (
+        <div
+          aria-hidden="false"
+          className="context-menu-layer"
+          onContextMenu={(event) => {
+            event.preventDefault();
+            closeContextMenu();
+          }}
+          onPointerDown={() => closeContextMenu()}
+        >
+          <div
+            ref={contextMenuRef}
+            aria-label={`${contextRow.label} actions`}
+            className="explorer-context-menu"
+            role="menu"
+            style={{
+              left: contextMenu.x,
+              top: contextMenu.y,
+            }}
+            onKeyDown={handleContextMenuKeyDown}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            {contextMenuItems.map((item) => (
+              <div key={item.id} role="none">
+                {item.separatorBefore ? <div className="context-menu__separator" role="separator" /> : null}
+                <button
+                  className="context-menu__item"
+                  role="menuitem"
+                  type="button"
+                  onClick={() => {
+                    void runContextMenuItem(item);
+                  }}
+                >
+                  {item.label}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </aside>
   );
 }

@@ -26,6 +26,8 @@ const MENU_ID_SHOW_DEFINES: &str = "graph-view.show-defines";
 const MENU_ID_HIGHLIGHT_PATH: &str = "graph-view.highlight-path";
 const MENU_ID_SHOW_EDGE_LABELS: &str = "graph-view.show-edge-labels";
 const MENU_ID_UNDO: &str = "app.undo";
+const MENU_ID_REDO: &str = "app.redo";
+const MENU_ID_PREFERENCES: &str = "app.preferences";
 const MENU_ID_ZOOM_IN: &str = "app.zoom-in";
 const MENU_ID_ZOOM_OUT: &str = "app.zoom-out";
 const MENU_ID_ZOOM_RESET: &str = "app.zoom-reset";
@@ -1558,6 +1560,14 @@ fn build_macos_app_menu(
         Some("CmdOrCtrl+Shift+="),
     )?;
     let undo = MenuItem::with_id(app, MENU_ID_UNDO, "Undo", true, Some("CmdOrCtrl+Z"))?;
+    let redo = MenuItem::with_id(app, MENU_ID_REDO, "Redo", true, Some("CmdOrCtrl+Shift+Z"))?;
+    let preferences = MenuItem::with_id(
+        app,
+        MENU_ID_PREFERENCES,
+        "Preferences...",
+        true,
+        Some("CmdOrCtrl+,"),
+    )?;
     let zoom_out = MenuItem::with_id(app, MENU_ID_ZOOM_OUT, "Zoom Out", true, Some("CmdOrCtrl+-"))?;
     let zoom_reset = MenuItem::with_id(
         app,
@@ -1593,6 +1603,8 @@ fn build_macos_app_menu(
                 &[
                     &PredefinedMenuItem::about(app, None, Some(about_metadata))?,
                     &PredefinedMenuItem::separator(app)?,
+                    &preferences,
+                    &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::services(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::hide(app, None)?,
@@ -1613,7 +1625,7 @@ fn build_macos_app_menu(
                 true,
                 &[
                     &undo,
-                    &PredefinedMenuItem::redo(app, None)?,
+                    &redo,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::cut(app, None)?,
                     &PredefinedMenuItem::copy(app, None)?,
@@ -1744,6 +1756,8 @@ fn main() {
         .on_menu_event(|app, event| {
             let action = match event.id().as_ref() {
                 MENU_ID_UNDO => Some("undo"),
+                MENU_ID_REDO => Some("redo"),
+                MENU_ID_PREFERENCES => Some("preferences"),
                 MENU_ID_ZOOM_IN => Some("zoom-in"),
                 MENU_ID_ZOOM_OUT => Some("zoom-out"),
                 MENU_ID_ZOOM_RESET => Some("zoom-reset"),

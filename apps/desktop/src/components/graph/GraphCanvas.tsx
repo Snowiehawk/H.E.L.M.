@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import {
   Background,
   Controls,
@@ -75,6 +76,14 @@ import {
   type GroupOrganizeMode,
 } from "./groupOrganizeLayout";
 import { EmptyState } from "../shared/EmptyState";
+import {
+  AppContextMenu,
+  clampAppContextMenuPosition,
+  copyToClipboard,
+  systemFileExplorerLabel,
+  type AppContextMenuItem,
+  type AppContextMenuPosition,
+} from "../shared/AppContextMenu";
 import { useUiStore } from "../../store/uiStore";
 import { useUndoStore, type UndoEntry } from "../../store/undoStore";
 
@@ -113,6 +122,26 @@ type SemanticCanvasNode = Node<BlueprintNodeData, "blueprint">;
 type RerouteCanvasNode = Node<RerouteNodeData, "reroute">;
 type GraphCanvasNode = SemanticCanvasNode | RerouteCanvasNode;
 type GraphCanvasEdge = Edge<BlueprintEdgeData, "blueprint">;
+type GraphContextMenuState =
+  | (AppContextMenuPosition & {
+      kind: "node";
+      nodeId: string;
+      focusElement?: HTMLElement | null;
+    })
+  | (AppContextMenuPosition & {
+      kind: "edge";
+      edgeId: string;
+      edgeKind: GraphEdgeKind;
+      edgeLabel?: string;
+      segmentIndex: number;
+      flowPosition: { x: number; y: number };
+      focusElement?: HTMLElement | null;
+    })
+  | (AppContextMenuPosition & {
+      kind: "pane";
+      flowPosition: { x: number; y: number };
+      focusElement?: HTMLElement | null;
+    });
 export type CreateModeState = "inactive" | "active" | "composing";
 export interface GraphCreateIntent {
   flowPosition: { x: number; y: number };
@@ -222,6 +251,12 @@ function isDataFlowConnectionPair(
     && targetHandle?.startsWith("in:data:") === true;
 }
 
+function isVisualFunctionInputNode(node: GraphNodeDto): boolean {
+  return node.kind === "param"
+    && node.metadata["flow_visual"] === true
+    && typeof node.metadata["function_input_id"] === "string";
+}
+
 export function isValidFlowCanvasConnection(connection: {
   source?: string | null;
   sourceHandle?: string | null;
@@ -288,6 +323,17 @@ function metadataString(node: GraphNodeDto, key: string): string | undefined {
 
 function looksLikeSourcePath(value: string): boolean {
   return value.includes("/") || value.endsWith(".py");
+}
+
+function relativePathForGraphNode(node: GraphNodeDto): string | undefined {
+  const relativePath = metadataString(node, "relative_path");
+  if (relativePath && looksLikeSourcePath(relativePath)) {
+    return relativePath;
+  }
+  if (node.kind === "module" && node.subtitle && looksLikeSourcePath(node.subtitle)) {
+    return node.subtitle;
+  }
+  return undefined;
 }
 
 function moduleDisplayLabel(node: GraphNodeDto): string {
@@ -1631,6 +1677,7 @@ function buildCanvasEdges({
   hoverActive,
   nodes,
   onEdgeClick,
+  onEdgeContextMenu,
   onEdgeHoverEnd,
   onEdgeHoverStart,
   onInsertReroute,
@@ -1651,6 +1698,14 @@ function buildCanvasEdges({
     position: { x: number; y: number },
     clientPosition: { x: number; y: number },
     modifiers: { altKey: boolean },
+    logicalEdgeLabel?: string,
+  ) => void;
+  onEdgeContextMenu: (
+    logicalEdgeId: string,
+    logicalEdgeKind: GraphEdgeKind,
+    segmentIndex: number,
+    position: { x: number; y: number },
+    clientPosition: { x: number; y: number },
     logicalEdgeLabel?: string,
   ) => void;
   onEdgeHoverEnd: () => void;
@@ -1730,6 +1785,7 @@ function buildCanvasEdges({
           logicalEdgeLabel: edge.label,
           segmentIndex,
           onClick: onEdgeClick,
+          onContextMenu: onEdgeContextMenu,
           onHoverStart: onEdgeHoverStart,
           onHoverEnd: onEdgeHoverEnd,
           onInsertReroute,
@@ -1770,6 +1826,7 @@ function buildCanvasEdges({
               color: stroke,
             }
           : undefined,
+        reconnectable: edge.id.startsWith("data:flowparam:") ? false : undefined,
       };
     });
   });
@@ -1803,6 +1860,7 @@ function buildCanvasEdges({
         onHoverStart: edgeData.onHoverStart,
         onHoverEnd: edgeData.onHoverEnd,
         onClick: edgeData.onClick,
+        onContextMenu: edgeData.onContextMenu,
         onInsertReroute: edgeData.onInsertReroute,
         labelOffsetX: offset?.x ?? 0,
         labelOffsetY: offset?.y ?? 0,
@@ -1908,190 +1966,202 @@ function GraphGroupLayer({
 
   return (
     <ViewportPortal>
-      {groupBounds.map((group) => (
-        <div
-          key={group.id}
-          data-testid={`graph-group-${group.id}`}
-          {...helpTargetProps("graph.group.box", {
-            label: group.title,
-          })}
-          className={`graph-group${selectedGroupId === group.id ? " is-selected" : ""}${editingGroupId === group.id ? " is-editing" : ""}`}
-          style={{
-            transform: `translate(${group.x}px, ${group.y}px)`,
-            width: `${group.width}px`,
-            height: `${group.height}px`,
-          }}
-        >
-          <div className="graph-group__frame" />
-          <div
-            data-testid={`graph-group-hit-area-${group.id}-top`}
-            {...helpTargetProps("graph.group.box", {
-              label: group.title,
-            })}
-            aria-hidden="true"
-            className="graph-group__hit-area graph-group__hit-area--top"
-            onPointerDown={(event) => {
-              beginGroupInteraction(event, group);
-            }}
-          />
-          <div
-            data-testid={`graph-group-hit-area-${group.id}-right`}
-            {...helpTargetProps("graph.group.box", {
-              label: group.title,
-            })}
-            aria-hidden="true"
-            className="graph-group__hit-area graph-group__hit-area--right"
-            onPointerDown={(event) => {
-              beginGroupInteraction(event, group);
-            }}
-          />
-          <div
-            data-testid={`graph-group-hit-area-${group.id}-bottom`}
-            {...helpTargetProps("graph.group.box", {
-              label: group.title,
-            })}
-            aria-hidden="true"
-            className="graph-group__hit-area graph-group__hit-area--bottom"
-            onPointerDown={(event) => {
-              beginGroupInteraction(event, group);
-            }}
-          />
-          <div
-            data-testid={`graph-group-hit-area-${group.id}-left`}
-            {...helpTargetProps("graph.group.box", {
-              label: group.title,
-            })}
-            aria-hidden="true"
-            className="graph-group__hit-area graph-group__hit-area--left"
-            onPointerDown={(event) => {
-              beginGroupInteraction(event, group);
-            }}
-          />
-          <div
-            {...helpTargetProps("graph.group.box", {
-              label: group.title,
-            })}
-            className="graph-group__title-anchor"
-            style={{
-              transform: `translate(${GROUP_BOX_PADDING}px, calc(-100% - ${GROUP_TITLE_OFFSET}px))`,
-            }}
-            onPointerDown={(event) => {
-              beginGroupInteraction(event, group);
-            }}
-          >
-            {editingGroupId === group.id ? (
-              <input
-                autoFocus
-                className="graph-group__title-input"
-                data-testid={`graph-group-title-input-${group.id}`}
-                value={editingGroupTitle}
-                onBlur={() => onFinishGroupTitleEditing(group.id, "save")}
-                onChange={(event) => onChangeEditingGroupTitle(event.target.value)}
-                onFocus={(event) => {
-                  event.currentTarget.select();
-                }}
-                onKeyDown={(event) => {
-                  event.stopPropagation();
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    onFinishGroupTitleEditing(group.id, "save");
-                    return;
-                  }
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    onFinishGroupTitleEditing(group.id, "cancel");
-                  }
-                }}
+      {groupBounds.map((group) => {
+        const nodeCount = group.memberNodeIds.length;
+        const nodeCountLabel = `${nodeCount} ${nodeCount === 1 ? "node" : "nodes"} grouped`;
+
+        return (
+            <div
+              key={group.id}
+              data-testid={`graph-group-${group.id}`}
+              {...helpTargetProps("graph.group.box", {
+                label: group.title,
+              })}
+              className={`graph-group${selectedGroupId === group.id ? " is-selected" : ""}${editingGroupId === group.id ? " is-editing" : ""}`}
+              style={{
+                transform: `translate(${group.x}px, ${group.y}px)`,
+                width: `${group.width}px`,
+                height: `${group.height}px`,
+              }}
+            >
+              <div className="graph-group__frame" />
+              <div
+                data-testid={`graph-group-hit-area-${group.id}-top`}
+                {...helpTargetProps("graph.group.box", {
+                  label: group.title,
+                })}
+                aria-hidden="true"
+                className="graph-group__hit-area graph-group__hit-area--top"
                 onPointerDown={(event) => {
-                  event.stopPropagation();
+                  beginGroupInteraction(event, group);
                 }}
               />
-            ) : (
-              <div className="graph-group__header">
-                <div className="graph-group__title-row">
-                  <div
-                    className="graph-group__title"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onStartEditingGroup(group.id);
+              <div
+                data-testid={`graph-group-hit-area-${group.id}-right`}
+                {...helpTargetProps("graph.group.box", {
+                  label: group.title,
+                })}
+                aria-hidden="true"
+                className="graph-group__hit-area graph-group__hit-area--right"
+                onPointerDown={(event) => {
+                  beginGroupInteraction(event, group);
+                }}
+              />
+              <div
+                data-testid={`graph-group-hit-area-${group.id}-bottom`}
+                {...helpTargetProps("graph.group.box", {
+                  label: group.title,
+                })}
+                aria-hidden="true"
+                className="graph-group__hit-area graph-group__hit-area--bottom"
+                onPointerDown={(event) => {
+                  beginGroupInteraction(event, group);
+                }}
+              />
+              <div
+                data-testid={`graph-group-hit-area-${group.id}-left`}
+                {...helpTargetProps("graph.group.box", {
+                  label: group.title,
+                })}
+                aria-hidden="true"
+                className="graph-group__hit-area graph-group__hit-area--left"
+                onPointerDown={(event) => {
+                  beginGroupInteraction(event, group);
+                }}
+              />
+              <div
+                {...helpTargetProps("graph.group.box", {
+                  label: group.title,
+                })}
+                className="graph-group__title-anchor"
+                style={{
+                  transform: `translate(${GROUP_BOX_PADDING}px, calc(-100% - ${GROUP_TITLE_OFFSET}px))`,
+                }}
+                onPointerDown={(event) => {
+                  beginGroupInteraction(event, group);
+                }}
+              >
+                {editingGroupId === group.id ? (
+                  <input
+                    autoFocus
+                    className="graph-group__title-input"
+                    data-testid={`graph-group-title-input-${group.id}`}
+                    value={editingGroupTitle}
+                    onBlur={() => onFinishGroupTitleEditing(group.id, "save")}
+                    onChange={(event) => onChangeEditingGroupTitle(event.target.value)}
+                    onFocus={(event) => {
+                      event.currentTarget.select();
                     }}
-                    onDoubleClick={(event) => {
-                      event.preventDefault();
+                    onKeyDown={(event) => {
                       event.stopPropagation();
-                      onStartEditingGroup(group.id);
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        onFinishGroupTitleEditing(group.id, "save");
+                        return;
+                      }
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        onFinishGroupTitleEditing(group.id, "cancel");
+                      }
                     }}
                     onPointerDown={(event) => {
                       event.stopPropagation();
                     }}
-                  >
-                    {group.title}
-                  </div>
-                  <div className="graph-group__actions">
-                    <button
-                      {...helpTargetProps("graph.group.organize")}
-                      className={`graph-group__action${organizeGroupId === group.id ? " is-active" : ""}`}
-                      type="button"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        onToggleOrganizeGroup(group.id);
-                      }}
-                      onPointerDown={(event) => {
-                        event.stopPropagation();
-                      }}
-                    >
-                      Organize
-                    </button>
-                    <button
-                      className="graph-group__action graph-group__action--ungroup"
-                      type="button"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        onUngroupGroup(group.id, group.title);
-                      }}
-                      onPointerDown={(event) => {
-                        event.stopPropagation();
-                      }}
-                    >
-                      Ungroup
-                    </button>
-                  </div>
-                </div>
-                {organizeGroupId === group.id ? (
-                  <div
-                    className="graph-group__organize-row"
-                    data-testid={`graph-group-organize-${group.id}`}
-                    onPointerDown={(event) => {
-                      event.stopPropagation();
-                    }}
-                  >
-                    {organizeOptionsForGroup(group, nodes).map((option) => (
-                      <button
-                        key={option.mode}
-                        {...helpTargetProps("graph.group.organize", {
-                          label: option.label,
-                        })}
-                        className="graph-group__mode"
-                        data-testid={`graph-group-organize-${group.id}-${option.mode}`}
-                        type="button"
+                  />
+                ) : (
+                  <div className="graph-group__header">
+                    <div className="graph-group__title-row">
+                      <div
+                        className="graph-group__title"
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          onApplyOrganizeMode(group.id, option.mode);
+                          onStartEditingGroup(group.id);
+                        }}
+                        onDoubleClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onStartEditingGroup(group.id);
+                        }}
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
                         }}
                       >
-                        {option.label}
-                      </button>
-                    ))}
+                        {group.title}
+                      </div>
+                      <div
+                        aria-label={nodeCountLabel}
+                        className="graph-group__count"
+                        title={nodeCountLabel}
+                      >
+                        {nodeCount}
+                      </div>
+                      <div className="graph-group__actions">
+                        <button
+                          {...helpTargetProps("graph.group.organize")}
+                          className={`graph-group__action${organizeGroupId === group.id ? " is-active" : ""}`}
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onToggleOrganizeGroup(group.id);
+                          }}
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                          }}
+                        >
+                          Organize
+                        </button>
+                        <button
+                          className="graph-group__action graph-group__action--ungroup"
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onUngroupGroup(group.id, group.title);
+                          }}
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                          }}
+                        >
+                          Ungroup
+                        </button>
+                      </div>
+                    </div>
+                    {organizeGroupId === group.id ? (
+                      <div
+                        className="graph-group__organize-row"
+                        data-testid={`graph-group-organize-${group.id}`}
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                        }}
+                      >
+                        {organizeOptionsForGroup(group, nodes).map((option) => (
+                          <button
+                            key={option.mode}
+                            {...helpTargetProps("graph.group.organize", {
+                              label: option.label,
+                            })}
+                            className="graph-group__mode"
+                            data-testid={`graph-group-organize-${group.id}-${option.mode}`}
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              onApplyOrganizeMode(group.id, option.mode);
+                            }}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
+                )}
               </div>
-            )}
-          </div>
-        </div>
-      ))}
+            </div>
+        );
+      })}
     </ViewportPortal>
   );
 }
@@ -2110,6 +2180,8 @@ export function GraphCanvas({
   onSelectNode,
   onActivateNode,
   onInspectNode,
+  onOpenNodeInDefaultEditor,
+  onRevealNodeInFileExplorer,
   onSelectBreadcrumb,
   onSelectLevel,
   onToggleGraphFilter,
@@ -2129,6 +2201,7 @@ export function GraphCanvas({
   onReconnectFlowEdge = () => {},
   onDisconnectFlowEdge = () => {},
   onDeleteFlowSelection = () => {},
+  onDeleteSymbolNode = () => {},
 }: {
   repoPath?: string;
   graph?: GraphView;
@@ -2143,6 +2216,8 @@ export function GraphCanvas({
   onSelectNode: (nodeId: string, kind: GraphNodeKind) => void;
   onActivateNode: (nodeId: string, kind: GraphNodeKind) => void;
   onInspectNode: (nodeId: string, kind: GraphNodeKind) => void;
+  onOpenNodeInDefaultEditor?: (nodeId: string) => void | Promise<void>;
+  onRevealNodeInFileExplorer?: (nodeId: string) => void | Promise<void>;
   onSelectBreadcrumb: (breadcrumb: GraphBreadcrumbDto) => void;
   onSelectLevel: (level: GraphAbstractionLevel) => void;
   onToggleGraphFilter: (key: keyof GraphFilters) => void;
@@ -2163,6 +2238,7 @@ export function GraphCanvas({
   onReconnectFlowEdge?: (edgeId: string, connection: GraphFlowConnectionIntent) => void;
   onDisconnectFlowEdge?: (edgeId: string) => void;
   onDeleteFlowSelection?: (selection: GraphFlowDeleteIntent) => void;
+  onDeleteSymbolNode?: (nodeId: string) => void;
 }) {
   const { setTransientHelpTarget } = useWorkspaceHelp();
   const blueprint = useMemo(
@@ -2182,6 +2258,10 @@ export function GraphCanvas({
   );
   const graphNodeIds = useMemo(
     () => new Set(graph?.nodes.map((node) => node.id) ?? []),
+    [graph],
+  );
+  const graphNodeById = useMemo(
+    () => new Map(graph?.nodes.map((node) => [node.id, node] as const) ?? []),
     [graph],
   );
   const viewKey = graph ? graphLayoutViewKey(graph) : undefined;
@@ -2205,8 +2285,11 @@ export function GraphCanvas({
   const [editingGroupTitle, setEditingGroupTitle] = useState(DEFAULT_GROUP_TITLE);
   const [marqueeSelectionActive, setMarqueeSelectionActive] = useState(false);
   const [layoutUndoStacks, setLayoutUndoStacks] = useState<Record<string, LayoutUndoStackEntry[]>>({});
+  const [layoutRedoStacks, setLayoutRedoStacks] = useState<Record<string, LayoutUndoStackEntry[]>>({});
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | undefined>(undefined);
   const [hoveredPortEdgeIds, setHoveredPortEdgeIds] = useState<string[]>([]);
+  const [contextMenu, setContextMenu] = useState<GraphContextMenuState | null>(null);
+  const [contextActionError, setContextActionError] = useState<string | null>(null);
   const setLastActivity = useUiStore((state) => state.setLastActivity);
   const panModeActive = useKeyPress("Space");
   const [pointerInsidePanel, setPointerInsidePanel] = useState(false);
@@ -2235,6 +2318,16 @@ export function GraphCanvas({
     ),
     [graph?.flowState?.document],
   );
+  const deletableVisualFlowNodeIds = useMemo(
+    () => new Set(
+      graph?.level === "flow"
+        ? (graph.nodes ?? [])
+            .filter(isVisualFunctionInputNode)
+            .map((node) => node.id)
+        : [],
+    ),
+    [graph],
+  );
   const { groupByNodeId, memberNodeIdsByGroupId } = useMemo(
     () => buildGroupMembership(groups),
     [groups],
@@ -2250,6 +2343,10 @@ export function GraphCanvas({
   const currentLayoutUndoStack = useMemo(
     () => (viewKey ? layoutUndoStacks[viewKey] ?? [] : []),
     [layoutUndoStacks, viewKey],
+  );
+  const currentLayoutRedoStack = useMemo(
+    () => (viewKey ? layoutRedoStacks[viewKey] ?? [] : []),
+    [layoutRedoStacks, viewKey],
   );
   const semanticSelectionFromNodes = useMemo(
     () => sortNodeIds(
@@ -2342,10 +2439,24 @@ export function GraphCanvas({
   }, [graph?.edges, selectionPreviewNodeIdsKey, selectedPreviewNodeIds]);
   const selectionContextActive = selectionPreviewNodeIds.length > 0;
   const canPinNodes = graph?.level === "flow";
-  const selectedAuthorableFlowNodeIds = useMemo(
-    () => effectiveSemanticSelection.filter((nodeId) => authorableFlowNodeIds.has(nodeId)),
-    [authorableFlowNodeIds, effectiveSemanticSelection],
+  const selectedDeletableFlowNodeIds = useMemo(
+    () => effectiveSemanticSelection.filter((nodeId) => (
+      authorableFlowNodeIds.has(nodeId)
+      || deletableVisualFlowNodeIds.has(nodeId)
+    )),
+    [authorableFlowNodeIds, deletableVisualFlowNodeIds, effectiveSemanticSelection],
   );
+  const selectedDeletableSymbolNodeId = useMemo(() => {
+    if (!graph || !selectedNodeId) {
+      return undefined;
+    }
+    const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId);
+    if (!selectedNode || !isGraphSymbolNodeKind(selectedNode.kind)) {
+      return undefined;
+    }
+    const deleteAction = selectedNode.availableActions.find((action) => action.actionId === "delete_symbol");
+    return deleteAction?.enabled ? selectedNode.id : undefined;
+  }, [graph, selectedNodeId]);
 
   const clearLocalSelection = () => {
     setSelectedSemanticNodeIds([]);
@@ -2418,6 +2529,109 @@ export function GraphCanvas({
     );
     onClearSelection();
   }, [onClearSelection]);
+
+  const closeContextMenu = useCallback((restoreFocus = false) => {
+    const focusElement = contextMenu?.focusElement;
+    setContextMenu(null);
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => {
+        focusElement?.focus();
+        panelRef.current?.focus();
+      });
+    }
+  }, [contextMenu?.focusElement]);
+
+  const openPaneContextMenu = useCallback((event: ReactMouseEvent<Element> | MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const position = clampAppContextMenuPosition(event.clientX, event.clientY);
+    setContextActionError(null);
+    setContextMenu({
+      kind: "pane",
+      ...position,
+      flowPosition: screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+      focusElement: panelRef.current,
+    });
+  }, [screenToFlowPosition]);
+
+  const openEdgeContextMenu = useCallback((
+    edgeId: string,
+    edgeKind: GraphEdgeKind,
+    segmentIndex: number,
+    flowPosition: { x: number; y: number },
+    clientPosition: { x: number; y: number },
+    edgeLabel?: string,
+  ) => {
+    const position = clampAppContextMenuPosition(clientPosition.x, clientPosition.y);
+    setContextActionError(null);
+    setContextMenu({
+      kind: "edge",
+      edgeId,
+      edgeKind,
+      edgeLabel,
+      segmentIndex,
+      flowPosition,
+      ...position,
+      focusElement: panelRef.current,
+    });
+  }, []);
+
+  const openNodeContextMenu = useCallback((
+    event: ReactMouseEvent<Element>,
+    node: GraphCanvasNode,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const position = clampAppContextMenuPosition(event.clientX, event.clientY);
+    setContextActionError(null);
+
+    if (isRerouteCanvasNode(node)) {
+      setSelectedControlEdgeIds([]);
+      setSelectedGroupId(undefined);
+      setOrganizeGroupId(undefined);
+      setSelectedSemanticNodeIds([]);
+      setNodes((current) =>
+        current.map((currentNode) => ({
+          ...currentNode,
+          selected: currentNode.id === node.id,
+        })),
+      );
+      onClearSelection();
+      setContextMenu({
+        kind: "node",
+        nodeId: node.id,
+        ...position,
+        focusElement: event.currentTarget as HTMLElement,
+      });
+      return;
+    }
+
+    if (!selectedSemanticNodeIds.includes(node.id)) {
+      setSelectedControlEdgeIds([]);
+      setSelectedGroupId(undefined);
+      setOrganizeGroupId(undefined);
+      setSelectedSemanticNodeIds([node.id]);
+      setNodes((current) =>
+        current.map((currentNode) => {
+          if (isRerouteCanvasNode(currentNode)) {
+            return currentNode.selected ? { ...currentNode, selected: false } : currentNode;
+          }
+          return {
+            ...currentNode,
+            selected: currentNode.id === node.id,
+          };
+        }),
+      );
+      onSelectNode(node.id, node.data.kind);
+    }
+
+    setContextMenu({
+      kind: "node",
+      nodeId: node.id,
+      ...position,
+      focusElement: event.currentTarget as HTMLElement,
+    });
+  }, [onClearSelection, onSelectNode, selectedSemanticNodeIds]);
   const persistCurrentLayout = (
     nextNodes: GraphCanvasNode[],
     nextGroups: StoredGraphGroup[] = groups,
@@ -2448,6 +2662,10 @@ export function GraphCanvas({
           },
         },
       ],
+    }));
+    setLayoutRedoStacks((current) => ({
+      ...current,
+      [targetViewKey]: [],
     }));
   };
 
@@ -2482,22 +2700,58 @@ export function GraphCanvas({
     pushLayoutUndoEntry(pendingUndo.entry.summary, pendingUndo.layout, pendingUndo.viewKey);
   };
 
-  const applyLayoutUndoEntry = (layoutUndo: LayoutUndoStackEntry) => {
+  const applyLayoutHistoryEntry = (
+    layoutHistory: LayoutUndoStackEntry,
+    direction: "undo" | "redo",
+  ) => {
+    const inverseLayout = persistGraphLayout(nodes, groups);
+    const inverseEntry: LayoutUndoStackEntry = {
+      viewKey: layoutHistory.viewKey,
+      layout: inverseLayout,
+      entry: {
+        ...layoutHistory.entry,
+        createdAt: Date.now(),
+      },
+    };
+
     hydrationGenerationRef.current += 1;
-    setNodes((current) => applyStoredLayout(current, layoutUndo.layout));
-    setGroups(layoutUndo.layout.groups ?? []);
+    setNodes((current) => applyStoredLayout(current, layoutHistory.layout));
+    setGroups(layoutHistory.layout.groups ?? []);
     setOrganizeGroupId(undefined);
     setEditingGroupId(undefined);
     setEditingGroupTitle(DEFAULT_GROUP_TITLE);
-    void writeStoredGraphLayout(repoPath, layoutUndo.viewKey, layoutUndo.layout);
-    setLayoutUndoStacks((current) => ({
-      ...current,
-      [layoutUndo.viewKey]: (current[layoutUndo.viewKey] ?? []).slice(0, -1),
-    }));
+    void writeStoredGraphLayout(repoPath, layoutHistory.viewKey, layoutHistory.layout);
+
+    if (direction === "undo") {
+      setLayoutUndoStacks((current) => ({
+        ...current,
+        [layoutHistory.viewKey]: (current[layoutHistory.viewKey] ?? []).slice(0, -1),
+      }));
+      setLayoutRedoStacks((current) => ({
+        ...current,
+        [layoutHistory.viewKey]: [
+          ...(current[layoutHistory.viewKey] ?? []),
+          inverseEntry,
+        ],
+      }));
+    } else {
+      setLayoutRedoStacks((current) => ({
+        ...current,
+        [layoutHistory.viewKey]: (current[layoutHistory.viewKey] ?? []).slice(0, -1),
+      }));
+      setLayoutUndoStacks((current) => ({
+        ...current,
+        [layoutHistory.viewKey]: [
+          ...(current[layoutHistory.viewKey] ?? []),
+          inverseEntry,
+        ],
+      }));
+    }
+
     setLastActivity({
       domain: "layout",
-      kind: "undo",
-      summary: `Undid layout: ${layoutUndo.entry.summary}`,
+      kind: direction,
+      summary: `${direction === "undo" ? "Undid" : "Redid"} layout: ${layoutHistory.entry.summary}`,
     });
   };
 
@@ -2889,14 +3143,22 @@ export function GraphCanvas({
     if (
       flowAuthoringEnabled
       && shouldHandleRerouteDeleteKey(event)
-      && (selectedControlEdgeIds.length || selectedAuthorableFlowNodeIds.length)
+      && (selectedControlEdgeIds.length || selectedDeletableFlowNodeIds.length)
     ) {
       event.preventDefault();
       onDeleteFlowSelection({
-        nodeIds: selectedAuthorableFlowNodeIds,
+        nodeIds: selectedDeletableFlowNodeIds,
         edgeIds: selectedControlEdgeIds,
       });
       setSelectedControlEdgeIds([]);
+      return;
+    }
+
+    if (shouldHandleRerouteDeleteKey(event)) {
+      event.preventDefault();
+      if (selectedDeletableSymbolNodeId) {
+        onDeleteSymbolNode(selectedDeletableSymbolNodeId);
+      }
       return;
     }
 
@@ -2997,8 +3259,10 @@ export function GraphCanvas({
     memberNodeIdsByGroupId,
     selectedGroupId,
     selectedNodeId,
+    selectedDeletableSymbolNodeId,
     selectedRerouteCount,
     onToggleCreateMode,
+    onDeleteSymbolNode,
     togglePinnedNodes,
     ungroupSelection,
     fitViewOptions,
@@ -3277,7 +3541,10 @@ export function GraphCanvas({
       (graph?.edges ?? [])
         .filter((edge) =>
           edge.kind === "controls"
-          || (edge.kind === "data" && edge.id.startsWith("data:flowbinding:")),
+          || (edge.kind === "data" && (
+            edge.id.startsWith("data:flowbinding:")
+            || edge.id.startsWith("data:flowparam:")
+          )),
         )
         .map((edge) => edge.id),
     );
@@ -3290,12 +3557,15 @@ export function GraphCanvas({
 
   useEffect(() => {
     setLayoutUndoStacks({});
+    setLayoutRedoStacks({});
     pendingLayoutUndoRef.current = undefined;
   }, [repoPath]);
 
   useEffect(() => useUndoStore.getState().registerDomain("layout", {
     canUndo: () => currentLayoutUndoStack.length > 0,
+    canRedo: () => currentLayoutRedoStack.length > 0,
     peekEntry: () => currentLayoutUndoStack[currentLayoutUndoStack.length - 1]?.entry,
+    peekRedoEntry: () => currentLayoutRedoStack[currentLayoutRedoStack.length - 1]?.entry,
     undo: async () => {
       const layoutUndo = currentLayoutUndoStack[currentLayoutUndoStack.length - 1];
       if (!layoutUndo) {
@@ -3305,14 +3575,30 @@ export function GraphCanvas({
         };
       }
 
-      applyLayoutUndoEntry(layoutUndo);
+      applyLayoutHistoryEntry(layoutUndo, "undo");
       return {
         domain: "layout" as const,
         handled: true,
         summary: layoutUndo.entry.summary,
       };
     },
-  }), [applyLayoutUndoEntry, currentLayoutUndoStack]);
+    redo: async () => {
+      const layoutRedo = currentLayoutRedoStack[currentLayoutRedoStack.length - 1];
+      if (!layoutRedo) {
+        return {
+          domain: "layout" as const,
+          handled: false,
+        };
+      }
+
+      applyLayoutHistoryEntry(layoutRedo, "redo");
+      return {
+        domain: "layout" as const,
+        handled: true,
+        summary: layoutRedo.entry.summary,
+      };
+    },
+  }), [applyLayoutHistoryEntry, currentLayoutRedoStack, currentLayoutUndoStack]);
 
   useEffect(() => {
     setHoveredEdgeId(undefined);
@@ -3388,7 +3674,7 @@ export function GraphCanvas({
       return;
     }
 
-    applyLayoutUndoEntry(layoutUndo);
+    applyLayoutHistoryEntry(layoutUndo, "undo");
   };
 
   const handleInsertReroute = (
@@ -3462,6 +3748,404 @@ export function GraphCanvas({
     }
   };
 
+  const panelPositionForContext = (position: AppContextMenuPosition) => {
+    const panelBounds = panelRef.current?.getBoundingClientRect();
+    return {
+      x: panelBounds ? position.x - panelBounds.left : position.x,
+      y: panelBounds ? position.y - panelBounds.top : position.y,
+    };
+  };
+
+  const deleteSelectedFlowItems = () => {
+    if (!flowAuthoringEnabled) {
+      return;
+    }
+    onDeleteFlowSelection({
+      nodeIds: selectedDeletableFlowNodeIds,
+      edgeIds: selectedControlEdgeIds,
+    });
+    setSelectedControlEdgeIds([]);
+  };
+
+  const buildNodeContextMenuItems = (
+    menu: Extract<GraphContextMenuState, { kind: "node" }>,
+  ): AppContextMenuItem[] => {
+    const canvasNode = nodes.find((node) => node.id === menu.nodeId);
+    if (!canvasNode) {
+      return [];
+    }
+
+    if (isRerouteCanvasNode(canvasNode)) {
+      return [
+        {
+          id: "remove-reroute",
+          label: "Remove Reroute",
+          action: removeSelectedReroutes,
+        },
+        {
+          id: "copy-reroute-id",
+          label: "Copy Reroute ID",
+          action: () => copyToClipboard(canvasNode.id),
+          separatorBefore: true,
+        },
+        {
+          id: "copy-reroute-edge-id",
+          label: "Copy Edge ID",
+          action: () => copyToClipboard(canvasNode.data.logicalEdgeId),
+        },
+      ];
+    }
+
+    const graphNode = graphNodeById.get(menu.nodeId);
+    if (!graphNode) {
+      return [];
+    }
+
+    const relativePath = relativePathForGraphNode(graphNode);
+    const qualname = metadataString(graphNode, "qualname");
+    const sourceBacked = Boolean(relativePath)
+      || graphNode.kind === "module"
+      || isGraphSymbolNodeKind(graphNode.kind);
+    const groupId = groupByNodeId.get(graphNode.id);
+    const selectedGroupMemberIds = groupId ? memberNodeIdsByGroupId.get(groupId) ?? [] : [];
+    const canDeleteFlowItems = flowAuthoringEnabled
+      && (selectedControlEdgeIds.length > 0 || selectedDeletableFlowNodeIds.length > 0);
+    const items: AppContextMenuItem[] = [];
+
+    if (isEnterableGraphNodeKind(graphNode.kind)) {
+      items.push({
+        id: "enter",
+        label: "Enter Node",
+        action: () => onActivateNode(graphNode.id, graphNode.kind),
+      });
+    }
+
+    if (isInspectableGraphNodeKind(graphNode.kind)) {
+      items.push({
+        id: "inspect",
+        label: "Inspect Source",
+        action: () => onInspectNode(graphNode.id, graphNode.kind),
+      });
+    }
+
+    if (flowAuthoringEnabled && graphNode.kind === "return") {
+      items.push({
+        id: "open-expression-graph",
+        label: "Open Expression Graph",
+        action: () => requestExpressionGraphIntent(graphNode.id, undefined, {
+          x: menu.x,
+          y: menu.y,
+        }),
+      });
+    }
+
+    if (flowAuthoringEnabled && authorableFlowNodeIds.has(graphNode.id)) {
+      items.push({
+        id: "edit-flow-node",
+        label: "Edit Flow Node",
+        action: () => onEditFlowNodeIntent({
+          nodeId: graphNode.id,
+          flowPosition: screenToFlowPosition({ x: menu.x, y: menu.y }),
+          panelPosition: panelPositionForContext(menu),
+        }),
+      });
+    }
+
+    if (canPinNodes) {
+      items.push({
+        id: "toggle-pin",
+        label: canvasNode.data.isPinned ? "Unpin Node" : "Pin Node",
+        action: () => togglePinnedNodes([graphNode.id]),
+        separatorBefore: items.length > 0,
+      });
+    }
+
+    if (effectiveSemanticSelection.length > 1) {
+      items.push({
+        id: "group-selection",
+        label: "Group Selection",
+        action: createGroupFromSelection,
+        separatorBefore: items.length > 0,
+      });
+    }
+
+    if (groupId) {
+      items.push(
+        {
+          id: "select-group",
+          label: "Select Group",
+          action: () => selectGroup(groupId),
+          separatorBefore: effectiveSemanticSelection.length <= 1 && items.length > 0,
+        },
+        {
+          id: "ungroup-node-group",
+          label: "Ungroup",
+          action: () => {
+            setSelectedSemanticNodeIds(selectedGroupMemberIds);
+            void ungroupGroup(
+              groupId,
+              groups.find((group) => group.id === groupId)?.title ?? groupId,
+            );
+          },
+        },
+      );
+    }
+
+    if (canDeleteFlowItems) {
+      items.push({
+        id: "delete-flow-selection",
+        label: "Delete Flow Selection",
+        action: deleteSelectedFlowItems,
+        separatorBefore: items.length > 0,
+      });
+    }
+
+    if (sourceBacked && onRevealNodeInFileExplorer) {
+      items.push({
+        id: "reveal-node",
+        label: systemFileExplorerLabel(),
+        action: () => onRevealNodeInFileExplorer(graphNode.id),
+        separatorBefore: items.length > 0,
+      });
+    }
+
+    if (sourceBacked && onOpenNodeInDefaultEditor) {
+      items.push({
+        id: "open-default",
+        label: "Open in Default Editor",
+        action: () => onOpenNodeInDefaultEditor(graphNode.id),
+      });
+    }
+
+    items.push(
+      {
+        id: "copy-label",
+        label: "Copy Label",
+        action: () => copyToClipboard(graphNode.label),
+        separatorBefore: true,
+      },
+      {
+        id: "copy-node-id",
+        label: "Copy Node ID",
+        action: () => copyToClipboard(graphNode.id),
+      },
+      {
+        id: "copy-kind",
+        label: "Copy Kind",
+        action: () => copyToClipboard(graphNode.kind),
+      },
+    );
+
+    if (relativePath) {
+      items.push({
+        id: "copy-relative-path",
+        label: "Copy Relative Path",
+        action: () => copyToClipboard(relativePath),
+      });
+    }
+
+    if (qualname) {
+      items.push({
+        id: "copy-qualname",
+        label: "Copy Qualified Name",
+        action: () => copyToClipboard(qualname),
+      });
+    }
+
+    return items;
+  };
+
+  const buildEdgeContextMenuItems = (
+    menu: Extract<GraphContextMenuState, { kind: "edge" }>,
+  ): AppContextMenuItem[] => {
+    const canModifyFlowEdge =
+      flowAuthoringEnabled
+      && (
+        menu.edgeKind === "controls"
+        || menu.edgeId.startsWith("data:flowbinding:")
+        || menu.edgeId.startsWith("data:flowparam:")
+      );
+    const items: AppContextMenuItem[] = [];
+
+    if (canModifyFlowEdge) {
+      items.push(
+        {
+          id: "select-edge",
+          label: "Select Edge",
+          action: () => selectControlEdge(menu.edgeId),
+        },
+        {
+          id: "disconnect-edge",
+          label: "Disconnect Edge",
+          action: () => {
+            onDisconnectFlowEdge(menu.edgeId);
+            setSelectedControlEdgeIds((current) =>
+              current.filter((edgeId) => edgeId !== menu.edgeId),
+            );
+          },
+        },
+      );
+    }
+
+    items.push({
+      id: "insert-reroute",
+      label: "Insert Reroute",
+      action: () => handleInsertReroute(menu.edgeId, menu.segmentIndex, menu.flowPosition),
+      separatorBefore: items.length > 0,
+    });
+
+    items.push(
+      {
+        id: "copy-edge-id",
+        label: "Copy Edge ID",
+        action: () => copyToClipboard(menu.edgeId),
+        separatorBefore: true,
+      },
+      {
+        id: "copy-edge-kind",
+        label: "Copy Edge Kind",
+        action: () => copyToClipboard(menu.edgeKind),
+      },
+    );
+
+    if (menu.edgeLabel) {
+      items.push({
+        id: "copy-edge-label",
+        label: "Copy Edge Label",
+        action: () => copyToClipboard(menu.edgeLabel ?? ""),
+      });
+    }
+
+    return items;
+  };
+
+  const buildPaneContextMenuItems = (
+    menu: Extract<GraphContextMenuState, { kind: "pane" }>,
+  ): AppContextMenuItem[] => {
+    if (!graph) {
+      return [];
+    }
+
+    const canDeleteFlowItems = flowAuthoringEnabled
+      && (selectedControlEdgeIds.length > 0 || selectedDeletableFlowNodeIds.length > 0);
+    const items: AppContextMenuItem[] = [];
+
+    if (flowAuthoringEnabled) {
+      items.push({
+        id: "create-flow-node",
+        label: "Create Flow Node Here",
+        action: () => onCreateIntent({
+          flowPosition: menu.flowPosition,
+          panelPosition: panelPositionForContext(menu),
+        }),
+      });
+    }
+
+    items.push(
+      {
+        id: "fit-view",
+        label: "Fit View",
+        action: () => {
+          handleFitView();
+        },
+        separatorBefore: items.length > 0,
+      },
+      {
+        id: "declutter",
+        label: graph.level === "flow" ? "Auto Layout Flow" : "Declutter Layout",
+        action: handleDeclutter,
+      },
+      {
+        id: "undo-layout",
+        label: "Undo Layout",
+        action: handleUndoLayout,
+        disabled: currentLayoutUndoStack.length === 0,
+      },
+    );
+
+    if (effectiveSemanticSelection.length > 1) {
+      items.push({
+        id: "group-selection",
+        label: "Group Selection",
+        action: createGroupFromSelection,
+        separatorBefore: true,
+      });
+    }
+
+    if (selectedGroupId || effectiveSemanticSelection.some((nodeId) => groupedNodeIds.has(nodeId))) {
+      items.push({
+        id: "ungroup-selection",
+        label: "Ungroup Selection",
+        action: ungroupSelection,
+        separatorBefore: effectiveSemanticSelection.length <= 1,
+      });
+    }
+
+    if (canDeleteFlowItems) {
+      items.push({
+        id: "delete-flow-selection",
+        label: "Delete Flow Selection",
+        action: deleteSelectedFlowItems,
+        separatorBefore: true,
+      });
+    }
+
+    if (
+      effectiveSemanticSelection.length
+      || selectedControlEdgeIds.length
+      || selectedRerouteCount
+      || selectedGroupId
+    ) {
+      items.push({
+        id: "clear-selection",
+        label: "Clear Selection",
+        action: () => {
+          clearLocalSelection();
+          onClearSelection();
+        },
+        separatorBefore: !canDeleteFlowItems,
+      });
+    }
+
+    items.push(
+      {
+        id: "toggle-create-mode",
+        label: createModeActive ? "Exit Create Mode" : "Enter Create Mode",
+        action: onToggleCreateMode,
+        separatorBefore: true,
+      },
+      {
+        id: "copy-graph-target",
+        label: "Copy Graph Target ID",
+        action: () => copyToClipboard(graph.targetId),
+        separatorBefore: true,
+      },
+      {
+        id: "copy-graph-level",
+        label: "Copy Graph Level",
+        action: () => copyToClipboard(graph.level),
+      },
+    );
+
+    return items;
+  };
+
+  const contextMenuItems = contextMenu
+    ? contextMenu.kind === "node"
+      ? buildNodeContextMenuItems(contextMenu)
+      : contextMenu.kind === "edge"
+        ? buildEdgeContextMenuItems(contextMenu)
+        : buildPaneContextMenuItems(contextMenu)
+    : [];
+
+  const contextMenuLabel = contextMenu
+    ? contextMenu.kind === "node"
+      ? `${graphNodeById.get(contextMenu.nodeId)?.label ?? "Node"} actions`
+      : contextMenu.kind === "edge"
+        ? `${contextMenu.edgeLabel ?? contextMenu.edgeKind} edge actions`
+        : "Graph actions"
+    : "Graph actions";
+
   const groupBounds = useMemo(
     () => buildGraphGroupBoundsList(groups, nodes),
     [groups, nodes],
@@ -3518,7 +4202,13 @@ export function GraphCanvas({
     hoverActive,
     nodes,
     onEdgeClick: (logicalEdgeId, logicalEdgeKind, _position, _clientPosition, modifiers) => {
-      if (logicalEdgeKind === "data" && logicalEdgeId.startsWith("data:flowbinding:")) {
+      if (
+        logicalEdgeKind === "data"
+        && (
+          logicalEdgeId.startsWith("data:flowbinding:")
+          || logicalEdgeId.startsWith("data:flowparam:")
+        )
+      ) {
         if (modifiers.altKey) {
           onDisconnectFlowEdge(logicalEdgeId);
           setSelectedControlEdgeIds((current) => current.filter((edgeId) => edgeId !== logicalEdgeId));
@@ -3542,6 +4232,7 @@ export function GraphCanvas({
       }
       selectControlEdge(logicalEdgeId);
     },
+    onEdgeContextMenu: openEdgeContextMenu,
     onEdgeHoverEnd: () => {
       setHoveredEdgeId(undefined);
       setTransientHelpTarget(null);
@@ -3656,6 +4347,7 @@ export function GraphCanvas({
         connectionLineContainerStyle={{ pointerEvents: "none", zIndex: 30 }}
         connectionRadius={FLOW_CONNECTION_RADIUS}
         reconnectRadius={FLOW_RECONNECT_RADIUS}
+        deleteKeyCode={null}
         isValidConnection={(connection) => (
           flowAuthoringEnabled && isValidFlowCanvasConnection(connection)
         )}
@@ -3819,6 +4511,8 @@ export function GraphCanvas({
           }
           node.data.onDefaultAction?.();
         }}
+        onNodeContextMenu={openNodeContextMenu}
+        onPaneContextMenu={openPaneContextMenu}
         onPaneClick={(event) => {
           if (createModeActive) {
             if (createModeReady && createModeCanvasEnabled) {
@@ -3856,6 +4550,20 @@ export function GraphCanvas({
         <Controls showInteractive={false} />
         <Background gap={32} size={1} color={createModeActive ? "var(--accent-strong)" : "var(--line-strong)"} />
       </ReactFlow>
+
+      {contextActionError ? (
+        <p className="error-copy graph-context-error">{contextActionError}</p>
+      ) : null}
+
+      {contextMenu ? (
+        <AppContextMenu
+          label={contextMenuLabel}
+          items={contextMenuItems}
+          position={contextMenu}
+          onActionError={setContextActionError}
+          onClose={closeContextMenu}
+        />
+      ) : null}
 
       {createModeActive ? (
         <>

@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import type {
   EditableNodeSource,
+  FlowFunctionInput,
+  FlowInputDisplayMode,
   GraphActionDto,
   GraphNodeDto,
   RevealedSource,
@@ -12,6 +15,14 @@ import { isInspectableGraphNodeKind } from "../../lib/adapter";
 import type { WorkspaceActivity } from "../../store/uiStore";
 import { InspectorCodeSurface } from "../editor/InspectorCodeSurface";
 import { inferInspectorLanguage } from "../editor/inspectorLanguage";
+import {
+  AppContextMenu,
+  clampAppContextMenuPosition,
+  copyToClipboard,
+  systemFileExplorerLabel,
+  type AppContextMenuItem,
+  type AppContextMenuPosition,
+} from "../shared/AppContextMenu";
 import { StatusPill } from "../shared/StatusPill";
 import {
   metadataBoolean,
@@ -19,6 +30,16 @@ import {
   selectionSummary,
 } from "./blueprintInspectorUtils";
 import { helpTargetProps } from "./workspaceHelp";
+
+type FlowFunctionInputPatch = {
+  name?: string;
+  defaultExpression?: string | null;
+};
+
+type FlowFunctionInputDraftState = {
+  name: string;
+  defaultExpression: string;
+};
 
 function graphActionById(
   node: GraphNodeDto | undefined,
@@ -41,7 +62,16 @@ export function BlueprintInspector({
   lastActivity,
   isSavingSource,
   highlightRange,
+  flowFunctionInputs,
+  flowInputDisplayMode,
+  flowInputsEditable = false,
   onApplyStructuralEdit,
+  onAddFlowFunctionInput,
+  onUpdateFlowFunctionInput,
+  onMoveFlowFunctionInput,
+  onRemoveFlowFunctionInput,
+  onOpenNodeInDefaultEditor,
+  onRevealNodeInFileExplorer,
   onSaveSource,
   onEditorStateChange,
   onDismissSource,
@@ -60,7 +90,16 @@ export function BlueprintInspector({
   lastActivity?: WorkspaceActivity;
   isSavingSource: boolean;
   highlightRange?: SourceRange;
+  flowFunctionInputs?: FlowFunctionInput[];
+  flowInputDisplayMode?: FlowInputDisplayMode;
+  flowInputsEditable?: boolean;
   onApplyStructuralEdit?: (request: StructuralEditRequest) => Promise<unknown>;
+  onAddFlowFunctionInput?: (draft: FlowFunctionInputPatch) => void;
+  onUpdateFlowFunctionInput?: (inputId: string, patch: FlowFunctionInputPatch) => void;
+  onMoveFlowFunctionInput?: (inputId: string, direction: -1 | 1) => void;
+  onRemoveFlowFunctionInput?: (inputId: string) => void;
+  onOpenNodeInDefaultEditor?: (targetId: string) => void | Promise<void>;
+  onRevealNodeInFileExplorer?: (targetId: string) => void | Promise<void>;
   onSaveSource: (targetId: string, content: string) => Promise<void>;
   onEditorStateChange: (content?: string, dirty?: boolean) => void;
   onDismissSource: () => void;
@@ -69,6 +108,10 @@ export function BlueprintInspector({
   const [draftSource, setDraftSource] = useState("");
   const [sourceError, setSourceError] = useState<string | null>(null);
   const [structuralActionError, setStructuralActionError] = useState<string | null>(null);
+  const [contextActionError, setContextActionError] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<
+    (AppContextMenuPosition & { targetId?: string; focusElement?: HTMLElement | null }) | null
+  >(null);
   const [pendingStructuralActionId, setPendingStructuralActionId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [moveDestinationPath, setMoveDestinationPath] = useState("");
@@ -76,6 +119,9 @@ export function BlueprintInspector({
   const [addImportName, setAddImportName] = useState("");
   const [addImportAlias, setAddImportAlias] = useState("");
   const [removeImportModule, setRemoveImportModule] = useState("");
+  const [flowInputDrafts, setFlowInputDrafts] = useState<Record<string, FlowFunctionInputDraftState>>({});
+  const [newFlowInputName, setNewFlowInputName] = useState("");
+  const [newFlowInputDefault, setNewFlowInputDefault] = useState("");
   const previousEditableTargetIdRef = useRef<string | undefined>(undefined);
   const selectedRelativePath = relativePathForNode(selectedNode);
   const contextRelativePath = relativePathForNode(sourceContextNode);
@@ -93,6 +139,12 @@ export function BlueprintInspector({
   const inspectorKind = selectedNode?.kind ?? editableSource?.nodeKind ?? sourceContextNode?.kind;
   const moduleRelativePath = relativePathForNode(moduleActionNode);
   const nodePath = editableSource?.path ?? selectedRelativePath ?? contextRelativePath ?? symbol?.filePath;
+  const contextTargetId =
+    selectedNode?.id
+    ?? editableSource?.targetId
+    ?? revealedSource?.targetId
+    ?? sourceContextNode?.id
+    ?? symbol?.nodeId;
   const sourceLanguage = inferInspectorLanguage({
     editablePath: editableSource?.path,
     selectedRelativePath: selectedRelativePath ?? contextRelativePath,
@@ -132,6 +184,128 @@ export function BlueprintInspector({
     || (selectedNode && isInspectableGraphNodeKind(selectedNode.kind)),
   );
   const contextSectionVisible = Boolean(!selectedNode && (sourceContextNode || sourceSectionVisible || symbol));
+  const sortedFlowFunctionInputs = [...(flowFunctionInputs ?? [])]
+    .sort((left, right) => left.index - right.index || left.name.localeCompare(right.name));
+  const flowInputsVisible = selectedNode?.kind === "entry" && Boolean(flowFunctionInputs);
+
+  const closeContextMenu = (restoreFocus = false) => {
+    const focusElement = contextMenu?.focusElement;
+    setContextMenu(null);
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => focusElement?.focus());
+    }
+  };
+
+  const openContextMenu = (event: ReactMouseEvent<HTMLElement>, targetId = contextTargetId) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextActionError(null);
+    setContextMenu({
+      ...clampAppContextMenuPosition(event.clientX, event.clientY),
+      targetId,
+      focusElement: event.currentTarget,
+    });
+  };
+
+  const contextMenuItems = (): AppContextMenuItem[] => {
+    const targetId = contextMenu?.targetId ?? contextTargetId;
+    const selectedText = document.getSelection()?.toString().trim() ?? "";
+    const items: AppContextMenuItem[] = [];
+
+    if (targetId && onRevealNodeInFileExplorer) {
+      items.push({
+        id: "reveal-node",
+        label: systemFileExplorerLabel(),
+        action: () => onRevealNodeInFileExplorer(targetId),
+      });
+    }
+
+    if (targetId && onOpenNodeInDefaultEditor) {
+      items.push({
+        id: "open-default",
+        label: "Open in Default Editor",
+        action: () => onOpenNodeInDefaultEditor(targetId),
+      });
+    }
+
+    if (canEditInline) {
+      items.push(
+        {
+          id: "save-source",
+          label: isSavingSource ? "Saving..." : "Save Source",
+          action: handleSave,
+          disabled: draftStale || !dirty || isSavingSource,
+          separatorBefore: items.length > 0,
+        },
+        {
+          id: "cancel-source",
+          label: draftStale ? "Reload from Disk" : "Cancel Source Changes",
+          action: handleCancel,
+          disabled: (!dirty && !draftStale) || isSavingSource,
+        },
+      );
+    }
+
+    if (selectedText) {
+      items.push({
+        id: "copy-selection",
+        label: "Copy Selection",
+        action: () => copyToClipboard(selectedText),
+        separatorBefore: true,
+      });
+    }
+
+    if (nodePath) {
+      items.push({
+        id: "copy-path",
+        label: "Copy Path",
+        action: () => copyToClipboard(nodePath),
+        separatorBefore: !selectedText,
+      });
+    }
+
+    if (inspectorTitle) {
+      items.push({
+        id: "copy-title",
+        label: "Copy Title",
+        action: () => copyToClipboard(inspectorTitle),
+      });
+    }
+
+    if (targetId) {
+      items.push({
+        id: "copy-target-id",
+        label: "Copy Target ID",
+        action: () => copyToClipboard(targetId),
+      });
+    }
+
+    if (symbol?.qualname) {
+      items.push({
+        id: "copy-qualname",
+        label: "Copy Qualified Name",
+        action: () => copyToClipboard(symbol.qualname),
+      });
+    }
+
+    if (revealedSource) {
+      items.push({
+        id: "hide-revealed-source",
+        label: "Hide Revealed Source",
+        action: onDismissSource,
+        separatorBefore: true,
+      });
+    }
+
+    items.push({
+      id: "close-inspector",
+      label: "Collapse Inspector",
+      action: onClose,
+      separatorBefore: true,
+    });
+
+    return items;
+  };
 
   useEffect(() => {
     const nextTargetId = editableSource?.targetId;
@@ -169,6 +343,18 @@ export function BlueprintInspector({
     setRemoveImportModule("");
     setStructuralActionError(null);
   }, [moduleActionNode?.id]);
+
+  useEffect(() => {
+    setFlowInputDrafts(Object.fromEntries(sortedFlowFunctionInputs.map((input) => [
+      input.id,
+      {
+        name: input.name,
+        defaultExpression: input.defaultExpression ?? "",
+      },
+    ])));
+    setNewFlowInputName("");
+    setNewFlowInputDefault("");
+  }, [flowFunctionInputs]);
 
   const handleSave = async () => {
     if (!editableSource || !canEditInline) {
@@ -218,9 +404,47 @@ export function BlueprintInspector({
     }
   };
 
+  const updateFlowInputDraft = (
+    inputId: string,
+    patch: Partial<FlowFunctionInputDraftState>,
+  ) => {
+    setFlowInputDrafts((current) => ({
+      ...current,
+      [inputId]: {
+        name: current[inputId]?.name ?? "",
+        defaultExpression: current[inputId]?.defaultExpression ?? "",
+        ...patch,
+      },
+    }));
+  };
+
+  const commitFlowInputDraft = (input: FlowFunctionInput) => {
+    const draft = flowInputDrafts[input.id];
+    if (!draft || !onUpdateFlowFunctionInput) {
+      return;
+    }
+    const name = draft.name.trim();
+    const defaultExpression = draft.defaultExpression.trim();
+    onUpdateFlowFunctionInput(input.id, {
+      name: name || input.name,
+      defaultExpression: defaultExpression || null,
+    });
+  };
+
+  const flowInputDraftDirty = (input: FlowFunctionInput) => {
+    const draft = flowInputDrafts[input.id];
+    return Boolean(
+      draft
+      && (
+        draft.name !== input.name
+        || draft.defaultExpression !== (input.defaultExpression ?? "")
+      ),
+    );
+  };
+
   if (!selectedNode && !contextSectionVisible) {
     return (
-      <aside className="pane pane--inspector blueprint-inspector">
+      <aside className="pane pane--inspector blueprint-inspector" onContextMenu={openContextMenu}>
         <section className="sidebar-card blueprint-inspector__card">
           <div className="sidebar-card__header">
             <div>
@@ -238,12 +462,21 @@ export function BlueprintInspector({
           </div>
           <p>Select a graph node to inspect it, or press <strong>C</strong> in the graph to enter create mode.</p>
         </section>
+        {contextMenu ? (
+          <AppContextMenu
+            label="Inspector actions"
+            items={contextMenuItems()}
+            position={contextMenu}
+            onActionError={setContextActionError}
+            onClose={closeContextMenu}
+          />
+        ) : null}
       </aside>
     );
   }
 
   return (
-    <aside className={inspectorClassName}>
+    <aside className={inspectorClassName} onContextMenu={openContextMenu}>
       <section className="sidebar-card blueprint-inspector__card">
         <div className="sidebar-card__header">
           <div>
@@ -273,6 +506,10 @@ export function BlueprintInspector({
           </div>
         </div>
       </section>
+
+      {contextActionError ? (
+        <p className="error-copy inspector-context-error">{contextActionError}</p>
+      ) : null}
 
       {selectedNode ? (
         <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--selection">
@@ -313,8 +550,161 @@ export function BlueprintInspector({
         </section>
       ) : null}
 
+      {flowInputsVisible ? (
+        <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--flow-inputs">
+          <div className="section-header">
+            <h3>Inputs</h3>
+            <span>{flowInputDisplayMode === "param_nodes" ? "parameters" : "entry"}</span>
+          </div>
+
+          <form
+            className="info-card blueprint-flow-inputs__add"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!flowInputsEditable || !onAddFlowFunctionInput) {
+                return;
+              }
+              onAddFlowFunctionInput({
+                name: newFlowInputName,
+                defaultExpression: newFlowInputDefault,
+              });
+            }}
+          >
+            <label className="blueprint-field">
+              <span className="blueprint-field__label">
+                <strong>New input</strong>
+              </span>
+              <input
+                aria-label="New flow input name"
+                type="text"
+                value={newFlowInputName}
+                disabled={!flowInputsEditable}
+                placeholder={`input_${sortedFlowFunctionInputs.length + 1}`}
+                onChange={(event) => setNewFlowInputName(event.target.value)}
+              />
+            </label>
+            <label className="blueprint-field">
+              <span className="blueprint-field__label">
+                <strong>Default</strong>
+              </span>
+              <input
+                aria-label="New flow input default expression"
+                type="text"
+                value={newFlowInputDefault}
+                disabled={!flowInputsEditable}
+                placeholder="optional"
+                onChange={(event) => setNewFlowInputDefault(event.target.value)}
+              />
+            </label>
+            <div className="blueprint-inspector__editor-actions">
+              <button
+                className="secondary-button"
+                type="submit"
+                disabled={!flowInputsEditable || !onAddFlowFunctionInput}
+              >
+                Add input
+              </button>
+            </div>
+          </form>
+
+          {sortedFlowFunctionInputs.length ? (
+            <div className="blueprint-flow-inputs__list">
+              {sortedFlowFunctionInputs.map((input, index) => {
+                const draft = flowInputDrafts[input.id] ?? {
+                  name: input.name,
+                  defaultExpression: input.defaultExpression ?? "",
+                };
+                const dirtyInput = flowInputDraftDirty(input);
+                return (
+                  <div className="info-card blueprint-flow-inputs__row" key={input.id}>
+                    <div className="blueprint-flow-inputs__row-header">
+                      <strong>{input.name}</strong>
+                      <StatusPill tone="default">{input.kind ?? "positional_or_keyword"}</StatusPill>
+                    </div>
+                    <label className="blueprint-field">
+                      <span className="blueprint-field__label">Name</span>
+                      <input
+                        aria-label={`Flow input ${input.name} name`}
+                        type="text"
+                        value={draft.name}
+                        disabled={!flowInputsEditable}
+                        onChange={(event) => updateFlowInputDraft(input.id, { name: event.target.value })}
+                        onBlur={() => {
+                          if (dirtyInput) {
+                            commitFlowInputDraft(input);
+                          }
+                        }}
+                      />
+                    </label>
+                    <label className="blueprint-field">
+                      <span className="blueprint-field__label">Default</span>
+                      <input
+                        aria-label={`Flow input ${input.name} default expression`}
+                        type="text"
+                        value={draft.defaultExpression}
+                        disabled={!flowInputsEditable}
+                        placeholder="none"
+                        onChange={(event) => updateFlowInputDraft(input.id, { defaultExpression: event.target.value })}
+                        onBlur={() => {
+                          if (dirtyInput) {
+                            commitFlowInputDraft(input);
+                          }
+                        }}
+                      />
+                    </label>
+                    <div className="blueprint-flow-inputs__actions">
+                      <button
+                        aria-label={`Move ${input.name} up`}
+                        className="ghost-button"
+                        type="button"
+                        disabled={!flowInputsEditable || index === 0 || !onMoveFlowFunctionInput}
+                        onClick={() => onMoveFlowFunctionInput?.(input.id, -1)}
+                      >
+                        Up
+                      </button>
+                      <button
+                        aria-label={`Move ${input.name} down`}
+                        className="ghost-button"
+                        type="button"
+                        disabled={!flowInputsEditable || index === sortedFlowFunctionInputs.length - 1 || !onMoveFlowFunctionInput}
+                        onClick={() => onMoveFlowFunctionInput?.(input.id, 1)}
+                      >
+                        Down
+                      </button>
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        disabled={!flowInputsEditable || !dirtyInput || !onUpdateFlowFunctionInput}
+                        onClick={() => commitFlowInputDraft(input)}
+                      >
+                        Save
+                      </button>
+                      <button
+                        className="ghost-button blueprint-flow-inputs__remove"
+                        type="button"
+                        disabled={!flowInputsEditable || !onRemoveFlowFunctionInput}
+                        onClick={() => onRemoveFlowFunctionInput?.(input.id)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="info-card">
+              <p>No inputs yet.</p>
+            </div>
+          )}
+        </section>
+      ) : null}
+
       {sourceSectionVisible ? (
-        <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--editor">
+        <section
+          className="sidebar-section blueprint-inspector__section blueprint-inspector__section--editor"
+          onContextMenu={(event) => openContextMenu(event, editableSource?.targetId ?? contextTargetId)}
+        >
           <div className="section-header">
             <h3>{canEditInline ? "Declaration editor" : "Code details"}</h3>
             <span>
@@ -744,7 +1134,10 @@ export function BlueprintInspector({
       ) : null}
 
       {revealedSource ? (
-        <section className="sidebar-section blueprint-inspector__section blueprint-inspector__section--revealed">
+        <section
+          className="sidebar-section blueprint-inspector__section blueprint-inspector__section--revealed"
+          onContextMenu={(event) => openContextMenu(event, revealedSource.targetId)}
+        >
           <div className="section-header">
             <h3>Revealed Source</h3>
             <button
@@ -774,6 +1167,16 @@ export function BlueprintInspector({
             value={revealedSource.content}
           />
         </section>
+      ) : null}
+
+      {contextMenu ? (
+        <AppContextMenu
+          label={`${inspectorTitle} actions`}
+          items={contextMenuItems()}
+          position={contextMenu}
+          onActionError={setContextActionError}
+          onClose={closeContextMenu}
+        />
       ) : null}
     </aside>
   );

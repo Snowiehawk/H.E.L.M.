@@ -153,6 +153,11 @@ function PortList({
       {ports.map((port) => {
         const memberCount = port.memberLabels?.length ?? 0;
         const showBadge = memberCount > 1;
+        const portConnectable = (port.kind === "control" || port.kind === "data") && connectable;
+        const handlePosition = direction === "input"
+          ? Position.Left
+          : Position.Right;
+        const portTooltip = port.tooltip?.trim();
         const badge = showBadge ? (
           <span
             aria-label={`${memberCount} ${port.label} connections: ${port.memberLabels?.join(", ")}`}
@@ -167,7 +172,7 @@ function PortList({
           <div
             key={port.id}
             {...helpTargetProps(helpIdForPort(port.kind, port.label), {
-              label: port.label,
+              label: portTooltip ?? port.label,
             })}
             className={[
               "graph-node__port",
@@ -176,6 +181,7 @@ function PortList({
               port.isHighlighted ? "is-highlighted" : "",
               port.isDimmed ? "is-dimmed" : "",
             ].filter(Boolean).join(" ")}
+            title={portTooltip}
             onMouseEnter={port.onHoverStart}
             onMouseLeave={port.onHoverEnd}
           >
@@ -185,12 +191,13 @@ function PortList({
                 className={[
                   "graph-node__handle",
                   `graph-node__handle--${port.kind}`,
+                  portConnectable ? "is-flow-connectable" : "",
                   port.isHighlighted ? "is-highlighted" : "",
                   port.isDimmed ? "is-dimmed" : "",
                 ].filter(Boolean).join(" ")}
                 type="target"
-                position={Position.Left}
-                isConnectable={(port.kind === "control" || port.kind === "data") && connectable}
+                position={handlePosition}
+                isConnectable={portConnectable}
               />
             ) : null}
             {direction === "input" ? badge : null}
@@ -202,12 +209,13 @@ function PortList({
                 className={[
                   "graph-node__handle",
                   `graph-node__handle--${port.kind}`,
+                  portConnectable ? "is-flow-connectable" : "",
                   port.isHighlighted ? "is-highlighted" : "",
                   port.isDimmed ? "is-dimmed" : "",
                 ].filter(Boolean).join(" ")}
                 type="source"
-                position={Position.Right}
-                isConnectable={(port.kind === "control" || port.kind === "data") && connectable}
+                position={handlePosition}
+                isConnectable={portConnectable}
               />
             ) : null}
           </div>

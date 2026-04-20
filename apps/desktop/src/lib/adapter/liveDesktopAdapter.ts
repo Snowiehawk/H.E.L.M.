@@ -328,6 +328,8 @@ interface RawEditResult {
   } | null;
 }
 
+type RawBackendUndoTransaction = NonNullable<RawEditResult["undo_transaction"]>;
+
 interface RawApplyEditResponse {
   edit: RawEditResult;
   payload: RawScanPayload;
@@ -368,6 +370,7 @@ interface RawUndoResult {
     target_id: string;
     level: GraphAbstractionLevel;
   } | null;
+  redo_transaction?: RawBackendUndoTransaction | null;
 }
 
 interface RawApplyUndoResponse {
@@ -839,8 +842,12 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     if (!node?.file_path) {
       throw new Error(`No source file is associated with ${targetId}.`);
     }
+    await this.openPathInDefaultEditor(node.file_path);
+  }
+
+  async openPathInDefaultEditor(filePath: string): Promise<void> {
     await invoke("open_path_in_default_editor", {
-      filePath: normalizePath(node.file_path),
+      filePath: normalizePath(filePath),
     });
   }
 
@@ -1473,6 +1480,25 @@ function toRawUndoTransaction(transaction: BackendUndoTransaction) {
   };
 }
 
+function fromRawUndoTransaction(raw: RawBackendUndoTransaction): BackendUndoTransaction {
+  return {
+    summary: raw.summary,
+    requestKind: raw.request_kind,
+    fileSnapshots: raw.file_snapshots.map((snapshot) => ({
+      relativePath: snapshot.relative_path,
+      existed: snapshot.existed,
+      content: snapshot.content ?? undefined,
+    })),
+    changedNodeIds: raw.changed_node_ids,
+    focusTarget: raw.focus_target
+      ? {
+          targetId: raw.focus_target.target_id,
+          level: raw.focus_target.level,
+        }
+      : undefined,
+  };
+}
+
 function toStructuralEditResult(raw: RawEditResult): StructuralEditResult {
   return {
     request: raw.request,
@@ -1483,24 +1509,7 @@ function toStructuralEditResult(raw: RawEditResult): StructuralEditResult {
     warnings: raw.warnings,
     flowSyncState: raw.flow_sync_state ?? null,
     diagnostics: raw.diagnostics ?? [],
-    undoTransaction: raw.undo_transaction
-      ? {
-          summary: raw.undo_transaction.summary,
-          requestKind: raw.undo_transaction.request_kind,
-          fileSnapshots: raw.undo_transaction.file_snapshots.map((snapshot) => ({
-            relativePath: snapshot.relative_path,
-            existed: snapshot.existed,
-            content: snapshot.content ?? undefined,
-          })),
-          changedNodeIds: raw.undo_transaction.changed_node_ids,
-          focusTarget: raw.undo_transaction.focus_target
-            ? {
-                targetId: raw.undo_transaction.focus_target.target_id,
-                level: raw.undo_transaction.focus_target.level,
-              }
-            : undefined,
-        }
-      : undefined,
+    undoTransaction: raw.undo_transaction ? fromRawUndoTransaction(raw.undo_transaction) : undefined,
   };
 }
 
@@ -1515,6 +1524,7 @@ function toBackendUndoResult(raw: RawUndoResult) {
           level: raw.focus_target.level,
         }
       : undefined,
+    redoTransaction: raw.redo_transaction ? fromRawUndoTransaction(raw.redo_transaction) : undefined,
   };
 }
 

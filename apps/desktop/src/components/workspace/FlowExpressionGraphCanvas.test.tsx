@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FlowExpressionGraph, FlowInputSlot } from "../../lib/adapter";
@@ -144,6 +144,25 @@ describe("FlowExpressionGraphCanvas", () => {
     expect(screen.getByText("a + b")).toBeInTheDocument();
   });
 
+  it("marks the selected expression node distinctly from unselected nodes", async () => {
+    mockCanvasElementRect();
+    renderCanvas({ selectedExpressionNodeId: "expr:input:a" });
+
+    expect(await screen.findByTestId("flow-expression-node-expr:input:a")).toHaveClass("is-selected");
+    expect(screen.getByTestId("flow-expression-node-expr:input:b")).not.toHaveClass("is-selected");
+    expect(screen.getByTestId("flow-expression-node-expr:operator:add")).not.toHaveClass("is-selected");
+  });
+
+  it("keeps target handle labels inside nodes with reserved label space", async () => {
+    mockCanvasElementRect();
+    renderCanvas({ selectedExpressionNodeId: "expr:operator:add" });
+
+    const operatorNode = await screen.findByTestId("flow-expression-node-expr:operator:add");
+    expect(operatorNode).toHaveClass("has-targets");
+    expect(within(operatorNode).getByText("L")).toHaveClass("flow-expression-canvas__target-label");
+    expect(within(operatorNode).getByText("R")).toHaveClass("flow-expression-canvas__target-label");
+  });
+
   it("adds expression nodes from canvas controls", async () => {
     mockCanvasElementRect();
     const user = userEvent.setup();
@@ -171,6 +190,27 @@ describe("FlowExpressionGraphCanvas", () => {
         }),
       ),
     );
+  });
+
+  it("opens an expression graph context menu", async () => {
+    mockCanvasElementRect();
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    renderCanvas();
+
+    const operatorNode = await screen.findByTestId("flow-expression-node-expr:operator:add");
+    fireEvent.contextMenu(operatorNode, { clientX: 160, clientY: 120 });
+
+    const menu = await screen.findByRole("menu", { name: "Expression node actions" });
+    expect(within(menu).getByRole("menuitem", { name: "Delete Node" })).toBeInTheDocument();
+
+    await user.click(within(menu).getByRole("menuitem", { name: "Copy Expression" }));
+
+    expect(writeText).toHaveBeenCalledWith("a + b");
   });
 
   it("edits selected node payloads without using a source textarea", async () => {

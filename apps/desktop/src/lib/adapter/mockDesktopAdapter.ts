@@ -50,6 +50,10 @@ export class MockDesktopAdapter implements DesktopAdapter {
     snapshot: MockWorkspaceState;
     transaction: BackendUndoTransaction;
   }> = [];
+  private backendRedoHistory: Array<{
+    snapshot: MockWorkspaceState;
+    transaction: BackendUndoTransaction;
+  }> = [];
   private workspaceSyncListeners = new Set<(event: WorkspaceSyncEvent) => void>();
 
   async openRepo(path?: string): Promise<RepoSession> {
@@ -57,6 +61,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
     this.currentSession = buildRepoSession(path ?? defaultRepoPath);
     this.workspace = createMockWorkspaceState();
     this.backendUndoHistory = [];
+    this.backendRedoHistory = [];
     return this.currentSession;
   }
 
@@ -248,6 +253,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
     const result = applyMockEdit(this.workspace, request);
     const transaction = buildMockUndoTransaction(result);
     this.backendUndoHistory.push({ snapshot, transaction });
+    this.backendRedoHistory = [];
     return {
       ...result,
       undoTransaction: transaction,
@@ -256,17 +262,38 @@ export class MockDesktopAdapter implements DesktopAdapter {
 
   async applyBackendUndo(transaction: BackendUndoTransaction): Promise<BackendUndoResult> {
     await delay(120);
-    const entry = this.backendUndoHistory.pop();
+    const currentSnapshot = cloneWorkspaceState(this.workspace);
+    let isRedo = false;
+    let redoIndex = -1;
+    for (let index = this.backendRedoHistory.length - 1; index >= 0; index -= 1) {
+      if (backendUndoTransactionsEqual(this.backendRedoHistory[index].transaction, transaction)) {
+        redoIndex = index;
+        break;
+      }
+    }
+
+    const entry = redoIndex >= 0
+      ? this.backendRedoHistory.splice(redoIndex, 1)[0]
+      : this.backendUndoHistory.pop();
     if (!entry) {
       throw new Error("No backend undo history is available in the mock adapter.");
     }
 
+    isRedo = redoIndex >= 0;
+    const inverseTransaction = cloneBackendUndoTransaction(transaction);
     this.workspace = cloneWorkspaceState(entry.snapshot);
+    if (isRedo) {
+      this.backendUndoHistory.push({ snapshot: currentSnapshot, transaction: inverseTransaction });
+    } else {
+      this.backendRedoHistory.push({ snapshot: currentSnapshot, transaction: inverseTransaction });
+    }
+
     return {
-      summary: `Undid: ${transaction.summary}`,
+      summary: `${isRedo ? "Redid" : "Undid"}: ${transaction.summary}`,
       restoredRelativePaths: transaction.fileSnapshots.map((snapshot) => snapshot.relativePath),
       warnings: [],
       focusTarget: transaction.focusTarget,
+      redoTransaction: inverseTransaction,
     };
   }
 
@@ -290,6 +317,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
     });
     const transaction = buildMockUndoTransaction(result);
     this.backendUndoHistory.push({ snapshot, transaction });
+    this.backendRedoHistory = [];
     return {
       ...result,
       undoTransaction: transaction,
@@ -297,6 +325,10 @@ export class MockDesktopAdapter implements DesktopAdapter {
   }
 
   async openNodeInDefaultEditor(_targetId: string): Promise<void> {
+    await delay(40);
+  }
+
+  async openPathInDefaultEditor(_filePath: string): Promise<void> {
     await delay(40);
   }
 
@@ -320,6 +352,17 @@ export class MockDesktopAdapter implements DesktopAdapter {
 
 function cloneWorkspaceState(state: MockWorkspaceState): MockWorkspaceState {
   return JSON.parse(JSON.stringify(state)) as MockWorkspaceState;
+}
+
+function cloneBackendUndoTransaction(transaction: BackendUndoTransaction): BackendUndoTransaction {
+  return JSON.parse(JSON.stringify(transaction)) as BackendUndoTransaction;
+}
+
+function backendUndoTransactionsEqual(
+  left: BackendUndoTransaction,
+  right: BackendUndoTransaction,
+) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function buildMockUndoTransaction(result: StructuralEditResult): BackendUndoTransaction {

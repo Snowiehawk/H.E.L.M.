@@ -291,6 +291,183 @@ describe("buildBlueprintPresentation", () => {
     });
   });
 
+  it("uses visual flow control handles without adding a duplicate exec output", () => {
+    const graph: GraphView = {
+      rootNodeId: "flow:entry",
+      targetId: "symbol:service:run",
+      level: "flow",
+      truncated: false,
+      breadcrumbs: [],
+      focus: null,
+      nodes: [
+        {
+          id: "flow:entry",
+          kind: "entry",
+          label: "Entry",
+          x: 0,
+          y: 0,
+          metadata: { flow_visual: true },
+          availableActions: [],
+        },
+        {
+          id: "flow:assign",
+          kind: "assign",
+          label: "result = value",
+          x: 240,
+          y: 0,
+          metadata: { flow_visual: true },
+          availableActions: [],
+        },
+        {
+          id: "flow:return",
+          kind: "return",
+          label: "return result",
+          x: 480,
+          y: 0,
+          metadata: { flow_visual: true },
+          availableActions: [],
+        },
+      ],
+      edges: [
+        {
+          id: "controls:entry-assign",
+          kind: "controls",
+          source: "flow:entry",
+          target: "flow:assign",
+          metadata: { source_handle: "start", target_handle: "in" },
+        },
+        {
+          id: "controls:assign-return",
+          kind: "controls",
+          source: "flow:assign",
+          target: "flow:return",
+          metadata: { source_handle: "next", target_handle: "in" },
+        },
+      ],
+    };
+
+    const presentation = buildBlueprintPresentation(graph);
+    const entryPorts = presentation.nodePorts.get("flow:entry");
+    const assignPorts = presentation.nodePorts.get("flow:assign");
+
+    expect(entryPorts?.outputs.filter((port) => port.kind === "control").map((port) => port.label)).toEqual(["start"]);
+    expect(assignPorts?.outputs.filter((port) => port.kind === "control").map((port) => port.label)).toEqual(["next"]);
+    expect(presentation.edgeHandles.get("controls:entry-assign")).toEqual({
+      sourceHandle: "out:control:start",
+      targetHandle: "in:control:exec",
+    });
+    expect(presentation.edgeHandles.get("controls:assign-return")).toEqual({
+      sourceHandle: "out:control:next",
+      targetHandle: "in:control:exec",
+    });
+  });
+
+  it("normalizes legacy branch after control edges to the false handle", () => {
+    const graph: GraphView = {
+      rootNodeId: "flow:branch",
+      targetId: "symbol:service:run",
+      level: "flow",
+      truncated: false,
+      breadcrumbs: [],
+      focus: null,
+      nodes: [
+        {
+          id: "flow:branch",
+          kind: "branch",
+          label: "if flag",
+          x: 0,
+          y: 0,
+          metadata: { flow_visual: true },
+          availableActions: [],
+        },
+        {
+          id: "flow:return",
+          kind: "return",
+          label: "return value",
+          x: 240,
+          y: -80,
+          metadata: { flow_visual: true },
+          availableActions: [],
+        },
+        {
+          id: "flow:next",
+          kind: "branch",
+          label: "if other",
+          x: 240,
+          y: 80,
+          metadata: { flow_visual: true },
+          availableActions: [],
+        },
+      ],
+      edges: [
+        {
+          id: "controls:branch-true",
+          kind: "controls",
+          source: "flow:branch",
+          target: "flow:return",
+          label: "true",
+          metadata: { source_handle: "true", target_handle: "in", path_key: "true", path_label: "true" },
+        },
+        {
+          id: "controls:branch-after",
+          kind: "controls",
+          source: "flow:branch",
+          target: "flow:next",
+          label: "after",
+          metadata: { source_handle: "after", target_handle: "in", path_key: "after", path_label: "after" },
+        },
+      ],
+    };
+
+    const presentation = buildBlueprintPresentation(graph);
+    const branchPorts = presentation.nodePorts.get("flow:branch");
+
+    expect(branchPorts?.outputs.map((port) => port.label)).toEqual(["true", "false"]);
+    expect(presentation.edgeHandles.get("controls:branch-after")).toEqual({
+      sourceHandle: "out:control:false",
+      targetHandle: "in:control:exec",
+    });
+  });
+
+  it("keeps visual parameter nodes data-only", () => {
+    const graph: GraphView = {
+      rootNodeId: "flow:param:value",
+      targetId: "symbol:service:run",
+      level: "flow",
+      truncated: false,
+      breadcrumbs: [],
+      focus: null,
+      nodes: [
+        {
+          id: "flow:param:value",
+          kind: "param",
+          label: "value",
+          x: 0,
+          y: 0,
+          metadata: {
+            flow_visual: true,
+            function_input_id: "flowinput:symbol:service:run:value",
+            source_handle: "out:data:function-input:flowinput:symbol:service:run:value",
+          },
+          availableActions: [],
+        },
+      ],
+      edges: [],
+    };
+
+    const presentation = buildBlueprintPresentation(graph);
+    const paramPorts = presentation.nodePorts.get("flow:param:value");
+
+    expect(paramPorts?.inputs).toEqual([]);
+    expect(paramPorts?.outputs).toEqual([
+      expect.objectContaining({
+        id: "out:data:function-input:flowinput:symbol:service:run:value",
+        label: "value",
+        kind: "data",
+      }),
+    ]);
+  });
+
   it("exposes entry-owned function inputs and unbound target slots as data ports", () => {
     const graph: GraphView = {
       rootNodeId: "flowdoc:symbol:service:run:entry",
@@ -347,6 +524,7 @@ describe("buildBlueprintPresentation", () => {
     const entryPorts = presentation.nodePorts.get("flowdoc:symbol:service:run:entry");
     const returnPorts = presentation.nodePorts.get("flowdoc:symbol:service:run:return:0");
 
+    expect(entryPorts?.outputs.map((port) => port.label)).toEqual(["start", "value"]);
     expect(entryPorts?.outputs).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -377,6 +555,70 @@ describe("buildBlueprintPresentation", () => {
           id: "out:control:exit",
           label: "exit",
           kind: "control",
+        }),
+      ]),
+    );
+  });
+
+  it("exposes parameter-mode entry argument input with function outputs", () => {
+    const graph: GraphView = {
+      rootNodeId: "flowdoc:symbol:service:run:entry",
+      targetId: "symbol:service:run",
+      level: "flow",
+      truncated: false,
+      breadcrumbs: [],
+      focus: null,
+      nodes: [
+        {
+          id: "flowdoc:symbol:service:run:entry",
+          kind: "entry",
+          label: "Entry",
+          x: 0,
+          y: 0,
+          metadata: {
+            flow_visual: true,
+            flow_entry_arguments: [
+              {
+                label: "args",
+                full_label: "arguments",
+                target_handle: "in:data:entry-arguments:flowdoc:symbol:service:run:entry",
+              },
+            ],
+            flow_function_inputs: [
+              {
+                function_input_id: "flowinput:symbol:service:run:value",
+                name: "value",
+                index: 0,
+                source_handle: "out:data:function-input:flowinput:symbol:service:run:value",
+              },
+            ],
+          },
+          availableActions: [],
+        },
+      ],
+      edges: [],
+    };
+
+    const presentation = buildBlueprintPresentation(graph);
+    const entryPorts = presentation.nodePorts.get("flowdoc:symbol:service:run:entry");
+
+    expect(entryPorts?.outputs.map((port) => port.label)).toEqual(["start", "value"]);
+    expect(entryPorts?.inputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "in:data:entry-arguments:flowdoc:symbol:service:run:entry",
+          label: "args",
+          kind: "data",
+          tooltip: "arguments",
+        }),
+      ]),
+    );
+    expect(entryPorts?.outputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "out:data:function-input:flowinput:symbol:service:run:value",
+          label: "value",
+          kind: "data",
         }),
       ]),
     );
