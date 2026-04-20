@@ -37,6 +37,11 @@ import type {
   WorkspaceSyncEvent,
   WorkspaceSyncSnapshot,
   WorkspaceSyncState,
+  WorkspaceFileContents,
+  WorkspaceFileEntry,
+  WorkspaceFileMutationRequest,
+  WorkspaceFileMutationResult,
+  WorkspaceFileTree,
 } from "./contracts";
 
 const RECENT_REPOS_STORAGE_KEY = "helm.desktop.recentRepos";
@@ -378,6 +383,36 @@ interface RawApplyUndoResponse {
   payload: RawScanPayload;
 }
 
+interface RawWorkspaceFileEntry {
+  relative_path: string;
+  name: string;
+  kind: "file" | "directory";
+  size_bytes?: number | null;
+  editable: boolean;
+  reason?: string | null;
+  modified_at?: number | null;
+}
+
+interface RawWorkspaceFileTree {
+  root_path: string;
+  entries: RawWorkspaceFileEntry[];
+  truncated: boolean;
+}
+
+interface RawWorkspaceFileContents extends RawWorkspaceFileEntry {
+  kind: "file";
+  content: string;
+  version: string;
+}
+
+interface RawWorkspaceFileMutationResult {
+  relative_path: string;
+  kind: "file" | "directory";
+  changed_relative_paths: string[];
+  file?: RawWorkspaceFileContents | null;
+  payload?: RawScanPayload | null;
+}
+
 interface RawEditableNodeSource {
   target_id: string;
   title: string;
@@ -637,6 +672,58 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       content,
       linkedSymbols,
     };
+  }
+
+  async listWorkspaceFiles(repoPath: string): Promise<WorkspaceFileTree> {
+    const raw = await invoke<RawWorkspaceFileTree>("list_workspace_files", {
+      repoPath: normalizePath(repoPath),
+    });
+    return {
+      rootPath: normalizePath(raw.root_path),
+      entries: raw.entries.map(toWorkspaceFileEntry),
+      truncated: raw.truncated,
+    };
+  }
+
+  async readWorkspaceFile(
+    repoPath: string,
+    relativePath: string,
+  ): Promise<WorkspaceFileContents> {
+    const raw = await invoke<RawWorkspaceFileContents>("read_workspace_file", {
+      repoPath: normalizePath(repoPath),
+      relativePath,
+    });
+    return toWorkspaceFileContents(raw);
+  }
+
+  async createWorkspaceEntry(
+    repoPath: string,
+    request: WorkspaceFileMutationRequest,
+  ): Promise<WorkspaceFileMutationResult> {
+    const raw = await invoke<RawWorkspaceFileMutationResult>("create_workspace_entry", {
+      repoPath: normalizePath(repoPath),
+      kind: request.kind,
+      relativePath: request.relativePath,
+      content: request.content ?? null,
+    });
+    this.applyWorkspaceMutationPayload(repoPath, raw.payload);
+    return toWorkspaceFileMutationResult(raw);
+  }
+
+  async saveWorkspaceFile(
+    repoPath: string,
+    relativePath: string,
+    content: string,
+    expectedVersion: string,
+  ): Promise<WorkspaceFileMutationResult> {
+    const raw = await invoke<RawWorkspaceFileMutationResult>("save_workspace_file", {
+      repoPath: normalizePath(repoPath),
+      relativePath,
+      content,
+      expectedVersion,
+    });
+    this.applyWorkspaceMutationPayload(repoPath, raw.payload);
+    return toWorkspaceFileMutationResult(raw);
   }
 
   async getSymbol(symbolId: string): Promise<SymbolDetails> {
@@ -956,7 +1043,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
             this.backendStatus.syncState === "manual_resync_required"
               ? "Workspace ready. Live sync needs manual reindex."
               : this.backendStatus.syncState === "synced"
-                ? "Workspace ready. Watching for Python changes."
+                ? "Workspace ready. Watching for workspace changes."
                 : "Workspace ready",
           progressPercent: 100,
           error: undefined,
@@ -997,6 +1084,17 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     }
     return this.scanCache;
   }
+
+  private applyWorkspaceMutationPayload(repoPath: string, payload?: RawScanPayload | null) {
+    if (!payload) {
+      return;
+    }
+
+    const normalizedRepoPath = normalizePath(repoPath);
+    const session = this.currentSession ?? buildRepoSessionFromPath(normalizedRepoPath);
+    this.currentSession = session;
+    this.scanCache = buildScanCache(payload, session, this.backendStatus);
+  }
 }
 
 function buildRepoSessionFromPath(path: string): RepoSession {
@@ -1015,6 +1113,38 @@ function buildRepoSessionFromPath(path: string): RepoSession {
 
 function normalizePath(value: string): string {
   return value.replaceAll("\\", "/");
+}
+
+function toWorkspaceFileEntry(raw: RawWorkspaceFileEntry): WorkspaceFileEntry {
+  return {
+    relativePath: raw.relative_path,
+    name: raw.name,
+    kind: raw.kind,
+    sizeBytes: raw.size_bytes ?? null,
+    editable: raw.editable,
+    reason: raw.reason ?? null,
+    modifiedAt: raw.modified_at ?? null,
+  };
+}
+
+function toWorkspaceFileContents(raw: RawWorkspaceFileContents): WorkspaceFileContents {
+  return {
+    ...toWorkspaceFileEntry(raw),
+    kind: "file",
+    content: raw.content,
+    version: raw.version,
+  };
+}
+
+function toWorkspaceFileMutationResult(
+  raw: RawWorkspaceFileMutationResult,
+): WorkspaceFileMutationResult {
+  return {
+    relativePath: raw.relative_path,
+    kind: raw.kind,
+    changedRelativePaths: raw.changed_relative_paths,
+    file: raw.file ? toWorkspaceFileContents(raw.file) : raw.file ?? null,
+  };
 }
 
 function loadRecentRepos(): RecentRepo[] {
@@ -1591,7 +1721,7 @@ function workspaceSyncNote(status: WorkspaceSyncState): string {
     return "Applying external repo changes to the live workspace.";
   }
   if (status === "synced") {
-    return "Watching the active repo for Python changes.";
+    return "Watching the active repo for workspace changes.";
   }
   if (status === "manual_resync_required") {
     return "Live sync needs a manual reindex to recover the workspace session.";

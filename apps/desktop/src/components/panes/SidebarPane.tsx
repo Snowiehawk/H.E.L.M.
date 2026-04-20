@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  FormEvent as ReactFormEvent,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
 } from "react";
@@ -9,6 +10,9 @@ import type {
   OverviewModule,
   OverviewOutlineItem,
   SearchResult,
+  WorkspaceFileMutationRequest,
+  WorkspaceFileTree,
+  WorkspaceFileEntry,
 } from "../../lib/adapter";
 import { StatusPill } from "../shared/StatusPill";
 import {
@@ -27,6 +31,7 @@ interface ExplorerTreeNode {
   kind: ExplorerTreeNodeKind;
   parentId?: string;
   childIds: string[];
+  workspaceEntry?: WorkspaceFileEntry;
   module?: OverviewModule;
   outlineItem?: OverviewOutlineItem;
 }
@@ -49,6 +54,14 @@ interface ExplorerContextMenuItem {
   separatorBefore?: boolean;
 }
 
+interface ExplorerCreateDraft {
+  kind: WorkspaceFileMutationRequest["kind"];
+  parentPath?: string;
+  relativePath: string;
+  isSubmitting: boolean;
+  error: string | null;
+}
+
 const CONTEXT_MENU_WIDTH = 248;
 const CONTEXT_MENU_MAX_HEIGHT = 336;
 const CONTEXT_MENU_MARGIN = 8;
@@ -69,9 +82,13 @@ function compareExplorerNodes(
   return left.label.localeCompare(right.label);
 }
 
-function buildExplorerTree(modules: OverviewModule[]): ExplorerTreeData {
+function buildExplorerTree(
+  modules: OverviewModule[],
+  workspaceFiles?: WorkspaceFileTree,
+): ExplorerTreeData {
   const nodesById = new Map<string, ExplorerTreeNode>();
   const rootIds: string[] = [];
+  const modulesByRelativePath = new Map(modules.map((module) => [module.relativePath, module]));
 
   const appendChild = (parentId: string | undefined, childId: string) => {
     if (parentId) {
@@ -87,69 +104,101 @@ function buildExplorerTree(modules: OverviewModule[]): ExplorerTreeData {
     }
   };
 
+  const ensureDirectory = (parts: string[]) => {
+    let parentId: string | undefined;
+
+    parts.forEach((part, index) => {
+      const path = parts.slice(0, index + 1).join("/");
+      const directoryId = `dir:${path}`;
+
+      if (!nodesById.has(directoryId)) {
+        const entry = workspaceFiles?.entries.find((candidate) => (
+          candidate.kind === "directory" && candidate.relativePath === path
+        ));
+        nodesById.set(directoryId, {
+          id: directoryId,
+          label: part,
+          path,
+          depth: index,
+          kind: "directory",
+          parentId,
+          childIds: [],
+          workspaceEntry: entry,
+        });
+        appendChild(parentId, directoryId);
+      }
+
+      parentId = directoryId;
+    });
+
+    return parentId;
+  };
+
+  const addFile = (
+    relativePath: string,
+    workspaceEntry?: WorkspaceFileEntry,
+    module?: OverviewModule,
+  ) => {
+    const parts = relativePath.split("/").filter(Boolean);
+    const parentId = ensureDirectory(parts.slice(0, -1));
+    const fileId = `file:${relativePath}`;
+    const fileNode = nodesById.get(fileId);
+    const nextNode: ExplorerTreeNode = {
+      id: fileId,
+      label: parts[parts.length - 1] ?? relativePath,
+      path: relativePath,
+      depth: Math.max(parts.length - 1, 0),
+      kind: "file",
+      parentId,
+      childIds: fileNode?.childIds ?? [],
+      workspaceEntry,
+      module,
+    };
+    nodesById.set(fileId, nextNode);
+    appendChild(parentId, fileId);
+
+    const outline = module?.outline ?? [];
+    outline.forEach((outlineItem) => {
+      const outlineId = `outline:${relativePath}:${outlineItem.nodeId}`;
+      nodesById.set(outlineId, {
+        id: outlineId,
+        label: outlineItem.label,
+        path: relativePath,
+        depth: Math.max(parts.length, 0),
+        kind: "outline",
+        parentId: fileId,
+        childIds: [],
+        workspaceEntry,
+        module,
+        outlineItem,
+      });
+      appendChild(fileId, outlineId);
+    });
+  };
+
+  [...(workspaceFiles?.entries ?? [])]
+    .sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+    .forEach((entry) => {
+      const parts = entry.relativePath.split("/").filter(Boolean);
+      if (entry.kind === "directory") {
+        ensureDirectory(parts);
+        return;
+      }
+
+      addFile(entry.relativePath, entry, modulesByRelativePath.get(entry.relativePath));
+    });
+
   [...modules]
     .sort((left, right) => left.relativePath.localeCompare(right.relativePath))
     .forEach((module) => {
-      const parts = module.relativePath.split("/").filter(Boolean);
-      let parentId: string | undefined;
-
-      parts.slice(0, -1).forEach((part, index) => {
-        const path = parts.slice(0, index + 1).join("/");
-        const directoryId = `dir:${path}`;
-
-        if (!nodesById.has(directoryId)) {
-          nodesById.set(directoryId, {
-            id: directoryId,
-            label: part,
-            path,
-            depth: index,
-            kind: "directory",
-            parentId,
-            childIds: [],
-          });
-          appendChild(parentId, directoryId);
-        }
-
-        parentId = directoryId;
-      });
-
-      const fileId = `file:${module.relativePath}`;
-      nodesById.set(fileId, {
-        id: fileId,
-        label: parts[parts.length - 1] ?? module.relativePath,
-        path: module.relativePath,
-        depth: Math.max(parts.length - 1, 0),
-        kind: "file",
-        parentId,
-        childIds: [],
-        module,
-      });
-      appendChild(parentId, fileId);
-
-      const outline = module.outline ?? [];
-      outline.forEach((outlineItem) => {
-        const outlineId = `outline:${module.relativePath}:${outlineItem.nodeId}`;
-        nodesById.set(outlineId, {
-          id: outlineId,
-          label: outlineItem.label,
-          path: module.relativePath,
-          depth: Math.max(parts.length, 0),
-          kind: "outline",
-          parentId: fileId,
-          childIds: [],
-          module,
-          outlineItem,
-        });
-        appendChild(fileId, outlineId);
-      });
+      if (nodesById.has(`file:${module.relativePath}`)) {
+        return;
+      }
+      addFile(module.relativePath, undefined, module);
     });
 
-  rootIds.sort((leftId, rightId) =>
-    compareExplorerNodes(nodesById.get(leftId)!, nodesById.get(rightId)!),
-  );
-
   nodesById.forEach((node) => {
-    if (node.kind !== "directory") {
+    if (node.kind !== "directory" && node.kind !== "file") {
       return;
     }
 
@@ -157,6 +206,10 @@ function buildExplorerTree(modules: OverviewModule[]): ExplorerTreeData {
       compareExplorerNodes(nodesById.get(leftId)!, nodesById.get(rightId)!),
     );
   });
+
+  rootIds.sort((leftId, rightId) =>
+    compareExplorerNodes(nodesById.get(leftId)!, nodesById.get(rightId)!),
+  );
 
   return {
     nodesById,
@@ -202,7 +255,10 @@ function isSelectedRow(
 
   return (
     row.kind === "file"
-    && (selectedFilePath === row.path || selectedNodeId === row.module?.moduleId)
+    && (
+      selectedFilePath === row.path
+      || Boolean(row.module && selectedNodeId === row.module.moduleId)
+    )
   );
 }
 
@@ -344,9 +400,18 @@ function contextActionError(reason: unknown, fallback: string) {
   return reason instanceof Error ? reason.message : fallback;
 }
 
+function defaultCreatePath(
+  kind: WorkspaceFileMutationRequest["kind"],
+  parentPath?: string,
+) {
+  const prefix = parentPath ? `${parentPath.replace(/\/+$/, "")}/` : "";
+  return kind === "file" ? `${prefix}untitled.txt` : `${prefix}new-folder`;
+}
+
 export function SidebarPane({
   backendStatus,
   overview,
+  workspaceFiles,
   sidebarQuery,
   searchResults,
   isSearching,
@@ -356,6 +421,8 @@ export function SidebarPane({
   onSelectResult,
   onSelectModule,
   onSelectSymbol,
+  onSelectWorkspaceFile,
+  onCreateWorkspaceEntry,
   onFocusRepoGraph,
   onReindexRepo,
   onOpenRepo,
@@ -364,6 +431,7 @@ export function SidebarPane({
 }: {
   backendStatus?: BackendStatus;
   overview?: OverviewData;
+  workspaceFiles?: WorkspaceFileTree;
   sidebarQuery: string;
   searchResults: SearchResult[];
   isSearching: boolean;
@@ -373,6 +441,8 @@ export function SidebarPane({
   onSelectResult: (result: SearchResult) => void;
   onSelectModule: (module: OverviewModule) => void;
   onSelectSymbol: (nodeId: string) => void;
+  onSelectWorkspaceFile: (relativePath: string) => void;
+  onCreateWorkspaceEntry: (request: WorkspaceFileMutationRequest) => Promise<void>;
   onFocusRepoGraph: () => void;
   onReindexRepo: () => void;
   onOpenRepo: (path?: string) => void;
@@ -380,8 +450,8 @@ export function SidebarPane({
   onRevealPathInFileExplorer: (filePath: string) => void | Promise<void>;
 }) {
   const tree = useMemo(
-    () => buildExplorerTree(overview?.modules ?? []),
-    [overview?.modules],
+    () => buildExplorerTree(overview?.modules ?? [], workspaceFiles),
+    [overview?.modules, workspaceFiles],
   );
   const selectedRowId = useMemo(
     () => findSelectedRowId(tree, selectedFilePath, selectedNodeId),
@@ -400,9 +470,11 @@ export function SidebarPane({
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ExplorerContextMenuState | null>(null);
   const [contextActionErrorMessage, setContextActionErrorMessage] = useState<string | null>(null);
+  const [createDraft, setCreateDraft] = useState<ExplorerCreateDraft | null>(null);
   const previousRepoPathRef = useRef<string | undefined>(undefined);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const createInputRef = useRef<HTMLInputElement | null>(null);
   const pendingSelectedRowScrollIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -566,6 +638,77 @@ export function SidebarPane({
 
     if (row.module) {
       onSelectModule(row.module);
+      return;
+    }
+
+    if (row.kind === "file") {
+      onSelectWorkspaceFile(row.path);
+    }
+  };
+
+  const startCreateWorkspaceEntry = (
+    kind: WorkspaceFileMutationRequest["kind"],
+    parentPath?: string,
+  ) => {
+    setContextActionErrorMessage(null);
+    setCreateDraft({
+      kind,
+      parentPath,
+      relativePath: defaultCreatePath(kind, parentPath),
+      isSubmitting: false,
+      error: null,
+    });
+  };
+
+  const submitCreateWorkspaceEntry = async (event?: ReactFormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
+    if (!createDraft || createDraft.isSubmitting) {
+      return;
+    }
+
+    const relativePath = createDraft.relativePath.trim();
+    if (!relativePath) {
+      setCreateDraft({
+        ...createDraft,
+        error: "Enter a repo-relative path.",
+      });
+      return;
+    }
+
+    setCreateDraft({
+      ...createDraft,
+      relativePath,
+      isSubmitting: true,
+      error: null,
+    });
+
+    try {
+      await onCreateWorkspaceEntry({
+        kind: createDraft.kind,
+        relativePath,
+        content: createDraft.kind === "file" ? "" : undefined,
+      });
+
+      if (createDraft.parentPath) {
+        setExpandedIds((current) => {
+          const next = new Set(current);
+          next.add(`dir:${createDraft.parentPath}`);
+          return next;
+        });
+      }
+
+      setCreateDraft(null);
+      setContextActionErrorMessage(null);
+    } catch (reason) {
+      setCreateDraft({
+        ...createDraft,
+        relativePath,
+        isSubmitting: false,
+        error: contextActionError(
+          reason,
+          createDraft.kind === "file" ? "Unable to create the file." : "Unable to create the folder.",
+        ),
+      });
     }
   };
 
@@ -580,6 +723,18 @@ export function SidebarPane({
         label: expandedIds.has(row.id) ? "Collapse Folder" : "Expand Folder",
         action: () => toggleExpansion(row.id),
       });
+      items.push(
+        {
+          id: "new-file",
+          label: "New File",
+          action: () => startCreateWorkspaceEntry("file", row.path),
+        },
+        {
+          id: "new-folder",
+          label: "New Folder",
+          action: () => startCreateWorkspaceEntry("directory", row.path),
+        },
+      );
     }
 
     if (row.kind === "file") {
@@ -589,8 +744,16 @@ export function SidebarPane({
         action: () => {
           if (row.module) {
             onSelectModule(row.module);
+            return;
           }
+          onSelectWorkspaceFile(row.path);
         },
+      });
+
+      items.push({
+        id: "open-text-editor",
+        label: "Open Text Editor",
+        action: () => onSelectWorkspaceFile(row.path),
       });
 
       if (isExpandableNode(row)) {
@@ -747,8 +910,24 @@ export function SidebarPane({
     };
   }, [contextMenu]);
 
+  const createDraftFocusKey = createDraft
+    ? `${createDraft.kind}:${createDraft.parentPath ?? ""}`
+    : null;
+
+  useEffect(() => {
+    if (!createDraftFocusKey) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      createInputRef.current?.focus();
+      createInputRef.current?.select();
+    });
+  }, [createDraftFocusKey]);
+
   const contextRow = contextMenu ? tree.nodesById.get(contextMenu.rowId) : undefined;
   const contextMenuItems = contextRow ? buildContextMenuItems(contextRow) : [];
+  const createDraftLabel = createDraft?.kind === "directory" ? "folder" : "file";
 
   return (
     <aside className="pane pane--sidebar explorer-shell">
@@ -831,8 +1010,81 @@ export function SidebarPane({
         <div className="sidebar-section explorer-tree">
           <div className="section-header">
             <h3>Files</h3>
-            <span>{overview?.modules.length ?? 0}</span>
+            <span>
+              {workspaceFiles
+                ? `${workspaceFiles.entries.filter((entry) => entry.kind === "file").length}${workspaceFiles.truncated ? "+" : ""}`
+                : overview?.modules.length ?? 0}
+            </span>
           </div>
+          <div className="explorer-create-actions">
+            <button
+              className="ghost-button ghost-button--compact"
+              type="button"
+              onClick={() => startCreateWorkspaceEntry("file")}
+            >
+              New File
+            </button>
+            <button
+              className="ghost-button ghost-button--compact"
+              type="button"
+              onClick={() => startCreateWorkspaceEntry("directory")}
+            >
+              New Folder
+            </button>
+          </div>
+
+          {createDraft ? (
+            <form
+              className="explorer-create-form"
+              onSubmit={(event) => {
+                void submitCreateWorkspaceEntry(event);
+              }}
+            >
+              <label className="explorer-create-form__label">
+                <span>{`New ${createDraftLabel}`}</span>
+                <input
+                  ref={createInputRef}
+                  aria-label={`New ${createDraftLabel} path`}
+                  className="explorer-create-form__input"
+                  value={createDraft.relativePath}
+                  disabled={createDraft.isSubmitting}
+                  onChange={(event) => {
+                    setCreateDraft({
+                      ...createDraft,
+                      relativePath: event.target.value,
+                      error: null,
+                    });
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setCreateDraft(null);
+                    }
+                  }}
+                />
+              </label>
+              {createDraft.error ? (
+                <p className="error-copy explorer-create-form__error">{createDraft.error}</p>
+              ) : null}
+              <div className="explorer-create-form__actions">
+                <button
+                  className="primary-button primary-button--compact"
+                  type="submit"
+                  disabled={createDraft.isSubmitting}
+                >
+                  {createDraft.isSubmitting ? "Creating..." : "Create"}
+                </button>
+                <button
+                  className="ghost-button ghost-button--compact"
+                  type="button"
+                  disabled={createDraft.isSubmitting}
+                  onClick={() => setCreateDraft(null)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : null}
 
           {explorerRows.length ? (
             <div aria-label="Files" className="explorer-tree__rows" role="tree">
@@ -970,9 +1222,11 @@ export function SidebarPane({
               })}
             </div>
           ) : (
-            <p className="muted-copy">
-              Files will appear here as soon as indexing finishes.
-            </p>
+            <div className="explorer-empty-actions">
+              <p className="muted-copy">
+                This workspace folder is empty. Create a file or folder to start shaping it.
+              </p>
+            </div>
           )}
         </div>
       )}

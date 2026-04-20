@@ -775,7 +775,7 @@ fn normalize_relevant_change_path(repo_root: &Path, path: &Path) -> Option<Strin
     }
 
     let normalized = normalize_path(relative_path);
-    if !normalized.ends_with(".py") {
+    if normalized.is_empty() {
         return None;
     }
     Some(normalized)
@@ -874,7 +874,7 @@ fn backend_note(sync_state: &LiveSyncState) -> String {
             .sync_note
             .clone()
             .unwrap_or_else(|| "Applying external repo changes to the live workspace.".to_string()),
-        "synced" => "Watching the active repo for Python changes.".to_string(),
+        "synced" => "Watching the active repo for workspace changes.".to_string(),
         "manual_resync_required" => {
             "Live sync needs a manual reindex to recover the workspace session.".to_string()
         }
@@ -958,7 +958,7 @@ fn scan_repo_payload(
     let watch_ready_message = match watcher.watch_repo(&app, service.inner().clone(), &repo_path) {
         Ok(()) => {
             service.mark_synced();
-            "Workspace ready. Watching for Python changes.".to_string()
+            "Workspace ready. Watching for workspace changes.".to_string()
         }
         Err(err) => {
             service.mark_manual_resync_required(err);
@@ -1147,6 +1147,74 @@ fn write_repo_graph_layout(
 #[tauri::command]
 fn read_repo_file(file_path: String) -> Result<String, String> {
     fs::read_to_string(&file_path).map_err(|err| format!("Unable to read {}: {}", file_path, err))
+}
+
+#[tauri::command]
+fn list_workspace_files(
+    service: State<'_, BackendService>,
+    repo_path: String,
+) -> Result<Value, String> {
+    service.request(
+        "list-workspace-files",
+        json!({
+            "repo": repo_path,
+        }),
+    )
+}
+
+#[tauri::command]
+fn read_workspace_file(
+    service: State<'_, BackendService>,
+    repo_path: String,
+    relative_path: String,
+) -> Result<Value, String> {
+    service.request(
+        "read-workspace-file",
+        json!({
+            "repo": repo_path,
+            "relative_path": relative_path,
+        }),
+    )
+}
+
+#[tauri::command]
+fn create_workspace_entry(
+    service: State<'_, BackendService>,
+    repo_path: String,
+    kind: String,
+    relative_path: String,
+    content: Option<String>,
+) -> Result<Value, String> {
+    service.request(
+        "create-workspace-entry",
+        json!({
+            "repo": repo_path,
+            "kind": kind,
+            "relative_path": relative_path,
+            "content": content,
+            "top_n": WORKSPACE_SYNC_TOP_N,
+        }),
+    )
+}
+
+#[tauri::command]
+fn save_workspace_file(
+    service: State<'_, BackendService>,
+    repo_path: String,
+    relative_path: String,
+    content: String,
+    expected_version: String,
+) -> Result<Value, String> {
+    service.request(
+        "save-workspace-file",
+        json!({
+            "repo": repo_path,
+            "relative_path": relative_path,
+            "content": content,
+            "expected_version": expected_version,
+            "top_n": WORKSPACE_SYNC_TOP_N,
+        }),
+    )
 }
 
 #[tauri::command]
@@ -1674,7 +1742,7 @@ mod tests {
     use notify::event::{CreateKind, Flag, ModifyKind, RemoveKind};
 
     #[test]
-    fn collect_relevant_relative_paths_keeps_python_files_only() {
+    fn collect_relevant_relative_paths_keeps_workspace_files() {
         let repo_root = Path::new("/tmp/project");
         let mut event = Event::new(EventKind::Modify(ModifyKind::Any));
         event.paths = vec![
@@ -1687,7 +1755,11 @@ mod tests {
 
         assert_eq!(
             changed.into_iter().collect::<Vec<_>>(),
-            vec!["src/app.py".to_string()]
+            vec![
+                "notes.txt".to_string(),
+                "src/app.py".to_string(),
+                "src/app.ts".to_string(),
+            ]
         );
     }
 
@@ -1700,6 +1772,7 @@ mod tests {
             repo_root.join("node_modules/pkg/index.py"),
             repo_root.join("src/__pycache__/cached.py"),
             PathBuf::from("/tmp/elsewhere/service.py"),
+            repo_root.join("README.md"),
             repo_root.join("src/service.py"),
         ];
 
@@ -1707,7 +1780,7 @@ mod tests {
 
         assert_eq!(
             changed.into_iter().collect::<Vec<_>>(),
-            vec!["src/service.py".to_string()]
+            vec!["README.md".to_string(), "src/service.py".to_string()]
         );
     }
 
@@ -1788,6 +1861,10 @@ fn main() {
             read_repo_graph_layout,
             write_repo_graph_layout,
             read_repo_file,
+            list_workspace_files,
+            read_workspace_file,
+            create_workspace_entry,
+            save_workspace_file,
             open_path_in_default_editor,
             reveal_path_in_file_explorer,
             sync_graph_view_menu_state

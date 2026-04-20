@@ -123,6 +123,7 @@ describe("AppProviders", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /open preferences/i }));
     expect(screen.getByRole("dialog", { name: /preferences/i })).toBeInTheDocument();
+    expect(document.querySelector(".preferences-traffic-lights")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /back to app/i }));
     expect(screen.queryByRole("dialog", { name: /preferences/i })).not.toBeInTheDocument();

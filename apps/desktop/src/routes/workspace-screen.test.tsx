@@ -558,7 +558,7 @@ async function emitSameSymbolRefetch(
       status: "synced",
       changedRelativePaths: [],
       needsManualResync: false,
-      message: "Watching the active repo for Python changes.",
+      message: "Watching the active repo for workspace changes.",
       snapshot: {
         repoId: buildRepoSession().id,
         defaultFocusNodeId: targetSymbolId,
@@ -598,7 +598,7 @@ function workspaceSyncNoteForTest(event: WorkspaceSyncEvent) {
     return "Applying external repo changes to the live workspace.";
   }
   if (event.status === "synced") {
-    return "Watching the active repo for Python changes.";
+    return "Watching the active repo for workspace changes.";
   }
   if (event.status === "manual_resync_required") {
     return "Live sync needs a manual reindex to recover the workspace session.";
@@ -1054,6 +1054,47 @@ describe("WorkspaceScreen", () => {
     });
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
+  it("creates and edits non-Python text files from the explorer without replacing the graph", async () => {
+    const user = userEvent.setup();
+    const adapter = new MockDesktopAdapter();
+    const saveSpy = vi.spyOn(adapter, "saveWorkspaceFile");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "New File" }));
+
+    const filePathInput = await screen.findByRole("textbox", { name: "New file path" });
+    await user.clear(filePathInput);
+    await user.type(filePathInput, "README.md");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(document.querySelector(".graph-panel")).toBeInTheDocument();
+
+    const editor = await screen.findByRole("textbox", { name: /Edit README\.md/i });
+    fireEvent.change(editor, { target: { value: "# Hello\n" } });
+
+    const editorPanel = screen.getByTestId("workspace-file-editor").closest(".workspace-file-editor");
+    expect(editorPanel).not.toBeNull();
+    await user.click(within(editorPanel as HTMLElement).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1));
+    expect(saveSpy.mock.calls[0]?.[0]).toBe(defaultRepoPath);
+    expect(saveSpy.mock.calls[0]?.[1]).toBe("README.md");
+    expect(saveSpy.mock.calls[0]?.[2]).toBe("# Hello\n");
+
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: /Edit README\.md/i })).toHaveValue("# Hello\n"),
+    );
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
   it("keeps single click selection-only and uses explicit enter/inspect actions", async () => {
     const user = userEvent.setup();
     const router = createMemoryRouter(
@@ -1173,7 +1214,7 @@ describe("WorkspaceScreen", () => {
         status: "synced",
         changedRelativePaths: ["src/helm/ui/api.py"],
         needsManualResync: false,
-        message: "Watching the active repo for Python changes.",
+        message: "Watching the active repo for workspace changes.",
         snapshot: {
           repoId: buildRepoSession().id,
           defaultFocusNodeId: "symbol:helm.ui.api:build_graph_summary",
@@ -2147,7 +2188,7 @@ describe("WorkspaceScreen", () => {
         status: "synced",
         changedRelativePaths: [],
         needsManualResync: false,
-        message: "Watching the active repo for Python changes.",
+        message: "Watching the active repo for workspace changes.",
         snapshot: {
           repoId: buildRepoSession().id,
           defaultFocusNodeId: "symbol:helm.ui.api:build_graph_summary",

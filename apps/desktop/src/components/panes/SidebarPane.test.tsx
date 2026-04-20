@@ -7,13 +7,19 @@ import {
   createMockWorkspaceState,
   mockBackendStatus,
 } from "../../lib/mocks/mockData";
+import type { OverviewData, WorkspaceFileTree } from "../../lib/adapter";
 import { SidebarPane } from "./SidebarPane";
 
-function renderSidebarPane() {
+function renderSidebarPane(options: {
+  overview?: OverviewData;
+  workspaceFiles?: WorkspaceFileTree;
+} = {}) {
   const state = createMockWorkspaceState();
-  const overview = buildOverview(buildRepoSession(), state);
+  const overview = options.overview ?? buildOverview(buildRepoSession(), state);
   const onSelectModule = vi.fn();
   const onSelectSymbol = vi.fn();
+  const onSelectWorkspaceFile = vi.fn();
+  const onCreateWorkspaceEntry = vi.fn().mockResolvedValue(undefined);
   const onOpenPathInDefaultEditor = vi.fn();
   const onRevealPathInFileExplorer = vi.fn();
 
@@ -21,6 +27,7 @@ function renderSidebarPane() {
     <SidebarPane
       backendStatus={mockBackendStatus}
       overview={overview}
+      workspaceFiles={options.workspaceFiles}
       sidebarQuery=""
       searchResults={[]}
       isSearching={false}
@@ -28,6 +35,8 @@ function renderSidebarPane() {
       onSelectResult={vi.fn()}
       onSelectModule={onSelectModule}
       onSelectSymbol={onSelectSymbol}
+      onSelectWorkspaceFile={onSelectWorkspaceFile}
+      onCreateWorkspaceEntry={onCreateWorkspaceEntry}
       onFocusRepoGraph={vi.fn()}
       onReindexRepo={vi.fn()}
       onOpenRepo={vi.fn()}
@@ -39,6 +48,8 @@ function renderSidebarPane() {
   return {
     onSelectModule,
     onSelectSymbol,
+    onSelectWorkspaceFile,
+    onCreateWorkspaceEntry,
     onOpenPathInDefaultEditor,
     onRevealPathInFileExplorer,
   };
@@ -182,6 +193,8 @@ describe("SidebarPane", () => {
       onSelectResult: vi.fn(),
       onSelectModule,
       onSelectSymbol,
+      onSelectWorkspaceFile: vi.fn(),
+      onCreateWorkspaceEntry: vi.fn().mockResolvedValue(undefined),
       onFocusRepoGraph: vi.fn(),
       onReindexRepo: vi.fn(),
       onOpenRepo: vi.fn(),
@@ -236,6 +249,108 @@ describe("SidebarPane", () => {
       "/Users/noahphillips/Documents/git-repos/H.E.L.M./src/helm/ui/api.py",
     );
     expect(onOpenPathInDefaultEditor).not.toHaveBeenCalled();
+  });
+
+  it("renders non-Python filesystem entries alongside indexed Python modules", async () => {
+    const user = userEvent.setup();
+    const { onSelectModule, onSelectWorkspaceFile } = renderSidebarPane({
+      workspaceFiles: {
+        rootPath: "/Users/noahphillips/Documents/git-repos/H.E.L.M.",
+        entries: [
+          {
+            relativePath: "README.md",
+            name: "README.md",
+            kind: "file",
+            sizeBytes: 8,
+            editable: true,
+            reason: null,
+            modifiedAt: 0,
+          },
+          {
+            relativePath: "src/helm/ui/api.py",
+            name: "api.py",
+            kind: "file",
+            sizeBytes: 1200,
+            editable: true,
+            reason: null,
+            modifiedAt: 0,
+          },
+        ],
+        truncated: false,
+      },
+    });
+
+    await user.click(screen.getByRole("treeitem", { name: "README.md" }));
+    expect(onSelectWorkspaceFile).toHaveBeenCalledWith("README.md");
+
+    const src = screen.getByRole("treeitem", { name: "src" });
+    fireEvent.focus(src);
+    fireEvent.keyDown(src, { key: "ArrowRight" });
+    const helm = await screen.findByRole("treeitem", { name: "helm" });
+    fireEvent.focus(helm);
+    fireEvent.keyDown(helm, { key: "ArrowRight" });
+    const ui = await screen.findByRole("treeitem", { name: "ui" });
+    fireEvent.focus(ui);
+    fireEvent.keyDown(ui, { key: "ArrowRight" });
+    await user.click(screen.getByRole("treeitem", { name: "api.py" }));
+
+    expect(onSelectModule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        moduleName: "helm.ui.api",
+      }),
+    );
+  });
+
+  it("exposes create actions in an empty filesystem explorer", async () => {
+    const user = userEvent.setup();
+    const emptyOverview = {
+      ...buildOverview(buildRepoSession(), createMockWorkspaceState()),
+      modules: [],
+    };
+    const { onCreateWorkspaceEntry } = renderSidebarPane({
+      overview: emptyOverview,
+      workspaceFiles: {
+        rootPath: "/Users/noahphillips/Documents/git-repos/empty",
+        entries: [],
+        truncated: false,
+      },
+    });
+
+    expect(screen.getByText(/This workspace folder is empty/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "New File" }));
+
+    const filePathInput = await screen.findByRole("textbox", { name: "New file path" });
+    expect(filePathInput).toHaveValue("untitled.txt");
+
+    await user.clear(filePathInput);
+    await user.type(filePathInput, "app.py");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(onCreateWorkspaceEntry).toHaveBeenCalledWith({
+        kind: "file",
+        relativePath: "app.py",
+        content: "",
+      });
+    });
+
+    await user.click(screen.getByRole("button", { name: "New Folder" }));
+
+    const folderPathInput = await screen.findByRole("textbox", { name: "New folder path" });
+    expect(folderPathInput).toHaveValue("new-folder");
+
+    await user.clear(folderPathInput);
+    await user.type(folderPathInput, "src");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(onCreateWorkspaceEntry).toHaveBeenCalledWith({
+        kind: "directory",
+        relativePath: "src",
+        content: undefined,
+      });
+    });
   });
 
   it("copies explorer paths from the context menu", async () => {

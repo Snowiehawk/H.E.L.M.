@@ -86,7 +86,6 @@ export function PreferencesDialog() {
   const scalePercent = Math.round(uiScale * 100);
   const activeSectionLabel =
     preferenceSections.find((section) => section.id === activeSection)?.label ?? "General";
-  const showMacChrome = isMacLike();
 
   return (
     <div
@@ -100,13 +99,6 @@ export function PreferencesDialog() {
     >
       <section aria-label="Preferences" aria-modal="true" className="preferences-dialog" role="dialog">
         <aside className="preferences-sidebar" aria-label="Preferences sections">
-          {showMacChrome ? (
-            <div className="preferences-traffic-lights" aria-hidden="true">
-              <span className="preferences-traffic-lights__dot preferences-traffic-lights__dot--red" />
-              <span className="preferences-traffic-lights__dot preferences-traffic-lights__dot--yellow" />
-              <span className="preferences-traffic-lights__dot preferences-traffic-lights__dot--green" />
-            </div>
-          ) : null}
           <button
             ref={backButtonRef}
             className="preferences-back-button"
@@ -381,12 +373,5 @@ function PreferenceIcon({ id }: { id: PreferenceSectionId }) {
         strokeWidth="1.55"
       />
     </svg>
-  );
-}
-
-function isMacLike() {
-  return (
-    typeof navigator !== "undefined"
-    && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
   );
 }

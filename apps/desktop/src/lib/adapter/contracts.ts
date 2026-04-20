@@ -282,6 +282,43 @@ export interface FileContents {
   linkedSymbols: SearchResult[];
 }
 
+export type WorkspaceFileEntryKind = "file" | "directory";
+
+export interface WorkspaceFileEntry {
+  relativePath: string;
+  name: string;
+  kind: WorkspaceFileEntryKind;
+  sizeBytes?: number | null;
+  editable: boolean;
+  reason?: string | null;
+  modifiedAt?: number | null;
+}
+
+export interface WorkspaceFileTree {
+  rootPath: string;
+  entries: WorkspaceFileEntry[];
+  truncated: boolean;
+}
+
+export interface WorkspaceFileContents extends WorkspaceFileEntry {
+  kind: "file";
+  content: string;
+  version: string;
+}
+
+export interface WorkspaceFileMutationRequest {
+  kind: WorkspaceFileEntryKind;
+  relativePath: string;
+  content?: string;
+}
+
+export interface WorkspaceFileMutationResult {
+  relativePath: string;
+  kind: WorkspaceFileEntryKind;
+  changedRelativePaths: string[];
+  file?: WorkspaceFileContents | null;
+}
+
 export interface RelationshipItem {
   id: string;
   label: string;
@@ -560,6 +597,18 @@ export interface DesktopAdapter {
   ): () => void;
   searchRepo(query: string, filters: SearchFilters): Promise<SearchResult[]>;
   getFile(path: string): Promise<FileContents>;
+  listWorkspaceFiles(repoPath: string): Promise<WorkspaceFileTree>;
+  readWorkspaceFile(repoPath: string, relativePath: string): Promise<WorkspaceFileContents>;
+  createWorkspaceEntry(
+    repoPath: string,
+    request: WorkspaceFileMutationRequest,
+  ): Promise<WorkspaceFileMutationResult>;
+  saveWorkspaceFile(
+    repoPath: string,
+    relativePath: string,
+    content: string,
+    expectedVersion: string,
+  ): Promise<WorkspaceFileMutationResult>;
   getSymbol(symbolId: string): Promise<SymbolDetails>;
   getGraphNeighborhood(
     nodeId: string,

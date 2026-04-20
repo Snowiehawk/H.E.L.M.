@@ -58,8 +58,11 @@ import {
   validateFlowReturnInputBindingConnection,
 } from "../components/graph/flowDocument";
 import { DesktopWindow } from "../components/layout/DesktopWindow";
+import { InspectorCodeSurface } from "../components/editor/InspectorCodeSurface";
+import { inferInspectorLanguage } from "../components/editor/inspectorLanguage";
 import { SidebarPane } from "../components/panes/SidebarPane";
 import { AppWindowActions } from "../components/shared/AppWindowActions";
+import { StatusPill } from "../components/shared/StatusPill";
 import { BlueprintInspector } from "../components/workspace/BlueprintInspector";
 import {
   GraphCreateComposer,
@@ -110,6 +113,8 @@ import type {
   SearchResult,
   SourceRange,
   StructuralEditRequest,
+  WorkspaceFileContents,
+  WorkspaceFileMutationRequest,
 } from "../lib/adapter";
 import {
   isEnterableGraphNodeKind,
@@ -767,6 +772,126 @@ function workspaceWindowSubtitle(
   return `Repo root: ${repoPath}`;
 }
 
+function WorkspaceFileEditorPanel({
+  file,
+  draft,
+  dirty,
+  stale,
+  error,
+  isLoading,
+  isSaving,
+  saveError,
+  onCancel,
+  onChange,
+  onClose,
+  onSave,
+}: {
+  file?: WorkspaceFileContents;
+  draft: string;
+  dirty: boolean;
+  stale: boolean;
+  error?: string | null;
+  isLoading: boolean;
+  isSaving: boolean;
+  saveError?: string | null;
+  onCancel: () => void;
+  onChange: (content: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const language = inferInspectorLanguage({
+    editablePath: file?.relativePath,
+  });
+  const status = stale ? "Stale" : dirty ? "Unsaved" : "Synced";
+
+  return (
+    <aside className="workspace-file-editor">
+      <div className="workspace-file-editor__header">
+        <div>
+          <span className="window-bar__eyebrow">File editor</span>
+          <h3>{file?.relativePath ?? "Loading file"}</h3>
+        </div>
+        <button className="ghost-button" type="button" onClick={onClose}>
+          Close
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="info-card">
+          <p>Loading file...</p>
+        </div>
+      ) : error ? (
+        <div className="info-card blueprint-inspector__error-card">
+          <strong>File unavailable</strong>
+          <p>{error}</p>
+        </div>
+      ) : file?.editable ? (
+        <>
+          <div className="workspace-file-editor__meta">
+            <span>{file.sizeBytes ?? 0} bytes</span>
+            <StatusPill tone={stale ? "warning" : dirty ? "accent" : "default"}>
+              {status}
+            </StatusPill>
+          </div>
+          <InspectorCodeSurface
+            ariaLabel={`Edit ${file.relativePath}`}
+            className="workspace-file-editor__surface"
+            dataTestId="workspace-file-editor"
+            height="clamp(300px, 42vh, 520px)"
+            language={language}
+            path={file.relativePath}
+            readOnly={false}
+            value={draft}
+            onChange={onChange}
+          />
+          {stale ? (
+            <div className="info-card blueprint-inspector__error-card">
+              <strong>Draft is stale</strong>
+              <p>This file changed on disk. Reload it before saving again.</p>
+            </div>
+          ) : null}
+          {saveError ? <p className="error-copy">{saveError}</p> : null}
+          <div className="workspace-file-editor__actions">
+            <button
+              className="primary-button"
+              type="button"
+              disabled={stale || !dirty || isSaving}
+              onClick={onSave}
+            >
+              {isSaving ? "Saving..." : "Save"}
+            </button>
+            <button
+              className="ghost-button"
+              type="button"
+              disabled={(!dirty && !stale) || isSaving}
+              onClick={onCancel}
+            >
+              {stale ? "Reload from Disk" : "Cancel"}
+            </button>
+          </div>
+        </>
+      ) : file ? (
+        <>
+          <InspectorCodeSurface
+            ariaLabel={`Read-only ${file.relativePath}`}
+            className="workspace-file-editor__surface"
+            dataTestId="workspace-file-editor-readonly"
+            height="clamp(240px, 34vh, 420px)"
+            language={language}
+            path={file.relativePath}
+            readOnly
+            value={file.content}
+          />
+          <div className="info-card">
+            <strong>Read only</strong>
+            <p>{file.reason ?? "This file is not editable inline."}</p>
+          </div>
+        </>
+      ) : null}
+    </aside>
+  );
+}
+
 export function WorkspaceScreen() {
   const adapter = useDesktopAdapter();
   const navigate = useNavigate();
@@ -785,6 +910,11 @@ export function WorkspaceScreen() {
     useState<ReturnExpressionGraphViewState | undefined>(undefined);
   const [isSubmittingExpressionGraph, setIsSubmittingExpressionGraph] = useState(false);
   const [flowDraftState, setFlowDraftState] = useState<FlowDraftState | undefined>(undefined);
+  const [activeWorkspaceFilePath, setActiveWorkspaceFilePath] = useState<string | undefined>(undefined);
+  const [workspaceFileDraft, setWorkspaceFileDraft] = useState("");
+  const [workspaceFileStale, setWorkspaceFileStale] = useState(false);
+  const [workspaceFileSaveError, setWorkspaceFileSaveError] = useState<string | null>(null);
+  const [isSavingWorkspaceFile, setIsSavingWorkspaceFile] = useState(false);
   const [inspectorDirty, setInspectorDirty] = useState(false);
   const [inspectorDraftStale, setInspectorDraftStale] = useState(false);
   const [inspectorActionError, setInspectorActionError] = useState<string | null>(null);
@@ -799,6 +929,7 @@ export function WorkspaceScreen() {
   const inspectorDraftContentRef = useRef<string | undefined>(undefined);
   const saveInspectorDraftRef = useRef<(targetId: string, draftContent: string) => Promise<void>>(async () => {});
   const createModeContextKeyRef = useRef<string | undefined>(undefined);
+  const workspaceFileLoadedKeyRef = useRef<string | undefined>(undefined);
   const [graphPathRevealError, setGraphPathRevealError] = useState<string | null>(null);
   const [backendUndoStack, setBackendUndoStack] = useState<BackendUndoHistoryEntry[]>([]);
   const [backendRedoStack, setBackendRedoStack] = useState<BackendUndoHistoryEntry[]>([]);
@@ -855,6 +986,11 @@ export function WorkspaceScreen() {
       setCreateComposer(undefined);
       setCreateModeError(null);
       setFlowDraftState(undefined);
+      setActiveWorkspaceFilePath(undefined);
+      setWorkspaceFileDraft("");
+      setWorkspaceFileStale(false);
+      setWorkspaceFileSaveError(null);
+      setIsSavingWorkspaceFile(false);
       setPendingCreatedNodeId(undefined);
       setBackendUndoStack([]);
       setBackendRedoStack([]);
@@ -865,6 +1001,10 @@ export function WorkspaceScreen() {
     setBackendUndoStack([]);
     setBackendRedoStack([]);
     setInspectorDraftStale(false);
+    setActiveWorkspaceFilePath(undefined);
+    setWorkspaceFileDraft("");
+    setWorkspaceFileStale(false);
+    setWorkspaceFileSaveError(null);
   }, [repoSession?.id]);
 
   useEffect(() => {
@@ -925,6 +1065,12 @@ export function WorkspaceScreen() {
     enabled: Boolean(repoSession),
   });
 
+  const workspaceFilesQuery = useQuery({
+    queryKey: ["workspace-files", repoSession?.id],
+    queryFn: () => adapter.listWorkspaceFiles(repoSession!.path),
+    enabled: Boolean(repoSession),
+  });
+
   useEffect(() => {
     if (!graphTargetId && overviewQuery.data) {
       initializeWorkspace(overviewQuery.data.defaultFocusNodeId, overviewQuery.data.defaultLevel);
@@ -964,6 +1110,42 @@ export function WorkspaceScreen() {
     },
     enabled: Boolean(repoSession && graphTargetId),
   });
+
+  const workspaceFileQuery = useQuery({
+    queryKey: ["workspace-file", repoSession?.id, activeWorkspaceFilePath],
+    queryFn: () => adapter.readWorkspaceFile(repoSession!.path, activeWorkspaceFilePath!),
+    enabled: Boolean(repoSession && activeWorkspaceFilePath),
+  });
+  const activeWorkspaceFile = workspaceFileQuery.data;
+  const workspaceFileDirty = Boolean(
+    activeWorkspaceFile?.editable
+    && workspaceFileDraft !== activeWorkspaceFile.content,
+  );
+
+  useEffect(() => {
+    if (!activeWorkspaceFile) {
+      return;
+    }
+
+    const loadedKey = `${activeWorkspaceFile.relativePath}:${activeWorkspaceFile.version}`;
+    if (workspaceFileLoadedKeyRef.current !== loadedKey) {
+      if (workspaceFileLoadedKeyRef.current && workspaceFileDirty) {
+        setWorkspaceFileStale(true);
+        workspaceFileLoadedKeyRef.current = loadedKey;
+        return;
+      }
+
+      workspaceFileLoadedKeyRef.current = loadedKey;
+      setWorkspaceFileDraft(activeWorkspaceFile.content);
+      setWorkspaceFileStale(false);
+      setWorkspaceFileSaveError(null);
+      return;
+    }
+
+    if (!workspaceFileDirty && !workspaceFileStale) {
+      setWorkspaceFileDraft(activeWorkspaceFile.content);
+    }
+  }, [activeWorkspaceFile, workspaceFileDirty, workspaceFileStale]);
   const currentSymbolTargetId = graphTargetId?.startsWith("symbol:") ? graphTargetId : undefined;
   const currentFlowSymbolId = activeLevel === "flow" ? currentSymbolTargetId : undefined;
   const flowDraftSeedDocument = useMemo(
@@ -1392,6 +1574,13 @@ export function WorkspaceScreen() {
     if (sameFileChanged) {
       setInspectorDraftStale(true);
     }
+    const activeWorkspaceFileChanged = Boolean(
+      activeWorkspaceFilePath
+      && event.changedRelativePaths.includes(activeWorkspaceFilePath),
+    );
+    if (activeWorkspaceFileChanged && workspaceFileDirty) {
+      setWorkspaceFileStale(true);
+    }
 
     if (event.status === "synced" && matchingSnapshot) {
       if (activeNodeId && !liveNodeIds.has(activeNodeId)) {
@@ -1426,6 +1615,8 @@ export function WorkspaceScreen() {
     if (shouldRefreshWorkspaceData) {
       invalidations.push(
         queryClient.invalidateQueries({ queryKey: ["overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
+        queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
         queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
         queryClient.invalidateQueries({ queryKey: ["symbol"] }),
         queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
@@ -1436,6 +1627,7 @@ export function WorkspaceScreen() {
     void Promise.all(invalidations);
   }), [
     activeNodeId,
+    activeWorkspaceFilePath,
     adapter,
     focusGraph,
     effectiveGraph?.breadcrumbs,
@@ -1446,9 +1638,11 @@ export function WorkspaceScreen() {
     queryClient,
     repoSession?.path,
     selectNode,
+    workspaceFileDirty,
   ]);
 
   const selectSidebarResult = (result: SearchResult) => {
+    setActiveWorkspaceFilePath(undefined);
     selectSearchResult(result);
     setSidebarQuery("");
     if (result.level && result.nodeId) {
@@ -1457,12 +1651,96 @@ export function WorkspaceScreen() {
   };
 
   const selectOverviewModule = (module: OverviewModule) => {
+    setActiveWorkspaceFilePath(undefined);
     focusGraph(module.moduleId, "module");
   };
 
   const selectOverviewSymbol = (nodeId: string) => {
+    setActiveWorkspaceFilePath(undefined);
     focusGraph(nodeId, "symbol");
   };
+
+  const selectWorkspaceFile = useCallback((relativePath: string) => {
+    setActiveWorkspaceFilePath(relativePath);
+    setWorkspaceFileDraft("");
+    setWorkspaceFileStale(false);
+    setWorkspaceFileSaveError(null);
+    workspaceFileLoadedKeyRef.current = undefined;
+  }, []);
+
+  const createWorkspaceEntry = useCallback(async (request: WorkspaceFileMutationRequest) => {
+    if (!repoSession) {
+      throw new Error("Open a repository before creating files.");
+    }
+
+    const result = await adapter.createWorkspaceEntry(repoSession.path, request);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
+      queryClient.invalidateQueries({ queryKey: ["overview"] }),
+      queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
+    ]);
+
+    if (result.kind === "file") {
+      if (result.relativePath.endsWith(".py")) {
+        focusGraph(moduleIdFromRelativePath(result.relativePath), "module");
+        setActiveWorkspaceFilePath(undefined);
+      } else {
+        selectWorkspaceFile(result.relativePath);
+      }
+    }
+  }, [adapter, focusGraph, queryClient, repoSession, selectWorkspaceFile]);
+
+  const saveWorkspaceFile = useCallback(async () => {
+    if (!repoSession || !activeWorkspaceFile) {
+      return;
+    }
+    if (workspaceFileStale) {
+      setWorkspaceFileSaveError("This file changed on disk. Reload it before saving again.");
+      return;
+    }
+
+    setIsSavingWorkspaceFile(true);
+    setWorkspaceFileSaveError(null);
+    try {
+      const result = await adapter.saveWorkspaceFile(
+        repoSession.path,
+        activeWorkspaceFile.relativePath,
+        workspaceFileDraft,
+        activeWorkspaceFile.version,
+      );
+      if (result.file) {
+        queryClient.setQueryData(
+          ["workspace-file", repoSession.id, result.file.relativePath],
+          result.file,
+        );
+        setWorkspaceFileDraft(result.file.content);
+        workspaceFileLoadedKeyRef.current = `${result.file.relativePath}:${result.file.version}`;
+      }
+      setWorkspaceFileStale(false);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
+        queryClient.invalidateQueries({ queryKey: ["overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
+        queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
+        queryClient.invalidateQueries({ queryKey: ["editable-node-source"] }),
+      ]);
+    } catch (reason) {
+      setWorkspaceFileSaveError(
+        reason instanceof Error ? reason.message : "Unable to save this file.",
+      );
+    } finally {
+      setIsSavingWorkspaceFile(false);
+    }
+  }, [
+    activeWorkspaceFile,
+    adapter,
+    queryClient,
+    repoSession,
+    workspaceFileDraft,
+    workspaceFileStale,
+  ]);
 
   const openAndIndexRepo = async (path?: string) => {
     setRepoOpenError(null);
@@ -1682,6 +1960,8 @@ export function WorkspaceScreen() {
     setInspectorSourceVersion((current) => current + 1);
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["overview"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
       queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
       queryClient.invalidateQueries({ queryKey: ["symbol"] }),
       queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
@@ -1802,6 +2082,8 @@ export function WorkspaceScreen() {
   const refreshWorkspaceData = useCallback(async (editableTargetId?: string) => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["overview"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
       queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
       queryClient.invalidateQueries({ queryKey: ["symbol"] }),
       queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
@@ -3557,6 +3839,41 @@ export function WorkspaceScreen() {
     setGraphPathRevealError(null);
   }, [activeLevel, graphTargetId]);
 
+  const handleCancelWorkspaceFileEdit = useCallback(() => {
+    if (workspaceFileStale) {
+      setWorkspaceFileSaveError(null);
+      setWorkspaceFileStale(false);
+      void workspaceFileQuery.refetch();
+      return;
+    }
+
+    setWorkspaceFileDraft(activeWorkspaceFile?.content ?? "");
+    setWorkspaceFileSaveError(null);
+  }, [activeWorkspaceFile?.content, workspaceFileQuery, workspaceFileStale]);
+
+  const handleCloseWorkspaceFileEditor = useCallback(() => {
+    if (workspaceFileDirty || workspaceFileStale) {
+      const shouldClose = window.confirm(
+        "Close this file editor and discard the current draft?",
+      );
+      if (!shouldClose) {
+        return;
+      }
+    }
+    setActiveWorkspaceFilePath(undefined);
+    setWorkspaceFileDraft("");
+    setWorkspaceFileStale(false);
+    setWorkspaceFileSaveError(null);
+    workspaceFileLoadedKeyRef.current = undefined;
+  }, [workspaceFileDirty, workspaceFileStale]);
+
+  const workspaceFileError =
+    workspaceFileQuery.error instanceof Error
+      ? workspaceFileQuery.error.message
+      : workspaceFileQuery.error
+        ? "Unable to load this file."
+        : null;
+
   return (
     <DesktopWindow
       eyebrow="Blueprint Editor"
@@ -3580,11 +3897,13 @@ export function WorkspaceScreen() {
             <SidebarPane
               backendStatus={effectiveBackendStatus}
               overview={overviewQuery.data}
+              workspaceFiles={workspaceFilesQuery.data}
               sidebarQuery={sidebarQuery}
               searchResults={sidebarSearchQuery.data ?? []}
               isSearching={sidebarSearchQuery.isFetching}
               selectedFilePath={
-                selectedFilePath
+                activeWorkspaceFilePath
+                ?? selectedFilePath
                 ?? inspectorSourcePath
                 ?? graphNodeRelativePath(inspectorNode?.metadata, inspectorNode?.subtitle)
               }
@@ -3593,7 +3912,14 @@ export function WorkspaceScreen() {
               onSelectResult={selectSidebarResult}
               onSelectModule={selectOverviewModule}
               onSelectSymbol={selectOverviewSymbol}
-              onFocusRepoGraph={() => repoSession && focusGraph(repoSession.id, "repo")}
+              onSelectWorkspaceFile={selectWorkspaceFile}
+              onCreateWorkspaceEntry={createWorkspaceEntry}
+              onFocusRepoGraph={() => {
+                setActiveWorkspaceFilePath(undefined);
+                if (repoSession) {
+                  focusGraph(repoSession.id, "repo");
+                }
+              }}
               onReindexRepo={reindexCurrentRepo}
               onOpenRepo={openAndIndexRepo}
               onOpenPathInDefaultEditor={handleOpenExplorerPathInDefaultEditor}
@@ -3778,6 +4104,28 @@ export function WorkspaceScreen() {
                     />
                   ) : null}
                 </div>
+
+                {activeWorkspaceFilePath ? (
+                  <WorkspaceFileEditorPanel
+                    file={activeWorkspaceFile}
+                    draft={workspaceFileDraft}
+                    dirty={workspaceFileDirty}
+                    stale={workspaceFileStale}
+                    error={workspaceFileError}
+                    isLoading={workspaceFileQuery.isFetching && !activeWorkspaceFile}
+                    isSaving={isSavingWorkspaceFile}
+                    saveError={workspaceFileSaveError}
+                    onCancel={handleCancelWorkspaceFileEdit}
+                    onChange={(content) => {
+                      setWorkspaceFileDraft(content);
+                      setWorkspaceFileSaveError(null);
+                    }}
+                    onClose={handleCloseWorkspaceFileEditor}
+                    onSave={() => {
+                      void saveWorkspaceFile();
+                    }}
+                  />
+                ) : null}
 
                 {effectiveInspectorDrawerMode !== "hidden" ? (
                   <BlueprintInspectorDrawer

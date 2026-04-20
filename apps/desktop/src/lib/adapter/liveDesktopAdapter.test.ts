@@ -344,6 +344,118 @@ describe("LiveDesktopAdapter", () => {
     expect(graph.flowState?.document?.nodes.some((node) => String(node.kind) === "param")).toBe(false);
   });
 
+  it("maps workspace filesystem list, read, create, and save commands", async () => {
+    const adapter = new LiveDesktopAdapter();
+
+    invokeMock.mockResolvedValueOnce({
+      root_path: "/workspace/calculator",
+      entries: [
+        {
+          relative_path: "README.md",
+          name: "README.md",
+          kind: "file",
+          size_bytes: 7,
+          editable: true,
+          reason: null,
+          modified_at: 10,
+        },
+      ],
+      truncated: false,
+    });
+
+    const tree = await adapter.listWorkspaceFiles("/workspace/calculator");
+    expect(invokeMock).toHaveBeenCalledWith("list_workspace_files", {
+      repoPath: "/workspace/calculator",
+    });
+    expect(tree.entries[0]).toMatchObject({
+      relativePath: "README.md",
+      name: "README.md",
+      kind: "file",
+      editable: true,
+    });
+
+    invokeMock.mockResolvedValueOnce({
+      relative_path: "README.md",
+      name: "README.md",
+      kind: "file",
+      size_bytes: 7,
+      editable: true,
+      reason: null,
+      content: "# Demo\n",
+      version: "sha256:old",
+      modified_at: 11,
+    });
+
+    const file = await adapter.readWorkspaceFile("/workspace/calculator", "README.md");
+    expect(invokeMock).toHaveBeenCalledWith("read_workspace_file", {
+      repoPath: "/workspace/calculator",
+      relativePath: "README.md",
+    });
+    expect(file.content).toBe("# Demo\n");
+    expect(file.version).toBe("sha256:old");
+
+    invokeMock.mockResolvedValueOnce({
+      relative_path: "docs/notes.md",
+      kind: "file",
+      changed_relative_paths: ["docs/notes.md"],
+      file: {
+        relative_path: "docs/notes.md",
+        name: "notes.md",
+        kind: "file",
+        size_bytes: 0,
+        editable: true,
+        reason: null,
+        content: "",
+        version: "sha256:empty",
+        modified_at: 12,
+      },
+    });
+
+    const created = await adapter.createWorkspaceEntry("/workspace/calculator", {
+      kind: "file",
+      relativePath: "docs/notes.md",
+      content: "",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("create_workspace_entry", {
+      repoPath: "/workspace/calculator",
+      kind: "file",
+      relativePath: "docs/notes.md",
+      content: "",
+    });
+    expect(created.file?.relativePath).toBe("docs/notes.md");
+
+    invokeMock.mockResolvedValueOnce({
+      relative_path: "README.md",
+      kind: "file",
+      changed_relative_paths: ["README.md"],
+      file: {
+        relative_path: "README.md",
+        name: "README.md",
+        kind: "file",
+        size_bytes: 10,
+        editable: true,
+        reason: null,
+        content: "# Updated\n",
+        version: "sha256:new",
+        modified_at: 13,
+      },
+    });
+
+    const saved = await adapter.saveWorkspaceFile(
+      "/workspace/calculator",
+      "README.md",
+      "# Updated\n",
+      "sha256:old",
+    );
+    expect(invokeMock).toHaveBeenCalledWith("save_workspace_file", {
+      repoPath: "/workspace/calculator",
+      relativePath: "README.md",
+      content: "# Updated\n",
+      expectedVersion: "sha256:old",
+    });
+    expect(saved.file?.content).toBe("# Updated\n");
+  });
+
   it("updates cached workspace state from live sync events", async () => {
     const adapter = new LiveDesktopAdapter();
     const listener = vi.fn();
@@ -586,7 +698,7 @@ describe("LiveDesktopAdapter", () => {
           available: true,
           python_command: "python3",
           workspace_root: "/workspace",
-          note: "Watching the active repo for Python changes.",
+          note: "Watching the active repo for workspace changes.",
           live_sync_enabled: true,
           sync_state: "synced",
           last_sync_error: null,
@@ -622,7 +734,7 @@ describe("LiveDesktopAdapter", () => {
         processed_modules: 3,
         total_modules: 3,
         symbol_count: 4,
-        message: "Workspace ready. Watching for Python changes.",
+        message: "Workspace ready. Watching for workspace changes.",
         progress_percent: 100,
       },
     });
@@ -652,7 +764,7 @@ describe("LiveDesktopAdapter", () => {
       jobId,
       status: "done",
       stage: "watch_ready",
-      message: "Workspace ready. Watching for Python changes.",
+      message: "Workspace ready. Watching for workspace changes.",
       progressPercent: 100,
     });
     expect(invokeMock).toHaveBeenCalledWith("scan_repo_payload", {

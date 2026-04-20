@@ -66,6 +66,10 @@ export interface MockWorkspaceState {
   uiApiImports: string[];
   uiApiExtraSymbols: MockTopLevelSymbolSeed[];
   moduleExtraSymbols: MockModuleSymbolSeed[];
+  workspaceFiles: Record<string, {
+    kind: "file" | "directory";
+    content?: string;
+  }>;
   extraModules: Array<{
     moduleName: string;
     relativePath: string;
@@ -145,6 +149,7 @@ export function createMockWorkspaceState(): MockWorkspaceState {
     ],
     uiApiExtraSymbols: [],
     moduleExtraSymbols: [],
+    workspaceFiles: {},
     extraModules: [],
     flowInsertionsBySymbolId: {},
     flowDocumentsBySymbolId: {},

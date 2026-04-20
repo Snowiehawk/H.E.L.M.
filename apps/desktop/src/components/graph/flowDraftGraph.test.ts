@@ -18,8 +18,8 @@ describe("flowDraftGraph", () => {
       level: "flow",
       truncated: false,
       breadcrumbs: [
-        { targetId: "module:service", level: "module", label: "service.py", subtitle: "service.py", availableLevels: ["module"] },
-        { targetId: "symbol:service:run", level: "symbol", label: "run", subtitle: "run", availableLevels: ["flow"] },
+        { nodeId: "module:service", level: "module", label: "service.py", subtitle: "service.py" },
+        { nodeId: "symbol:service:run", level: "symbol", label: "run", subtitle: "run" },
       ],
       focus: { targetId: "symbol:service:run", level: "flow", label: "run", subtitle: "run", availableLevels: ["flow"] },
       nodes: [

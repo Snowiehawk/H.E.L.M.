@@ -50,8 +50,11 @@ def _replace_flow_node_id(
 
 
 class PythonRepoAdapterTests(unittest.TestCase):
-    def test_default_level_uses_symbol_for_small_repo_and_module_for_large_repo(self) -> None:
+    def test_default_level_uses_repo_for_empty_repos_symbol_for_small_repo_and_module_for_large_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
+            empty_root = Path(tmp_dir) / "empty"
+            empty_root.mkdir()
+
             small_root = Path(tmp_dir) / "small"
             write_repo_files(
                 small_root,
@@ -67,6 +70,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
             }
             write_repo_files(large_root, large_files)
 
+            self.assertEqual(PythonRepoAdapter.scan(empty_root).default_level().value, "repo")
             self.assertEqual(PythonRepoAdapter.scan(small_root).default_level().value, "symbol")
             self.assertEqual(PythonRepoAdapter.scan(large_root).default_level().value, "module")
 

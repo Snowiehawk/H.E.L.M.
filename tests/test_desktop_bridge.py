@@ -11,8 +11,12 @@ from helm.ui.desktop_bridge import (
     apply_undo_to_payload,
     apply_edit_to_payload,
     build_flow_view_payload,
+    create_workspace_entry_payload,
+    list_workspace_files_payload,
+    read_workspace_file_payload,
     reveal_source_payload,
     run_worker,
+    save_workspace_file_payload,
     scan_repo_to_payload,
 )
 from tests.helpers import write_repo_files
@@ -174,6 +178,37 @@ class DesktopBridgeTests(unittest.TestCase):
 
             self.assertEqual(response["edit"]["changed_node_ids"], ["module:pkg.tools"])
             self.assertEqual(response["payload"]["summary"]["module_count"], 2)
+
+    def test_workspace_file_payloads_create_save_and_refresh_python_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            write_repo_files(root, {"README.md": "# Demo\n"})
+
+            tree = list_workspace_files_payload(root)
+            self.assertIn(
+                "README.md",
+                {entry["relative_path"] for entry in tree["entries"]},
+            )
+
+            readme = read_workspace_file_payload(root, "README.md")
+            self.assertTrue(readme["editable"])
+            saved_readme = save_workspace_file_payload(
+                root,
+                relative_path="README.md",
+                content="# Demo\nUpdated\n",
+                expected_version=readme["version"],
+            )
+            self.assertNotIn("payload", saved_readme)
+            self.assertEqual(saved_readme["file"]["content"], "# Demo\nUpdated\n")
+
+            created_python = create_workspace_entry_payload(
+                root,
+                kind="file",
+                relative_path="app.py",
+                content="def run():\n    return 1\n",
+            )
+            self.assertIn("payload", created_python)
+            self.assertEqual(created_python["payload"]["summary"]["module_count"], 1)
 
     def test_apply_edit_to_payload_insert_flow_statement_returns_changed_flow_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

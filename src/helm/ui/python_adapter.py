@@ -231,6 +231,8 @@ class PythonRepoAdapter:
         return payload
 
     def default_level(self) -> GraphAbstractionLevel:
+        if self.graph.report.module_count == 0 and self.graph.report.symbol_count == 0:
+            return GraphAbstractionLevel.REPO
         if self.graph.report.module_count > 8 or self.graph.report.symbol_count > 60:
             return GraphAbstractionLevel.MODULE
         return GraphAbstractionLevel.SYMBOL

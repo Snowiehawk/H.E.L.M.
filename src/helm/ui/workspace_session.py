@@ -15,6 +15,12 @@ from helm.ui.python_adapter import (
     PythonRepoAdapter,
     emit_progress,
 )
+from helm.ui.workspace_files import (
+    create_workspace_entry,
+    list_workspace_files,
+    read_workspace_file,
+    save_workspace_file,
+)
 
 
 def _normalized_relative_paths(paths: Iterable[str]) -> tuple[str, ...]:
@@ -122,6 +128,60 @@ class WorkspaceSession:
             expression,
             input_slot_by_name=input_slot_by_name,
         )
+
+    def list_workspace_files(self) -> dict[str, Any]:
+        return list_workspace_files(self.root_path)
+
+    def read_workspace_file(self, relative_path: str) -> dict[str, Any]:
+        return read_workspace_file(self.root_path, relative_path)
+
+    def create_workspace_entry(
+        self,
+        *,
+        kind: str,
+        relative_path: str,
+        content: str | None = None,
+        top_n: int = 24,
+        progress: ProgressReporter | None = None,
+    ) -> dict[str, Any]:
+        result = create_workspace_entry(
+            self.root_path,
+            kind=kind,
+            relative_path=relative_path,
+            content=content,
+        )
+        if kind == "file" and result["relative_path"].endswith(".py"):
+            refresh = self.refresh_paths(
+                [result["relative_path"]],
+                top_n=top_n,
+                progress=progress,
+            )
+            result.update(refresh)
+        return result
+
+    def save_workspace_file(
+        self,
+        *,
+        relative_path: str,
+        content: str,
+        expected_version: str,
+        top_n: int = 24,
+        progress: ProgressReporter | None = None,
+    ) -> dict[str, Any]:
+        result = save_workspace_file(
+            self.root_path,
+            relative_path=relative_path,
+            content=content,
+            expected_version=expected_version,
+        )
+        if result["relative_path"].endswith(".py"):
+            refresh = self.refresh_paths(
+                [result["relative_path"]],
+                top_n=top_n,
+                progress=progress,
+            )
+            result.update(refresh)
+        return result
 
     def full_resync(
         self,

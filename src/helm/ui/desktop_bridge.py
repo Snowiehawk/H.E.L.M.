@@ -102,6 +102,46 @@ def parse_flow_expression_payload(
     )
 
 
+def list_workspace_files_payload(repo: str | Path) -> dict[str, Any]:
+    session = WorkspaceSession.open(repo)
+    return session.list_workspace_files()
+
+
+def read_workspace_file_payload(repo: str | Path, relative_path: str) -> dict[str, Any]:
+    session = WorkspaceSession.open(repo)
+    return session.read_workspace_file(relative_path)
+
+
+def create_workspace_entry_payload(
+    repo: str | Path,
+    *,
+    kind: str,
+    relative_path: str,
+    content: str | None = None,
+) -> dict[str, Any]:
+    session = WorkspaceSession.open(repo)
+    return session.create_workspace_entry(
+        kind=kind,
+        relative_path=relative_path,
+        content=content,
+    )
+
+
+def save_workspace_file_payload(
+    repo: str | Path,
+    *,
+    relative_path: str,
+    content: str,
+    expected_version: str,
+) -> dict[str, Any]:
+    session = WorkspaceSession.open(repo)
+    return session.save_workspace_file(
+        relative_path=relative_path,
+        content=content,
+        expected_version=expected_version,
+    )
+
+
 def apply_undo_to_payload(repo: str | Path, transaction_payload: str | dict[str, Any]) -> dict[str, Any]:
     session = WorkspaceSession.open(repo)
     return session.apply_undo(transaction_payload)
@@ -195,6 +235,47 @@ def _handle_worker_command(
         if not isinstance(transaction_json, str):
             raise ValueError("apply-undo requires a 'transaction_json' string parameter.")
         return session.apply_undo(transaction_json)
+
+    if command == "list-workspace-files":
+        return session.list_workspace_files()
+
+    if command == "read-workspace-file":
+        relative_path = params.get("relative_path")
+        if not isinstance(relative_path, str):
+            raise ValueError("read-workspace-file requires a 'relative_path' string parameter.")
+        return session.read_workspace_file(relative_path)
+
+    if command == "create-workspace-entry":
+        kind = params.get("kind")
+        relative_path = params.get("relative_path")
+        content = params.get("content")
+        if not isinstance(kind, str) or not isinstance(relative_path, str):
+            raise ValueError("create-workspace-entry requires 'kind' and 'relative_path' string parameters.")
+        if content is not None and not isinstance(content, str):
+            raise ValueError("create-workspace-entry 'content' must be a string when provided.")
+        return session.create_workspace_entry(
+            kind=kind,
+            relative_path=relative_path,
+            content=content,
+            top_n=top_n,
+            progress=progress.emit if progress else None,
+        )
+
+    if command == "save-workspace-file":
+        relative_path = params.get("relative_path")
+        content = params.get("content")
+        expected_version = params.get("expected_version")
+        if not isinstance(relative_path, str) or not isinstance(content, str) or not isinstance(expected_version, str):
+            raise ValueError(
+                "save-workspace-file requires 'relative_path', 'content', and 'expected_version' string parameters."
+            )
+        return session.save_workspace_file(
+            relative_path=relative_path,
+            content=content,
+            expected_version=expected_version,
+            top_n=top_n,
+            progress=progress.emit if progress else None,
+        )
 
     if command == "refresh-paths":
         relative_paths = params.get("relative_paths", [])

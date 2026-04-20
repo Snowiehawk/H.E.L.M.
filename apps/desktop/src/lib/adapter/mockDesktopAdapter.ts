@@ -21,6 +21,11 @@ import type {
   StructuralEditRequest,
   StructuralEditResult,
   SymbolDetails,
+  WorkspaceFileContents,
+  WorkspaceFileEntry,
+  WorkspaceFileMutationRequest,
+  WorkspaceFileMutationResult,
+  WorkspaceFileTree,
   WorkspaceSyncEvent,
 } from "./contracts";
 import {
@@ -124,7 +129,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
         processedModules: 3,
         totalModules: 3,
         symbolCount: 5 + this.workspace.uiApiExtraSymbols.length + this.workspace.moduleExtraSymbols.length,
-        message: "Workspace ready. Watching for Python changes.",
+        message: "Workspace ready. Watching for workspace changes.",
         progressPercent: 100,
       },
     ];
@@ -176,6 +181,97 @@ export class MockDesktopAdapter implements DesktopAdapter {
       throw new Error(`Unknown file requested: ${path}`);
     }
     return file;
+  }
+
+  async listWorkspaceFiles(repoPath: string): Promise<WorkspaceFileTree> {
+    await delay(60);
+    return buildMockWorkspaceFileTree(repoPath, this.workspace);
+  }
+
+  async readWorkspaceFile(
+    _repoPath: string,
+    relativePath: string,
+  ): Promise<WorkspaceFileContents> {
+    await delay(60);
+    return readMockWorkspaceFile(this.workspace, relativePath);
+  }
+
+  async createWorkspaceEntry(
+    _repoPath: string,
+    request: WorkspaceFileMutationRequest,
+  ): Promise<WorkspaceFileMutationResult> {
+    await delay(100);
+    const relativePath = normalizeMockWorkspacePath(request.relativePath);
+    if (request.kind === "directory") {
+      if (mockWorkspacePathExists(this.workspace, relativePath)) {
+        throw new Error(`Workspace path already exists: ${relativePath}`);
+      }
+      this.workspace.workspaceFiles[relativePath] = { kind: "directory" };
+      return {
+        relativePath,
+        kind: "directory",
+        changedRelativePaths: [relativePath],
+        file: null,
+      };
+    }
+
+    if (mockWorkspacePathExists(this.workspace, relativePath)) {
+      throw new Error(`Workspace path already exists: ${relativePath}`);
+    }
+
+    if (relativePath.endsWith(".py")) {
+      applyMockEdit(this.workspace, {
+        kind: "create_module",
+        relativePath,
+        content: request.content ?? "",
+      });
+    } else {
+      this.workspace.workspaceFiles[relativePath] = {
+        kind: "file",
+        content: request.content ?? "",
+      };
+    }
+
+    return {
+      relativePath,
+      kind: "file",
+      changedRelativePaths: [relativePath],
+      file: readMockWorkspaceFile(this.workspace, relativePath),
+    };
+  }
+
+  async saveWorkspaceFile(
+    _repoPath: string,
+    relativePath: string,
+    content: string,
+    expectedVersion: string,
+  ): Promise<WorkspaceFileMutationResult> {
+    await delay(100);
+    const normalized = normalizeMockWorkspacePath(relativePath);
+    const current = readMockWorkspaceFile(this.workspace, normalized);
+    if (!current.editable) {
+      throw new Error(current.reason ?? "Workspace file is not editable inline.");
+    }
+    if (current.version !== expectedVersion) {
+      throw new Error("Workspace file changed on disk. Reload it before saving again.");
+    }
+
+    const extraModule = this.workspace.extraModules.find((module) => module.relativePath === normalized);
+    if (extraModule) {
+      extraModule.content = content;
+    } else {
+      this.workspace.workspaceFiles[normalized] = {
+        kind: "file",
+        content,
+      };
+    }
+
+    return {
+      relativePath: normalized,
+      kind: "file",
+      changedRelativePaths: [normalized],
+      file: readMockWorkspaceFile(this.workspace, normalized),
+    };
   }
 
   async getSymbol(symbolId: string): Promise<SymbolDetails> {
@@ -352,6 +448,129 @@ export class MockDesktopAdapter implements DesktopAdapter {
 
 function cloneWorkspaceState(state: MockWorkspaceState): MockWorkspaceState {
   return JSON.parse(JSON.stringify(state)) as MockWorkspaceState;
+}
+
+function normalizeMockWorkspacePath(relativePath: string) {
+  const normalized = relativePath.trim().replaceAll("\\", "/").replace(/^\/+/, "");
+  const parts = normalized.split("/").filter(Boolean);
+  if (!parts.length || parts.some((part) => part === "." || part === "..")) {
+    throw new Error("Repo-relative paths must stay inside the workspace.");
+  }
+  return parts.join("/");
+}
+
+function parentPathsFor(relativePath: string) {
+  const parts = relativePath.split("/").filter(Boolean);
+  return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"));
+}
+
+function mockFileVersion(content: string) {
+  let hash = 0;
+  for (let index = 0; index < content.length; index += 1) {
+    hash = ((hash << 5) - hash + content.charCodeAt(index)) | 0;
+  }
+  return `mock:${content.length}:${hash >>> 0}`;
+}
+
+function mockWorkspacePathExists(state: MockWorkspaceState, relativePath: string) {
+  if (state.workspaceFiles[relativePath]) {
+    return true;
+  }
+  if (buildFiles(state)[relativePath]) {
+    return true;
+  }
+  return Object.keys(buildFiles(state)).some((filePath) => filePath.startsWith(`${relativePath}/`))
+    || Object.keys(state.workspaceFiles).some((filePath) => filePath.startsWith(`${relativePath}/`));
+}
+
+function readMockWorkspaceFile(
+  state: MockWorkspaceState,
+  relativePath: string,
+): WorkspaceFileContents {
+  const normalized = normalizeMockWorkspacePath(relativePath);
+  const workspaceEntry = state.workspaceFiles[normalized];
+  if (workspaceEntry?.kind === "directory") {
+    throw new Error(`Workspace path is not a file: ${normalized}`);
+  }
+  const content = workspaceEntry?.kind === "file"
+    ? workspaceEntry.content ?? ""
+    : buildFiles(state)[normalized]?.content;
+  if (content === undefined) {
+    throw new Error(`Unknown workspace file requested: ${normalized}`);
+  }
+
+  return {
+    relativePath: normalized,
+    name: normalized.split("/").pop() ?? normalized,
+    kind: "file",
+    sizeBytes: new TextEncoder().encode(content).length,
+    editable: true,
+    reason: null,
+    content,
+    version: mockFileVersion(content),
+    modifiedAt: 0,
+  };
+}
+
+function buildMockWorkspaceFileTree(
+  repoPath: string,
+  state: MockWorkspaceState,
+): WorkspaceFileTree {
+  const entriesByPath = new Map<string, WorkspaceFileEntry>();
+
+  const addDirectory = (relativePath: string) => {
+    if (entriesByPath.has(relativePath)) {
+      return;
+    }
+    entriesByPath.set(relativePath, {
+      relativePath,
+      name: relativePath.split("/").pop() ?? relativePath,
+      kind: "directory",
+      sizeBytes: null,
+      editable: false,
+      reason: "Directories are shown in the explorer.",
+      modifiedAt: 0,
+    });
+  };
+
+  const addFile = (relativePath: string, content: string) => {
+    parentPathsFor(relativePath).forEach(addDirectory);
+    entriesByPath.set(relativePath, {
+      relativePath,
+      name: relativePath.split("/").pop() ?? relativePath,
+      kind: "file",
+      sizeBytes: new TextEncoder().encode(content).length,
+      editable: true,
+      reason: null,
+      modifiedAt: 0,
+    });
+  };
+
+  Object.entries(buildFiles(state)).forEach(([relativePath, file]) => {
+    addFile(relativePath, file.content);
+  });
+
+  Object.entries(state.workspaceFiles).forEach(([relativePath, entry]) => {
+    parentPathsFor(relativePath).forEach(addDirectory);
+    if (entry.kind === "directory") {
+      addDirectory(relativePath);
+    } else {
+      addFile(relativePath, entry.content ?? "");
+    }
+  });
+
+  const entries = [...entriesByPath.values()].sort((left, right) => {
+    if (left.kind !== right.kind) {
+      return left.kind === "directory" ? -1 : 1;
+    }
+    return left.relativePath.localeCompare(right.relativePath);
+  });
+
+  return {
+    rootPath: repoPath,
+    entries,
+    truncated: false,
+  };
 }
 
 function cloneBackendUndoTransaction(transaction: BackendUndoTransaction): BackendUndoTransaction {

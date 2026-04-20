@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from helm.ui.workspace_files import MAX_INLINE_TEXT_BYTES
 from helm.ui.workspace_session import WorkspaceSession, WorkspaceSessionManager
 from tests.helpers import write_repo_files
 
@@ -36,6 +37,115 @@ class WorkspaceSessionTests(unittest.TestCase):
             second = manager.ensure_session(root)
 
             self.assertIs(first, second)
+
+    def test_workspace_files_list_create_save_and_reject_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            write_repo_files(
+                root,
+                {
+                    "README.md": "# Demo\n",
+                    "src/app.py": "def run():\n    return 1\n",
+                },
+            )
+
+            session = WorkspaceSession.open(root)
+
+            tree = session.list_workspace_files()
+            entries_by_path = {
+                entry["relative_path"]: entry
+                for entry in tree["entries"]
+            }
+            self.assertEqual(entries_by_path["README.md"]["kind"], "file")
+            self.assertEqual(entries_by_path["src"]["kind"], "directory")
+            self.assertEqual(entries_by_path["src/app.py"]["kind"], "file")
+
+            with self.assertRaises(ValueError):
+                session.read_workspace_file("../outside.txt")
+            with self.assertRaises(ValueError):
+                session.create_workspace_entry(
+                    kind="file",
+                    relative_path="../outside.txt",
+                    content="nope",
+                )
+
+            created = session.create_workspace_entry(
+                kind="file",
+                relative_path="docs/notes.md",
+                content="# Notes\n",
+            )
+            self.assertNotIn("payload", created)
+            self.assertEqual(created["file"]["content"], "# Notes\n")
+
+            version = created["file"]["version"]
+            saved = session.save_workspace_file(
+                relative_path="docs/notes.md",
+                content="# Notes\nUpdated\n",
+                expected_version=version,
+            )
+            self.assertNotIn("payload", saved)
+            self.assertEqual(saved["file"]["content"], "# Notes\nUpdated\n")
+
+            with self.assertRaises(ValueError):
+                session.save_workspace_file(
+                    relative_path="docs/notes.md",
+                    content="stale write\n",
+                    expected_version=version,
+                )
+
+    def test_workspace_file_python_mutations_refresh_graph_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            root.mkdir()
+
+            session = WorkspaceSession.open(root)
+            created = session.create_workspace_entry(
+                kind="file",
+                relative_path="app.py",
+                content="def run():\n    return 1\n",
+            )
+
+            self.assertIn("payload", created)
+            self.assertEqual(created["session_version"], 2)
+            self.assertIn("module:app", _graph_node_ids(created["payload"]))
+            self.assertEqual(created["diagnostics"], [])
+
+            current = session.read_workspace_file("app.py")
+            saved = session.save_workspace_file(
+                relative_path="app.py",
+                content="def run():\n    return 1\n\n\ndef helper():\n    return run()\n",
+                expected_version=current["version"],
+            )
+
+            self.assertIn("payload", saved)
+            self.assertEqual(saved["session_version"], 3)
+            self.assertIn("symbol:app:helper", _graph_node_ids(saved["payload"]))
+
+    def test_workspace_files_report_non_inline_editable_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            root.mkdir()
+            (root / "binary.dat").write_bytes(b"hello\x00world")
+            (root / "latin1.txt").write_bytes(b"\xff")
+            (root / "large.txt").write_bytes(b"x" * (MAX_INLINE_TEXT_BYTES + 1))
+
+            session = WorkspaceSession.open(root)
+            tree = session.list_workspace_files()
+            entries_by_path = {
+                entry["relative_path"]: entry
+                for entry in tree["entries"]
+            }
+
+            self.assertFalse(entries_by_path["binary.dat"]["editable"])
+            self.assertIn("Binary", entries_by_path["binary.dat"]["reason"])
+            self.assertFalse(entries_by_path["latin1.txt"]["editable"])
+            self.assertIn("UTF-8", entries_by_path["latin1.txt"]["reason"])
+            self.assertFalse(entries_by_path["large.txt"]["editable"])
+            self.assertIn("2 MiB", entries_by_path["large.txt"]["reason"])
+
+            self.assertFalse(session.read_workspace_file("binary.dat")["editable"])
+            self.assertFalse(session.read_workspace_file("latin1.txt")["editable"])
+            self.assertFalse(session.read_workspace_file("large.txt")["editable"])
 
     def test_refresh_paths_updates_existing_module_symbols(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
