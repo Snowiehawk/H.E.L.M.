@@ -354,7 +354,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
         for_document = replace(
             for_document,
             nodes=tuple(
-                replace(node, payload={"loop_type": "for_each", "target": "item", "iterable": "items"})
+                replace(node, payload={"loop_type": "for", "target": "item", "iterable": "items"})
                 if node.node_id == for_loop.node_id
                 else node
                 for node in for_document.nodes
@@ -382,7 +382,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
         document = replace(
             document,
             nodes=tuple(
-                replace(node, payload={"loop_type": "for_each", "target": "", "iterable": "items"})
+                replace(node, payload={"loop_type": "for", "target": "", "iterable": "items"})
                 if node.node_id == loop_node.node_id
                 else node
                 for node in document.nodes
