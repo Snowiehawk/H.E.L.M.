@@ -1094,6 +1094,70 @@ describe("GraphCanvas", () => {
     );
   });
 
+  it("opens loop context actions for type changes and Repeat/Done steps", async () => {
+    const user = userEvent.setup();
+    const onCreateIntent = vi.fn();
+    const onEditFlowNodeIntent = vi.fn();
+    renderGraphCanvas({
+      graph: {
+        ...branchLoopVisualGraph,
+        flowState: {
+          editable: true,
+          syncState: "clean",
+          diagnostics: [],
+          document: branchLoopVisualDocument,
+        },
+      },
+      onCreateIntent,
+      onEditFlowNodeIntent,
+    });
+
+    const loopNode = await screen.findByTestId("rf__node-loop:workflow");
+    fireEvent.contextMenu(loopNode, { clientX: 320, clientY: 260 });
+
+    const menu = await screen.findByRole("menu", { name: "while items actions" });
+    expect(within(menu).getByRole("menuitem", { name: "Edit Loop" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Change to While Loop" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Change to For Loop" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Add Repeat Step" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Add Done Step" })).toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "Edit Flow Node" })).not.toBeInTheDocument();
+
+    await user.click(within(menu).getByRole("menuitem", { name: "Change to For Loop" }));
+    expect(onEditFlowNodeIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nodeId: "loop:workflow",
+        initialLoopType: "for",
+      }),
+    );
+
+    fireEvent.contextMenu(loopNode, { clientX: 320, clientY: 260 });
+    const repeatMenu = await screen.findByRole("menu", { name: "while items actions" });
+    await user.click(within(repeatMenu).getByRole("menuitem", { name: "Add Repeat Step" }));
+    expect(onCreateIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        seedFlowConnection: {
+          sourceNodeId: "loop:workflow",
+          sourceHandle: "body",
+          label: "Repeat",
+        },
+      }),
+    );
+
+    fireEvent.contextMenu(loopNode, { clientX: 320, clientY: 260 });
+    const doneMenu = await screen.findByRole("menu", { name: "while items actions" });
+    await user.click(within(doneMenu).getByRole("menuitem", { name: "Add Done Step" }));
+    expect(onCreateIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        seedFlowConnection: {
+          sourceNodeId: "loop:workflow",
+          sourceHandle: "after",
+          label: "Done",
+        },
+      }),
+    );
+  });
+
   it("initializes and persists a structured flow layout on first open when no layout is saved", async () => {
     readStoredGraphLayoutMock.mockResolvedValueOnce({
       nodes: {},

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -185,6 +186,98 @@ def save_workspace_file(
     }
 
 
+def move_workspace_entry(
+    root: str | Path,
+    *,
+    source_relative_path: str,
+    target_directory_relative_path: str,
+) -> dict[str, Any]:
+    """Move a repo-relative file or directory into a repo-relative directory."""
+
+    root_path = _validated_root(root)
+    normalized_source_relative_path = _validated_repo_relative_path(source_relative_path)
+    source_path = _resolve_repo_relative_path(root_path, normalized_source_relative_path)
+    if not source_path.exists():
+        raise ValueError(f"Workspace path does not exist: {normalized_source_relative_path}")
+
+    normalized_target_directory = _validated_repo_directory_path(target_directory_relative_path)
+    target_directory_path = root_path if not normalized_target_directory else _resolve_repo_relative_path(
+        root_path,
+        normalized_target_directory,
+    )
+    if not target_directory_path.exists():
+        raise ValueError(f"Workspace folder does not exist: {normalized_target_directory}")
+    if not target_directory_path.is_dir():
+        raise ValueError(f"Workspace path is not a folder: {normalized_target_directory}")
+
+    if source_path.is_dir() and _is_path_at_or_below(target_directory_path, source_path):
+        raise ValueError("Cannot move a folder into itself or one of its descendants.")
+
+    target_path = target_directory_path / source_path.name
+    normalized_target_relative_path = target_path.relative_to(root_path).as_posix()
+    if source_path == target_path:
+        kind = "directory" if source_path.is_dir() else "file"
+        return {
+            "relative_path": normalized_target_relative_path,
+            "kind": kind,
+            "changed_relative_paths": [],
+            "file": read_workspace_file(root_path, normalized_target_relative_path)
+            if kind == "file"
+            else None,
+        }
+    if target_path.exists():
+        raise ValueError(f"Workspace path already exists: {normalized_target_relative_path}")
+
+    kind = "directory" if source_path.is_dir() else "file"
+    changed_relative_paths = _move_changed_relative_paths(
+        source_path,
+        normalized_source_relative_path,
+        normalized_target_relative_path,
+    )
+    source_path.rename(target_path)
+    return {
+        "relative_path": normalized_target_relative_path,
+        "kind": kind,
+        "changed_relative_paths": changed_relative_paths,
+        "file": read_workspace_file(root_path, normalized_target_relative_path)
+        if kind == "file"
+        else None,
+    }
+
+
+def delete_workspace_entry(
+    root: str | Path,
+    *,
+    relative_path: str,
+) -> dict[str, Any]:
+    """Delete a repo-relative file or directory."""
+
+    root_path = _validated_root(root)
+    normalized_relative_path = _validated_repo_relative_path(relative_path)
+    target_path = _resolve_repo_relative_path(root_path, normalized_relative_path)
+    if not target_path.exists():
+        raise ValueError(f"Workspace path does not exist: {normalized_relative_path}")
+
+    kind = "directory" if target_path.is_dir() else "file"
+    changed_relative_paths = _delete_changed_relative_paths(
+        target_path,
+        normalized_relative_path,
+    )
+    if target_path.is_dir():
+        shutil.rmtree(target_path)
+    elif target_path.is_file():
+        target_path.unlink()
+    else:
+        raise ValueError(f"Workspace path is not a file or folder: {normalized_relative_path}")
+
+    return {
+        "relative_path": normalized_relative_path,
+        "kind": kind,
+        "changed_relative_paths": changed_relative_paths,
+        "file": None,
+    }
+
+
 def _validated_root(root: str | Path) -> Path:
     root_path = Path(root).resolve()
     if not root_path.exists():
@@ -205,6 +298,13 @@ def _validated_repo_relative_path(relative_path: str) -> str:
     if any(part in {"", ".", ".."} for part in path.parts):
         raise ValueError("Repo-relative paths must not contain empty, '.', or '..' segments.")
     return path.as_posix()
+
+
+def _validated_repo_directory_path(relative_path: str) -> str:
+    raw = relative_path.strip().replace("\\", "/")
+    if not raw:
+        return ""
+    return _validated_repo_relative_path(raw)
 
 
 def _resolve_repo_relative_path(root_path: Path, relative_path: str) -> Path:
@@ -243,6 +343,50 @@ def _file_entry(path: Path, relative_path: str) -> dict[str, Any]:
         "reason": reason,
         "modified_at": path.stat().st_mtime,
     }
+
+
+def _move_changed_relative_paths(
+    source_path: Path,
+    source_relative_path: str,
+    target_relative_path: str,
+) -> list[str]:
+    changed = [source_relative_path, target_relative_path]
+    if not source_path.is_dir():
+        return changed
+
+    for child in sorted(source_path.rglob("*")):
+        try:
+            child_relative_path = child.relative_to(source_path).as_posix()
+        except ValueError:
+            continue
+        changed.append(f"{source_relative_path}/{child_relative_path}")
+        changed.append(f"{target_relative_path}/{child_relative_path}")
+    return changed
+
+
+def _delete_changed_relative_paths(
+    target_path: Path,
+    relative_path: str,
+) -> list[str]:
+    changed = [relative_path]
+    if not target_path.is_dir():
+        return changed
+
+    for child in sorted(target_path.rglob("*")):
+        try:
+            child_relative_path = child.relative_to(target_path).as_posix()
+        except ValueError:
+            continue
+        changed.append(f"{relative_path}/{child_relative_path}")
+    return changed
+
+
+def _is_path_at_or_below(path: Path, ancestor: Path) -> bool:
+    try:
+        path.relative_to(ancestor)
+    except ValueError:
+        return False
+    return True
 
 
 def _inline_editability(path: Path) -> tuple[bool, str | None]:

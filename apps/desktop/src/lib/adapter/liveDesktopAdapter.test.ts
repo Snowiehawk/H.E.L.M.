@@ -344,7 +344,7 @@ describe("LiveDesktopAdapter", () => {
     expect(graph.flowState?.document?.nodes.some((node) => String(node.kind) === "param")).toBe(false);
   });
 
-  it("maps workspace filesystem list, read, create, and save commands", async () => {
+  it("maps workspace filesystem list, read, create, save, move, and delete commands", async () => {
     const adapter = new LiveDesktopAdapter();
 
     invokeMock.mockResolvedValueOnce({
@@ -454,6 +454,52 @@ describe("LiveDesktopAdapter", () => {
       expectedVersion: "sha256:old",
     });
     expect(saved.file?.content).toBe("# Updated\n");
+
+    invokeMock.mockResolvedValueOnce({
+      relative_path: "docs/README.md",
+      kind: "file",
+      changed_relative_paths: ["README.md", "docs/README.md"],
+      file: {
+        relative_path: "docs/README.md",
+        name: "README.md",
+        kind: "file",
+        size_bytes: 10,
+        editable: true,
+        reason: null,
+        content: "# Updated\n",
+        version: "sha256:new",
+        modified_at: 14,
+      },
+    });
+
+    const moved = await adapter.moveWorkspaceEntry("/workspace/calculator", {
+      sourceRelativePath: "README.md",
+      targetDirectoryRelativePath: "docs",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("move_workspace_entry", {
+      repoPath: "/workspace/calculator",
+      sourceRelativePath: "README.md",
+      targetDirectoryRelativePath: "docs",
+    });
+    expect(moved.relativePath).toBe("docs/README.md");
+    expect(moved.changedRelativePaths).toEqual(["README.md", "docs/README.md"]);
+
+    invokeMock.mockResolvedValueOnce({
+      relative_path: "docs/README.md",
+      kind: "file",
+      changed_relative_paths: ["docs/README.md"],
+      file: null,
+    });
+
+    const deleted = await adapter.deleteWorkspaceEntry("/workspace/calculator", {
+      relativePath: "docs/README.md",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("delete_workspace_entry", {
+      repoPath: "/workspace/calculator",
+      relativePath: "docs/README.md",
+    });
+    expect(deleted.file).toBeNull();
+    expect(deleted.changedRelativePaths).toEqual(["docs/README.md"]);
   });
 
   it("updates cached workspace state from live sync events", async () => {

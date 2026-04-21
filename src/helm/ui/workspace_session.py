@@ -17,7 +17,9 @@ from helm.ui.python_adapter import (
 )
 from helm.ui.workspace_files import (
     create_workspace_entry,
+    delete_workspace_entry,
     list_workspace_files,
+    move_workspace_entry,
     read_workspace_file,
     save_workspace_file,
 )
@@ -177,6 +179,58 @@ class WorkspaceSession:
         if result["relative_path"].endswith(".py"):
             refresh = self.refresh_paths(
                 [result["relative_path"]],
+                top_n=top_n,
+                progress=progress,
+            )
+            result.update(refresh)
+        return result
+
+    def move_workspace_entry(
+        self,
+        *,
+        source_relative_path: str,
+        target_directory_relative_path: str,
+        top_n: int = 24,
+        progress: ProgressReporter | None = None,
+    ) -> dict[str, Any]:
+        result = move_workspace_entry(
+            self.root_path,
+            source_relative_path=source_relative_path,
+            target_directory_relative_path=target_directory_relative_path,
+        )
+        python_paths = [
+            path
+            for path in result["changed_relative_paths"]
+            if path.endswith(".py")
+        ]
+        if python_paths:
+            refresh = self.refresh_paths(
+                python_paths,
+                top_n=top_n,
+                progress=progress,
+            )
+            result.update(refresh)
+        return result
+
+    def delete_workspace_entry(
+        self,
+        *,
+        relative_path: str,
+        top_n: int = 24,
+        progress: ProgressReporter | None = None,
+    ) -> dict[str, Any]:
+        result = delete_workspace_entry(
+            self.root_path,
+            relative_path=relative_path,
+        )
+        python_paths = [
+            path
+            for path in result["changed_relative_paths"]
+            if path.endswith(".py")
+        ]
+        if python_paths:
+            refresh = self.refresh_paths(
+                python_paths,
                 top_n=top_n,
                 progress=progress,
             )

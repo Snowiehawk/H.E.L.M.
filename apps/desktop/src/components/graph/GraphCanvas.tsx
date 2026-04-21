@@ -38,7 +38,7 @@ import {
   isGraphSymbolNodeKind,
   isInspectableGraphNodeKind,
 } from "../../lib/adapter";
-import { isFlowNodeAuthorableKind } from "./flowDocument";
+import { isFlowNodeAuthorableKind, type FlowLoopType } from "./flowDocument";
 import { GraphToolbar } from "./GraphToolbar";
 import {
   BlueprintNode,
@@ -146,11 +146,17 @@ export type CreateModeState = "inactive" | "active" | "composing";
 export interface GraphCreateIntent {
   flowPosition: { x: number; y: number };
   panelPosition: { x: number; y: number };
+  seedFlowConnection?: {
+    sourceNodeId: string;
+    sourceHandle: "body" | "after";
+    label: "Repeat" | "Done";
+  };
 }
 export interface GraphFlowEditIntent {
   nodeId: string;
   flowPosition: { x: number; y: number };
   panelPosition: { x: number; y: number };
+  initialLoopType?: FlowLoopType;
 }
 export interface GraphExpressionGraphIntent {
   nodeId: string;
@@ -3840,15 +3846,63 @@ export function GraphCanvas({
     }
 
     if (flowAuthoringEnabled && authorableFlowNodeIds.has(graphNode.id)) {
-      items.push({
-        id: "edit-flow-node",
-        label: "Edit Flow Node",
-        action: () => onEditFlowNodeIntent({
-          nodeId: graphNode.id,
-          flowPosition: screenToFlowPosition({ x: menu.x, y: menu.y }),
-          panelPosition: panelPositionForContext(menu),
-        }),
+      const openFlowNodeEditor = (initialLoopType?: FlowLoopType) => onEditFlowNodeIntent({
+        nodeId: graphNode.id,
+        flowPosition: screenToFlowPosition({ x: menu.x, y: menu.y }),
+        panelPosition: panelPositionForContext(menu),
+        initialLoopType,
       });
+      if (graphNode.kind === "loop") {
+        items.push(
+          {
+            id: "edit-loop",
+            label: "Edit Loop",
+            action: () => openFlowNodeEditor(),
+          },
+          {
+            id: "change-loop-while",
+            label: "Change to While Loop",
+            action: () => openFlowNodeEditor("while"),
+          },
+          {
+            id: "change-loop-for",
+            label: "Change to For Loop",
+            action: () => openFlowNodeEditor("for"),
+          },
+          {
+            id: "add-repeat-step",
+            label: "Add Repeat Step",
+            action: () => onCreateIntent({
+              flowPosition: screenToFlowPosition({ x: menu.x, y: menu.y }),
+              panelPosition: panelPositionForContext(menu),
+              seedFlowConnection: {
+                sourceNodeId: graphNode.id,
+                sourceHandle: "body",
+                label: "Repeat",
+              },
+            }),
+          },
+          {
+            id: "add-done-step",
+            label: "Add Done Step",
+            action: () => onCreateIntent({
+              flowPosition: screenToFlowPosition({ x: menu.x, y: menu.y }),
+              panelPosition: panelPositionForContext(menu),
+              seedFlowConnection: {
+                sourceNodeId: graphNode.id,
+                sourceHandle: "after",
+                label: "Done",
+              },
+            }),
+          },
+        );
+      } else {
+        items.push({
+          id: "edit-flow-node",
+          label: "Edit Flow Node",
+          action: () => openFlowNodeEditor(),
+        });
+      }
     }
 
     if (canPinNodes) {

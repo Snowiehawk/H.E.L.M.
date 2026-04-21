@@ -112,7 +112,7 @@ describe("BlueprintInspector", () => {
     expect(onOpenNodeInDefaultEditor).not.toHaveBeenCalled();
   });
 
-  it("renders read-only module context source when no graph node is selected", () => {
+  it("renders editable module context source when no graph node is selected", () => {
     render(
       <BlueprintInspector
         sourceContextNode={buildNode({
@@ -128,9 +128,8 @@ describe("BlueprintInspector", () => {
           startLine: 1,
           endLine: 8,
           content: "def calculate(a, b):\n    return a + b\n",
-          editable: false,
+          editable: true,
           nodeKind: "module",
-          reason: "Full-file editing is not available in the inspector yet.",
         })}
         editableSourceLoading={false}
         isSavingSource={false}
@@ -144,8 +143,9 @@ describe("BlueprintInspector", () => {
     expect(screen.getByRole("heading", { name: /Current Context/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /calculator\.py/i })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /Nothing selected/i })).not.toBeInTheDocument();
-    expect(screen.getByTestId("inspector-readonly-source")).toHaveAttribute("data-read-only", "true");
-    expect(screen.getByLabelText(/Read-only module source/i)).toHaveTextContent("def calculate");
+    expect(screen.getByRole("heading", { name: /Source editor/i })).toBeInTheDocument();
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-read-only", "false");
+    expect(screen.getByLabelText(/Module source editor/i)).toHaveTextContent("def calculate");
   });
 
   it("renders editable symbol context source when no flow node is selected", () => {

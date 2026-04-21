@@ -19,6 +19,7 @@ import {
 } from "../components/graph/GraphCanvas";
 import {
   establishFlowDraftDocument,
+  functionInputParamNodeId,
   parseFunctionInputSourceHandle,
   parseInputSlotTargetHandle,
   parseParameterEntryEdgeInputId,
@@ -39,8 +40,9 @@ import {
   flowDocumentHandleFromBlueprintHandle,
   flowFunctionInputRemovalSummary,
   flowDocumentsEqual,
-  isFlowNodeAuthorableKind,
   flowNodePayloadFromContent,
+  insertFlowNodeOnEdge,
+  isFlowNodeAuthorableKind,
   mergeFlowDraftWithSourceDocument,
   moveFlowFunctionInput,
   parseReturnInputTargetHandle,
@@ -114,6 +116,8 @@ import type {
   SourceRange,
   StructuralEditRequest,
   WorkspaceFileContents,
+  WorkspaceFileDeleteRequest,
+  WorkspaceFileMoveRequest,
   WorkspaceFileMutationRequest,
 } from "../lib/adapter";
 import {
@@ -229,16 +233,6 @@ function inspectorSourceTargetForNode(
     };
   }
 
-  if (node.kind === "module") {
-    return {
-      targetId: node.id,
-      fetchMode: "revealed",
-      node,
-      nodeKind: "module",
-      reason,
-    };
-  }
-
   return undefined;
 }
 
@@ -269,7 +263,7 @@ function inspectorSourceTargetForId(
   if (targetId.startsWith("module:")) {
     return {
       targetId,
-      fetchMode: "revealed",
+      fetchMode: "editable",
       node,
       nodeKind: "module",
       reason,
@@ -287,7 +281,7 @@ function readonlyEditableSourceFromReveal(
     ...source,
     editable: false,
     nodeKind: nodeKind ?? "module",
-    reason: "Full-file editing is not available in the inspector yet.",
+    reason: "This source is available for review only.",
   };
 }
 
@@ -571,6 +565,36 @@ function symbolNameFromSymbolId(symbolId: string): string | undefined {
 
 function moduleIdFromRelativePath(relativePath: string): string {
   return `module:${relativePath.replace(/\.py$/i, "").split("/").filter(Boolean).join(".")}`;
+}
+
+function movedWorkspaceRelativePath(
+  relativePath: string | undefined,
+  sourceRelativePath: string,
+  targetRelativePath: string,
+): string | undefined {
+  if (!relativePath) {
+    return undefined;
+  }
+  if (relativePath === sourceRelativePath) {
+    return targetRelativePath;
+  }
+  if (relativePath.startsWith(`${sourceRelativePath}/`)) {
+    return `${targetRelativePath}${relativePath.slice(sourceRelativePath.length)}`;
+  }
+  return undefined;
+}
+
+function isWorkspacePathAtOrBelow(
+  relativePath: string | undefined,
+  ancestorRelativePath: string,
+): boolean {
+  return Boolean(
+    relativePath
+    && (
+      relativePath === ancestorRelativePath
+      || relativePath.startsWith(`${ancestorRelativePath}/`)
+    ),
+  );
 }
 
 function flowLayoutViewKey(symbolId: string) {
@@ -1457,7 +1481,7 @@ export function WorkspaceScreen() {
       const moduleContextTarget =
         inspectorSourceTargetForNode(currentModuleNode, "module-context")
         ?? inspectorSourceTargetForId(graphTargetId, "module-context", currentModuleNode);
-      if (moduleContextTarget?.fetchMode === "revealed") {
+      if (moduleContextTarget) {
         return moduleContextTarget;
       }
     }
@@ -1691,6 +1715,129 @@ export function WorkspaceScreen() {
       }
     }
   }, [adapter, focusGraph, queryClient, repoSession, selectWorkspaceFile]);
+
+  const moveWorkspaceEntry = useCallback(async (request: WorkspaceFileMoveRequest) => {
+    if (!repoSession) {
+      throw new Error("Open a repository before moving files.");
+    }
+
+    const targetRelativePath = request.targetDirectoryRelativePath
+      ? `${request.targetDirectoryRelativePath}/${request.sourceRelativePath.split("/").pop() ?? request.sourceRelativePath}`
+      : request.sourceRelativePath.split("/").pop() ?? request.sourceRelativePath;
+    const movedActiveFilePath = movedWorkspaceRelativePath(
+      activeWorkspaceFilePath,
+      request.sourceRelativePath,
+      targetRelativePath,
+    );
+    if (movedActiveFilePath && workspaceFileDirty) {
+      throw new Error("Save or cancel the open file before moving it.");
+    }
+
+    const result = await adapter.moveWorkspaceEntry(repoSession.path, request);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
+      queryClient.invalidateQueries({ queryKey: ["overview"] }),
+      queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
+    ]);
+
+    if (movedActiveFilePath) {
+      if (movedActiveFilePath.endsWith(".py")) {
+        setActiveWorkspaceFilePath(undefined);
+        focusGraph(moduleIdFromRelativePath(movedActiveFilePath), "module");
+      } else {
+        selectWorkspaceFile(movedActiveFilePath);
+      }
+      return;
+    }
+
+    if (result.kind === "file" && result.relativePath.endsWith(".py")) {
+      focusGraph(moduleIdFromRelativePath(result.relativePath), "module");
+    }
+  }, [
+    activeWorkspaceFilePath,
+    adapter,
+    focusGraph,
+    queryClient,
+    repoSession,
+    selectWorkspaceFile,
+    workspaceFileDirty,
+  ]);
+
+  const deleteWorkspaceEntry = useCallback(async (request: WorkspaceFileDeleteRequest) => {
+    if (!repoSession) {
+      throw new Error("Open a repository before deleting files.");
+    }
+
+    const deletingOpenFile = isWorkspacePathAtOrBelow(
+      activeWorkspaceFilePath,
+      request.relativePath,
+    );
+    if (deletingOpenFile && workspaceFileDirty) {
+      throw new Error("Save or cancel the open file before deleting it.");
+    }
+
+    const confirmed = await confirmFlowRemoval(
+      `Delete ${request.relativePath}? This cannot be undone from H.E.L.M.`,
+      {
+        okLabel: "Delete",
+        title: "Delete Workspace Entry",
+      },
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const deletingActiveGraphPath = (
+      isWorkspacePathAtOrBelow(selectedFilePath, request.relativePath)
+      || isWorkspacePathAtOrBelow(currentModulePath, request.relativePath)
+      || isWorkspacePathAtOrBelow(inspectorSourcePath, request.relativePath)
+    );
+
+    const deletedOpenFilePath = deletingOpenFile ? activeWorkspaceFilePath : undefined;
+    const result = await adapter.deleteWorkspaceEntry(repoSession.path, request);
+    if (deletingOpenFile) {
+      setActiveWorkspaceFilePath(undefined);
+      setWorkspaceFileDraft("");
+      setWorkspaceFileStale(false);
+      setWorkspaceFileSaveError(null);
+      workspaceFileLoadedKeyRef.current = undefined;
+      if (deletedOpenFilePath) {
+        queryClient.removeQueries({
+          queryKey: ["workspace-file", repoSession.id, deletedOpenFilePath],
+          exact: true,
+        });
+      }
+    }
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
+      deletingOpenFile
+        ? Promise.resolve()
+        : queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
+      queryClient.invalidateQueries({ queryKey: ["overview"] }),
+      queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
+    ]);
+
+    if (
+      deletingActiveGraphPath
+      || result.changedRelativePaths.some((path) => path.endsWith(".py") && path === currentModulePath)
+    ) {
+      focusGraph(repoSession.id, "repo");
+    }
+  }, [
+    activeWorkspaceFilePath,
+    adapter,
+    currentModulePath,
+    focusGraph,
+    inspectorSourcePath,
+    queryClient,
+    repoSession,
+    selectedFilePath,
+    workspaceFileDirty,
+  ]);
 
   const saveWorkspaceFile = useCallback(async () => {
     if (!repoSession || !activeWorkspaceFile) {
@@ -2478,6 +2625,7 @@ export function WorkspaceScreen() {
         ownerLabel: flowOwnerSymbolQuery.data?.qualname ?? effectiveGraph?.focus?.label ?? "Flow",
         initialFlowNodeKind: "assign",
         initialPayload: { source: "" },
+        seedFlowConnection: intent.seedFlowConnection,
       });
       setCreateModeState("composing");
     }
@@ -2853,7 +3001,7 @@ export function WorkspaceScreen() {
           }
         }
       } else if (
-        payload.kind === "flow"
+        (payload.kind === "flow" || payload.kind === "flow_param")
         && createComposer.kind === "flow"
         && graphTargetId?.startsWith("symbol:")
       ) {
@@ -2861,8 +3009,46 @@ export function WorkspaceScreen() {
           throw new Error("Editable flow draft state is no longer available for this symbol.");
         }
 
+        if (payload.kind === "flow_param") {
+          let createdParamNodeId: string | undefined;
+          const seededNodes: Array<{
+            nodeId: string;
+            kind: GraphNodeKind;
+            position: { x: number; y: number };
+          }> = [];
+          await applyFlowDraftMutation({
+            transform: (document) => {
+              const previousInputIds = new Set((document.functionInputs ?? []).map((input) => input.id));
+              const nextDocument = addFlowFunctionInput(document, {
+                name: payload.name,
+                defaultExpression: payload.defaultExpression,
+              });
+              const createdInput = (nextDocument.functionInputs ?? []).find((input) => !previousInputIds.has(input.id));
+              if (createdInput) {
+                createdParamNodeId = functionInputParamNodeId(nextDocument.symbolId, createdInput);
+                seededNodes.push({
+                  nodeId: createdParamNodeId,
+                  kind: "param",
+                  position: createComposer.flowPosition,
+                });
+              }
+              return nextDocument;
+            },
+            seededNodes,
+          });
+
+          if (createdParamNodeId) {
+            setFlowInputDisplayMode("param_nodes");
+            selectNode(createdParamNodeId);
+            setPendingCreatedNodeId(createdParamNodeId);
+          }
+          setCreateComposer(undefined);
+          setCreateModeState("active");
+          return;
+        }
+
         if (createComposer.mode === "edit" && createComposer.editingNodeId) {
-          const nextPayload = flowNodePayloadFromContent(payload.flowNodeKind, payload.content);
+          const nextPayload = payload.payload ?? flowNodePayloadFromContent(payload.flowNodeKind, payload.content);
           await applyFlowDraftMutation({
             transform: (document) => updateFlowNodePayload(
               document,
@@ -2879,15 +3065,62 @@ export function WorkspaceScreen() {
         createdNodeKind = payload.flowNodeKind;
         const nextNode = {
           ...createFlowNode(graphTargetId, payload.flowNodeKind),
-          payload: flowNodePayloadFromContent(payload.flowNodeKind, payload.content),
+          payload: payload.payload ?? flowNodePayloadFromContent(payload.flowNodeKind, payload.content),
         };
+        const seededNodes: Array<{
+          nodeId: string;
+          kind: GraphNodeKind;
+          position: { x: number; y: number };
+        }> = [{
+          nodeId: nextNode.id,
+          kind: nextNode.kind,
+          position: createComposer.flowPosition,
+        }];
         await applyFlowDraftMutation({
-          transform: (document) => addDisconnectedFlowNode(document, nextNode),
-          seededNodes: [{
-            nodeId: nextNode.id,
-            kind: nextNode.kind,
-            position: createComposer.flowPosition,
-          }],
+          transform: (document) => {
+            let nextDocument = addDisconnectedFlowNode(document, nextNode);
+            if (createComposer.seedFlowConnection) {
+              const existingEdge = document.edges.find((edge) => (
+                edge.sourceId === createComposer.seedFlowConnection?.sourceNodeId
+                && edge.sourceHandle === createComposer.seedFlowConnection?.sourceHandle
+              ));
+              nextDocument = existingEdge
+                ? insertFlowNodeOnEdge(document, nextNode, existingEdge.id)
+                : upsertFlowConnection(nextDocument, {
+                    sourceId: createComposer.seedFlowConnection.sourceNodeId,
+                    sourceHandle: createComposer.seedFlowConnection.sourceHandle,
+                    targetId: nextNode.id,
+                    targetHandle: "in",
+                  });
+            }
+
+            (payload.starterSteps ?? []).forEach((starterStep, index) => {
+              const starterNode = {
+                ...createFlowNode(graphTargetId, starterStep.flowNodeKind),
+                payload: starterStep.payload,
+              };
+              const starterPosition = {
+                x: createComposer.flowPosition.x + 280,
+                y: createComposer.flowPosition.y + (starterStep.sourceHandle === "body" ? -150 : 150) + index * 32,
+              };
+              seededNodes.push({
+                nodeId: starterNode.id,
+                kind: starterNode.kind,
+                position: starterPosition,
+              });
+              nextDocument = upsertFlowConnection(
+                addDisconnectedFlowNode(nextDocument, starterNode),
+                {
+                  sourceId: nextNode.id,
+                  sourceHandle: starterStep.sourceHandle,
+                  targetId: starterNode.id,
+                  targetHandle: "in",
+                },
+              );
+            });
+            return nextDocument;
+          },
+          seededNodes,
           selectedNodeId: nextNode.id,
         });
         setPendingCreatedNodeId(undefined);
@@ -2915,7 +3148,7 @@ export function WorkspaceScreen() {
       const message =
         reason instanceof Error ? reason.message : "Unable to create from the current graph context.";
       setCreateModeError(message);
-      if (payload.kind === "flow" && graphTargetId?.startsWith("symbol:")) {
+      if ((payload.kind === "flow" || payload.kind === "flow_param") && graphTargetId?.startsWith("symbol:")) {
         setFlowDraftState((current) => {
           if (!current || current.symbolId !== graphTargetId) {
             return current;
@@ -2941,6 +3174,8 @@ export function WorkspaceScreen() {
     graphTargetId,
     handleApplyEdit,
     seedCreatedNodeLayout,
+    selectNode,
+    setFlowInputDisplayMode,
   ]);
 
   const resolveFlowDocumentConnection = useCallback((connection: GraphFlowConnectionIntent) => {
@@ -3041,6 +3276,7 @@ export function WorkspaceScreen() {
       editingNodeId: targetNode.id,
       initialFlowNodeKind: targetNode.kind,
       initialPayload: targetNode.payload,
+      initialLoopType: intent.initialLoopType,
     });
     if (createModeState === "active") {
       setCreateModeState("composing");
@@ -3914,6 +4150,8 @@ export function WorkspaceScreen() {
               onSelectSymbol={selectOverviewSymbol}
               onSelectWorkspaceFile={selectWorkspaceFile}
               onCreateWorkspaceEntry={createWorkspaceEntry}
+              onMoveWorkspaceEntry={moveWorkspaceEntry}
+              onDeleteWorkspaceEntry={(relativePath) => deleteWorkspaceEntry({ relativePath })}
               onFocusRepoGraph={() => {
                 setActiveWorkspaceFilePath(undefined);
                 if (repoSession) {

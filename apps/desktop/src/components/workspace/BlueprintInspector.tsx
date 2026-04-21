@@ -706,7 +706,7 @@ export function BlueprintInspector({
           onContextMenu={(event) => openContextMenu(event, editableSource?.targetId ?? contextTargetId)}
         >
           <div className="section-header">
-            <h3>{canEditInline ? "Declaration editor" : "Code details"}</h3>
+            <h3>{canEditInline && editableNodeKind === "module" ? "Source editor" : canEditInline ? "Declaration editor" : "Code details"}</h3>
             <span>
               {editableSourceLoading
                 ? "loading"
@@ -1183,6 +1183,9 @@ export function BlueprintInspector({
 }
 
 function editableEditorTitle(nodeKind: GraphNodeDto["kind"] | undefined) {
+  if (nodeKind === "module") {
+    return "Module source";
+  }
   if (nodeKind === "class") {
     return "Class source";
   }
@@ -1193,6 +1196,9 @@ function editableEditorTitle(nodeKind: GraphNodeDto["kind"] | undefined) {
 }
 
 function editableEditorAriaLabel(nodeKind: GraphNodeDto["kind"] | undefined) {
+  if (nodeKind === "module") {
+    return "Module source editor";
+  }
   if (nodeKind === "class") {
     return "Class source editor";
   }

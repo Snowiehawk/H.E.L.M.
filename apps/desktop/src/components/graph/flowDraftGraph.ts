@@ -16,6 +16,7 @@ import type {
 } from "../../lib/adapter";
 import {
   cloneFlowDocument,
+  flowControlPathLabel,
   flowInputBindingId,
   flowReturnCompletionEdgeId,
   isFlowDocumentNodeKind,
@@ -119,7 +120,10 @@ export function projectFlowDraftGraph(
     return [{ ...edge, source, target }];
   });
   const baseEdgesById = new Map(baseGraph.edges.map((edge) => [edge.id, edge] as const));
-  const draftEdges = document.edges.map((edge) => graphEdgeForFlowDraft(edge, baseEdgesById.get(edge.id)));
+  const documentNodeById = new Map(document.nodes.map((node) => [node.id, node]));
+  const draftEdges = document.edges.map((edge) =>
+    graphEdgeForFlowDraft(edge, baseEdgesById.get(edge.id), documentNodeById.get(edge.sourceId)?.kind),
+  );
   const returnCompletionEdges = graphEdgesForReturnCompletion(document);
   const inputBindingEdges = inputBindings.flatMap((binding) =>
     graphEdgeForInputBinding(document, binding, entryNodeId),
@@ -515,7 +519,7 @@ export function parseParameterEntryEdgeInputId(edgeId: string): string | undefin
   return separator > prefix.length ? edgeId.slice(prefix.length, separator) : undefined;
 }
 
-function functionInputParamNodeId(symbolId: string, input: FlowFunctionInput): string {
+export function functionInputParamNodeId(symbolId: string, input: FlowFunctionInput): string {
   return `flow:${symbolId}:param:${input.name}`;
 }
 
@@ -728,8 +732,10 @@ function graphNodeForFlowDraft(
 function graphEdgeForFlowDraft(
   edge: FlowGraphEdge,
   existing: GraphEdgeDto | undefined,
+  sourceKind: FlowVisualNodeKind | undefined,
 ): GraphEdgeDto {
-  const pathLabel = flowDraftPathLabel(edge.sourceHandle);
+  const pathLabel = flowDraftPathLabel(edge.sourceHandle, sourceKind);
+  const pathOrder = flowDraftPathOrder(edge.sourceHandle);
   return {
     id: edge.id,
     kind: "controls",
@@ -744,6 +750,7 @@ function graphEdgeForFlowDraft(
         ? {
             path_key: pathLabel,
             path_label: pathLabel,
+            ...(pathOrder === undefined ? {} : { path_order: pathOrder }),
           }
         : {}),
     },
@@ -823,8 +830,23 @@ function flowDraftNodeSubtitle(
   return "return";
 }
 
-function flowDraftPathLabel(sourceHandle: string) {
-  return sourceHandle === "start" || sourceHandle === "next" ? undefined : sourceHandle;
+function flowDraftPathLabel(sourceHandle: string, sourceKind: FlowVisualNodeKind | undefined) {
+  return sourceHandle === "start" || sourceHandle === "next"
+    ? undefined
+    : sourceKind
+      ? flowControlPathLabel(sourceKind, sourceHandle)
+      : sourceHandle;
+}
+
+function flowDraftPathOrder(sourceHandle: string) {
+  const pathOrders: Record<string, number> = {
+    true: 0,
+    body: 0,
+    false: 1,
+    after: 2,
+    exit: 3,
+  };
+  return pathOrders[sourceHandle];
 }
 
 function readFlowGraphHandles(

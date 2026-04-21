@@ -22,7 +22,9 @@ import type {
   StructuralEditResult,
   SymbolDetails,
   WorkspaceFileContents,
+  WorkspaceFileDeleteRequest,
   WorkspaceFileEntry,
+  WorkspaceFileMoveRequest,
   WorkspaceFileMutationRequest,
   WorkspaceFileMutationResult,
   WorkspaceFileTree,
@@ -274,6 +276,68 @@ export class MockDesktopAdapter implements DesktopAdapter {
     };
   }
 
+  async moveWorkspaceEntry(
+    _repoPath: string,
+    request: WorkspaceFileMoveRequest,
+  ): Promise<WorkspaceFileMutationResult> {
+    await delay(100);
+    const sourceRelativePath = normalizeMockWorkspacePath(request.sourceRelativePath);
+    const targetDirectoryRelativePath = normalizeMockDirectoryPath(
+      request.targetDirectoryRelativePath,
+    );
+    const targetRelativePath = joinMockWorkspacePath(
+      targetDirectoryRelativePath,
+      sourceRelativePath.split("/").pop() ?? sourceRelativePath,
+    );
+    if (sourceRelativePath === targetRelativePath) {
+      return mockWorkspaceMoveResult(this.workspace, sourceRelativePath, targetRelativePath);
+    }
+    if (!mockWorkspacePathExists(this.workspace, sourceRelativePath)) {
+      throw new Error(`Workspace path does not exist: ${sourceRelativePath}`);
+    }
+    if (
+      targetDirectoryRelativePath
+      && !mockWorkspaceDirectoryExists(this.workspace, targetDirectoryRelativePath)
+    ) {
+      throw new Error(`Workspace folder does not exist: ${targetDirectoryRelativePath}`);
+    }
+    if (mockWorkspacePathExists(this.workspace, targetRelativePath)) {
+      throw new Error(`Workspace path already exists: ${targetRelativePath}`);
+    }
+    if (
+      mockWorkspaceDirectoryExists(this.workspace, sourceRelativePath)
+      && (
+        targetDirectoryRelativePath === sourceRelativePath
+        || targetDirectoryRelativePath.startsWith(`${sourceRelativePath}/`)
+      )
+    ) {
+      throw new Error("Cannot move a folder into itself or one of its descendants.");
+    }
+
+    moveMockWorkspacePath(this.workspace, sourceRelativePath, targetRelativePath);
+    return mockWorkspaceMoveResult(this.workspace, sourceRelativePath, targetRelativePath);
+  }
+
+  async deleteWorkspaceEntry(
+    _repoPath: string,
+    request: WorkspaceFileDeleteRequest,
+  ): Promise<WorkspaceFileMutationResult> {
+    await delay(100);
+    const relativePath = normalizeMockWorkspacePath(request.relativePath);
+    if (!mockWorkspacePathExists(this.workspace, relativePath)) {
+      throw new Error(`Workspace path does not exist: ${relativePath}`);
+    }
+
+    const kind = mockWorkspaceDirectoryExists(this.workspace, relativePath) ? "directory" : "file";
+    const changedRelativePaths = deleteMockWorkspacePath(this.workspace, relativePath);
+    return {
+      relativePath,
+      kind,
+      changedRelativePaths,
+      file: null,
+    };
+  }
+
   async getSymbol(symbolId: string): Promise<SymbolDetails> {
     await delay(60);
     const symbols = buildSymbols(this.workspace);
@@ -407,7 +471,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
     await delay(120);
     const snapshot = cloneWorkspaceState(this.workspace);
     const result = applyMockEdit(this.workspace, {
-      kind: "replace_symbol_source",
+      kind: targetId.startsWith("module:") ? "replace_module_source" : "replace_symbol_source",
       targetId,
       content,
     });
@@ -459,6 +523,18 @@ function normalizeMockWorkspacePath(relativePath: string) {
   return parts.join("/");
 }
 
+function normalizeMockDirectoryPath(relativePath: string) {
+  const normalized = relativePath.trim().replaceAll("\\", "/").replace(/^\/+/, "");
+  if (!normalized) {
+    return "";
+  }
+  return normalizeMockWorkspacePath(normalized);
+}
+
+function joinMockWorkspacePath(directoryPath: string, name: string) {
+  return directoryPath ? `${directoryPath}/${name}` : name;
+}
+
 function parentPathsFor(relativePath: string) {
   const parts = relativePath.split("/").filter(Boolean);
   return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"));
@@ -481,6 +557,110 @@ function mockWorkspacePathExists(state: MockWorkspaceState, relativePath: string
   }
   return Object.keys(buildFiles(state)).some((filePath) => filePath.startsWith(`${relativePath}/`))
     || Object.keys(state.workspaceFiles).some((filePath) => filePath.startsWith(`${relativePath}/`));
+}
+
+function mockWorkspaceDirectoryExists(state: MockWorkspaceState, relativePath: string) {
+  if (!relativePath) {
+    return true;
+  }
+  if (state.workspaceFiles[relativePath]?.kind === "directory") {
+    return true;
+  }
+  return Object.keys(buildFiles(state)).some((filePath) => filePath.startsWith(`${relativePath}/`))
+    || Object.keys(state.workspaceFiles).some((filePath) => filePath.startsWith(`${relativePath}/`));
+}
+
+function moveMockWorkspacePath(
+  state: MockWorkspaceState,
+  sourceRelativePath: string,
+  targetRelativePath: string,
+) {
+  let moved = false;
+  const workspaceMoves = Object.entries(state.workspaceFiles)
+    .filter(([relativePath]) => (
+      relativePath === sourceRelativePath || relativePath.startsWith(`${sourceRelativePath}/`)
+    ));
+
+  workspaceMoves.forEach(([relativePath]) => {
+    delete state.workspaceFiles[relativePath];
+  });
+  workspaceMoves.forEach(([relativePath, entry]) => {
+    const suffix = relativePath === sourceRelativePath
+      ? ""
+      : relativePath.slice(sourceRelativePath.length);
+    state.workspaceFiles[`${targetRelativePath}${suffix}`] = { ...entry };
+    moved = true;
+  });
+
+  state.extraModules.forEach((module) => {
+    if (module.relativePath !== sourceRelativePath && !module.relativePath.startsWith(`${sourceRelativePath}/`)) {
+      return;
+    }
+
+    const suffix = module.relativePath === sourceRelativePath
+      ? ""
+      : module.relativePath.slice(sourceRelativePath.length);
+    module.relativePath = `${targetRelativePath}${suffix}`;
+    module.moduleName = moduleNameFromMockRelativePath(module.relativePath);
+    moved = true;
+  });
+
+  if (!moved) {
+    throw new Error("Mock workspace can only move created workspace entries.");
+  }
+}
+
+function moduleNameFromMockRelativePath(relativePath: string) {
+  return relativePath.replace(/\.py$/, "").replaceAll("/", ".");
+}
+
+function mockWorkspaceMoveResult(
+  state: MockWorkspaceState,
+  sourceRelativePath: string,
+  targetRelativePath: string,
+): WorkspaceFileMutationResult {
+  const kind = mockWorkspaceDirectoryExists(state, targetRelativePath) ? "directory" : "file";
+  return {
+    relativePath: targetRelativePath,
+    kind,
+    changedRelativePaths: sourceRelativePath === targetRelativePath
+      ? []
+      : [sourceRelativePath, targetRelativePath],
+    file: kind === "file" ? readMockWorkspaceFile(state, targetRelativePath) : null,
+  };
+}
+
+function deleteMockWorkspacePath(
+  state: MockWorkspaceState,
+  relativePath: string,
+) {
+  const changedRelativePaths = new Set<string>([relativePath]);
+  let deleted = false;
+
+  Object.keys(state.workspaceFiles).forEach((candidate) => {
+    if (candidate !== relativePath && !candidate.startsWith(`${relativePath}/`)) {
+      return;
+    }
+    changedRelativePaths.add(candidate);
+    delete state.workspaceFiles[candidate];
+    deleted = true;
+  });
+
+  const nextExtraModules = state.extraModules.filter((module) => {
+    if (module.relativePath !== relativePath && !module.relativePath.startsWith(`${relativePath}/`)) {
+      return true;
+    }
+    changedRelativePaths.add(module.relativePath);
+    deleted = true;
+    return false;
+  });
+  state.extraModules = nextExtraModules;
+
+  if (!deleted) {
+    throw new Error("Mock workspace can only delete created workspace entries.");
+  }
+
+  return [...changedRelativePaths];
 }
 
 function readMockWorkspaceFile(
@@ -612,9 +792,10 @@ function inferMockUndoFocusTarget(
     result.request.kind === "create_symbol"
     || result.request.kind === "add_import"
     || result.request.kind === "remove_import"
+    || result.request.kind === "replace_module_source"
   ) {
     const relativePath = result.request.relative_path ?? result.touchedRelativePaths[0];
-    const moduleName = relativePath?.replace(/\.py$/, "").replaceAll("/", ".") ?? "helm.ui.api";
+    const moduleName = relativePath ? mockModuleNameForFocusPath(relativePath) : "helm.ui.api";
     return {
       targetId: `module:${moduleName}`,
       level: "module",
@@ -639,6 +820,19 @@ function inferMockUndoFocusTarget(
         level: "symbol",
       }
     : undefined;
+}
+
+function mockModuleNameForFocusPath(relativePath: string) {
+  switch (relativePath) {
+    case "src/helm/cli.py":
+      return "helm.cli";
+    case "src/helm/ui/api.py":
+      return "helm.ui.api";
+    case "src/helm/graph/models.py":
+      return "helm.graph.models";
+    default:
+      return relativePath.replace(/\.py$/, "").replaceAll("/", ".");
+  }
 }
 
 function filterGraphView(

@@ -142,6 +142,28 @@ def save_workspace_file_payload(
     )
 
 
+def move_workspace_entry_payload(
+    repo: str | Path,
+    *,
+    source_relative_path: str,
+    target_directory_relative_path: str,
+) -> dict[str, Any]:
+    session = WorkspaceSession.open(repo)
+    return session.move_workspace_entry(
+        source_relative_path=source_relative_path,
+        target_directory_relative_path=target_directory_relative_path,
+    )
+
+
+def delete_workspace_entry_payload(
+    repo: str | Path,
+    *,
+    relative_path: str,
+) -> dict[str, Any]:
+    session = WorkspaceSession.open(repo)
+    return session.delete_workspace_entry(relative_path=relative_path)
+
+
 def apply_undo_to_payload(repo: str | Path, transaction_payload: str | dict[str, Any]) -> dict[str, Any]:
     session = WorkspaceSession.open(repo)
     return session.apply_undo(transaction_payload)
@@ -273,6 +295,31 @@ def _handle_worker_command(
             relative_path=relative_path,
             content=content,
             expected_version=expected_version,
+            top_n=top_n,
+            progress=progress.emit if progress else None,
+        )
+
+    if command == "move-workspace-entry":
+        source_relative_path = params.get("source_relative_path")
+        target_directory_relative_path = params.get("target_directory_relative_path")
+        if not isinstance(source_relative_path, str) or not isinstance(target_directory_relative_path, str):
+            raise ValueError(
+                "move-workspace-entry requires 'source_relative_path' and "
+                "'target_directory_relative_path' string parameters."
+            )
+        return session.move_workspace_entry(
+            source_relative_path=source_relative_path,
+            target_directory_relative_path=target_directory_relative_path,
+            top_n=top_n,
+            progress=progress.emit if progress else None,
+        )
+
+    if command == "delete-workspace-entry":
+        relative_path = params.get("relative_path")
+        if not isinstance(relative_path, str):
+            raise ValueError("delete-workspace-entry requires a 'relative_path' string parameter.")
+        return session.delete_workspace_entry(
+            relative_path=relative_path,
             top_n=top_n,
             progress=progress.emit if progress else None,
         )

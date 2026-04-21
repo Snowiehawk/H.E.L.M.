@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
+  DragEvent as ReactDragEvent,
   FormEvent as ReactFormEvent,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
@@ -10,6 +11,7 @@ import type {
   OverviewModule,
   OverviewOutlineItem,
   SearchResult,
+  WorkspaceFileMoveRequest,
   WorkspaceFileMutationRequest,
   WorkspaceFileTree,
   WorkspaceFileEntry,
@@ -60,6 +62,12 @@ interface ExplorerCreateDraft {
   relativePath: string;
   isSubmitting: boolean;
   error: string | null;
+}
+
+interface ExplorerDragState {
+  rowId: string;
+  kind: "file" | "directory";
+  path: string;
 }
 
 const CONTEXT_MENU_WIDTH = 248;
@@ -408,6 +416,27 @@ function defaultCreatePath(
   return kind === "file" ? `${prefix}untitled.txt` : `${prefix}new-folder`;
 }
 
+function parentPathFor(relativePath: string): string {
+  const parts = relativePath.split("/").filter(Boolean);
+  return parts.slice(0, -1).join("/");
+}
+
+function canDropExplorerRow(
+  source: ExplorerDragState | null,
+  target: ExplorerTreeNode,
+): source is ExplorerDragState {
+  if (!source || target.kind !== "directory") {
+    return false;
+  }
+  if (source.path === target.path || parentPathFor(source.path) === target.path) {
+    return false;
+  }
+  if (source.kind === "directory" && target.path.startsWith(`${source.path}/`)) {
+    return false;
+  }
+  return true;
+}
+
 export function SidebarPane({
   backendStatus,
   overview,
@@ -423,6 +452,8 @@ export function SidebarPane({
   onSelectSymbol,
   onSelectWorkspaceFile,
   onCreateWorkspaceEntry,
+  onMoveWorkspaceEntry,
+  onDeleteWorkspaceEntry,
   onFocusRepoGraph,
   onReindexRepo,
   onOpenRepo,
@@ -443,6 +474,8 @@ export function SidebarPane({
   onSelectSymbol: (nodeId: string) => void;
   onSelectWorkspaceFile: (relativePath: string) => void;
   onCreateWorkspaceEntry: (request: WorkspaceFileMutationRequest) => Promise<void>;
+  onMoveWorkspaceEntry: (request: WorkspaceFileMoveRequest) => Promise<void>;
+  onDeleteWorkspaceEntry: (relativePath: string) => Promise<void>;
   onFocusRepoGraph: () => void;
   onReindexRepo: () => void;
   onOpenRepo: (path?: string) => void;
@@ -471,6 +504,8 @@ export function SidebarPane({
   const [contextMenu, setContextMenu] = useState<ExplorerContextMenuState | null>(null);
   const [contextActionErrorMessage, setContextActionErrorMessage] = useState<string | null>(null);
   const [createDraft, setCreateDraft] = useState<ExplorerCreateDraft | null>(null);
+  const [dragState, setDragState] = useState<ExplorerDragState | null>(null);
+  const [dropTargetRowId, setDropTargetRowId] = useState<string | null>(null);
   const previousRepoPathRef = useRef<string | undefined>(undefined);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -712,6 +747,66 @@ export function SidebarPane({
     }
   };
 
+  const beginDragRow = (event: ReactDragEvent<HTMLDivElement>, row: ExplorerTreeNode) => {
+    if (row.kind !== "file" && row.kind !== "directory") {
+      event.preventDefault();
+      return;
+    }
+
+    const nextDragState: ExplorerDragState = {
+      rowId: row.id,
+      kind: row.kind,
+      path: row.path,
+    };
+    setDragState(nextDragState);
+    setContextActionErrorMessage(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", row.path);
+    event.dataTransfer.setData("application/x-helm-workspace-entry", JSON.stringify(nextDragState));
+  };
+
+  const endDragRow = () => {
+    setDragState(null);
+    setDropTargetRowId(null);
+  };
+
+  const moveDraggedRowToDirectory = async (
+    event: ReactDragEvent<HTMLDivElement>,
+    target: ExplorerTreeNode,
+  ) => {
+    const source = dragState;
+    if (!canDropExplorerRow(source, target)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    setDropTargetRowId(null);
+    try {
+      await onMoveWorkspaceEntry({
+        sourceRelativePath: source.path,
+        targetDirectoryRelativePath: target.path,
+      });
+      setExpandedIds((current) => {
+        const next = new Set(current);
+        next.add(target.id);
+        return next;
+      });
+      setContextActionErrorMessage(null);
+    } catch (reason) {
+      setContextActionErrorMessage(contextActionError(reason, "Unable to move the workspace entry."));
+    } finally {
+      setDragState(null);
+    }
+  };
+
+  const deleteWorkspaceRow = async (row: ExplorerTreeNode) => {
+    if (row.kind !== "file" && row.kind !== "directory") {
+      return;
+    }
+    await onDeleteWorkspaceEntry(row.path);
+  };
+
   const buildContextMenuItems = (row: ExplorerTreeNode): ExplorerContextMenuItem[] => {
     const absolutePath = joinRepoPath(overview?.repo.path, row.path);
     const revealLabel = systemFileExplorerLabel();
@@ -782,6 +877,15 @@ export function SidebarPane({
           },
         },
       );
+    }
+
+    if (row.kind === "file" || row.kind === "directory") {
+      items.push({
+        id: "delete-entry",
+        label: "Delete",
+        action: () => deleteWorkspaceRow(row),
+        separatorBefore: true,
+      });
     }
 
     items.push(
@@ -914,15 +1018,13 @@ export function SidebarPane({
     ? `${createDraft.kind}:${createDraft.parentPath ?? ""}`
     : null;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!createDraftFocusKey) {
       return;
     }
 
-    window.requestAnimationFrame(() => {
-      createInputRef.current?.focus();
-      createInputRef.current?.select();
-    });
+    createInputRef.current?.focus();
+    createInputRef.current?.select();
   }, [createDraftFocusKey]);
 
   const contextRow = contextMenu ? tree.nodesById.get(contextMenu.rowId) : undefined;
@@ -1093,6 +1195,8 @@ export function SidebarPane({
                 const isExpanded = isExpandable && expandedIds.has(row.id);
                 const isSelected = isSelectedRow(row, selectedFilePath, selectedNodeId);
                 const kindBadge = explorerKindBadge(row);
+                const isDraggable = row.kind === "file" || row.kind === "directory";
+                const isDropTarget = dropTargetRowId === row.id;
 
                 return (
                   <div
@@ -1117,16 +1221,49 @@ export function SidebarPane({
                     aria-label={row.label}
                     aria-level={row.depth + 1}
                     aria-selected={isSelected || undefined}
+                    draggable={isDraggable}
                     className={`explorer-row explorer-row--${row.kind}${
                       isSelected ? " is-active" : ""
                     }${activeRowId === row.id ? " is-focused" : ""}${
                       isExpanded ? " is-expanded" : ""
+                    }${isDropTarget ? " is-drop-target" : ""}${
+                      dragState?.rowId === row.id ? " is-dragging" : ""
                     }`}
                     role="treeitem"
                     tabIndex={activeRowId === row.id ? 0 : -1}
                     style={{ paddingLeft: `${12 + row.depth * 16}px` }}
                     onClick={() => activateRow(row)}
                     onContextMenu={(event) => openPointerContextMenu(event, row)}
+                    onDragStart={(event) => beginDragRow(event, row)}
+                    onDragEnd={endDragRow}
+                    onDragEnter={(event) => {
+                      if (!canDropExplorerRow(dragState, row)) {
+                        return;
+                      }
+                      event.preventDefault();
+                      setDropTargetRowId(row.id);
+                    }}
+                    onDragOver={(event) => {
+                      if (!canDropExplorerRow(dragState, row)) {
+                        return;
+                      }
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      if (dropTargetRowId !== row.id) {
+                        setDropTargetRowId(row.id);
+                      }
+                    }}
+                    onDragLeave={(event) => {
+                      if (
+                        dropTargetRowId === row.id
+                        && !event.currentTarget.contains(event.relatedTarget as Node | null)
+                      ) {
+                        setDropTargetRowId(null);
+                      }
+                    }}
+                    onDrop={(event) => {
+                      void moveDraggedRowToDirectory(event, row);
+                    }}
                     onFocus={() => setActiveRowId(row.id)}
                     onKeyDown={(event) => {
                       if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
@@ -1178,6 +1315,17 @@ export function SidebarPane({
                         case " ":
                           event.preventDefault();
                           activateRow(row);
+                          break;
+                        case "Delete":
+                          if (row.kind !== "file" && row.kind !== "directory") {
+                            break;
+                          }
+                          event.preventDefault();
+                          void deleteWorkspaceRow(row).catch((reason) => {
+                            setContextActionErrorMessage(
+                              contextActionError(reason, "Unable to delete the workspace entry."),
+                            );
+                          });
                           break;
                         default:
                           break;

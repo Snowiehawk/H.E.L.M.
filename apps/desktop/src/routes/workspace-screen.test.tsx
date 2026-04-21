@@ -435,7 +435,7 @@ function flowComposerFieldLabel(kind: "assign" | "call" | "return" | "branch" | 
     return /Branch condition/i;
   }
   if (kind === "loop") {
-    return /Loop header/i;
+    return /Continue while/i;
   }
   return /Flow statement/i;
 }
@@ -1058,6 +1058,7 @@ describe("WorkspaceScreen", () => {
     const user = userEvent.setup();
     const adapter = new MockDesktopAdapter();
     const saveSpy = vi.spyOn(adapter, "saveWorkspaceFile");
+    const deleteSpy = vi.spyOn(adapter, "deleteWorkspaceEntry");
     const router = createMemoryRouter(
       [{ path: "/workspace", element: <WorkspaceScreen /> }],
       { initialEntries: ["/workspace"] },
@@ -1092,6 +1093,66 @@ describe("WorkspaceScreen", () => {
 
     await waitFor(() =>
       expect(screen.getByRole("textbox", { name: /Edit README\.md/i })).toHaveValue("# Hello\n"),
+    );
+    await waitFor(() => {
+      expect(within(editorPanel as HTMLElement).getByRole("button", { name: "Save" })).toBeDisabled();
+    });
+
+    fireEvent.contextMenu(screen.getByRole("treeitem", { name: "README.md" }), {
+      clientX: 120,
+      clientY: 80,
+    });
+    await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteSpy).toHaveBeenCalledTimes(1));
+    expect(deleteSpy).toHaveBeenCalledWith(defaultRepoPath, {
+      relativePath: "README.md",
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: /Edit README\.md/i })).not.toBeInTheDocument(),
+    );
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
+  it("lets newly created Python modules be typed in from the inspector", async () => {
+    const user = userEvent.setup();
+    const adapter = new MockDesktopAdapter();
+    const saveSourceSpy = vi.spyOn(adapter, "saveNodeSource");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "New File" }));
+
+    const filePathInput = await screen.findByRole("textbox", { name: "New file path" });
+    await user.clear(filePathInput);
+    await user.type(filePathInput, "test.py");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Expand inspector for test/i })).toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole("button", { name: /Expand inspector for test/i }));
+
+    const editor = await screen.findByRole("textbox", { name: /Module source editor/i });
+    fireEvent.change(editor, {
+      target: { value: "VALUE = 1" },
+    });
+    expect(editor).toHaveValue("VALUE = 1");
+
+    const inspectorDrawer = await screen.findByTestId("blueprint-inspector-drawer");
+    await user.click(within(inspectorDrawer).getByRole("button", { name: /Save/i }));
+
+    await waitFor(() => expect(saveSourceSpy).toHaveBeenCalledTimes(1));
+    expect(saveSourceSpy).toHaveBeenCalledWith("module:test", "VALUE = 1");
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: /Module source editor/i })).toHaveValue("VALUE = 1"),
     );
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
@@ -1156,10 +1217,14 @@ describe("WorkspaceScreen", () => {
     expect(expandedDrawer).toHaveAttribute("data-mode", "expanded");
     expect(within(expandedDrawer).getByRole("heading", { name: /Current Context/i })).toBeInTheDocument();
     expect(within(expandedDrawer).getAllByText("src/helm/ui/api.py").length).toBeGreaterThan(0);
-    expect(within(expandedDrawer).getByText(/Code details/i)).toBeInTheDocument();
     expect(within(expandedDrawer).queryByText(/Nothing selected/i)).not.toBeInTheDocument();
-    expect(await screen.findByTestId("inspector-readonly-source")).toHaveAttribute("data-read-only", "true");
-    expect(screen.getByText(/def build_graph_summary/i)).toBeInTheDocument();
+    const moduleEditor = await screen.findByRole(
+      "textbox",
+      { name: /Module source editor/i },
+      { timeout: WORKSPACE_TEST_TIMEOUT_MS },
+    );
+    expect((moduleEditor as HTMLTextAreaElement).value).toMatch(/def build_graph_summary/i);
+    expect(within(expandedDrawer).getByText(/Source editor/i)).toBeInTheDocument();
     expect(useUiStore.getState().activeNodeId).toBeUndefined();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
@@ -1366,7 +1431,13 @@ describe("WorkspaceScreen", () => {
     expect(screen.getByText("Click the graph to create a function or class in src/helm/ui/api.py.")).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: /Current Context/i })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /Nothing selected/i })).not.toBeInTheDocument();
-    expect(await screen.findByTestId("inspector-readonly-source")).toHaveAttribute("data-read-only", "true");
+    const moduleEditor = await screen.findByRole(
+      "textbox",
+      { name: /Module source editor/i },
+      { timeout: WORKSPACE_TEST_TIMEOUT_MS },
+    );
+    expect((moduleEditor as HTMLTextAreaElement).value).toMatch(/def build_graph_summary/i);
+    expect(await screen.findByText(/Source editor/i)).toBeInTheDocument();
     expect(useUiStore.getState().activeNodeId).toBeUndefined();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
@@ -1866,6 +1937,73 @@ describe("WorkspaceScreen", () => {
     ).toBeInTheDocument();
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
+  it("creates parameter nodes from flow create mode and places them at the click position", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 240,
+      bottom: 96,
+      width: 240,
+      height: 96,
+      toJSON: () => ({}),
+    }) as DOMRect);
+    useUiStore.setState({ flowInputDisplayMode: "entry" });
+    const adapter = new MockDesktopAdapter();
+    const editSpy = vi.spyOn(adapter, "applyStructuralEdit");
+    const router = createMemoryRouter(
+      [{ path: "/workspace", element: <WorkspaceScreen /> }],
+      { initialEntries: ["/workspace"] },
+    );
+
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    const { flowGraphPanel } = await openBuildGraphSummaryFlow(user);
+    await setFlowInputMode(user, "entry");
+    const graphPane = await ensureFlowCreateMode(flowGraphPanel);
+    const initialLayoutWriteCount = writeStoredGraphLayoutMock.mock.calls.length;
+    const clickPosition = { clientX: 280, clientY: 180 };
+
+    fireEvent.click(graphPane, clickPosition);
+    expect(await screen.findByRole("heading", { name: /Create flow node/i })).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: /Flow node kind/i }), "param");
+    await user.type(screen.getByRole("textbox", { name: /Parameter name/i }), "limit");
+    await user.type(screen.getByRole("textbox", { name: /Parameter default expression/i }), "10");
+    await user.click(screen.getByRole("button", { name: /Create parameter/i }));
+
+    const createdParamNodeId = `flow:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:param:limit`;
+    const createdInputId = `flowinput:${BUILD_GRAPH_SUMMARY_SYMBOL_ID}:limit`;
+    await waitFor(() => expect(writeStoredGraphLayoutMock.mock.calls.length).toBeGreaterThan(initialLayoutWriteCount));
+    expect(lastWrittenGraphLayout()?.nodes[graphLayoutNodeKey(createdParamNodeId, "param")]).toEqual({
+      x: clickPosition.clientX,
+      y: clickPosition.clientY,
+    });
+    const replaceRequest = lastReplaceFlowGraphRequest(editSpy);
+    expect(replaceRequest?.flowGraph?.functionInputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: createdInputId,
+          name: "limit",
+          defaultExpression: "10",
+        }),
+      ]),
+    );
+    expect(replaceRequest?.flowGraph?.nodes.some((node: { kind: string }) => node.kind === "param")).toBe(false);
+    await waitFor(() => expect(useUiStore.getState().flowInputDisplayMode).toBe("param_nodes"));
+    await waitFor(() => expect(useUiStore.getState().activeNodeId).toBe(createdParamNodeId));
+    expect(await screen.findByTestId(`rf__node-${createdParamNodeId}`)).toBeInTheDocument();
+    expect(screen.getByTestId("graph-create-mode-badge")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: /Create flow node/i })).not.toBeInTheDocument(),
+    );
+  }, WORKSPACE_TEST_TIMEOUT_MS);
+
   it("keeps the flow node picker limited to supported kinds and creates or edits branch nodes through condition-only payloads", async () => {
     const user = userEvent.setup();
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
@@ -1915,8 +2053,7 @@ describe("WorkspaceScreen", () => {
     const kindSelect = screen.getByRole("combobox", { name: /Flow node kind/i });
     expect(
       within(kindSelect).getAllByRole("option").map((option) => option.textContent?.trim()),
-    ).toEqual(["Assign", "Call", "Return", "Branch", "Loop"]);
-    expect(screen.queryByRole("option", { name: /Parameter/i })).not.toBeInTheDocument();
+    ).toEqual(["Assign", "Call", "Return", "Branch", "Loop", "Parameter"]);
 
     await user.selectOptions(kindSelect, "branch");
     expect(screen.getByRole("textbox", { name: /Branch condition/i })).toBeInTheDocument();
@@ -1951,7 +2088,7 @@ describe("WorkspaceScreen", () => {
     expect((await screen.findAllByText("if summary_count > 0")).length).toBeGreaterThan(0);
   }, WORKSPACE_TEST_TIMEOUT_MS);
 
-  it("creates and edits loop nodes through header-only payloads", async () => {
+  it("creates and edits loop nodes through structured payloads", async () => {
     const user = userEvent.setup();
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
       x: 0,
@@ -1998,31 +2135,72 @@ describe("WorkspaceScreen", () => {
 
     fireEvent.click(graphPane as HTMLElement, { clientX: 300, clientY: 220 });
     await user.selectOptions(screen.getByRole("combobox", { name: /Flow node kind/i }), "loop");
-    expect(screen.getByRole("textbox", { name: /Loop header/i })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /Loop type/i })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /Continue while/i })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Loop header/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /Loop body/i })).not.toBeInTheDocument();
-    await user.type(screen.getByRole("textbox", { name: /Loop header/i }), "for module in module_summaries");
-    await user.click(screen.getByRole("button", { name: /Create node/i }));
+    await user.selectOptions(screen.getByRole("combobox", { name: /Loop type/i }), "for");
+    await user.type(screen.getByRole("textbox", { name: /Item target/i }), "module");
+    await user.type(screen.getByRole("textbox", { name: /Iterable/i }), "module_summaries");
+    await user.click(screen.getByRole("checkbox", { name: /Add Repeat step/i }));
+    await user.type(screen.getByRole("textbox", { name: /Repeat step statement/i }), "module = normalize(module)");
+    await user.click(screen.getByRole("checkbox", { name: /Add Done step/i }));
+    await user.type(screen.getByRole("textbox", { name: /Done step statement/i }), "summary_count = len(module_summaries)");
+    await user.click(screen.getByRole("button", { name: /Create loop/i }));
 
     const createdLoopNodeId = useUiStore.getState().activeNodeId;
     expect(createdLoopNodeId).toMatch(/^flowdoc:symbol:helm\.ui\.api:build_graph_summary:loop:/);
-    expect(lastReplaceFlowGraphRequest(editSpy)?.flowGraph?.nodes.find((node: { id: string }) => node.id === createdLoopNodeId)?.payload).toEqual({
+    const createdFlowGraph = lastReplaceFlowGraphRequest(editSpy)?.flowGraph;
+    expect(createdFlowGraph?.nodes.find((node: { id: string }) => node.id === createdLoopNodeId)?.payload).toEqual({
       header: "for module in module_summaries",
+      loop_type: "for",
+      target: "module",
+      iterable: "module_summaries",
     });
+    const repeatStepNode = createdFlowGraph?.nodes.find((node: { id: string; payload: Record<string, unknown> }) =>
+      node.payload.source === "module = normalize(module)",
+    );
+    const doneStepNode = createdFlowGraph?.nodes.find((node: { id: string; payload: Record<string, unknown> }) =>
+      node.payload.source === "summary_count = len(module_summaries)",
+    );
+    expect(repeatStepNode).toBeTruthy();
+    expect(doneStepNode).toBeTruthy();
+    expect(createdFlowGraph?.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceId: createdLoopNodeId,
+          sourceHandle: "body",
+          targetId: repeatStepNode?.id,
+          targetHandle: "in",
+        }),
+        expect.objectContaining({
+          sourceId: createdLoopNodeId,
+          sourceHandle: "after",
+          targetId: doneStepNode?.id,
+          targetHandle: "in",
+        }),
+      ]),
+    );
     expect((await screen.findAllByText("for module in module_summaries")).length).toBeGreaterThan(0);
     await waitFor(() => {
       expect(screen.queryByRole("heading", { name: /Create flow node/i })).not.toBeInTheDocument();
     });
 
     fireEvent.doubleClick(await screen.findByTestId(`rf__node-${createdLoopNodeId}`));
-    expect(await screen.findByRole("heading", { name: /Edit flow node/i })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: /Loop header/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Edit loop/i })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Loop header/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /Loop body/i })).not.toBeInTheDocument();
-    await user.clear(screen.getByRole("textbox", { name: /Loop header/i }));
-    await user.type(screen.getByRole("textbox", { name: /Loop header/i }), "while module_summaries");
+    expect(screen.getByRole("combobox", { name: /Loop type/i })).toHaveValue("for");
+    expect(screen.getByRole("textbox", { name: /Item target/i })).toHaveValue("module");
+    expect(screen.getByRole("textbox", { name: /Iterable/i })).toHaveValue("module_summaries");
+    await user.selectOptions(screen.getByRole("combobox", { name: /Loop type/i }), "while");
+    await user.type(screen.getByRole("textbox", { name: /Continue while/i }), "module_summaries");
     await user.click(screen.getByRole("button", { name: /Save node/i }));
 
     expect(lastReplaceFlowGraphRequest(editSpy)?.flowGraph?.nodes.find((node: { id: string }) => node.id === createdLoopNodeId)?.payload).toEqual({
       header: "while module_summaries",
+      loop_type: "while",
+      condition: "module_summaries",
     });
     expect((await screen.findAllByText("while module_summaries")).length).toBeGreaterThan(0);
   }, WORKSPACE_TEST_TIMEOUT_MS);

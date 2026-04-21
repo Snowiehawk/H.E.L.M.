@@ -362,6 +362,80 @@ describe("buildBlueprintPresentation", () => {
     });
   });
 
+  it("labels loop control outputs as Repeat and Done while keeping internal handles", () => {
+    const graph: GraphView = {
+      rootNodeId: "flow:loop",
+      targetId: "symbol:service:run",
+      level: "flow",
+      truncated: false,
+      breadcrumbs: [],
+      focus: null,
+      nodes: [
+        {
+          id: "flow:loop",
+          kind: "loop",
+          label: "while items",
+          x: 0,
+          y: 0,
+          metadata: { flow_visual: true },
+          availableActions: [],
+        },
+        {
+          id: "flow:repeat",
+          kind: "assign",
+          label: "items = items[1:]",
+          x: 240,
+          y: -80,
+          metadata: { flow_visual: true },
+          availableActions: [],
+        },
+        {
+          id: "flow:done",
+          kind: "return",
+          label: "return items",
+          x: 240,
+          y: 80,
+          metadata: { flow_visual: true },
+          availableActions: [],
+        },
+      ],
+      edges: [
+        {
+          id: "controls:loop-repeat",
+          kind: "controls",
+          source: "flow:loop",
+          target: "flow:repeat",
+          label: "body",
+          metadata: { source_handle: "body", target_handle: "in", path_key: "body", path_label: "body" },
+        },
+        {
+          id: "controls:loop-done",
+          kind: "controls",
+          source: "flow:loop",
+          target: "flow:done",
+          label: "after",
+          metadata: { source_handle: "after", target_handle: "in", path_key: "after", path_label: "after" },
+        },
+      ],
+    };
+
+    const presentation = buildBlueprintPresentation(graph);
+    const loopPorts = presentation.nodePorts.get("flow:loop");
+
+    expect(loopPorts?.outputs.filter((port) => port.kind === "control").map((port) => port.label)).toEqual([
+      "Repeat",
+      "Done",
+    ]);
+    expect(presentation.edgeHandles.get("controls:loop-repeat")).toEqual({
+      sourceHandle: "out:control:body",
+      targetHandle: "in:control:exec",
+    });
+    expect(presentation.edgeHandles.get("controls:loop-done")).toEqual({
+      sourceHandle: "out:control:after",
+      targetHandle: "in:control:exec",
+    });
+  });
+
   it("normalizes legacy branch after control edges to the false handle", () => {
     const graph: GraphView = {
       rootNodeId: "flow:branch",

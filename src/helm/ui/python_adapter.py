@@ -572,6 +572,16 @@ class PythonRepoAdapter:
 
     def get_editable_node_source(self, target_id: str) -> dict[str, Any]:
         node = self._require_graph_node(target_id)
+        if node.kind == NodeKind.MODULE:
+            payload = self._source_payload_for_node(node, target_id=target_id, exact=False)
+            payload.update(
+                {
+                    "editable": True,
+                    "node_kind": "module",
+                }
+            )
+            return payload
+
         if node.kind != NodeKind.SYMBOL:
             raise ValueError("Editable source is only available for symbols.")
 
@@ -624,6 +634,16 @@ class PythonRepoAdapter:
         return {"undo": enriched.to_dict(), "payload": self.build_payload()}
 
     def save_node_source(self, target_id: str, content: str) -> dict[str, Any]:
+        node = self._require_graph_node(target_id)
+        if node.kind == NodeKind.MODULE:
+            return self.apply_edit(
+                StructuralEditRequest(
+                    kind=StructuralEditKind.REPLACE_MODULE_SOURCE,
+                    target_id=target_id,
+                    content=content,
+                )
+            )
+
         return self.apply_edit(
             StructuralEditRequest(
                 kind=StructuralEditKind.REPLACE_SYMBOL_SOURCE,

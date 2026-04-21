@@ -38,7 +38,9 @@ import type {
   WorkspaceSyncSnapshot,
   WorkspaceSyncState,
   WorkspaceFileContents,
+  WorkspaceFileDeleteRequest,
   WorkspaceFileEntry,
+  WorkspaceFileMoveRequest,
   WorkspaceFileMutationRequest,
   WorkspaceFileMutationResult,
   WorkspaceFileTree,
@@ -721,6 +723,31 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       relativePath,
       content,
       expectedVersion,
+    });
+    this.applyWorkspaceMutationPayload(repoPath, raw.payload);
+    return toWorkspaceFileMutationResult(raw);
+  }
+
+  async moveWorkspaceEntry(
+    repoPath: string,
+    request: WorkspaceFileMoveRequest,
+  ): Promise<WorkspaceFileMutationResult> {
+    const raw = await invoke<RawWorkspaceFileMutationResult>("move_workspace_entry", {
+      repoPath: normalizePath(repoPath),
+      sourceRelativePath: request.sourceRelativePath,
+      targetDirectoryRelativePath: request.targetDirectoryRelativePath,
+    });
+    this.applyWorkspaceMutationPayload(repoPath, raw.payload);
+    return toWorkspaceFileMutationResult(raw);
+  }
+
+  async deleteWorkspaceEntry(
+    repoPath: string,
+    request: WorkspaceFileDeleteRequest,
+  ): Promise<WorkspaceFileMutationResult> {
+    const raw = await invoke<RawWorkspaceFileMutationResult>("delete_workspace_entry", {
+      repoPath: normalizePath(repoPath),
+      relativePath: request.relativePath,
     });
     this.applyWorkspaceMutationPayload(repoPath, raw.payload);
     return toWorkspaceFileMutationResult(raw);

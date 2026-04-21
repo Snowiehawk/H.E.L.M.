@@ -623,6 +623,35 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertEqual(undo_result.focus_target.target_id, "symbol:service:run")
             self.assertEqual(undo_result.focus_target.level, "symbol")
 
+    def test_replace_module_source_replaces_full_file_and_supports_undo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(root, {"service.py": ""})
+
+            parsed_modules, _, inbound = parse_repo(root)
+            result = apply_structural_edit(
+                root,
+                serialize_edit_request(
+                    {
+                        "kind": "replace_module_source",
+                        "target_id": "module:service",
+                        "content": "def run():\n    return 42\n",
+                    }
+                ),
+                parsed_modules=parsed_modules,
+                inbound_dependency_count=inbound,
+            )
+
+            self.assertIn("return 42", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertEqual(result.touched_relative_paths, ("service.py",))
+            self.assertEqual(result.changed_node_ids, ("module:service",))
+
+            undo_result = apply_backend_undo(root, result.undo_transaction)
+
+            self.assertEqual((root / "service.py").read_text(encoding="utf-8"), "")
+            self.assertEqual(undo_result.focus_target.target_id, "module:service")
+            self.assertEqual(undo_result.focus_target.level, "module")
+
     def test_replace_symbol_source_supports_whole_class_replacement_with_attributes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

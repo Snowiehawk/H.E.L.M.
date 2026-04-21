@@ -161,6 +161,9 @@ def _validate_request(request: StructuralEditRequest) -> None:
     elif request.kind == StructuralEditKind.REMOVE_IMPORT:
         if not request.relative_path or not request.imported_module:
             raise ValueError("remove_import requires 'relative_path' and 'imported_module'.")
+    elif request.kind == StructuralEditKind.REPLACE_MODULE_SOURCE:
+        if not request.target_id or request.content is None:
+            raise ValueError("replace_module_source requires 'target_id' and 'content'.")
     elif request.kind == StructuralEditKind.REPLACE_SYMBOL_SOURCE:
         if not request.target_id or request.content is None:
             raise ValueError("replace_symbol_source requires 'target_id' and 'content'.")

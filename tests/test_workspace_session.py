@@ -93,6 +93,29 @@ class WorkspaceSessionTests(unittest.TestCase):
                     expected_version=version,
                 )
 
+            moved = session.move_workspace_entry(
+                source_relative_path="README.md",
+                target_directory_relative_path="docs",
+            )
+            self.assertNotIn("payload", moved)
+            self.assertEqual(moved["relative_path"], "docs/README.md")
+            self.assertEqual(moved["file"]["content"], "# Demo\n")
+            self.assertFalse((root / "README.md").exists())
+            self.assertTrue((root / "docs" / "README.md").exists())
+
+            deleted = session.delete_workspace_entry(relative_path="docs/README.md")
+            self.assertNotIn("payload", deleted)
+            self.assertEqual(deleted["relative_path"], "docs/README.md")
+            self.assertFalse((root / "docs" / "README.md").exists())
+
+            with self.assertRaises(ValueError):
+                session.move_workspace_entry(
+                    source_relative_path="../outside.txt",
+                    target_directory_relative_path="docs",
+                )
+            with self.assertRaises(ValueError):
+                session.delete_workspace_entry(relative_path="../outside.txt")
+
     def test_workspace_file_python_mutations_refresh_graph_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir) / "repo"
@@ -120,6 +143,59 @@ class WorkspaceSessionTests(unittest.TestCase):
             self.assertIn("payload", saved)
             self.assertEqual(saved["session_version"], 3)
             self.assertIn("symbol:app:helper", _graph_node_ids(saved["payload"]))
+
+            session.create_workspace_entry(
+                kind="directory",
+                relative_path="pkg",
+            )
+            moved = session.move_workspace_entry(
+                source_relative_path="app.py",
+                target_directory_relative_path="pkg",
+            )
+
+            self.assertIn("payload", moved)
+            self.assertEqual(moved["session_version"], 4)
+            self.assertEqual(moved["relative_path"], "pkg/app.py")
+            self.assertEqual(
+                moved["changed_relative_paths"],
+                ["app.py", "pkg/app.py"],
+            )
+            self.assertNotIn("module:app", _graph_node_ids(moved["payload"]))
+            self.assertIn("module:pkg.app", _graph_node_ids(moved["payload"]))
+
+            deleted = session.delete_workspace_entry(relative_path="pkg/app.py")
+
+            self.assertIn("payload", deleted)
+            self.assertEqual(deleted["session_version"], 5)
+            self.assertEqual(deleted["changed_relative_paths"], ["pkg/app.py"])
+            self.assertNotIn("module:pkg.app", _graph_node_ids(deleted["payload"]))
+
+    def test_python_module_source_can_be_edited_from_inspector_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "repo"
+            root.mkdir()
+
+            session = WorkspaceSession.open(root)
+            created = session.create_workspace_entry(
+                kind="file",
+                relative_path="test.py",
+                content="",
+            )
+            self.assertIn("module:test", _graph_node_ids(created["payload"]))
+
+            module_source = session.get_editable_node_source("module:test")
+            self.assertTrue(module_source["editable"])
+            self.assertEqual(module_source["node_kind"], "module")
+            self.assertEqual(module_source["content"], "")
+
+            saved = session.save_node_source(
+                "module:test",
+                "def run():\n    return 7\n",
+            )
+
+            self.assertEqual(saved["edit"]["request"]["kind"], "replace_module_source")
+            self.assertIn("symbol:test:run", _graph_node_ids(saved["payload"]))
+            self.assertEqual(saved["payload"]["workspace"]["session_version"], 3)
 
     def test_workspace_files_report_non_inline_editable_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

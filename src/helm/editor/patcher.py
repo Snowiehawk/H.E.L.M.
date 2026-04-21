@@ -117,6 +117,8 @@ def apply_structural_edit(
         result = _add_import(context, request)
     elif request.kind == StructuralEditKind.REMOVE_IMPORT:
         result = _remove_import(context, request)
+    elif request.kind == StructuralEditKind.REPLACE_MODULE_SOURCE:
+        result = _replace_module_source(context, request)
     elif request.kind == StructuralEditKind.REPLACE_SYMBOL_SOURCE:
         result = _replace_symbol_source(context, request)
     elif request.kind == StructuralEditKind.INSERT_FLOW_STATEMENT:
@@ -215,6 +217,10 @@ def _undo_snapshot_paths_for_request(
         if _tracks_flow_document(symbol.kind) and FLOW_MODEL_RELATIVE_PATH not in paths:
             paths.append(FLOW_MODEL_RELATIVE_PATH)
         return tuple(paths)
+
+    if request.kind == StructuralEditKind.REPLACE_MODULE_SOURCE:
+        parsed = _require_module_by_id(context, request.target_id or "")
+        return (parsed.module.relative_path,)
 
     if request.kind == StructuralEditKind.INSERT_FLOW_STATEMENT:
         parsed, _ = _require_symbol(context, request.target_id or "")
@@ -346,6 +352,12 @@ def _undo_focus_target_for_request(
         return UndoFocusTarget(
             target_id=request.target_id or "",
             level="symbol",
+        )
+
+    if request.kind == StructuralEditKind.REPLACE_MODULE_SOURCE:
+        return UndoFocusTarget(
+            target_id=request.target_id or "",
+            level="module",
         )
 
     if request.kind in {
@@ -596,6 +608,21 @@ def _replace_symbol_source(
     )
 
 
+def _replace_module_source(
+    context: EditContext,
+    request: StructuralEditRequest,
+) -> StructuralEditResult:
+    parsed = _require_module_by_id(context, request.target_id or "")
+    source_path = Path(parsed.module.file_path)
+    source_path.write_text(request.content or "", encoding="utf-8")
+    return StructuralEditResult(
+        request=request,
+        summary=f"Updated {parsed.module.relative_path} source.",
+        touched_relative_paths=(parsed.module.relative_path,),
+        changed_node_ids=(parsed.module.module_id,),
+    )
+
+
 def _insert_flow_statement(
     context: EditContext,
     request: StructuralEditRequest,
@@ -790,6 +817,13 @@ def _require_module(context: EditContext, relative_path: str) -> ParsedModule:
     if parsed is None:
         raise ValueError(f"Unknown module path: {relative_path}")
     return parsed
+
+
+def _require_module_by_id(context: EditContext, module_id: str) -> ParsedModule:
+    for parsed in context.parsed_by_relative_path.values():
+        if parsed.module.module_id == module_id:
+            return parsed
+    raise ValueError(f"Unknown module id: {module_id}")
 
 
 def _validated_module_relative_path(relative_path: str) -> str:

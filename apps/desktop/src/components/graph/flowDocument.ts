@@ -35,6 +35,14 @@ const FLOW_AUTHORABLE_NODE_KIND_SET = new Set<string>(FLOW_AUTHORABLE_NODE_KINDS
 
 export type AuthoredFlowNodeKind = typeof FLOW_AUTHORABLE_NODE_KINDS[number];
 export type AuthoredFlowNode = FlowGraphNode & { kind: AuthoredFlowNodeKind };
+export type FlowLoopType = "while" | "for";
+
+export interface FlowLoopDraft {
+  loopType: FlowLoopType;
+  condition: string;
+  target: string;
+  iterable: string;
+}
 
 export function isFlowNodeStructuralKind(kind: FlowVisualNodeKind | string): kind is "entry" | "exit" {
   return kind === "entry" || kind === "exit";
@@ -73,7 +81,12 @@ export function defaultPayloadForKind(kind: AuthoredFlowNodeKind) {
     return { condition: "" };
   }
   if (kind === "loop") {
-    return { header: "" };
+    return flowLoopPayloadFromDraft({
+      loopType: "while",
+      condition: "",
+      target: "",
+      iterable: "",
+    });
   }
   return { expression: "" };
 }
@@ -90,7 +103,9 @@ export function flowNodePayloadFromContent(
     return { condition: normalized.replace(/^if\s+/i, "").replace(/:$/, "") };
   }
   if (kind === "loop") {
-    return { header: normalized.replace(/:$/, "") };
+    return flowLoopPayloadFromDraft(
+      normalizeFlowLoopPayload({ header: normalized.replace(/:$/, "") }),
+    );
   }
   return { expression: normalized.replace(/^return\s+/i, "") };
 }
@@ -107,10 +122,106 @@ export function flowNodeContentFromPayload(
     return condition ? `if ${condition}` : "";
   }
   if (kind === "loop") {
-    return typeof payload.header === "string" ? payload.header : "";
+    return normalizeFlowLoopPayload(payload).header;
   }
   const expression = typeof payload.expression === "string" ? payload.expression : "";
   return expression ? `return ${expression}` : "return";
+}
+
+export function normalizeFlowLoopPayload(payload: Record<string, unknown>): FlowLoopDraft & { header: string } {
+  const rawHeader = typeof payload.header === "string" ? payload.header.trim().replace(/:$/, "") : "";
+  const inferred = inferFlowLoopDraftFromHeader(rawHeader);
+  const rawLoopType = typeof payload.loop_type === "string"
+    ? payload.loop_type
+    : typeof payload.loopType === "string"
+      ? payload.loopType
+      : undefined;
+  const loopType: FlowLoopType =
+    rawLoopType === "for_each" || rawLoopType === "for"
+      ? "for"
+      : rawLoopType === "while"
+        ? "while"
+        : inferred?.loopType ?? "while";
+  const condition = typeof payload.condition === "string"
+    ? payload.condition.trim()
+    : loopType === "while" && inferred?.loopType === "while"
+      ? inferred.condition
+      : "";
+  const target = typeof payload.target === "string"
+    ? payload.target.trim()
+    : loopType === "for" && inferred?.loopType === "for"
+      ? inferred.target
+      : "";
+  const iterable = typeof payload.iterable === "string"
+    ? payload.iterable.trim()
+    : loopType === "for" && inferred?.loopType === "for"
+      ? inferred.iterable
+      : "";
+  const draft = { loopType, condition, target, iterable };
+  const header = canonicalFlowLoopHeader(draft) || rawHeader;
+  return { ...draft, header };
+}
+
+export function flowLoopPayloadFromDraft(draft: FlowLoopDraft): Record<string, unknown> {
+  const header = canonicalFlowLoopHeader(draft);
+  if (draft.loopType === "for") {
+    return {
+      header,
+      loop_type: "for",
+      target: draft.target.trim(),
+      iterable: draft.iterable.trim(),
+    };
+  }
+  return {
+    header,
+    loop_type: "while",
+    condition: draft.condition.trim(),
+  };
+}
+
+export function canonicalFlowLoopHeader(draft: FlowLoopDraft): string {
+  if (draft.loopType === "for") {
+    const target = draft.target.trim();
+    const iterable = draft.iterable.trim();
+    return target && iterable ? `for ${target} in ${iterable}` : "";
+  }
+  const condition = draft.condition.trim();
+  return condition ? `while ${condition}` : "";
+}
+
+export function flowControlPathLabel(kind: FlowVisualNodeKind | string, sourceHandle: string): string {
+  if (kind === "loop") {
+    if (sourceHandle === "body") {
+      return "Repeat";
+    }
+    if (sourceHandle === "after") {
+      return "Done";
+    }
+  }
+  return sourceHandle;
+}
+
+function inferFlowLoopDraftFromHeader(header: string): FlowLoopDraft | undefined {
+  const normalized = header.trim().replace(/:$/, "");
+  const whileMatch = /^while\s+(.+)$/i.exec(normalized);
+  if (whileMatch) {
+    return {
+      loopType: "while",
+      condition: whileMatch[1].trim(),
+      target: "",
+      iterable: "",
+    };
+  }
+  const forMatch = /^for\s+(.+?)\s+in\s+(.+)$/i.exec(normalized);
+  if (forMatch) {
+    return {
+      loopType: "for",
+      condition: "",
+      target: forMatch[1].trim(),
+      iterable: forMatch[2].trim(),
+    };
+  }
+  return undefined;
 }
 
 export function flowDocumentHandleFromBlueprintHandle(

@@ -4,6 +4,7 @@ import type {
   GraphNodeKind,
   GraphView,
 } from "../../lib/adapter";
+import { flowControlPathLabel } from "./flowDocument";
 
 export type BlueprintPortKind = "graph" | "control" | "data";
 
@@ -164,7 +165,9 @@ function resolveControlPortLabels(
       ?? (sourceNode.metadata["flow_visual"] === true ? edgeMetadataString(edge, "source_handle") : undefined)
       ?? edge.label?.trim()
       ?? ((sourceNode.kind === "branch" || sourceNode.kind === "loop") ? undefined : undefined);
-    labels.set(edge.id, explicitLabel || (needsDistinctLabels ? `path ${index + 1}` : "exec"));
+    const sourceHandle = flowControlSourceHandle(edge);
+    const fallbackLabel = explicitLabel || (needsDistinctLabels ? `path ${index + 1}` : "exec");
+    labels.set(edge.id, sourceHandle ? flowControlPathLabel(sourceNode.kind, sourceHandle) : fallbackLabel);
   });
 
   return labels;
@@ -320,12 +323,21 @@ function flowPortMemberLabel(
   const adjacentNode = nodeById.get(adjacentNodeId);
   const adjacentLabel = adjacentNode?.label ?? adjacentNodeId;
   const edgeLabel = edge.label?.trim();
+  const displayEdgeLabel = direction === "output"
+    ? (() => {
+        const sourceNode = nodeById.get(edge.source);
+        const sourceHandle = flowControlSourceHandle(edge);
+        return sourceNode && sourceHandle
+          ? flowControlPathLabel(sourceNode.kind, sourceHandle)
+          : edgeLabel;
+      })()
+    : edgeLabel;
 
-  if (!edgeLabel || edgeLabel === adjacentLabel) {
+  if (!displayEdgeLabel || displayEdgeLabel === adjacentLabel) {
     return adjacentLabel;
   }
 
-  return `${adjacentLabel} · ${edgeLabel}`;
+  return `${adjacentLabel} · ${displayEdgeLabel}`;
 }
 
 function buildFlowPorts(
@@ -399,9 +411,10 @@ function buildFlowPorts(
     outgoing
       .filter((edge) => edge.kind === "controls")
       .map((edge) => {
+        const sourceHandle = flowControlSourceHandle(edge);
         const label = controlPortLabels.get(edge.id) ?? "exec";
         return {
-          id: controlOutputPortId(label),
+          id: controlOutputPortId(sourceHandle ?? label),
           label,
           kind: "control" as const,
           memberLabels: [flowPortMemberLabel("output", edge, nodeById)],
@@ -412,12 +425,13 @@ function buildFlowPorts(
   const outgoingControlPorts = visualFlow
     ? mergePorts([
         ...outgoingControlPortsFromEdges,
-        ...fixedFlowOutputHandles(node.kind).map((label) => {
+        ...fixedFlowOutputHandles(node.kind).map((handle) => {
+          const label = flowControlPathLabel(node.kind, handle);
           const existing = outgoing.filter((edge) =>
             edge.kind === "controls"
-            && (controlPortLabels.get(edge.id) ?? "exec") === label,
+            && (flowControlSourceHandle(edge) ?? controlPortLabels.get(edge.id) ?? "exec") === handle,
           );
-          return buildControlPort("output", label, existing, nodeById);
+          return buildControlPort("output", label, existing, nodeById, handle);
         }),
       ])
     : outgoingControlPortsFromEdges;
@@ -586,9 +600,10 @@ function buildControlPort(
   label: string,
   edges: GraphEdgeDto[],
   nodeById: Map<string, GraphNodeDto>,
+  handle: string = label,
 ): BlueprintPort {
   return {
-    id: direction === "input" ? controlInputPortId() : controlOutputPortId(label),
+    id: direction === "input" ? controlInputPortId() : controlOutputPortId(handle),
     label,
     kind: "control",
     memberLabels: edges.map((edge) => flowPortMemberLabel(direction, edge, nodeById)),

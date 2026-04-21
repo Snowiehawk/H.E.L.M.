@@ -1218,6 +1218,40 @@ fn save_workspace_file(
 }
 
 #[tauri::command]
+fn move_workspace_entry(
+    service: State<'_, BackendService>,
+    repo_path: String,
+    source_relative_path: String,
+    target_directory_relative_path: String,
+) -> Result<Value, String> {
+    service.request(
+        "move-workspace-entry",
+        json!({
+            "repo": repo_path,
+            "source_relative_path": source_relative_path,
+            "target_directory_relative_path": target_directory_relative_path,
+            "top_n": WORKSPACE_SYNC_TOP_N,
+        }),
+    )
+}
+
+#[tauri::command]
+fn delete_workspace_entry(
+    service: State<'_, BackendService>,
+    repo_path: String,
+    relative_path: String,
+) -> Result<Value, String> {
+    service.request(
+        "delete-workspace-entry",
+        json!({
+            "repo": repo_path,
+            "relative_path": relative_path,
+            "top_n": WORKSPACE_SYNC_TOP_N,
+        }),
+    )
+}
+
+#[tauri::command]
 fn open_path_in_default_editor(file_path: String) -> Result<(), String> {
     let path = PathBuf::from(&file_path);
     if !path.exists() {
@@ -1865,6 +1899,8 @@ fn main() {
             read_workspace_file,
             create_workspace_entry,
             save_workspace_file,
+            move_workspace_entry,
+            delete_workspace_entry,
             open_path_in_default_editor,
             reveal_path_in_file_explorer,
             sync_graph_view_menu_state

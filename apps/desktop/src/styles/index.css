@@ -2939,6 +2939,20 @@ button:disabled:hover {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
+.explorer-row[draggable="true"] {
+  cursor: grab;
+}
+
+.explorer-row.is-dragging {
+  opacity: 0.54;
+}
+
+.explorer-row.is-drop-target {
+  border-color: color-mix(in srgb, var(--accent-strong) 72%, var(--line) 28%);
+  background: color-mix(in srgb, var(--accent) 64%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 44%, transparent);
+}
+
 .explorer-row--file:hover,
 .explorer-row--file.is-active,
 .explorer-row--outline.is-active {
@@ -3537,6 +3551,48 @@ body.graph-pan-cursor-dragging * {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.graph-create-composer__preview {
+  display: grid;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.graph-create-composer__preview code {
+  display: block;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-solid) 86%, transparent);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.graph-create-composer__loop-starters,
+.graph-create-composer__starter {
+  display: grid;
+  gap: 10px;
+}
+
+.graph-create-composer__starter {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.graph-create-composer__starter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.graph-create-composer__starter-toggle input {
+  width: auto;
 }
 
 .flow-expression-canvas {

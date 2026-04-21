@@ -42,6 +42,7 @@ FLOW_EXPRESSION_NODE_KINDS = {
     "raw",
 }
 _RETURN_EXPRESSION_GRAPH_KEY = "expression_graph"
+_LOOP_TYPES = {"while", "for", "for_each"}
 
 _BINOP_SYMBOLS: dict[type[ast.operator], str] = {
     ast.Add: "+",
@@ -96,6 +97,83 @@ _COMPARE_AST_BY_SYMBOL: dict[str, type[ast.cmpop]] = {
     symbol: operator_type
     for operator_type, symbol in _COMPARE_SYMBOLS.items()
 }
+
+
+def _loop_payload_from_parts(
+    loop_type: str,
+    *,
+    condition: str = "",
+    target: str = "",
+    iterable: str = "",
+) -> dict[str, Any]:
+    if loop_type in {"for", "for_each"}:
+        clean_target = target.strip()
+        clean_iterable = iterable.strip()
+        return {
+            "header": f"for {clean_target} in {clean_iterable}" if clean_target and clean_iterable else "",
+            "loop_type": "for",
+            "target": clean_target,
+            "iterable": clean_iterable,
+        }
+    clean_condition = condition.strip()
+    return {
+        "header": f"while {clean_condition}" if clean_condition else "",
+        "loop_type": "while",
+        "condition": clean_condition,
+    }
+
+
+def _infer_loop_payload_from_header(header: str) -> dict[str, Any]:
+    clean_header = header.strip().rstrip(":")
+    if not clean_header:
+        return _loop_payload_from_parts("while")
+    try:
+        parsed = ast.parse(f"{clean_header}:\n    pass\n").body
+    except SyntaxError:
+        return {"header": clean_header, "loop_type": "while", "condition": ""}
+    if len(parsed) != 1:
+        return {"header": clean_header, "loop_type": "while", "condition": ""}
+    statement = parsed[0]
+    if isinstance(statement, ast.While):
+        return _loop_payload_from_parts("while", condition=ast.unparse(statement.test))
+    if isinstance(statement, ast.For):
+        return _loop_payload_from_parts(
+            "for",
+            target=ast.unparse(statement.target),
+            iterable=ast.unparse(statement.iter),
+        )
+    return {"header": clean_header, "loop_type": "while", "condition": ""}
+
+
+def _normalized_loop_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    header = str(payload.get("header") or "").strip().rstrip(":")
+    inferred = _infer_loop_payload_from_header(header)
+    raw_loop_type = str(payload.get("loop_type") or payload.get("loopType") or "").strip()
+    loop_type = raw_loop_type if raw_loop_type in _LOOP_TYPES else str(inferred.get("loop_type") or "while")
+    if loop_type == "for_each":
+        loop_type = "for"
+    if loop_type == "for":
+        target = str(payload.get("target") or inferred.get("target") or "").strip()
+        iterable = str(payload.get("iterable") or inferred.get("iterable") or "").strip()
+        normalized = _loop_payload_from_parts("for", target=target, iterable=iterable)
+    else:
+        condition = str(payload.get("condition") or inferred.get("condition") or "").strip()
+        normalized = _loop_payload_from_parts("while", condition=condition)
+    if not normalized["header"] and header:
+        normalized["header"] = header
+    return {**payload, **normalized}
+
+
+def _loop_header_from_payload(payload: dict[str, Any]) -> str:
+    return str(_normalized_loop_payload(payload).get("header") or "").strip().rstrip(":")
+
+
+def _parse_loop_statement_from_payload(payload: dict[str, Any]) -> ast.stmt | None:
+    header = _loop_header_from_payload(payload)
+    if not header:
+        return None
+    parsed = ast.parse(f"{header}:\n    pass\n").body
+    return parsed[0] if len(parsed) == 1 else None
 
 
 @dataclass(frozen=True)
@@ -2119,7 +2197,10 @@ def _import_statement(
         )
 
     if isinstance(statement, ast.While):
-        node_id = builder.create_node("loop", {"header": f"while {ast.unparse(statement.test)}"})
+        node_id = builder.create_node(
+            "loop",
+            _loop_payload_from_parts("while", condition=ast.unparse(statement.test)),
+        )
         builder.bind_input_slots(node_id, statement.test)
         body_block = _import_block(builder, statement.body)
         if body_block.root_id:
@@ -2127,8 +2208,14 @@ def _import_statement(
         return _ImportedBlock(root_id=node_id, continuations=((node_id, "after"),))
 
     if isinstance(statement, ast.For):
-        header = f"for {ast.unparse(statement.target)} in {ast.unparse(statement.iter)}"
-        node_id = builder.create_node("loop", {"header": header})
+        node_id = builder.create_node(
+            "loop",
+            _loop_payload_from_parts(
+                "for",
+                target=ast.unparse(statement.target),
+                iterable=ast.unparse(statement.iter),
+            ),
+        )
         builder.bind_input_slots(node_id, statement.iter)
         builder.record_assigned_names(node_id, statement)
         body_block = _import_block(builder, statement.body)
@@ -2745,11 +2832,9 @@ def _names_used_by_flow_node_payload(node: FlowModelNode) -> set[str]:
             expression = ast.parse(str(node.payload.get("condition") or ""), mode="eval")
             return _names_used(expression)
         if node.kind == "loop":
-            header = str(node.payload.get("header") or "").strip().rstrip(":")
-            parsed = ast.parse(f"{header}:\n    pass\n").body
-            if not parsed:
+            statement = _parse_loop_statement_from_payload(node.payload)
+            if statement is None:
                 return set()
-            statement = parsed[0]
             if isinstance(statement, ast.While):
                 return _names_used(statement.test)
             if isinstance(statement, ast.For):
@@ -2776,9 +2861,8 @@ def _assigned_names_by_flow_node_payload(node: FlowModelNode) -> set[str]:
             parsed = ast.parse(f"{str(node.payload.get('source') or '').strip()}\n").body
             return _assigned_names(parsed[0]) if parsed else set()
         if node.kind == "loop":
-            header = str(node.payload.get("header") or "").strip().rstrip(":")
-            parsed = ast.parse(f"{header}:\n    pass\n").body
-            return _assigned_names(parsed[0]) if parsed else set()
+            statement = _parse_loop_statement_from_payload(node.payload)
+            return _assigned_names(statement) if statement else set()
     except SyntaxError:
         return set()
     return set()
@@ -2835,17 +2919,23 @@ def _rewrite_flow_node_payload_input_names(
             rewritten = _rewrite_ast_input_names(parsed.body, replacements)
             return {**node.payload, "condition": ast.unparse(rewritten)}
         if node.kind == "loop":
-            header = str(node.payload.get("header") or "").strip().rstrip(":")
-            parsed = ast.parse(f"{header}:\n    pass\n").body
-            if len(parsed) != 1:
+            statement = _parse_loop_statement_from_payload(node.payload)
+            if statement is None:
                 return node.payload
-            statement = _rewrite_ast_input_names(parsed[0], replacements)
+            statement = _rewrite_ast_input_names(statement, replacements)
             if isinstance(statement, ast.While):
-                return {**node.payload, "header": f"while {ast.unparse(statement.test)}"}
+                return {
+                    **node.payload,
+                    **_loop_payload_from_parts("while", condition=ast.unparse(statement.test)),
+                }
             if isinstance(statement, ast.For):
                 return {
                     **node.payload,
-                    "header": f"for {ast.unparse(statement.target)} in {ast.unparse(statement.iter)}",
+                    **_loop_payload_from_parts(
+                        "for",
+                        target=ast.unparse(statement.target),
+                        iterable=ast.unparse(statement.iter),
+                    ),
                 }
             return node.payload
         if node.kind == "return":
@@ -2921,17 +3011,23 @@ def _rewrite_flow_node_payload_store_names(
             rewritten = _rewrite_ast_store_names(parsed[0], replacements)
             return {**node.payload, "source": ast.unparse(rewritten)}
         if node.kind == "loop":
-            header = str(node.payload.get("header") or "").strip().rstrip(":")
-            parsed = ast.parse(f"{header}:\n    pass\n").body
-            if len(parsed) != 1:
+            statement = _parse_loop_statement_from_payload(node.payload)
+            if statement is None:
                 return node.payload
-            statement = _rewrite_ast_store_names(parsed[0], replacements)
+            statement = _rewrite_ast_store_names(statement, replacements)
             if isinstance(statement, ast.While):
-                return {**node.payload, "header": f"while {ast.unparse(statement.test)}"}
+                return {
+                    **node.payload,
+                    **_loop_payload_from_parts("while", condition=ast.unparse(statement.test)),
+                }
             if isinstance(statement, ast.For):
                 return {
                     **node.payload,
-                    "header": f"for {ast.unparse(statement.target)} in {ast.unparse(statement.iter)}",
+                    **_loop_payload_from_parts(
+                        "for",
+                        target=ast.unparse(statement.target),
+                        iterable=ast.unparse(statement.iter),
+                    ),
                 }
     except SyntaxError:
         return node.payload
@@ -3025,21 +3121,35 @@ def _validate_node_payload(
             except SyntaxError as exc:
                 diagnostics.append(f"Branch node '{node.node_id}' has an invalid condition: {exc.msg}.")
     elif node.kind == "loop":
-        header = str(payload.get("header") or "").strip().rstrip(":")
+        raw_loop_type = str(payload.get("loop_type") or payload.get("loopType") or "").strip()
+        if raw_loop_type and raw_loop_type not in _LOOP_TYPES:
+            diagnostics.append(
+                f"Loop node '{node.node_id}' must use loop_type 'while' or 'for'."
+            )
+        normalized_loop = _normalized_loop_payload(payload)
+        loop_type = str(normalized_loop.get("loop_type") or "while")
+        if loop_type == "for":
+            if not str(normalized_loop.get("target") or "").strip():
+                diagnostics.append(f"Loop node '{node.node_id}' needs an item target.")
+            if not str(normalized_loop.get("iterable") or "").strip():
+                diagnostics.append(f"Loop node '{node.node_id}' needs an iterable.")
+        elif not str(normalized_loop.get("condition") or "").strip():
+            diagnostics.append(f"Loop node '{node.node_id}' needs a condition.")
+        header = _loop_header_from_payload(payload)
         if not header:
-            diagnostics.append(f"Loop node '{node.node_id}' needs a header.")
+            diagnostics.append(f"Loop node '{node.node_id}' needs a loop header.")
         else:
             try:
                 parsed = ast.parse(f"{header}:\n    pass\n").body
             except SyntaxError as exc:
-                diagnostics.append(f"Loop node '{node.node_id}' has an invalid header: {exc.msg}.")
+                diagnostics.append(f"Loop node '{node.node_id}' has invalid loop fields: {exc.msg}.")
             else:
                 if len(parsed) != 1 or not isinstance(parsed[0], (ast.For, ast.While)):
                     diagnostics.append(
                         f"Loop node '{node.node_id}' must start with 'while' or 'for ... in ...'."
                     )
         if (node.node_id, "body") not in output_edges:
-            diagnostics.append(f"Loop node '{node.node_id}' needs a body connection.")
+            diagnostics.append(f"Loop node '{node.node_id}' needs a Repeat connection.")
     elif node.kind == "return":
         expression = _return_expression_from_payload(payload)
         if expression:
@@ -3114,7 +3224,7 @@ def _compile_sequence(
             current_id = merge_id
             continue
         if node.kind == "loop":
-            header = str(node.payload.get("header") or "").strip().rstrip(":")
+            header = _loop_header_from_payload(node.payload)
             body_lines = _compile_sequence(
                 start_node_id=target_id_for_edge(output_edges.get((current_id, "body"))),
                 exit_node_id=exit_node_id,
@@ -3320,7 +3430,7 @@ def flow_node_label(node: FlowModelNode) -> str:
         condition = str(node.payload.get("condition") or "").strip()
         return f"if {condition}" if condition else "Branch"
     if node.kind == "loop":
-        header = str(node.payload.get("header") or "").strip()
+        header = _loop_header_from_payload(node.payload)
         return header or "Loop"
     if node.kind == "return":
         expression = _return_expression_from_payload(node.payload)
@@ -3329,7 +3439,11 @@ def flow_node_label(node: FlowModelNode) -> str:
 
 
 def flow_edge_label(source_handle: str) -> str | None:
-    if source_handle in {"true", "false", "body", "after", "exit"}:
+    if source_handle == "body":
+        return "Repeat"
+    if source_handle == "after":
+        return "Done"
+    if source_handle in {"true", "false", "exit"}:
         return source_handle
     return None
 

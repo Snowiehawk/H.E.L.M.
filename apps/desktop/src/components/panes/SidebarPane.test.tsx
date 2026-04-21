@@ -20,6 +20,8 @@ function renderSidebarPane(options: {
   const onSelectSymbol = vi.fn();
   const onSelectWorkspaceFile = vi.fn();
   const onCreateWorkspaceEntry = vi.fn().mockResolvedValue(undefined);
+  const onMoveWorkspaceEntry = vi.fn().mockResolvedValue(undefined);
+  const onDeleteWorkspaceEntry = vi.fn().mockResolvedValue(undefined);
   const onOpenPathInDefaultEditor = vi.fn();
   const onRevealPathInFileExplorer = vi.fn();
 
@@ -37,6 +39,8 @@ function renderSidebarPane(options: {
       onSelectSymbol={onSelectSymbol}
       onSelectWorkspaceFile={onSelectWorkspaceFile}
       onCreateWorkspaceEntry={onCreateWorkspaceEntry}
+      onMoveWorkspaceEntry={onMoveWorkspaceEntry}
+      onDeleteWorkspaceEntry={onDeleteWorkspaceEntry}
       onFocusRepoGraph={vi.fn()}
       onReindexRepo={vi.fn()}
       onOpenRepo={vi.fn()}
@@ -50,9 +54,30 @@ function renderSidebarPane(options: {
     onSelectSymbol,
     onSelectWorkspaceFile,
     onCreateWorkspaceEntry,
+    onMoveWorkspaceEntry,
+    onDeleteWorkspaceEntry,
     onOpenPathInDefaultEditor,
     onRevealPathInFileExplorer,
   };
+}
+
+function createDragDataTransfer(): DataTransfer {
+  const store = new Map<string, string>();
+  return {
+    dropEffect: "none",
+    effectAllowed: "all",
+    setData: vi.fn((type: string, value: string) => {
+      store.set(type, value);
+    }),
+    getData: vi.fn((type: string) => store.get(type) ?? ""),
+    clearData: vi.fn((type?: string) => {
+      if (type) {
+        store.delete(type);
+        return;
+      }
+      store.clear();
+    }),
+  } as unknown as DataTransfer;
 }
 
 describe("SidebarPane", () => {
@@ -195,6 +220,8 @@ describe("SidebarPane", () => {
       onSelectSymbol,
       onSelectWorkspaceFile: vi.fn(),
       onCreateWorkspaceEntry: vi.fn().mockResolvedValue(undefined),
+      onMoveWorkspaceEntry: vi.fn().mockResolvedValue(undefined),
+      onDeleteWorkspaceEntry: vi.fn().mockResolvedValue(undefined),
       onFocusRepoGraph: vi.fn(),
       onReindexRepo: vi.fn(),
       onOpenRepo: vi.fn(),
@@ -299,6 +326,76 @@ describe("SidebarPane", () => {
         moduleName: "helm.ui.api",
       }),
     );
+  });
+
+  it("moves a dragged file into a folder", async () => {
+    const { onMoveWorkspaceEntry } = renderSidebarPane({
+      workspaceFiles: {
+        rootPath: "/Users/noahphillips/Documents/git-repos/H.E.L.M.",
+        entries: [
+          {
+            relativePath: "docs",
+            name: "docs",
+            kind: "directory",
+            sizeBytes: null,
+            editable: false,
+            reason: "Directories are shown in the explorer.",
+            modifiedAt: 0,
+          },
+          {
+            relativePath: "README.md",
+            name: "README.md",
+            kind: "file",
+            sizeBytes: 8,
+            editable: true,
+            reason: null,
+            modifiedAt: 0,
+          },
+        ],
+        truncated: false,
+      },
+    });
+    const readme = screen.getByRole("treeitem", { name: "README.md" });
+    const docs = screen.getByRole("treeitem", { name: "docs" });
+    const dataTransfer = createDragDataTransfer();
+
+    fireEvent.dragStart(readme, { dataTransfer });
+    fireEvent.dragOver(docs, { dataTransfer });
+    fireEvent.drop(docs, { dataTransfer });
+
+    await waitFor(() => {
+      expect(onMoveWorkspaceEntry).toHaveBeenCalledWith({
+        sourceRelativePath: "README.md",
+        targetDirectoryRelativePath: "docs",
+      });
+    });
+  });
+
+  it("deletes files through the explorer context menu", async () => {
+    const user = userEvent.setup();
+    const { onDeleteWorkspaceEntry } = renderSidebarPane({
+      workspaceFiles: {
+        rootPath: "/Users/noahphillips/Documents/git-repos/H.E.L.M.",
+        entries: [
+          {
+            relativePath: "README.md",
+            name: "README.md",
+            kind: "file",
+            sizeBytes: 8,
+            editable: true,
+            reason: null,
+            modifiedAt: 0,
+          },
+        ],
+        truncated: false,
+      },
+    });
+
+    const readme = screen.getByRole("treeitem", { name: "README.md" });
+    fireEvent.contextMenu(readme, { clientX: 120, clientY: 80 });
+    await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+
+    expect(onDeleteWorkspaceEntry).toHaveBeenCalledWith("README.md");
   });
 
   it("exposes create actions in an empty filesystem explorer", async () => {

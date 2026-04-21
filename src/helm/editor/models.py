@@ -15,6 +15,7 @@ class StructuralEditKind(str, Enum):
     MOVE_SYMBOL = "move_symbol"
     ADD_IMPORT = "add_import"
     REMOVE_IMPORT = "remove_import"
+    REPLACE_MODULE_SOURCE = "replace_module_source"
     REPLACE_SYMBOL_SOURCE = "replace_symbol_source"
     INSERT_FLOW_STATEMENT = "insert_flow_statement"
     REPLACE_FLOW_GRAPH = "replace_flow_graph"

@@ -311,6 +311,89 @@ class PythonRepoAdapterTests(unittest.TestCase):
         self.assertEqual(result.sync_state, "draft")
         self.assertTrue(any("not connected to the return expression: c" in diagnostic for diagnostic in result.diagnostics))
 
+    def test_structured_loop_payloads_compile_without_header_only_fields(self) -> None:
+        while_document = import_flow_document_from_function_source(
+            symbol_id="symbol:service:run",
+            relative_path="service.py",
+            qualname="run",
+            module_source=(
+                "def run(items):\n"
+                "    while items:\n"
+                "        consume(items)\n"
+                "    return len(items)\n"
+            ),
+        )
+        while_loop = next(node for node in while_document.nodes if node.kind == "loop")
+        while_document = replace(
+            while_document,
+            nodes=tuple(
+                replace(node, payload={"loop_type": "while", "condition": "items"})
+                if node.node_id == while_loop.node_id
+                else node
+                for node in while_document.nodes
+            ),
+        )
+
+        while_result = compile_flow_document(while_document)
+
+        self.assertEqual(while_result.sync_state, "clean")
+        self.assertIn("while items:", while_result.body_source or "")
+
+        for_document = import_flow_document_from_function_source(
+            symbol_id="symbol:service:run",
+            relative_path="service.py",
+            qualname="run",
+            module_source=(
+                "def run(items):\n"
+                "    for item in items:\n"
+                "        consume(item)\n"
+                "    return len(items)\n"
+            ),
+        )
+        for_loop = next(node for node in for_document.nodes if node.kind == "loop")
+        for_document = replace(
+            for_document,
+            nodes=tuple(
+                replace(node, payload={"loop_type": "for_each", "target": "item", "iterable": "items"})
+                if node.node_id == for_loop.node_id
+                else node
+                for node in for_document.nodes
+            ),
+        )
+
+        for_result = compile_flow_document(for_document)
+
+        self.assertEqual(for_result.sync_state, "clean")
+        self.assertIn("for item in items:", for_result.body_source or "")
+
+    def test_invalid_structured_loop_payload_reports_diagnostics(self) -> None:
+        document = import_flow_document_from_function_source(
+            symbol_id="symbol:service:run",
+            relative_path="service.py",
+            qualname="run",
+            module_source=(
+                "def run(items):\n"
+                "    for item in items:\n"
+                "        consume(item)\n"
+                "    return len(items)\n"
+            ),
+        )
+        loop_node = next(node for node in document.nodes if node.kind == "loop")
+        document = replace(
+            document,
+            nodes=tuple(
+                replace(node, payload={"loop_type": "for_each", "target": "", "iterable": "items"})
+                if node.node_id == loop_node.node_id
+                else node
+                for node in document.nodes
+            ),
+        )
+
+        result = compile_flow_document(document)
+
+        self.assertEqual(result.sync_state, "draft")
+        self.assertTrue(any("needs an item target" in diagnostic for diagnostic in result.diagnostics))
+
     def test_flow_view_marks_loop_body_and_exit_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -335,10 +418,10 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 if edge.kind.value == "controls" and edge.source_id == loop_node
             ]
 
-            self.assertEqual({edge.label for edge in loop_edges}, {"body", "after"})
+            self.assertEqual({edge.label for edge in loop_edges}, {"Repeat", "Done"})
             self.assertEqual(
                 {edge.metadata["path_key"] for edge in loop_edges},
-                {"body", "after"},
+                {"Repeat", "Done"},
             )
 
     def test_flow_view_rehydrates_persisted_draft_documents_with_diagnostics(self) -> None:
@@ -1153,6 +1236,33 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertIn("def run()", function_source["content"])
             self.assertTrue(variable_source["editable"])
             self.assertEqual(variable_source["content"].strip(), "READY = True")
+
+    def test_get_editable_node_source_and_save_supports_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(root, {"service.py": ""})
+
+            adapter = PythonRepoAdapter.scan(root)
+            module_source = adapter.get_editable_node_source("module:service")
+
+            self.assertTrue(module_source["editable"])
+            self.assertEqual(module_source["node_kind"], "module")
+            self.assertEqual(module_source["content"], "")
+
+            response = adapter.save_node_source(
+                "module:service",
+                "def run():\n    return 42\n",
+            )
+
+            self.assertEqual(response["edit"]["request"]["kind"], "replace_module_source")
+            self.assertEqual(response["edit"]["touched_relative_paths"], ["service.py"])
+            node_ids = {
+                node["node_id"]
+                for node in response["payload"]["graph"]["nodes"]
+            }
+            self.assertIn("symbol:service:run", node_ids)
+            function_source = adapter.get_editable_node_source("symbol:service:run")
+            self.assertIn("return 42", function_source["content"])
 
     def test_get_editable_node_source_supports_classes_and_methods_but_blocks_class_attributes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

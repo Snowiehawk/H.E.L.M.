@@ -12,7 +12,9 @@ from helm.ui.desktop_bridge import (
     apply_edit_to_payload,
     build_flow_view_payload,
     create_workspace_entry_payload,
+    delete_workspace_entry_payload,
     list_workspace_files_payload,
+    move_workspace_entry_payload,
     read_workspace_file_payload,
     reveal_source_payload,
     run_worker,
@@ -209,6 +211,28 @@ class DesktopBridgeTests(unittest.TestCase):
             )
             self.assertIn("payload", created_python)
             self.assertEqual(created_python["payload"]["summary"]["module_count"], 1)
+
+            create_workspace_entry_payload(
+                root,
+                kind="directory",
+                relative_path="pkg",
+            )
+            moved_python = move_workspace_entry_payload(
+                root,
+                source_relative_path="app.py",
+                target_directory_relative_path="pkg",
+            )
+            self.assertIn("payload", moved_python)
+            self.assertEqual(moved_python["relative_path"], "pkg/app.py")
+            self.assertEqual(moved_python["payload"]["summary"]["module_count"], 1)
+
+            deleted_python = delete_workspace_entry_payload(
+                root,
+                relative_path="pkg/app.py",
+            )
+            self.assertIn("payload", deleted_python)
+            self.assertEqual(deleted_python["relative_path"], "pkg/app.py")
+            self.assertEqual(deleted_python["payload"]["summary"]["module_count"], 0)
 
     def test_apply_edit_to_payload_insert_flow_statement_returns_changed_flow_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

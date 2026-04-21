@@ -53,6 +53,7 @@ export type StructuralEditKind =
   | "move_symbol"
   | "add_import"
   | "remove_import"
+  | "replace_module_source"
   | "replace_symbol_source"
   | "insert_flow_statement"
   | "replace_flow_graph";
@@ -312,6 +313,15 @@ export interface WorkspaceFileMutationRequest {
   content?: string;
 }
 
+export interface WorkspaceFileMoveRequest {
+  sourceRelativePath: string;
+  targetDirectoryRelativePath: string;
+}
+
+export interface WorkspaceFileDeleteRequest {
+  relativePath: string;
+}
+
 export interface WorkspaceFileMutationResult {
   relativePath: string;
   kind: WorkspaceFileEntryKind;
@@ -433,8 +443,14 @@ export function isGraphSymbolNodeKind(
 
 export function isInspectableGraphNodeKind(
   kind: GraphNodeKind | string | null | undefined,
-): kind is "function" | "class" | "variable" | "enum" {
-  return kind === "function" || kind === "class" || kind === "variable" || kind === "enum";
+): kind is "module" | "function" | "class" | "variable" | "enum" {
+  return (
+    kind === "module"
+    || kind === "function"
+    || kind === "class"
+    || kind === "variable"
+    || kind === "enum"
+  );
 }
 
 export function isEnterableGraphNodeKind(
@@ -608,6 +624,14 @@ export interface DesktopAdapter {
     relativePath: string,
     content: string,
     expectedVersion: string,
+  ): Promise<WorkspaceFileMutationResult>;
+  moveWorkspaceEntry(
+    repoPath: string,
+    request: WorkspaceFileMoveRequest,
+  ): Promise<WorkspaceFileMutationResult>;
+  deleteWorkspaceEntry(
+    repoPath: string,
+    request: WorkspaceFileDeleteRequest,
   ): Promise<WorkspaceFileMutationResult>;
   getSymbol(symbolId: string): Promise<SymbolDetails>;
   getGraphNeighborhood(

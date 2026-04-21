@@ -22,7 +22,11 @@ import type {
 } from "../adapter/contracts";
 import { isGraphSymbolNodeKind } from "../adapter/contracts";
 import { projectFlowDraftGraph } from "../../components/graph/flowDraftGraph";
-import { flowNodePayloadFromContent, insertFlowNodeOnEdge } from "../../components/graph/flowDocument";
+import {
+  flowNodePayloadFromContent,
+  insertFlowNodeOnEdge,
+  normalizeFlowLoopPayload,
+} from "../../components/graph/flowDocument";
 
 export const defaultRepoPath =
   "/Users/noahphillips/Documents/git-repos/H.E.L.M.";
@@ -488,12 +492,22 @@ function validateMockFlowDocument(document: FlowGraphDocument): { syncState: Flo
       }
     }
     if (node.kind === "loop") {
-      const header = typeof node.payload.header === "string" ? node.payload.header.trim() : "";
-      if (!header) {
+      const loop = normalizeFlowLoopPayload(node.payload);
+      if (loop.loopType === "for") {
+        if (!loop.target) {
+          diagnostics.push(`${node.id} needs an item target.`);
+        }
+        if (!loop.iterable) {
+          diagnostics.push(`${node.id} needs an iterable.`);
+        }
+      } else if (!loop.condition) {
+        diagnostics.push(`${node.id} needs a condition.`);
+      }
+      if (!loop.header) {
         diagnostics.push(`${node.id} needs a loop header.`);
       }
       if (!(outgoingBySource.get(node.id) ?? []).includes("body")) {
-        diagnostics.push(`${node.id} needs a body path.`);
+        diagnostics.push(`${node.id} needs a Repeat path.`);
       }
     }
   });
@@ -594,12 +608,12 @@ function mockFlowDocumentBodyLines(document: FlowGraphDocument): string[] {
     }
 
     if (node.kind === "loop") {
-      const header = typeof node.payload.header === "string" ? node.payload.header.trim() : "while condition:";
+      const header = normalizeFlowLoopPayload(node.payload).header || "while condition";
       const normalizedHeader = header.endsWith(":") ? header : `${header}:`;
       return [
         normalizedHeader,
         ...indent(compileFrom(nextNodeId(node.id, "body"), nextVisited)),
-        ...compileFrom(nextNodeId(node.id, "next"), nextVisited),
+        ...compileFrom(nextNodeId(node.id, "after"), nextVisited),
       ];
     }
 
@@ -780,6 +794,19 @@ function buildMockVisualFlowView(
 
 function moduleNameFromRelativePath(relativePath: string): string {
   return relativePath.replace(/\.py$/i, "").split("/").filter(Boolean).join(".");
+}
+
+function moduleNameForMockFile(relativePath: string): string {
+  switch (relativePath) {
+    case "src/helm/cli.py":
+      return "helm.cli";
+    case "src/helm/ui/api.py":
+      return "helm.ui.api";
+    case "src/helm/graph/models.py":
+      return "helm.graph.models";
+    default:
+      return moduleNameFromRelativePath(relativePath);
+  }
 }
 
 function parseMockSymbolId(targetId: string) {
@@ -2111,6 +2138,33 @@ export function buildEditableNodeSource(
   state: MockWorkspaceState,
   targetId: string,
 ): EditableNodeSource {
+  if (targetId.startsWith("module:")) {
+    const files = buildFiles(state);
+    const matchingModule = state.extraModules.find((module) => moduleId(module.moduleName) === targetId);
+    const matchingFile = Object.values(files).find((file) => (
+      moduleId(moduleNameForMockFile(file.path)) === targetId
+    ));
+    const modulePath = matchingModule?.relativePath
+      ?? matchingFile?.path;
+    const file = modulePath ? files[modulePath] : undefined;
+    if (!modulePath || !file) {
+      throw new Error(`Unknown editable module source target: ${targetId}`);
+    }
+    const content = state.workspaceFiles[modulePath]?.kind === "file"
+      ? state.workspaceFiles[modulePath].content ?? ""
+      : file.content;
+    return {
+      targetId,
+      title: matchingModule?.moduleName ?? targetId.replace(/^module:/, ""),
+      path: modulePath,
+      startLine: 1,
+      endLine: content.split("\n").length,
+      content,
+      editable: true,
+      nodeKind: "module",
+    };
+  }
+
   const symbols = buildSymbols(state);
   const symbol = symbols[targetId];
   if (!symbol) {
@@ -2588,6 +2642,37 @@ export function applyMockEdit(
       warnings: ["This edit is simulated in the mock adapter."],
       diagnostics: [],
       flowSyncState: syncedFlowDocument ? "clean" : undefined,
+    };
+  }
+
+  if (request.kind === "replace_module_source" && request.targetId && request.content !== undefined) {
+    const moduleName = request.targetId.replace(/^module:/, "");
+    const matchingModule = state.extraModules.find((module) => module.moduleName === moduleName);
+    const relativePath = matchingModule?.relativePath
+      ?? Object.keys(buildFiles(state)).find((filePath) => moduleNameForMockFile(filePath) === moduleName);
+    if (!relativePath) {
+      throw new Error(`Unknown editable module source target: ${request.targetId}`);
+    }
+    if (matchingModule) {
+      matchingModule.content = request.content;
+    } else {
+      state.workspaceFiles[relativePath] = {
+        kind: "file",
+        content: request.content,
+      };
+    }
+    return {
+      request: {
+        kind: "replace_module_source",
+        target_id: request.targetId,
+        content: request.content,
+      },
+      summary: `Updated source for ${request.targetId}.`,
+      touchedRelativePaths: [relativePath],
+      reparsedRelativePaths: [relativePath],
+      changedNodeIds: [request.targetId],
+      warnings: ["This edit is simulated in the mock adapter."],
+      diagnostics: [],
     };
   }
 
