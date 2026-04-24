@@ -22,24 +22,38 @@ Premium minimal desktop shell for exploring local repositories before editing th
 
 ## How to run the UI
 
-From the repo root, create and activate the recommended local venv:
+From the repo root, use the repo-local HELM wrapper as the normal entrypoint:
 
 ```bash
-python3 -m venv .venv-helm-dev
-source .venv-helm-dev/bin/activate
+./helm.sh ui
 ```
 
-Then install the Python dev helpers:
+On Windows, use:
+
+```powershell
+.\helm.cmd ui
+```
+
+For the full desktop shell instead of the browser-only UI:
 
 ```bash
-python -m pip install '.[dev]'
+./helm.sh desktop
 ```
 
-Then install the desktop app dependencies:
+The wrapper bootstraps itself on first run: it detects the current OS, installs missing system prerequisites when HELM knows how to do so, creates or reuses `.venv-helm-dev`, installs the root Python dependencies, installs the desktop npm dependencies, and fetches the Rust crates used by the Tauri shell. Later runs skip completed steps unless you pass `--install`.
+
+On Windows, the first machine-level install may show a one-time UAC prompt so HELM can add the native desktop toolchain.
+
+If you want setup without launching a command, `./start_here.sh` and `.\start_here.cmd` remain available as bootstrap-only aliases.
+
+If you only need the scanner or mock browser UI, you can trim the bootstrap scope:
 
 ```bash
-inv install-desktop
+./helm.sh bootstrap --python-only
+./helm.sh bootstrap --ui-only
 ```
+
+Windows PowerShell users should prefer the `.cmd` wrappers, because a local `.ps1` can be blocked before HELM gets to handle bootstrap.
 
 For UI-only styling work with mock data from the repo root:
 
@@ -62,7 +76,7 @@ If you prefer the module form, `python -m invoke ui` and `python -m invoke deskt
 - Rust / Cargo
 - Python 3.9+
 
-The desktop shell calls `python3` by default. If your Python binary or workspace path is different, set:
+The desktop shell uses the repo-local `.venv-helm-dev` interpreter by default once bootstrap has run. If your Python binary or workspace path is different, set:
 
 ```bash
 export HELM_PYTHON_BIN=/path/to/python3

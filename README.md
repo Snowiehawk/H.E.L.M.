@@ -23,14 +23,25 @@ If you install the project locally, the same workflow is available as `helm scan
 
 A desktop shell now lives under `apps/desktop/`.
 
-- `python3 -m venv .venv-helm-dev && source .venv-helm-dev/bin/activate` creates the recommended local dev environment.
-- `python -m pip install '.[dev]'` installs the root dev helpers, including `invoke`.
-- `inv install-desktop` installs the desktop app's npm dependencies from the repo root.
+- Use the repo-local HELM wrapper as the normal entrypoint:
+  - macOS/Linux: `./helm.sh ui`, `./helm.sh desktop`, `./helm.sh scan path/to/repo`
+  - Windows: `.\helm.cmd ui`, `.\helm.cmd desktop`, `.\helm.cmd scan .`
+- On first run, the wrapper detects the current OS, installs missing system prerequisites when it knows how to do so, creates or reuses `.venv-helm-dev`, installs the Python project deps, installs the desktop npm deps, and fetches the Tauri/Rust crates used by the desktop shell. Later runs skip completed repo-local steps unless you pass `--install` or `--force`.
+- Windows PowerShell users should prefer `.\helm.cmd ...`, because local `.ps1` execution can be blocked by the machine's execution policy before HELM gets a chance to run.
+- `./start_here.sh` and `.\start_here.cmd` remain available as one-shot bootstrap aliases if you want setup without launching a command.
+- If you only need the scanner or browser-only UI, `./helm.sh bootstrap --python-only` and `./helm.sh bootstrap --ui-only` are available as lighter variants. The same pattern works as `.\helm.cmd bootstrap ...` on Windows.
 - `inv ui` starts the browser-only UI with mock data.
 - `inv desktop` starts the desktop app and exercises the real Python backbone from the UI.
 - `python -m invoke <task>` works too if you prefer not to add the `inv` shell shim to your PATH.
 
 The desktop flow is now the preferred way to validate the frontend/backend integration without running manual scan commands in the terminal.
+
+On supported systems, HELM can now auto-install missing machine-level prerequisites:
+
+- Windows uses `winget`, the official Python install manager, Rustup, and Visual Studio Build Tools when needed.
+- On Windows, the first machine-level install may trigger a one-time UAC prompt so HELM can add the required desktop toolchain.
+- macOS uses Homebrew plus `rustup`, and will request Xcode Command Line Tools for desktop work if they are missing.
+- Linux uses supported package managers (`apt-get`, `dnf`, `pacman`, `zypper`, `apk`) and the Tauri desktop package lists from the official prerequisites guide.
 
 The graph starts coarse and structural:
 
@@ -58,6 +69,8 @@ The package is laid out under `src/helm/`:
 
 Tests are written to run under `unittest` in this environment and remain compatible with `pytest` later.
 
-For desktop work, the root `invoke` tasks automatically run inside `apps/desktop/` and default `HELM_WORKSPACE_ROOT` plus `HELM_PYTHON_BIN` to the current repo and Python interpreter. You can still override either environment variable manually if needed.
+For desktop work, the root `invoke` tasks automatically run inside `apps/desktop/` and default `HELM_WORKSPACE_ROOT` plus `HELM_PYTHON_BIN` to the repo-local venv when it exists. You can still override either environment variable manually if needed.
+
+The bootstrap script prints fully qualified follow-up commands that use the repo-local venv directly, so you do not have to activate the venv just to use HELM.
 
 If you use zsh, keep the extras spec quoted as `'.[dev]'` so the shell does not treat `[]` as a glob. This non-editable install is intentional for compatibility with the older `pip` that ships with macOS Command Line Tools Python.
