@@ -1358,6 +1358,14 @@
     },
     "module|repo:/Users/noahphillips/Documents/git-repos/H.E.L.M.": {
       "nodes": {
+        "module:scripts.bootstrap": {
+          "x": 1972.835425142339,
+          "y": -882.1985483159992
+        },
+        "module:scripts.dev": {
+          "x": 2140.4882244369796,
+          "y": -626.3845528170759
+        },
         "module:src.helm": {
           "x": -815.7060323384071,
           "y": -802.0695757211472
@@ -1446,6 +1454,10 @@
           "x": -323.66248495547484,
           "y": 292.3491443075442
         },
+        "module:src.helm.ui.workspace_files": {
+          "x": 539.1849246330968,
+          "y": 304.5341877160294
+        },
         "module:src.helm.ui.workspace_session": {
           "x": 981.764621666018,
           "y": 98.8150939483406
@@ -1470,6 +1482,10 @@
           "x": 548.9387312009798,
           "y": -524.3530593146924
         },
+        "module:tests.test_bootstrap": {
+          "x": 1069.2426317208551,
+          "y": 778.9253966694044
+        },
         "module:tests.test_cli": {
           "x": -303.4101939543287,
           "y": -1079.0610546598564
@@ -1478,9 +1494,17 @@
           "x": -303.4101939543287,
           "y": 40.93894534014373
         },
+        "module:tests.test_desktop_assets": {
+          "x": 2331.4185695229585,
+          "y": -137.9314486855049
+        },
         "module:tests.test_desktop_bridge": {
           "x": -303.4101939543287,
           "y": -799.0610546598563
+        },
+        "module:tests.test_dev_entrypoint": {
+          "x": 2147.125027230434,
+          "y": 204.11987677001977
         },
         "module:tests.test_graph_builder": {
           "x": -303.4101939543287,
@@ -1501,6 +1525,14 @@
         "module:tests.test_repo_loader": {
           "x": -303.4101939543287,
           "y": -99.06105465985628
+        },
+        "module:tests.test_tasks": {
+          "x": 2142.527433403655,
+          "y": -254.22978636119143
+        },
+        "module:tests.test_windows_wrappers": {
+          "x": 1987.267425923005,
+          "y": 838.3142958641679
         },
         "module:tests.test_workspace_session": {
           "x": -303.4101939543287,

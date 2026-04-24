@@ -9,6 +9,10 @@ const eventState = vi.hoisted(() => ({
 const { listenMock } = vi.hoisted(() => ({
   listenMock: vi.fn(),
 }));
+const { openDialogMock, saveDialogMock } = vi.hoisted(() => ({
+  openDialogMock: vi.fn(),
+  saveDialogMock: vi.fn(),
+}));
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: invokeMock,
@@ -19,7 +23,8 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
-  open: vi.fn(),
+  open: openDialogMock,
+  save: saveDialogMock,
 }));
 
 import { LiveDesktopAdapter } from "./liveDesktopAdapter";
@@ -29,10 +34,52 @@ describe("LiveDesktopAdapter", () => {
   beforeEach(() => {
     invokeMock.mockReset();
     listenMock.mockReset();
+    openDialogMock.mockReset();
+    saveDialogMock.mockReset();
     eventState.callbacks.clear();
     listenMock.mockImplementation(async (eventName, callback) => {
       eventState.callbacks.set(String(eventName), callback);
       return vi.fn();
+    });
+  });
+
+  it("returns null when new project selection is cancelled", async () => {
+    const adapter = new LiveDesktopAdapter();
+    saveDialogMock.mockResolvedValueOnce(null);
+
+    const session = await adapter.createProject();
+
+    expect(session).toBeNull();
+    expect(saveDialogMock).toHaveBeenCalledWith({
+      title: "Where would you like this new project?",
+      defaultPath: "untitled-helm-project",
+      canCreateDirectories: true,
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "create_new_project",
+      expect.anything(),
+    );
+  });
+
+  it("creates a new project through the desktop command and returns a repo session", async () => {
+    const adapter = new LiveDesktopAdapter();
+    saveDialogMock.mockResolvedValueOnce("/workspace/untitled-helm-project");
+    invokeMock.mockResolvedValueOnce({
+      projectPath: "/workspace/untitled-helm-project",
+      packageName: "untitled_helm_project",
+    });
+
+    const session = await adapter.createProject();
+
+    expect(invokeMock).toHaveBeenCalledWith("create_new_project", {
+      projectPath: "/workspace/untitled-helm-project",
+    });
+    expect(session).toMatchObject({
+      id: "repo:/workspace/untitled-helm-project",
+      name: "untitled-helm-project",
+      path: "/workspace/untitled-helm-project",
+      branch: "local",
+      primaryLanguage: "Python",
     });
   });
 

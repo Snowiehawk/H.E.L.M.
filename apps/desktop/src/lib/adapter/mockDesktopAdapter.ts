@@ -72,6 +72,17 @@ export class MockDesktopAdapter implements DesktopAdapter {
     return this.currentSession;
   }
 
+  async createProject(): Promise<RepoSession | null> {
+    await delay(220);
+    this.currentSession = buildRepoSession(
+      "/Users/noahphillips/Documents/git-repos/untitled-helm-project",
+    );
+    this.workspace = createMockWorkspaceState();
+    this.backendUndoHistory = [];
+    this.backendRedoHistory = [];
+    return this.currentSession;
+  }
+
   async listRecentRepos(): Promise<RecentRepo[]> {
     await delay(120);
     return recentRepos;

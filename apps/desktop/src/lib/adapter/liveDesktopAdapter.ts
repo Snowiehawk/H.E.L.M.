@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import type {
   BackendUndoTransaction,
   BackendStatus,
@@ -264,6 +264,11 @@ interface RawBackendHealth {
   last_sync_error?: string | null;
 }
 
+interface RawNewProjectResult {
+  projectPath: string;
+  packageName: string;
+}
+
 interface RawWorkspaceSyncSnapshot {
   repo_id: string;
   default_focus_node_id: string;
@@ -522,6 +527,25 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     }
 
     const session = buildRepoSessionFromPath(resolvedPath);
+    this.currentSession = session;
+    return session;
+  }
+
+  async createProject(): Promise<RepoSession | null> {
+    const selected = await save({
+      title: "Where would you like this new project?",
+      defaultPath: "untitled-helm-project",
+      canCreateDirectories: true,
+    });
+
+    if (!selected) {
+      return null;
+    }
+
+    const created = await invoke<RawNewProjectResult>("create_new_project", {
+      projectPath: selected,
+    });
+    const session = buildRepoSessionFromPath(created.projectPath);
     this.currentSession = session;
     return session;
   }

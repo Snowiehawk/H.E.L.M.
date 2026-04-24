@@ -603,6 +603,7 @@ export interface OverviewData {
 export interface DesktopAdapter {
   readonly isMock: boolean;
   openRepo(path?: string): Promise<RepoSession>;
+  createProject(): Promise<RepoSession | null>;
   listRecentRepos(): Promise<RecentRepo[]>;
   getBackendStatus(): Promise<BackendStatus>;
   subscribeWorkspaceSync(onUpdate: (event: WorkspaceSyncEvent) => void): () => void;
