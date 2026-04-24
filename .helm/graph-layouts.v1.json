@@ -271,6 +271,90 @@
       "pinned_node_ids": [],
       "groups": []
     },
+    "module|module:scripts.dev": {
+      "nodes": {
+        "module:scripts.dev": {
+          "x": -431.4813599980965,
+          "y": -44.555775003840125
+        },
+        "symbol:scripts.dev:BOOTSTRAP_USAGE": {
+          "x": 63.79317034866459,
+          "y": 132.89136125981287
+        },
+        "symbol:scripts.dev:REPO_ROOT": {
+          "x": 63.79317034866459,
+          "y": 273.89136125981287
+        },
+        "symbol:scripts.dev:USAGE": {
+          "x": 63.79317034866459,
+          "y": 414.8913612598124
+        },
+        "symbol:scripts.dev:ensure_bootstrap": {
+          "x": 479.15425158608167,
+          "y": -517.5473541507345
+        },
+        "symbol:scripts.dev:extract_force_install_flag": {
+          "x": 812.154251586082,
+          "y": -517.5473541507345
+        },
+        "symbol:scripts.dev:main": {
+          "x": 479.15425158608167,
+          "y": -376.5473541507343
+        },
+        "symbol:scripts.dev:repo_env": {
+          "x": 814.154251586082,
+          "y": -376.5473541507343
+        },
+        "symbol:scripts.dev:run_bootstrap_command": {
+          "x": 475.15425158608167,
+          "y": -235.54735415073435
+        },
+        "symbol:scripts.dev:run_desktop_command": {
+          "x": 814.154251586082,
+          "y": -235.54735415073435
+        },
+        "symbol:scripts.dev:run_scan_command": {
+          "x": 479.15425158608167,
+          "y": -94.54735415073436
+        },
+        "symbol:scripts.dev:run_ui_command": {
+          "x": 814.154251586082,
+          "y": -94.54735415073436
+        },
+        "symbol:scripts.dev:run_user_command": {
+          "x": 479.15425158608167,
+          "y": 46.45264584926565
+        }
+      },
+      "reroutes": [],
+      "pinned_node_ids": [],
+      "groups": [
+        {
+          "id": "group-b7df49c9-371c-4254-a37c-64f0170d34e2",
+          "title": "functions",
+          "memberNodeIds": [
+            "symbol:scripts.dev:ensure_bootstrap",
+            "symbol:scripts.dev:extract_force_install_flag",
+            "symbol:scripts.dev:main",
+            "symbol:scripts.dev:repo_env",
+            "symbol:scripts.dev:run_bootstrap_command",
+            "symbol:scripts.dev:run_desktop_command",
+            "symbol:scripts.dev:run_scan_command",
+            "symbol:scripts.dev:run_ui_command",
+            "symbol:scripts.dev:run_user_command"
+          ]
+        },
+        {
+          "id": "group-e5c686ee-d641-4865-9ae7-3789adc7fa00",
+          "title": "vars",
+          "memberNodeIds": [
+            "symbol:scripts.dev:BOOTSTRAP_USAGE",
+            "symbol:scripts.dev:REPO_ROOT",
+            "symbol:scripts.dev:USAGE"
+          ]
+        }
+      ]
+    },
     "module|module:src.helm.editor.flow_model": {
       "nodes": {
         "module:src.helm.editor.flow_model": {
