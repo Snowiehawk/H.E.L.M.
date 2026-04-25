@@ -12,10 +12,12 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use tauri::{
-    menu::{AboutMetadata, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
-    AppHandle, Emitter, Manager, State, Wry,
-};
+use tauri::menu::CheckMenuItem;
+#[cfg(target_os = "macos")]
+use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+#[cfg(target_os = "macos")]
+use tauri::Manager;
+use tauri::{AppHandle, Emitter, State, Wry};
 
 const APP_MENU_EVENT: &str = "helm://app-menu";
 const INDEX_PROGRESS_EVENT: &str = "helm://index-progress";

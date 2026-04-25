@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -74,7 +75,35 @@ def _run_desktop_command(ctx, command: str, *, install: bool) -> None:
         _run_bootstrap(ctx, force=install)
 
     with ctx.cd(str(DESKTOP_DIR)):
-        ctx.run(command, env=_desktop_env(), pty=_pty_supported())
+        if os.name == "nt":
+            _run_windows_desktop_command(command)
+        else:
+            ctx.run(command, env=_desktop_env(), pty=_pty_supported())
+
+
+def _run_windows_desktop_command(command: str) -> None:
+    process = subprocess.Popen(
+        command,
+        cwd=str(DESKTOP_DIR),
+        env=_desktop_env(),
+        shell=True,
+    )
+
+    try:
+        return_code = process.wait()
+    except KeyboardInterrupt:
+        print("\nStopping desktop dev processes...")
+        subprocess.run(
+            ["taskkill", "/pid", str(process.pid), "/t", "/f"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        process.wait()
+        return
+
+    if return_code:
+        raise Exit(code=return_code)
 
 
 @task(
