@@ -2126,8 +2126,10 @@ export function WorkspaceScreen() {
     setInspectorDirty(false);
     setInspectorDraftStale(false);
     inspectorDraftContentRef.current = undefined;
-    setInspectorEditableSourceOverride(undefined);
-    setInspectorSourceVersion((current) => current + 1);
+    if (!options?.preserveView) {
+      setInspectorEditableSourceOverride(undefined);
+      setInspectorSourceVersion((current) => current + 1);
+    }
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["overview"] }),
       queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),

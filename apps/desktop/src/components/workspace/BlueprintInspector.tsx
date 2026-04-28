@@ -101,7 +101,7 @@ export function BlueprintInspector({
   onDismissSource: () => void;
   onClose: () => void;
 }) {
-  const [draftSource, setDraftSource] = useState("");
+  const [draftSource, setDraftSource] = useState(() => editableSource?.content ?? "");
   const [sourceError, setSourceError] = useState<string | null>(null);
   const [structuralActionError, setStructuralActionError] = useState<string | null>(null);
   const [contextActionError, setContextActionError] = useState<string | null>(null);
@@ -309,6 +309,10 @@ export function BlueprintInspector({
   };
 
   useEffect(() => {
+    if (!editableSource && editableSourceLoading) {
+      return;
+    }
+
     const nextTargetId = editableSource?.targetId;
     if (nextTargetId !== previousEditableTargetIdRef.current) {
       previousEditableTargetIdRef.current = nextTargetId;
@@ -321,7 +325,7 @@ export function BlueprintInspector({
       setDraftSource(editableSource?.content ?? "");
       setSourceError(null);
     }
-  }, [dirty, draftStale, editableSource?.content, editableSource?.targetId]);
+  }, [dirty, draftStale, editableSource?.content, editableSource?.targetId, editableSourceLoading]);
 
   useEffect(() => {
     if (canEditInline) {

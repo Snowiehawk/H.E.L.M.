@@ -4084,16 +4084,13 @@ describe("WorkspaceScreen", () => {
       await waitFor(() =>
         expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeDelete),
       );
-      await waitFor(() =>
-        expect(
-          (screen.getByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement)
-            .value,
-        ).not.toContain("return GraphSummary"),
-      );
-      expect(
-        (screen.getByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement)
-          .value,
-      ).toContain("collect_module_stats(graph)");
+      await waitFor(() => {
+        const refreshedSource = (
+          screen.getByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement
+        ).value;
+        expect(refreshedSource).not.toContain("return GraphSummary");
+        expect(refreshedSource).toContain("collect_module_stats(graph)");
+      });
       expect(screen.queryByText("Draft only")).not.toBeInTheDocument();
       expect(
         lastReplaceFlowGraphRequest(editSpy)?.flowGraph?.nodes.map(
