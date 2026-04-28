@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from helm.parser.symbols import ParseDiagnostic, ReferenceConfidence, SourceSpan
+from helm.parser.symbols import ParseDiagnostic, SourceSpan
 
 
 class NodeKind(str, Enum):
@@ -167,9 +167,7 @@ class RepoGraph:
             "nodes": [self.nodes[node_id].to_dict() for node_id in sorted(self.nodes)],
             "edges": [edge.to_dict() for edge in self.edges],
             "diagnostics": [diagnostic.to_dict() for diagnostic in self.diagnostics],
-            "unresolved_calls": [
-                unresolved.to_dict() for unresolved in self.unresolved_calls
-            ],
+            "unresolved_calls": [unresolved.to_dict() for unresolved in self.unresolved_calls],
             "report": self.report.to_dict(),
         }
 

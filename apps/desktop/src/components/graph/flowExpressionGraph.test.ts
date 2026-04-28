@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FlowExpressionGraph } from "../../lib/adapter";
-import {
-  createFlowExpressionEdge,
-  expressionFromFlowExpressionGraph,
-} from "./flowExpressionGraph";
+import { createFlowExpressionEdge, expressionFromFlowExpressionGraph } from "./flowExpressionGraph";
 
 describe("flowExpressionGraph", () => {
   it("compiles an editable operator graph back into expression source", () => {
@@ -35,9 +32,7 @@ describe("flowExpressionGraph", () => {
         { id: "input:a", kind: "input", label: "a", payload: { name: "a" } },
         { id: "op:add", kind: "operator", label: "+", payload: { operator: "+" } },
       ],
-      edges: [
-        createFlowExpressionEdge("input:a", "op:add", "left"),
-      ],
+      edges: [createFlowExpressionEdge("input:a", "op:add", "left")],
     };
 
     expect(expressionFromFlowExpressionGraph(graph)).toEqual({

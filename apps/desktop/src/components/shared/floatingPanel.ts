@@ -39,12 +39,7 @@ export function clampFloatingPanelPosition({
   margin?: number;
   panel: FloatingPanelBounds;
 }): FloatingPanelAnchor {
-  if (
-    container.width <= 0
-    || container.height <= 0
-    || panel.width <= 0
-    || panel.height <= 0
-  ) {
+  if (container.width <= 0 || container.height <= 0 || panel.width <= 0 || panel.height <= 0) {
     return anchor;
   }
 
@@ -94,9 +89,9 @@ export function useClampedFloatingPanel(
   const updatePosition = useCallback(() => {
     const panel = panelRef.current;
     if (!panel) {
-      setPosition((current) => (
-        current.x === anchor.x && current.y === anchor.y ? current : anchor
-      ));
+      setPosition((current) =>
+        current.x === anchor.x && current.y === anchor.y ? current : anchor,
+      );
       return;
     }
 
@@ -110,9 +105,7 @@ export function useClampedFloatingPanel(
         })
       : anchor;
 
-    setPosition((current) => (
-      current.x === next.x && current.y === next.y ? current : next
-    ));
+    setPosition((current) => (current.x === next.x && current.y === next.y ? current : next));
   }, [anchor, margin]);
 
   useLayoutEffect(() => {
@@ -126,9 +119,8 @@ export function useClampedFloatingPanel(
     }
 
     const container = offsetParentElement(panel);
-    const resizeObserver = typeof ResizeObserver === "undefined"
-      ? undefined
-      : new ResizeObserver(updatePosition);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(updatePosition);
     resizeObserver?.observe(panel);
     if (container) {
       resizeObserver?.observe(container);

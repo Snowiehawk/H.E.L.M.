@@ -60,8 +60,7 @@ _BINOP_SYMBOLS: dict[type[ast.operator], str] = {
     ast.BitAnd: "&",
 }
 _BINOP_AST_BY_SYMBOL: dict[str, type[ast.operator]] = {
-    symbol: operator_type
-    for operator_type, symbol in _BINOP_SYMBOLS.items()
+    symbol: operator_type for operator_type, symbol in _BINOP_SYMBOLS.items()
 }
 _UNARY_SYMBOLS: dict[type[ast.unaryop], str] = {
     ast.UAdd: "+",
@@ -70,16 +69,14 @@ _UNARY_SYMBOLS: dict[type[ast.unaryop], str] = {
     ast.Invert: "~",
 }
 _UNARY_AST_BY_SYMBOL: dict[str, type[ast.unaryop]] = {
-    symbol: operator_type
-    for operator_type, symbol in _UNARY_SYMBOLS.items()
+    symbol: operator_type for operator_type, symbol in _UNARY_SYMBOLS.items()
 }
 _BOOL_SYMBOLS: dict[type[ast.boolop], str] = {
     ast.And: "and",
     ast.Or: "or",
 }
 _BOOL_AST_BY_SYMBOL: dict[str, type[ast.boolop]] = {
-    symbol: operator_type
-    for operator_type, symbol in _BOOL_SYMBOLS.items()
+    symbol: operator_type for operator_type, symbol in _BOOL_SYMBOLS.items()
 }
 _COMPARE_SYMBOLS: dict[type[ast.cmpop], str] = {
     ast.Eq: "==",
@@ -94,8 +91,7 @@ _COMPARE_SYMBOLS: dict[type[ast.cmpop], str] = {
     ast.NotIn: "not in",
 }
 _COMPARE_AST_BY_SYMBOL: dict[str, type[ast.cmpop]] = {
-    symbol: operator_type
-    for operator_type, symbol in _COMPARE_SYMBOLS.items()
+    symbol: operator_type for operator_type, symbol in _COMPARE_SYMBOLS.items()
 }
 
 
@@ -110,7 +106,9 @@ def _loop_payload_from_parts(
         clean_target = target.strip()
         clean_iterable = iterable.strip()
         return {
-            "header": f"for {clean_target} in {clean_iterable}" if clean_target and clean_iterable else "",
+            "header": f"for {clean_target} in {clean_iterable}"
+            if clean_target and clean_iterable
+            else "",
             "loop_type": "for",
             "target": clean_target,
             "iterable": clean_iterable,
@@ -149,7 +147,9 @@ def _normalized_loop_payload(payload: dict[str, Any]) -> dict[str, Any]:
     header = str(payload.get("header") or "").strip().rstrip(":")
     inferred = _infer_loop_payload_from_header(header)
     raw_loop_type = str(payload.get("loop_type") or payload.get("loopType") or "").strip()
-    loop_type = raw_loop_type if raw_loop_type in _LOOP_TYPES else str(inferred.get("loop_type") or "while")
+    loop_type = (
+        raw_loop_type if raw_loop_type in _LOOP_TYPES else str(inferred.get("loop_type") or "while")
+    )
     if loop_type == "for_each":
         loop_type = "for"
     if loop_type == "for":
@@ -314,7 +314,9 @@ class FlowModelDocument:
             "nodes": [node.to_dict() for node in self.nodes],
             "edges": [edge.to_dict() for edge in self.edges],
             "value_model_version": self.value_model_version,
-            "function_inputs": [function_input.to_dict() for function_input in self.function_inputs],
+            "function_inputs": [
+                function_input.to_dict() for function_input in self.function_inputs
+            ],
             "value_sources": [value_source.to_dict() for value_source in self.value_sources],
             "input_slots": [slot.to_dict() for slot in self.input_slots],
             "input_bindings": [binding.to_dict() for binding in self.input_bindings],
@@ -428,9 +430,7 @@ class _ImportBuilder:
 
     def update_node_payload(self, node_id: str, payload: dict[str, Any]) -> None:
         self.nodes = [
-            replace(node, payload=payload)
-            if node.node_id == node_id
-            else node
+            replace(node, payload=payload) if node.node_id == node_id else node
             for node in self.nodes
         ]
 
@@ -451,19 +451,20 @@ class _ImportBuilder:
             return
 
         function_input_by_id = {
-            function_input.input_id: function_input
-            for function_input in self.function_inputs
+            function_input.input_id: function_input for function_input in self.function_inputs
         }
         value_source_by_id = {
-            value_source.source_id: value_source
-            for value_source in self.value_sources
+            value_source.source_id: value_source for value_source in self.value_sources
         }
         existing_slot_ids = {slot.slot_id for slot in self.input_slots}
         existing_binding_ids = {binding.binding_id for binding in self.input_bindings}
         used_names = sorted(_names_used(statement))
         for used_name in used_names:
             definition_id = self.definitions.get(used_name)
-            if definition_id not in function_input_by_id and definition_id not in value_source_by_id:
+            if (
+                definition_id not in function_input_by_id
+                and definition_id not in value_source_by_id
+            ):
                 continue
             source_identity = flow_model_node_source_identity(node)
             slot_id = flow_input_slot_id(source_identity, used_name)
@@ -792,14 +793,18 @@ def flow_document_from_payload(payload: dict[str, Any]) -> FlowModelDocument:
         if not isinstance(payload_value, dict):
             raise ValueError("Flow graph node payloads must be objects.")
         if indexed_node_id is not None and not isinstance(indexed_node_id, str):
-            raise ValueError("Flow graph node 'indexed_node_id' values must be strings when provided.")
+            raise ValueError(
+                "Flow graph node 'indexed_node_id' values must be strings when provided."
+            )
         seen_node_ids.add(node_id)
         nodes.append(
             FlowModelNode(
                 node_id=node_id,
                 kind=kind,
                 payload=dict(payload_value),
-                indexed_node_id=indexed_node_id.strip() or None if isinstance(indexed_node_id, str) else None,
+                indexed_node_id=indexed_node_id.strip() or None
+                if isinstance(indexed_node_id, str)
+                else None,
             )
         )
 
@@ -842,9 +847,7 @@ def flow_document_from_payload(payload: dict[str, Any]) -> FlowModelDocument:
         kind = str(raw_input.get("kind") or "positional_or_keyword").strip()
         raw_default_expression = raw_input.get("default_expression")
         default_expression = (
-            str(raw_default_expression)
-            if raw_default_expression is not None
-            else None
+            str(raw_default_expression) if raw_default_expression is not None else None
         )
         if not input_id or not name or not isinstance(index, int):
             raise ValueError("Flow graph function inputs require id, name, and integer index.")
@@ -864,7 +867,9 @@ def flow_document_from_payload(payload: dict[str, Any]) -> FlowModelDocument:
         )
 
     raw_value_model_version = payload.get("value_model_version")
-    value_model_version = raw_value_model_version if isinstance(raw_value_model_version, int) else None
+    value_model_version = (
+        raw_value_model_version if isinstance(raw_value_model_version, int) else None
+    )
 
     value_sources: list[FlowValueSource] = []
     seen_value_source_ids: set[str] = set()
@@ -945,9 +950,8 @@ def flow_document_from_payload(payload: dict[str, Any]) -> FlowModelDocument:
         function_input_id = str(raw_binding.get("function_input_id") or "").strip()
         raw_source_id = str(raw_binding.get("source_id") or "").strip()
         source_id = raw_source_id or function_input_id
-        if (
-            function_input_id in seen_function_input_ids
-            and (not raw_source_id or raw_source_id in seen_function_input_ids)
+        if function_input_id in seen_function_input_ids and (
+            not raw_source_id or raw_source_id in seen_function_input_ids
         ):
             source_id = function_input_id
         slot_id = str(raw_binding.get("slot_id") or "").strip()
@@ -1019,22 +1023,29 @@ def with_flow_document_derived_input_model(
 ) -> FlowModelDocument:
     function_input_ids = {function_input.input_id for function_input in document.function_inputs}
     node_by_id = {node.node_id: node for node in document.nodes}
-    existing_slot_by_node_key = {
-        (slot.node_id, slot.slot_key): slot
-        for slot in document.input_slots
-    } if preserve_existing else {}
-    existing_binding_by_slot_id = {
-        binding.slot_id: binding
-        for binding in document.input_bindings
-    } if preserve_existing else {}
-    existing_source_by_node_name = {
-        (source.node_id, source.name): source
-        for source in document.value_sources
-    } if preserve_existing else {}
-    existing_source_by_node_emitted_name = {
-        (source.node_id, flow_value_source_emitted_name(source)): source
-        for source in document.value_sources
-    } if preserve_existing else {}
+    existing_slot_by_node_key = (
+        {(slot.node_id, slot.slot_key): slot for slot in document.input_slots}
+        if preserve_existing
+        else {}
+    )
+    existing_binding_by_slot_id = (
+        {binding.slot_id: binding for binding in document.input_bindings}
+        if preserve_existing
+        else {}
+    )
+    existing_source_by_node_name = (
+        {(source.node_id, source.name): source for source in document.value_sources}
+        if preserve_existing
+        else {}
+    )
+    existing_source_by_node_emitted_name = (
+        {
+            (source.node_id, flow_value_source_emitted_name(source)): source
+            for source in document.value_sources
+        }
+        if preserve_existing
+        else {}
+    )
 
     ordered_node_ids = list(flow_document_compile_order_node_ids(document))
     ordered_node_ids.extend(
@@ -1044,8 +1055,7 @@ def with_flow_document_derived_input_model(
     )
 
     definitions: dict[str, str] = {
-        function_input.name: function_input.input_id
-            for function_input in document.function_inputs
+        function_input.name: function_input.input_id for function_input in document.function_inputs
     }
     derived_source_by_node_name: dict[tuple[str, str], FlowValueSource] = {}
     next_value_sources: list[FlowValueSource] = []
@@ -1055,17 +1065,18 @@ def with_flow_document_derived_input_model(
         if node is None:
             continue
         for assigned_name in sorted(_assigned_names_by_flow_node_payload(node)):
-            existing_source = (
-                existing_source_by_node_emitted_name.get((node.node_id, assigned_name))
-                or existing_source_by_node_name.get((node.node_id, assigned_name))
-            )
+            existing_source = existing_source_by_node_emitted_name.get(
+                (node.node_id, assigned_name)
+            ) or existing_source_by_node_name.get((node.node_id, assigned_name))
             source_id = (
                 existing_source.source_id
                 if existing_source
                 else flow_value_source_id(flow_model_node_source_identity(node), assigned_name)
             )
             source_name = existing_source.name if existing_source else assigned_name
-            emitted_name = assigned_name if existing_source and assigned_name != source_name else None
+            emitted_name = (
+                assigned_name if existing_source and assigned_name != source_name else None
+            )
             source = FlowValueSource(
                 source_id=source_id,
                 node_id=node.node_id,
@@ -1116,7 +1127,11 @@ def with_flow_document_derived_input_model(
             )
             if definition_id not in known_source_ids and existing_binding_source_id is None:
                 continue
-            slot_id = existing_slot.slot_id if existing_slot else flow_input_slot_id(source_identity, used_name)
+            slot_id = (
+                existing_slot.slot_id
+                if existing_slot
+                else flow_input_slot_id(source_identity, used_name)
+            )
             if slot_id in seen_slot_ids:
                 continue
             slot = FlowInputSlot(
@@ -1203,16 +1218,14 @@ def with_flow_document_inherited_input_model(
         )
 
     existing_input_by_name = {
-        function_input.name: function_input
-        for function_input in document.function_inputs
+        function_input.name: function_input for function_input in document.function_inputs
     }
     next_function_inputs = _merge_flow_function_inputs(
         tuple(existing_input_by_name.values()),
         source_function_inputs,
     )
     next_input_by_name = {
-        function_input.name: function_input
-        for function_input in next_function_inputs
+        function_input.name: function_input for function_input in next_function_inputs
     }
 
     source_node_by_id = {node.node_id: node for node in source_document.nodes}
@@ -1280,7 +1293,9 @@ def with_flow_document_inherited_input_model(
         if target_node is None:
             continue
 
-        slot_id = flow_input_slot_id(flow_model_node_source_identity(source_node), source_slot.slot_key)
+        slot_id = flow_input_slot_id(
+            flow_model_node_source_identity(source_node), source_slot.slot_key
+        )
         slot_id_by_source_slot_id[source_slot.slot_id] = slot_id
         if slot_id in seen_slot_ids:
             continue
@@ -1303,7 +1318,9 @@ def with_flow_document_inherited_input_model(
         if slot_id is None or source_id is None or slot_id in seen_bound_slot_ids:
             continue
         seen_bound_slot_ids.add(slot_id)
-        function_input_id = source_id if source_id in {item.input_id for item in next_function_inputs} else None
+        function_input_id = (
+            source_id if source_id in {item.input_id for item in next_function_inputs} else None
+        )
         next_bindings.append(
             FlowInputBinding(
                 binding_id=flow_input_binding_id(slot_id, source_id),
@@ -1363,8 +1380,7 @@ def _inherited_value_sources_for_document(
             document_node_by_identity.setdefault(identity, node)
 
     existing_by_node_name = {
-        (source.node_id, source.name): source
-        for source in document.value_sources
+        (source.node_id, source.name): source for source in document.value_sources
     }
     existing_by_node_emitted_name = {
         (source.node_id, flow_value_source_emitted_name(source)): source
@@ -1383,13 +1399,16 @@ def _inherited_value_sources_for_document(
                 break
         if target_node is None:
             continue
-        existing = (
-            existing_by_node_emitted_name.get((target_node.node_id, flow_value_source_emitted_name(source)))
-            or existing_by_node_name.get((target_node.node_id, source.name))
-        )
-        source_id = existing.source_id if existing else flow_value_source_id(
-            flow_model_node_source_identity(source_node),
-            source.name,
+        existing = existing_by_node_emitted_name.get(
+            (target_node.node_id, flow_value_source_emitted_name(source))
+        ) or existing_by_node_name.get((target_node.node_id, source.name))
+        source_id = (
+            existing.source_id
+            if existing
+            else flow_value_source_id(
+                flow_model_node_source_identity(source_node),
+                source.name,
+            )
         )
         if source_id in seen_source_ids:
             continue
@@ -1481,7 +1500,10 @@ def find_ast_symbol(tree: ast.AST, qualname: str) -> ast.AST | None:
         current = None
         next_candidates: list[ast.AST] = []
         for candidate in candidates:
-            if isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and candidate.name == part:
+            if (
+                isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                and candidate.name == part
+            ):
                 current = candidate
                 next_candidates = list(getattr(candidate, "body", []))
                 break
@@ -1507,7 +1529,7 @@ def _function_inputs_for_ast_function(
     ordered: list[tuple[ast.arg, str, ast.expr | None]] = []
     for argument, default in zip(
         function_node.args.posonlyargs,
-        positional_defaults[:len(function_node.args.posonlyargs)],
+        positional_defaults[: len(function_node.args.posonlyargs)],
     ):
         ordered.append((argument, "positional_only", default))
     offset = len(function_node.args.posonlyargs)
@@ -1674,10 +1696,7 @@ def _with_return_expression_graph_slot_ids(
     nodes: tuple[FlowModelNode, ...],
     input_slots: tuple[FlowInputSlot, ...],
 ) -> tuple[FlowModelNode, ...]:
-    slot_id_by_node_name = {
-        (slot.node_id, slot.slot_key): slot.slot_id
-        for slot in input_slots
-    }
+    slot_id_by_node_name = {(slot.node_id, slot.slot_key): slot.slot_id for slot in input_slots}
     next_nodes: list[FlowModelNode] = []
     for node in nodes:
         expression_graph = node.payload.get(_RETURN_EXPRESSION_GRAPH_KEY)
@@ -1735,14 +1754,18 @@ def _append_expression_ast_node(builder: _ExpressionGraphBuilder, expression: as
         if symbol:
             node_id = builder.create_node("operator", symbol, {"operator": symbol})
             builder.connect(_append_expression_ast_node(builder, expression.left), node_id, "left")
-            builder.connect(_append_expression_ast_node(builder, expression.right), node_id, "right")
+            builder.connect(
+                _append_expression_ast_node(builder, expression.right), node_id, "right"
+            )
             return node_id
 
     if isinstance(expression, ast.UnaryOp):
         symbol = _UNARY_SYMBOLS.get(type(expression.op))
         if symbol:
             node_id = builder.create_node("unary", symbol, {"operator": symbol})
-            builder.connect(_append_expression_ast_node(builder, expression.operand), node_id, "operand")
+            builder.connect(
+                _append_expression_ast_node(builder, expression.operand), node_id, "operand"
+            )
             return node_id
 
     if isinstance(expression, ast.BoolOp):
@@ -1750,7 +1773,9 @@ def _append_expression_ast_node(builder: _ExpressionGraphBuilder, expression: as
         if symbol:
             node_id = builder.create_node("bool", symbol, {"operator": symbol})
             for index, value in enumerate(expression.values):
-                builder.connect(_append_expression_ast_node(builder, value), node_id, f"value:{index}")
+                builder.connect(
+                    _append_expression_ast_node(builder, value), node_id, f"value:{index}"
+                )
             return node_id
 
     if isinstance(expression, ast.Compare):
@@ -1761,7 +1786,9 @@ def _append_expression_ast_node(builder: _ExpressionGraphBuilder, expression: as
         node_id = builder.create_node("compare", " ".join(operators), {"operators": operators})
         builder.connect(_append_expression_ast_node(builder, expression.left), node_id, "left")
         for index, comparator in enumerate(expression.comparators):
-            builder.connect(_append_expression_ast_node(builder, comparator), node_id, f"comparator:{index}")
+            builder.connect(
+                _append_expression_ast_node(builder, comparator), node_id, f"comparator:{index}"
+            )
         return node_id
 
     if isinstance(expression, ast.Call):
@@ -1775,7 +1802,9 @@ def _append_expression_ast_node(builder: _ExpressionGraphBuilder, expression: as
                 target_handle = f"kwarg:{index}:**"
             else:
                 target_handle = f"kwarg:{index}:{keyword.arg}"
-            builder.connect(_append_expression_ast_node(builder, keyword.value), node_id, target_handle)
+            builder.connect(
+                _append_expression_ast_node(builder, keyword.value), node_id, target_handle
+            )
         return node_id
 
     if isinstance(expression, ast.Attribute):
@@ -1798,7 +1827,9 @@ def _append_expression_ast_node(builder: _ExpressionGraphBuilder, expression: as
 
     if isinstance(expression, (ast.List, ast.Tuple, ast.Set)):
         collection_type = expression.__class__.__name__.lower()
-        node_id = builder.create_node("collection", collection_type, {"collection_type": collection_type})
+        node_id = builder.create_node(
+            "collection", collection_type, {"collection_type": collection_type}
+        )
         for index, item in enumerate(expression.elts):
             builder.connect(_append_expression_ast_node(builder, item), node_id, f"item:{index}")
         return node_id
@@ -1808,10 +1839,16 @@ def _append_expression_ast_node(builder: _ExpressionGraphBuilder, expression: as
         for index, key in enumerate(expression.keys):
             if key is not None:
                 builder.connect(_append_expression_ast_node(builder, key), node_id, f"key:{index}")
-            builder.connect(_append_expression_ast_node(builder, expression.values[index]), node_id, f"value:{index}")
+            builder.connect(
+                _append_expression_ast_node(builder, expression.values[index]),
+                node_id,
+                f"value:{index}",
+            )
         return node_id
 
-    return builder.create_node("raw", _compact_source(expression), {"expression": _compact_source(expression)})
+    return builder.create_node(
+        "raw", _compact_source(expression), {"expression": _compact_source(expression)}
+    )
 
 
 def _compact_source(expression: ast.AST) -> str:
@@ -1821,7 +1858,9 @@ def _compact_source(expression: ast.AST) -> str:
         return expression.__class__.__name__
 
 
-def _expression_graph_payload(graph: dict[str, Any]) -> tuple[str | None, dict[str, dict[str, Any]], dict[str, list[dict[str, str]]]]:
+def _expression_graph_payload(
+    graph: dict[str, Any],
+) -> tuple[str | None, dict[str, dict[str, Any]], dict[str, list[dict[str, str]]]]:
     root_id = graph.get("rootId") or graph.get("root_id")
     raw_nodes = graph.get("nodes") or []
     raw_edges = graph.get("edges") or []
@@ -1858,8 +1897,14 @@ def _expression_graph_payload(graph: dict[str, Any]) -> tuple[str | None, dict[s
         source_id = raw_edge.get("source_id") or raw_edge.get("sourceId")
         target_id = raw_edge.get("target_id") or raw_edge.get("targetId")
         target_handle = raw_edge.get("target_handle") or raw_edge.get("targetHandle")
-        if not isinstance(source_id, str) or not isinstance(target_id, str) or not isinstance(target_handle, str):
-            raise ValueError("Expression graph edges require source_id, target_id, and target_handle.")
+        if (
+            not isinstance(source_id, str)
+            or not isinstance(target_id, str)
+            or not isinstance(target_handle, str)
+        ):
+            raise ValueError(
+                "Expression graph edges require source_id, target_id, and target_handle."
+            )
         if source_id not in nodes or target_id not in nodes:
             raise ValueError("Expression graph edges must point at known nodes.")
         incoming_by_target.setdefault(target_id, []).append(
@@ -1939,7 +1984,9 @@ def _ast_from_expression_graph(graph: dict[str, Any]) -> ast.expr:
                 operator_symbol = payload.get("operator") or node.get("label")
                 operator_type = _BINOP_AST_BY_SYMBOL.get(str(operator_symbol))
                 if operator_type is None:
-                    raise ValueError(f"Operator expression node '{node_id}' has an unsupported operator.")
+                    raise ValueError(
+                        f"Operator expression node '{node_id}' has an unsupported operator."
+                    )
                 return ast.BinOp(
                     left=single_child(node_id, "left"),
                     op=operator_type(),
@@ -1950,7 +1997,9 @@ def _ast_from_expression_graph(graph: dict[str, Any]) -> ast.expr:
                 operator_symbol = payload.get("operator") or node.get("label")
                 operator_type = _UNARY_AST_BY_SYMBOL.get(str(operator_symbol))
                 if operator_type is None:
-                    raise ValueError(f"Unary expression node '{node_id}' has an unsupported operator.")
+                    raise ValueError(
+                        f"Unary expression node '{node_id}' has an unsupported operator."
+                    )
                 return ast.UnaryOp(op=operator_type(), operand=single_child(node_id, "operand"))
 
             if kind == "bool":
@@ -1958,7 +2007,9 @@ def _ast_from_expression_graph(graph: dict[str, Any]) -> ast.expr:
                 operator_type = _BOOL_AST_BY_SYMBOL.get(str(operator_symbol))
                 values = indexed_children(node_id, "value:")
                 if operator_type is None or len(values) < 2:
-                    raise ValueError(f"Boolean expression node '{node_id}' needs an operator and at least two values.")
+                    raise ValueError(
+                        f"Boolean expression node '{node_id}' needs an operator and at least two values."
+                    )
                 return ast.BoolOp(op=operator_type(), values=values)
 
             if kind == "compare":
@@ -1966,14 +2017,20 @@ def _ast_from_expression_graph(graph: dict[str, Any]) -> ast.expr:
                 operator_symbols = operators if isinstance(operators, list) else []
                 comparators = indexed_children(node_id, "comparator:")
                 if len(operator_symbols) != len(comparators):
-                    raise ValueError(f"Compare expression node '{node_id}' has mismatched operators and comparators.")
+                    raise ValueError(
+                        f"Compare expression node '{node_id}' has mismatched operators and comparators."
+                    )
                 cmp_ops: list[ast.cmpop] = []
                 for symbol in operator_symbols:
                     operator_type = _COMPARE_AST_BY_SYMBOL.get(str(symbol))
                     if operator_type is None:
-                        raise ValueError(f"Compare expression node '{node_id}' has an unsupported operator.")
+                        raise ValueError(
+                            f"Compare expression node '{node_id}' has an unsupported operator."
+                        )
                     cmp_ops.append(operator_type())
-                return ast.Compare(left=single_child(node_id, "left"), ops=cmp_ops, comparators=comparators)
+                return ast.Compare(
+                    left=single_child(node_id, "left"), ops=cmp_ops, comparators=comparators
+                )
 
             if kind == "call":
                 children = children_for(node_id)
@@ -1997,8 +2054,12 @@ def _ast_from_expression_graph(graph: dict[str, Any]) -> ast.expr:
             if kind == "attribute":
                 attr = payload.get("attr")
                 if not isinstance(attr, str) or not attr.strip():
-                    raise ValueError(f"Attribute expression node '{node_id}' needs an attribute name.")
-                return ast.Attribute(value=single_child(node_id, "value"), attr=attr.strip(), ctx=ast.Load())
+                    raise ValueError(
+                        f"Attribute expression node '{node_id}' needs an attribute name."
+                    )
+                return ast.Attribute(
+                    value=single_child(node_id, "value"), attr=attr.strip(), ctx=ast.Load()
+                )
 
             if kind == "subscript":
                 return ast.Subscript(
@@ -2015,7 +2076,11 @@ def _ast_from_expression_graph(graph: dict[str, Any]) -> ast.expr:
                 )
 
             if kind == "collection":
-                collection_type = payload.get("collection_type") or payload.get("collectionType") or node.get("label")
+                collection_type = (
+                    payload.get("collection_type")
+                    or payload.get("collectionType")
+                    or node.get("label")
+                )
                 if collection_type == "list":
                     return ast.List(elts=indexed_children(node_id, "item:"), ctx=ast.Load())
                 if collection_type == "tuple":
@@ -2024,11 +2089,14 @@ def _ast_from_expression_graph(graph: dict[str, Any]) -> ast.expr:
                     return ast.Set(elts=indexed_children(node_id, "item:"))
                 if collection_type == "dict":
                     children = children_for(node_id)
-                    indexes = sorted({
-                        int(handle.split(":", 1)[1])
-                        for handle in children
-                        if (handle.startswith("key:") or handle.startswith("value:")) and handle.split(":", 1)[1].isdigit()
-                    })
+                    indexes = sorted(
+                        {
+                            int(handle.split(":", 1)[1])
+                            for handle in children
+                            if (handle.startswith("key:") or handle.startswith("value:"))
+                            and handle.split(":", 1)[1].isdigit()
+                        }
+                    )
                     keys: list[ast.expr | None] = []
                     values: list[ast.expr] = []
                     for index in indexes:
@@ -2036,7 +2104,9 @@ def _ast_from_expression_graph(graph: dict[str, Any]) -> ast.expr:
                         value_candidates = children.get(f"value:{index}", [])
                         keys.append(visit(key_candidates[0]) if key_candidates else None)
                         if not value_candidates:
-                            raise ValueError(f"Dict expression node '{node_id}' is missing value {index}.")
+                            raise ValueError(
+                                f"Dict expression node '{node_id}' is missing value {index}."
+                            )
                         values.append(visit(value_candidates[0]))
                     return ast.Dict(keys=keys, values=values)
                 raise ValueError(f"Collection expression node '{node_id}' has unsupported type.")
@@ -2083,8 +2153,7 @@ def import_flow_document_from_function_source(
         input_slots=[],
         input_bindings=[],
         definitions={
-            function_input.name: function_input.input_id
-            for function_input in function_inputs
+            function_input.name: function_input.input_id for function_input in function_inputs
         },
     )
     entry_id = builder.nodes[0].node_id
@@ -2178,7 +2247,9 @@ def _import_statement(
             node_id = builder.create_node("call", {"source": ast.unparse(statement)})
             builder.bind_input_slots(node_id, statement)
             return _ImportedBlock(root_id=node_id, continuations=((node_id, "next"),))
-        raise FlowImportError("Expression statements without a call are not supported in visual flow mode.")
+        raise FlowImportError(
+            "Expression statements without a call are not supported in visual flow mode."
+        )
 
     if isinstance(statement, ast.If):
         node_id = builder.create_node("branch", {"condition": ast.unparse(statement.test)})
@@ -2189,8 +2260,12 @@ def _import_statement(
             builder.connect(node_id, "true", true_block.root_id)
         if false_block.root_id:
             builder.connect(node_id, "false", false_block.root_id)
-        true_continuations = true_block.continuations if true_block.root_id else ((node_id, "true"),)
-        false_continuations = false_block.continuations if false_block.root_id else ((node_id, "false"),)
+        true_continuations = (
+            true_block.continuations if true_block.root_id else ((node_id, "true"),)
+        )
+        false_continuations = (
+            false_block.continuations if false_block.root_id else ((node_id, "false"),)
+        )
         return _ImportedBlock(
             root_id=node_id,
             continuations=(*true_continuations, *false_continuations),
@@ -2278,9 +2353,7 @@ def compile_flow_document(document: FlowModelDocument) -> FlowCompileResult:
 
     reachable = reachable_flow_node_ids(document)
     visible_node_ids = {
-        node.node_id
-        for node in document.nodes
-        if node.kind not in {"entry", "exit"}
+        node.node_id for node in document.nodes if node.kind not in {"entry", "exit"}
     }
     unreachable = sorted(visible_node_ids - reachable)
     if unreachable:
@@ -2351,7 +2424,9 @@ def _normalize_flow_document_value_bindings(
     """Assign Python spellings for canonical value bindings before source emit."""
 
     slot_by_id = {slot.slot_id: slot for slot in document.input_slots}
-    function_input_by_id = {function_input.input_id: function_input for function_input in document.function_inputs}
+    function_input_by_id = {
+        function_input.input_id: function_input for function_input in document.function_inputs
+    }
     value_source_by_id = {source.source_id: source for source in document.value_sources}
     positions = _flow_document_node_positions(document)
     diagnostics: list[str] = []
@@ -2377,7 +2452,9 @@ def _normalize_flow_document_value_bindings(
                 positions=positions,
             )
             if reason is not None:
-                diagnostics.append(_value_source_availability_diagnostic(reason, value_source, slot))
+                diagnostics.append(
+                    _value_source_availability_diagnostic(reason, value_source, slot)
+                )
                 continue
             source_name = value_source.name
         else:
@@ -2396,7 +2473,10 @@ def _normalize_flow_document_value_bindings(
             for source in document.value_sources:
                 if source.name != function_input.name:
                     continue
-                if _value_source_unavailable_reason(document, source, slot, positions=positions) is None:
+                if (
+                    _value_source_unavailable_reason(document, source, slot, positions=positions)
+                    is None
+                ):
                     sources_to_alias.add(source.source_id)
             continue
 
@@ -2579,8 +2659,10 @@ def _value_source_unavailable_reason(
     return None
 
 
-def _flow_context_is_prefix(source_context: tuple[str, ...], target_context: tuple[str, ...]) -> bool:
-    return target_context[:len(source_context)] == source_context
+def _flow_context_is_prefix(
+    source_context: tuple[str, ...], target_context: tuple[str, ...]
+) -> bool:
+    return target_context[: len(source_context)] == source_context
 
 
 def _value_source_availability_diagnostic(
@@ -2608,15 +2690,14 @@ def _flow_value_source_aliases(
     for source in document.value_sources:
         sources_by_name.setdefault(source.name, []).append(source)
     for sources in sources_by_name.values():
-        sources.sort(key=lambda source: (
-            positions.get(source.node_id, _FlowNodePosition(10**9, ())).order,
-            source.source_id,
-        ))
+        sources.sort(
+            key=lambda source: (
+                positions.get(source.node_id, _FlowNodePosition(10**9, ())).order,
+                source.source_id,
+            )
+        )
 
-    used_names = {
-        function_input.name
-        for function_input in document.function_inputs
-    }
+    used_names = {function_input.name for function_input in document.function_inputs}
     used_names.update(
         source.name
         for source in document.value_sources
@@ -2794,7 +2875,7 @@ def _is_docstring_expression(statement: ast.Expr) -> bool:
     value = statement.value
     if isinstance(value, ast.Constant):
         return isinstance(value.value, str)
-    return isinstance(value, ast.Str)
+    return False
 
 
 def _names_used(node: ast.AST) -> set[str]:
@@ -3051,7 +3132,9 @@ def _validate_expression_graph_payload(node: FlowModelNode) -> list[str]:
         try:
             expression_from_expression_graph(graph)
         except ValueError as exc:
-            diagnostics.append(f"Return node '{node.node_id}' has an invalid expression graph: {exc}")
+            diagnostics.append(
+                f"Return node '{node.node_id}' has an invalid expression graph: {exc}"
+            )
 
     reachable: set[str] = set()
 
@@ -3095,8 +3178,12 @@ def _validate_node_payload(
         except SyntaxError as exc:
             diagnostics.append(f"Assign node '{node.node_id}' has invalid Python: {exc.msg}.")
             return diagnostics
-        if len(parsed) != 1 or not isinstance(parsed[0], (ast.Assign, ast.AnnAssign, ast.AugAssign)):
-            diagnostics.append(f"Assign node '{node.node_id}' must contain one assignment statement.")
+        if len(parsed) != 1 or not isinstance(
+            parsed[0], (ast.Assign, ast.AnnAssign, ast.AugAssign)
+        ):
+            diagnostics.append(
+                f"Assign node '{node.node_id}' must contain one assignment statement."
+            )
     elif node.kind == "call":
         source = str(payload.get("source") or "").strip()
         if not source:
@@ -3107,10 +3194,14 @@ def _validate_node_payload(
         except SyntaxError as exc:
             diagnostics.append(f"Call node '{node.node_id}' has invalid Python: {exc.msg}.")
             return diagnostics
-        if len(parsed) != 1 or not isinstance(parsed[0], ast.Expr) or not any(
-            isinstance(inner, ast.Call) for inner in ast.walk(parsed[0])
+        if (
+            len(parsed) != 1
+            or not isinstance(parsed[0], ast.Expr)
+            or not any(isinstance(inner, ast.Call) for inner in ast.walk(parsed[0]))
         ):
-            diagnostics.append(f"Call node '{node.node_id}' must contain one call expression statement.")
+            diagnostics.append(
+                f"Call node '{node.node_id}' must contain one call expression statement."
+            )
     elif node.kind == "branch":
         condition = str(payload.get("condition") or "").strip()
         if not condition:
@@ -3119,13 +3210,13 @@ def _validate_node_payload(
             try:
                 ast.parse(condition, mode="eval")
             except SyntaxError as exc:
-                diagnostics.append(f"Branch node '{node.node_id}' has an invalid condition: {exc.msg}.")
+                diagnostics.append(
+                    f"Branch node '{node.node_id}' has an invalid condition: {exc.msg}."
+                )
     elif node.kind == "loop":
         raw_loop_type = str(payload.get("loop_type") or payload.get("loopType") or "").strip()
         if raw_loop_type and raw_loop_type not in _LOOP_TYPES:
-            diagnostics.append(
-                f"Loop node '{node.node_id}' must use loop_type 'while' or 'for'."
-            )
+            diagnostics.append(f"Loop node '{node.node_id}' must use loop_type 'while' or 'for'.")
         normalized_loop = _normalized_loop_payload(payload)
         loop_type = str(normalized_loop.get("loop_type") or "while")
         if loop_type == "for":
@@ -3142,7 +3233,9 @@ def _validate_node_payload(
             try:
                 parsed = ast.parse(f"{header}:\n    pass\n").body
             except SyntaxError as exc:
-                diagnostics.append(f"Loop node '{node.node_id}' has invalid loop fields: {exc.msg}.")
+                diagnostics.append(
+                    f"Loop node '{node.node_id}' has invalid loop fields: {exc.msg}."
+                )
             else:
                 if len(parsed) != 1 or not isinstance(parsed[0], (ast.For, ast.While)):
                     diagnostics.append(
@@ -3156,7 +3249,9 @@ def _validate_node_payload(
             try:
                 ast.parse(expression, mode="eval")
             except SyntaxError as exc:
-                diagnostics.append(f"Return node '{node.node_id}' has an invalid expression: {exc.msg}.")
+                diagnostics.append(
+                    f"Return node '{node.node_id}' has an invalid expression: {exc.msg}."
+                )
         diagnostics.extend(_validate_expression_graph_payload(node))
     return diagnostics
 
@@ -3308,7 +3403,9 @@ def with_flow_document_indexed_node_ids(
     document_entry = next((node for node in document.nodes if node.kind == "entry"), None)
     indexed_node_id_by_node_id: dict[str, str] = {}
     if source_entry is not None and document_entry is not None:
-        indexed_node_id_by_node_id[document_entry.node_id] = flow_model_node_source_identity(source_entry)
+        indexed_node_id_by_node_id[document_entry.node_id] = flow_model_node_source_identity(
+            source_entry
+        )
 
     source_document_order = flow_document_compile_order_node_ids(source_document)
     source_node_by_id = {node.node_id: node for node in source_document.nodes}
@@ -3398,7 +3495,8 @@ def with_flow_document_normalized_input_ids(document: FlowModelDocument) -> Flow
                 ),
             },
         )
-        if node.kind == "return" and isinstance(node.payload.get(_RETURN_EXPRESSION_GRAPH_KEY), dict)
+        if node.kind == "return"
+        and isinstance(node.payload.get(_RETURN_EXPRESSION_GRAPH_KEY), dict)
         else node
         for node in document.nodes
     )

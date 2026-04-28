@@ -16,14 +16,16 @@ export interface InspectorCodeSurfaceProps {
   highlightRange?: SourceRange;
 }
 
-type MonacoSurfaceComponent = typeof import("./InspectorCodeSurfaceMonaco").InspectorCodeSurfaceMonaco;
+type MonacoSurfaceComponent =
+  typeof import("./InspectorCodeSurfaceMonaco").InspectorCodeSurfaceMonaco;
 
 let monacoSurfacePromise: Promise<MonacoSurfaceComponent> | undefined;
 
 function loadMonacoSurface() {
   if (!monacoSurfacePromise) {
-    monacoSurfacePromise = import("./InspectorCodeSurfaceMonaco")
-      .then((module) => module.InspectorCodeSurfaceMonaco);
+    monacoSurfacePromise = import("./InspectorCodeSurfaceMonaco").then(
+      (module) => module.InspectorCodeSurfaceMonaco,
+    );
   }
   return monacoSurfacePromise;
 }

@@ -13,10 +13,42 @@ function bottomEdge(node: FlowLayoutNode, y: number) {
 describe("layoutFlowGraph", () => {
   it("lays out straight-line flow deterministically from left to right", () => {
     const nodes: FlowLayoutNode[] = [
-      { id: "entry", kind: "entry", x: 0, y: 0, width: 190, height: 94, metadata: { flow_order: 0 } },
-      { id: "assign", kind: "assign", x: 20, y: 0, width: 280, height: 98, metadata: { flow_order: 1 } },
-      { id: "call", kind: "call", x: 40, y: 0, width: 300, height: 102, metadata: { flow_order: 2 } },
-      { id: "return", kind: "return", x: 60, y: 0, width: 240, height: 96, metadata: { flow_order: 3 } },
+      {
+        id: "entry",
+        kind: "entry",
+        x: 0,
+        y: 0,
+        width: 190,
+        height: 94,
+        metadata: { flow_order: 0 },
+      },
+      {
+        id: "assign",
+        kind: "assign",
+        x: 20,
+        y: 0,
+        width: 280,
+        height: 98,
+        metadata: { flow_order: 1 },
+      },
+      {
+        id: "call",
+        kind: "call",
+        x: 40,
+        y: 0,
+        width: 300,
+        height: 102,
+        metadata: { flow_order: 2 },
+      },
+      {
+        id: "return",
+        kind: "return",
+        x: 60,
+        y: 0,
+        width: 240,
+        height: 96,
+        metadata: { flow_order: 3 },
+      },
     ];
     const edges: GraphEdgeDto[] = [
       { id: "controls:entry-assign", kind: "controls", source: "entry", target: "assign" },
@@ -30,19 +62,65 @@ describe("layoutFlowGraph", () => {
     expect(first.positions.entry.x).toBeLessThan(first.positions.assign.x);
     expect(first.positions.assign.x).toBeLessThan(first.positions.call.x);
     expect(first.positions.call.x).toBeLessThan(first.positions.return.x);
-    expect(first.positions.assign.x - rightEdge(nodes[0]!, first.positions.entry.x)).toBeGreaterThanOrEqual(160);
-    expect(first.positions.call.x - rightEdge(nodes[1]!, first.positions.assign.x)).toBeGreaterThanOrEqual(160);
-    expect(first.positions.return.x - rightEdge(nodes[2]!, first.positions.call.x)).toBeGreaterThanOrEqual(160);
+    expect(
+      first.positions.assign.x - rightEdge(nodes[0]!, first.positions.entry.x),
+    ).toBeGreaterThanOrEqual(160);
+    expect(
+      first.positions.call.x - rightEdge(nodes[1]!, first.positions.assign.x),
+    ).toBeGreaterThanOrEqual(160);
+    expect(
+      first.positions.return.x - rightEdge(nodes[2]!, first.positions.call.x),
+    ).toBeGreaterThanOrEqual(160);
     expect(first.positions).toEqual(second.positions);
   });
 
   it("places true branches above false branches and merges back toward the spine", () => {
     const nodes: FlowLayoutNode[] = [
-      { id: "entry", kind: "entry", x: 0, y: 0, width: 190, height: 94, metadata: { flow_order: 0 } },
-      { id: "branch", kind: "branch", x: 0, y: 0, width: 280, height: 110, metadata: { flow_order: 1 } },
-      { id: "true-node", kind: "assign", x: 0, y: 0, width: 240, height: 98, metadata: { flow_order: 2 } },
-      { id: "false-node", kind: "assign", x: 0, y: 0, width: 240, height: 98, metadata: { flow_order: 3 } },
-      { id: "merge", kind: "return", x: 0, y: 0, width: 240, height: 96, metadata: { flow_order: 4 } },
+      {
+        id: "entry",
+        kind: "entry",
+        x: 0,
+        y: 0,
+        width: 190,
+        height: 94,
+        metadata: { flow_order: 0 },
+      },
+      {
+        id: "branch",
+        kind: "branch",
+        x: 0,
+        y: 0,
+        width: 280,
+        height: 110,
+        metadata: { flow_order: 1 },
+      },
+      {
+        id: "true-node",
+        kind: "assign",
+        x: 0,
+        y: 0,
+        width: 240,
+        height: 98,
+        metadata: { flow_order: 2 },
+      },
+      {
+        id: "false-node",
+        kind: "assign",
+        x: 0,
+        y: 0,
+        width: 240,
+        height: 98,
+        metadata: { flow_order: 3 },
+      },
+      {
+        id: "merge",
+        kind: "return",
+        x: 0,
+        y: 0,
+        width: 240,
+        height: 96,
+        metadata: { flow_order: 4 },
+      },
     ];
     const edges: GraphEdgeDto[] = [
       { id: "controls:entry-branch", kind: "controls", source: "entry", target: "branch" },
@@ -73,9 +151,9 @@ describe("layoutFlowGraph", () => {
     expect(Math.abs(result.positions.merge.y - result.positions.branch.y)).toBeLessThan(
       Math.abs(result.positions["true-node"].y - result.positions.branch.y),
     );
-    expect(
-      bottomEdge(nodes[2]!, result.positions["true-node"].y) + 60,
-    ).toBeLessThanOrEqual(result.positions["false-node"].y);
+    expect(bottomEdge(nodes[2]!, result.positions["true-node"].y) + 60).toBeLessThanOrEqual(
+      result.positions["false-node"].y,
+    );
   });
 
   it("places loop bodies above exits and returns to the main spine after the loop", () => {
@@ -114,9 +192,33 @@ describe("layoutFlowGraph", () => {
 
   it("keeps inputs above the control spine and supporting outputs below it", () => {
     const nodes: FlowLayoutNode[] = [
-      { id: "entry", kind: "entry", x: 0, y: 0, width: 190, height: 94, metadata: { flow_order: 0 } },
-      { id: "call", kind: "call", x: 0, y: 0, width: 280, height: 102, metadata: { flow_order: 1 } },
-      { id: "return", kind: "return", x: 0, y: 0, width: 240, height: 96, metadata: { flow_order: 2 } },
+      {
+        id: "entry",
+        kind: "entry",
+        x: 0,
+        y: 0,
+        width: 190,
+        height: 94,
+        metadata: { flow_order: 0 },
+      },
+      {
+        id: "call",
+        kind: "call",
+        x: 0,
+        y: 0,
+        width: 280,
+        height: 102,
+        metadata: { flow_order: 1 },
+      },
+      {
+        id: "return",
+        kind: "return",
+        x: 0,
+        y: 0,
+        width: 240,
+        height: 96,
+        metadata: { flow_order: 2 },
+      },
       { id: "flag", kind: "param", x: 0, y: 0, width: 220, height: 92 },
       { id: "helper", kind: "function", x: 0, y: 0, width: 300, height: 120 },
     ];
@@ -131,18 +233,34 @@ describe("layoutFlowGraph", () => {
 
     expect(result.positions.flag.y).toBeLessThan(result.positions.call.y);
     expect(result.positions.helper.y).toBeGreaterThan(result.positions.call.y);
-    expect(
-      bottomEdge(nodes[3]!, result.positions.flag.y) + 120,
-    ).toBeLessThanOrEqual(result.positions.call.y);
-    expect(
-      bottomEdge(nodes[1]!, result.positions.call.y) + 120,
-    ).toBeLessThanOrEqual(result.positions.helper.y);
+    expect(bottomEdge(nodes[3]!, result.positions.flag.y) + 120).toBeLessThanOrEqual(
+      result.positions.call.y,
+    );
+    expect(bottomEdge(nodes[1]!, result.positions.call.y) + 120).toBeLessThanOrEqual(
+      result.positions.helper.y,
+    );
   });
 
   it("lays signature-owned parameter nodes out as a rail tied to the entry", () => {
     const nodes: FlowLayoutNode[] = [
-      { id: "entry", kind: "entry", x: 0, y: 0, width: 190, height: 94, metadata: { flow_order: 0 } },
-      { id: "return", kind: "return", x: 0, y: 0, width: 240, height: 96, metadata: { flow_order: 1 } },
+      {
+        id: "entry",
+        kind: "entry",
+        x: 0,
+        y: 0,
+        width: 190,
+        height: 94,
+        metadata: { flow_order: 0 },
+      },
+      {
+        id: "return",
+        kind: "return",
+        x: 0,
+        y: 0,
+        width: 240,
+        height: 96,
+        metadata: { flow_order: 1 },
+      },
       {
         id: "param:a",
         kind: "param",
@@ -171,8 +289,11 @@ describe("layoutFlowGraph", () => {
     const result = layoutFlowGraph(nodes, edges);
     const entryCenter = result.positions.entry.x + nodes[0]!.width! / 2;
     const railCenter =
-      (result.positions["param:a"].x + nodes[2]!.width! / 2
-      + result.positions["param:b"].x + nodes[3]!.width! / 2) / 2;
+      (result.positions["param:a"].x +
+        nodes[2]!.width! / 2 +
+        result.positions["param:b"].x +
+        nodes[3]!.width! / 2) /
+      2;
 
     expect(result.positions["param:a"].y).toBeLessThan(result.positions.entry.y);
     expect(result.positions["param:b"].y).toBe(result.positions["param:a"].y);

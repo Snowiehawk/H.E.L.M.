@@ -310,7 +310,9 @@ def _offset_for_position(line_starts: list[int], line: int, column: int) -> int:
     return line_starts[line_index] + max(column, 0)
 
 
-def _span_for_node(file_path: str, source: str, line_starts: list[int], node: ast.AST) -> SourceSpan:
+def _span_for_node(
+    file_path: str, source: str, line_starts: list[int], node: ast.AST
+) -> SourceSpan:
     start_line = getattr(node, "lineno", 1)
     start_column = getattr(node, "col_offset", 0)
     end_line = getattr(node, "end_lineno", start_line)

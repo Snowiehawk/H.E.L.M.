@@ -55,10 +55,7 @@ describe("LiveDesktopAdapter", () => {
       defaultPath: "untitled-helm-project",
       canCreateDirectories: true,
     });
-    expect(invokeMock).not.toHaveBeenCalledWith(
-      "create_new_project",
-      expect.anything(),
-    );
+    expect(invokeMock).not.toHaveBeenCalledWith("create_new_project", expect.anything());
   });
 
   it("creates a new project through the desktop command and returns a repo session", async () => {
@@ -192,7 +189,9 @@ describe("LiveDesktopAdapter", () => {
     });
     expect(graph.level).toBe("flow");
     expect(graph.nodes).toHaveLength(4);
-    expect(graph.nodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y))).toBe(true);
+    expect(graph.nodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y))).toBe(
+      true,
+    );
     expect(
       graph.nodes.find((node) => node.id === "flow:symbol:calculator:run:entry")?.x,
     ).toBeLessThan(
@@ -388,7 +387,9 @@ describe("LiveDesktopAdapter", () => {
     });
 
     expect(graph.nodes.some((node) => node.kind === "param")).toBe(true);
-    expect(graph.flowState?.document?.nodes.some((node) => String(node.kind) === "param")).toBe(false);
+    expect(graph.flowState?.document?.nodes.some((node) => String(node.kind) === "param")).toBe(
+      false,
+    );
   });
 
   it("maps workspace filesystem list, read, create, save, move, and delete commands", async () => {
@@ -779,7 +780,7 @@ describe("LiveDesktopAdapter", () => {
       },
     };
 
-    invokeMock.mockImplementation(async (command, args) => {
+    invokeMock.mockImplementation(async (command, _args) => {
       if (command === "scan_repo_payload") {
         return new Promise((resolve) => {
           resolveScan = resolve;
@@ -853,7 +854,9 @@ describe("LiveDesktopAdapter", () => {
         progressPercent: 42,
       }),
     );
-    expect((states[states.length - 1] ?? null) as unknown as Record<string, unknown> | null).toMatchObject({
+    expect(
+      (states[states.length - 1] ?? null) as unknown as Record<string, unknown> | null,
+    ).toMatchObject({
       jobId,
       status: "done",
       stage: "watch_ready",

@@ -69,10 +69,18 @@ export function SymbolPanel({
           <code className="signature-block">{symbol.signature}</code>
         </div>
         <div className="hero-card__actions">
-          <button className="primary-button" type="button" onClick={() => onOpenGraph(symbol.nodeId)}>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => onOpenGraph(symbol.nodeId)}
+          >
             Explore Graph
           </button>
-          <button className="ghost-button" type="button" onClick={() => onOpenFile(symbol.filePath)}>
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => onOpenFile(symbol.filePath)}
+          >
             Open File
           </button>
         </div>

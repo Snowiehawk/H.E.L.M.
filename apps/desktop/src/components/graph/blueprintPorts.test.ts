@@ -170,14 +170,8 @@ describe("buildBlueprintPresentation", () => {
     const callPort = focusPorts?.inputs.find((port) => port.id === "in:graph:calls");
 
     expect(focusPorts?.inputs).toHaveLength(1);
-    expect(callPort?.memberLabels).toEqual([
-      "left-a · 2 calls",
-      "left-b · 1 call",
-    ]);
-    expect(callPort?.memberEdgeIds).toEqual([
-      "calls:left-a-focus",
-      "calls:left-b-focus",
-    ]);
+    expect(callPort?.memberLabels).toEqual(["left-a · 2 calls", "left-b · 1 call"]);
+    expect(callPort?.memberEdgeIds).toEqual(["calls:left-a-focus", "calls:left-b-focus"]);
     expect(presentation.edgeHandles.get("calls:left-a-focus")).toEqual({
       sourceHandle: "out:graph:calls",
       targetHandle: "in:graph:calls",
@@ -350,8 +344,12 @@ describe("buildBlueprintPresentation", () => {
     const entryPorts = presentation.nodePorts.get("flow:entry");
     const assignPorts = presentation.nodePorts.get("flow:assign");
 
-    expect(entryPorts?.outputs.filter((port) => port.kind === "control").map((port) => port.label)).toEqual(["start"]);
-    expect(assignPorts?.outputs.filter((port) => port.kind === "control").map((port) => port.label)).toEqual(["next"]);
+    expect(
+      entryPorts?.outputs.filter((port) => port.kind === "control").map((port) => port.label),
+    ).toEqual(["start"]);
+    expect(
+      assignPorts?.outputs.filter((port) => port.kind === "control").map((port) => port.label),
+    ).toEqual(["next"]);
     expect(presentation.edgeHandles.get("controls:entry-assign")).toEqual({
       sourceHandle: "out:control:start",
       targetHandle: "in:control:exec",
@@ -406,7 +404,12 @@ describe("buildBlueprintPresentation", () => {
           source: "flow:loop",
           target: "flow:repeat",
           label: "body",
-          metadata: { source_handle: "body", target_handle: "in", path_key: "body", path_label: "body" },
+          metadata: {
+            source_handle: "body",
+            target_handle: "in",
+            path_key: "body",
+            path_label: "body",
+          },
         },
         {
           id: "controls:loop-done",
@@ -414,7 +417,12 @@ describe("buildBlueprintPresentation", () => {
           source: "flow:loop",
           target: "flow:done",
           label: "after",
-          metadata: { source_handle: "after", target_handle: "in", path_key: "after", path_label: "after" },
+          metadata: {
+            source_handle: "after",
+            target_handle: "in",
+            path_key: "after",
+            path_label: "after",
+          },
         },
       ],
     };
@@ -422,10 +430,9 @@ describe("buildBlueprintPresentation", () => {
     const presentation = buildBlueprintPresentation(graph);
     const loopPorts = presentation.nodePorts.get("flow:loop");
 
-    expect(loopPorts?.outputs.filter((port) => port.kind === "control").map((port) => port.label)).toEqual([
-      "Repeat",
-      "Done",
-    ]);
+    expect(
+      loopPorts?.outputs.filter((port) => port.kind === "control").map((port) => port.label),
+    ).toEqual(["Repeat", "Done"]);
     expect(presentation.edgeHandles.get("controls:loop-repeat")).toEqual({
       sourceHandle: "out:control:body",
       targetHandle: "in:control:exec",
@@ -480,7 +487,12 @@ describe("buildBlueprintPresentation", () => {
           source: "flow:branch",
           target: "flow:return",
           label: "true",
-          metadata: { source_handle: "true", target_handle: "in", path_key: "true", path_label: "true" },
+          metadata: {
+            source_handle: "true",
+            target_handle: "in",
+            path_key: "true",
+            path_label: "true",
+          },
         },
         {
           id: "controls:branch-after",
@@ -488,7 +500,12 @@ describe("buildBlueprintPresentation", () => {
           source: "flow:branch",
           target: "flow:next",
           label: "after",
-          metadata: { source_handle: "after", target_handle: "in", path_key: "after", path_label: "after" },
+          metadata: {
+            source_handle: "after",
+            target_handle: "in",
+            path_key: "after",
+            path_label: "after",
+          },
         },
       ],
     };
@@ -583,7 +600,8 @@ describe("buildBlueprintPresentation", () => {
                 slot_id: "flowslot:flow:symbol:service:run:statement:0:value",
                 slot_key: "value",
                 label: "value",
-                target_handle: "in:data:input-slot:flowslot:flow:symbol:service:run:statement:0:value",
+                target_handle:
+                  "in:data:input-slot:flowslot:flow:symbol:service:run:statement:0:value",
               },
             ],
             flow_return_input_handle: "in:data:return-input:flowdoc:symbol:service:run:return:0",
@@ -720,7 +738,8 @@ describe("buildBlueprintPresentation", () => {
                 source_id: "flowsource:flow:symbol:service:run:statement:0:current",
                 name: "current",
                 label: "current",
-                source_handle: "out:data:value-source:flowsource:flow:symbol:service:run:statement:0:current",
+                source_handle:
+                  "out:data:value-source:flowsource:flow:symbol:service:run:statement:0:current",
               },
             ],
           },

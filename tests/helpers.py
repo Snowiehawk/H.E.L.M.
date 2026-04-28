@@ -9,4 +9,4 @@ def write_repo_files(root: Path, files: dict[str, str]) -> None:
     for relative_path, contents in files.items():
         path = root / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(contents, encoding="utf-8")
+        path.write_bytes(contents.encode("utf-8"))

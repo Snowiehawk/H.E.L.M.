@@ -59,9 +59,7 @@ def serialize_undo_transaction(payload: str | dict[str, Any]) -> BackendUndoTran
     file_snapshots: list[UndoFileSnapshot] = []
     for index, item in enumerate(file_snapshots_raw):
         if not isinstance(item, dict):
-            raise ValueError(
-                f"Undo transaction file snapshot at index {index} must be an object."
-            )
+            raise ValueError(f"Undo transaction file snapshot at index {index} must be an object.")
         relative_path = _required_string(item, "relative_path")
         existed = item.get("existed")
         if not isinstance(existed, bool):
@@ -95,7 +93,9 @@ def serialize_undo_transaction(payload: str | dict[str, Any]) -> BackendUndoTran
     focus_target: UndoFocusTarget | None = None
     if focus_target_raw is not None:
         if not isinstance(focus_target_raw, dict):
-            raise ValueError("Undo transaction field 'focus_target' must be an object when provided.")
+            raise ValueError(
+                "Undo transaction field 'focus_target' must be an object when provided."
+            )
         focus_target = UndoFocusTarget(
             target_id=_required_string(focus_target_raw, "target_id"),
             level=_required_string(focus_target_raw, "level"),

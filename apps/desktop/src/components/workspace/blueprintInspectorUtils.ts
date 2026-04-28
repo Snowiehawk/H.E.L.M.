@@ -14,8 +14,10 @@ export function metadataBoolean(node: GraphNodeDto | undefined, key: string): bo
 }
 
 export function relativePathForNode(node: GraphNodeDto | undefined): string | undefined {
-  return metadataString(node, "relative_path")
-    ?? (node?.kind === "module" && node.subtitle?.endsWith(".py") ? node.subtitle : undefined);
+  return (
+    metadataString(node, "relative_path") ??
+    (node?.kind === "module" && node.subtitle?.endsWith(".py") ? node.subtitle : undefined)
+  );
 }
 
 export function selectionSummary(node: GraphNodeDto | undefined): string | undefined {
@@ -36,5 +38,7 @@ export function selectionSummary(node: GraphNodeDto | undefined): string | undef
 }
 
 export function revealActionEnabled(node?: GraphNodeDto): boolean {
-  return Boolean(node?.availableActions.find((action) => action.actionId === "reveal_source")?.enabled);
+  return Boolean(
+    node?.availableActions.find((action) => action.actionId === "reveal_source")?.enabled,
+  );
 }

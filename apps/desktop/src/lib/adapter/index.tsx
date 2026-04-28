@@ -6,18 +6,14 @@ import { MockDesktopAdapter } from "./mockDesktopAdapter";
 const AdapterContext = createContext<DesktopAdapter | null>(null);
 
 export function createDesktopAdapter(): DesktopAdapter {
-  return "__TAURI_INTERNALS__" in window
-    ? new LiveDesktopAdapter()
-    : new MockDesktopAdapter();
+  return "__TAURI_INTERNALS__" in window ? new LiveDesktopAdapter() : new MockDesktopAdapter();
 }
 
 export function AdapterProvider({
   adapter,
   children,
 }: PropsWithChildren<{ adapter: DesktopAdapter }>) {
-  return (
-    <AdapterContext.Provider value={adapter}>{children}</AdapterContext.Provider>
-  );
+  return <AdapterContext.Provider value={adapter}>{children}</AdapterContext.Provider>;
 }
 
 export function useDesktopAdapter(): DesktopAdapter {

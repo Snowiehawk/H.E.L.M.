@@ -88,7 +88,9 @@ function ExpressionPreview({
                   node.isRoot ? "is-root" : "",
                   preview.onOpen ? "is-interactive" : "",
                   "nodrag",
-                ].filter(Boolean).join(" ")}
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 data-testid={`graph-expression-preview-node-${node.id}`}
                 title={node.label}
                 type="button"
@@ -114,7 +116,9 @@ function ExpressionPreview({
                   "graph-node__expression-node--more",
                   preview.onOpen ? "is-interactive" : "",
                   "nodrag",
-                ].filter(Boolean).join(" ")}
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 type="button"
                 onPointerDown={(event) => {
                   event.stopPropagation();
@@ -154,9 +158,7 @@ function PortList({
         const memberCount = port.memberLabels?.length ?? 0;
         const showBadge = memberCount > 1;
         const portConnectable = (port.kind === "control" || port.kind === "data") && connectable;
-        const handlePosition = direction === "input"
-          ? Position.Left
-          : Position.Right;
+        const handlePosition = direction === "input" ? Position.Left : Position.Right;
         const portTooltip = port.tooltip?.trim();
         const badge = showBadge ? (
           <span
@@ -180,7 +182,9 @@ function PortList({
               `graph-node__port--${port.kind}`,
               port.isHighlighted ? "is-highlighted" : "",
               port.isDimmed ? "is-dimmed" : "",
-            ].filter(Boolean).join(" ")}
+            ]
+              .filter(Boolean)
+              .join(" ")}
             title={portTooltip}
             onMouseEnter={port.onHoverStart}
             onMouseLeave={port.onHoverEnd}
@@ -194,7 +198,9 @@ function PortList({
                   portConnectable ? "is-flow-connectable" : "",
                   port.isHighlighted ? "is-highlighted" : "",
                   port.isDimmed ? "is-dimmed" : "",
-                ].filter(Boolean).join(" ")}
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 type="target"
                 position={handlePosition}
                 isConnectable={portConnectable}
@@ -212,7 +218,9 @@ function PortList({
                   portConnectable ? "is-flow-connectable" : "",
                   port.isHighlighted ? "is-highlighted" : "",
                   port.isDimmed ? "is-dimmed" : "",
-                ].filter(Boolean).join(" ")}
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 type="source"
                 position={handlePosition}
                 isConnectable={portConnectable}
@@ -225,9 +233,7 @@ function PortList({
   );
 }
 
-export const BlueprintNode = memo(function BlueprintNode({
-  data,
-}: NodeProps) {
+export const BlueprintNode = memo(function BlueprintNode({ data }: NodeProps) {
   const blueprintData = data as unknown as BlueprintNodeData;
   const actions = blueprintData.actions ?? [];
 

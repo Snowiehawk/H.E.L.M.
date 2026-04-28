@@ -20,13 +20,15 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-function clampPosition(
-  next: Point,
-  container: HTMLElement,
-  toolbar: HTMLElement,
-): Point {
-  const maxX = Math.max(container.clientWidth - toolbar.offsetWidth - TOOLBAR_MARGIN, TOOLBAR_MARGIN);
-  const maxY = Math.max(container.clientHeight - toolbar.offsetHeight - TOOLBAR_MARGIN, TOOLBAR_MARGIN);
+function clampPosition(next: Point, container: HTMLElement, toolbar: HTMLElement): Point {
+  const maxX = Math.max(
+    container.clientWidth - toolbar.offsetWidth - TOOLBAR_MARGIN,
+    TOOLBAR_MARGIN,
+  );
+  const maxY = Math.max(
+    container.clientHeight - toolbar.offsetHeight - TOOLBAR_MARGIN,
+    TOOLBAR_MARGIN,
+  );
   return {
     x: clamp(next.x, TOOLBAR_MARGIN, maxX),
     y: clamp(next.y, TOOLBAR_MARGIN, maxY),

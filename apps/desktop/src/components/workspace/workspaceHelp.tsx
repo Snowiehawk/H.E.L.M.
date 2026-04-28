@@ -6,11 +6,7 @@ import {
   type ComponentPropsWithoutRef,
   type PropsWithChildren,
 } from "react";
-import type {
-  GraphEdgeKind,
-  GraphNodeKind,
-  OverviewOutlineKind,
-} from "../../lib/adapter";
+import type { GraphEdgeKind, GraphNodeKind, OverviewOutlineKind } from "../../lib/adapter";
 
 export interface HelpDescriptor {
   title: string;
@@ -139,7 +135,8 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "explorer.reindex": () => ({
     title: "Reindex repo",
-    description: "Rescan the current repository so the graph, search, and explorer outline stay up to date.",
+    description:
+      "Rescan the current repository so the graph, search, and explorer outline stay up to date.",
   }),
   "explorer.repo-graph": () => ({
     title: "Repo graph",
@@ -147,17 +144,20 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "explorer.search": () => ({
     title: "Search",
-    description: "Jump to files and symbols in the current repo without digging through the tree manually.",
+    description:
+      "Jump to files and symbols in the current repo without digging through the tree manually.",
     shortcut: "Cmd/Ctrl + K",
   }),
   "explorer.directory": ({ label }) => ({
     title: `${fallbackLabel(label, "Folder")} folder`,
-    description: "Directory in the repo explorer. Click to expand or collapse that branch of the tree.",
+    description:
+      "Directory in the repo explorer. Click to expand or collapse that branch of the tree.",
     shortcut: "Arrow Right / Arrow Left",
   }),
   "explorer.file": ({ label }) => ({
     title: `${fallbackLabel(label, "File")} file`,
-    description: "Code file in the repo explorer. Click to focus its module graph, or expand it to see top-level code items.",
+    description:
+      "Code file in the repo explorer. Click to focus its module graph, or expand it to see top-level code items.",
     shortcut: "Arrow Right / Arrow Left",
   }),
   "explorer.disclosure": ({ label }) => ({
@@ -171,48 +171,59 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "explorer.outline.function": ({ label }) => ({
     title: `${fallbackLabel(label, "Function")} function`,
-    description: "Top-level function listed in file order. Selecting it focuses the function node in the graph.",
+    description:
+      "Top-level function listed in file order. Selecting it focuses the function node in the graph.",
   }),
   "explorer.outline.async_function": ({ label }) => ({
     title: `${fallbackLabel(label, "Async function")} async function`,
-    description: "Top-level async function listed in file order. Selecting it focuses the function node in the graph.",
+    description:
+      "Top-level async function listed in file order. Selecting it focuses the function node in the graph.",
   }),
   "explorer.outline.class": ({ label }) => ({
     title: `${fallbackLabel(label, "Class")} class`,
-    description: "Top-level class listed in file order. Selecting it opens that class as a graph node target.",
+    description:
+      "Top-level class listed in file order. Selecting it opens that class as a graph node target.",
   }),
   "explorer.outline.enum": ({ label }) => ({
     title: `${fallbackLabel(label, "Enum")} enum`,
-    description: "Top-level enum listed in file order. Selecting it focuses the enum node in the graph.",
+    description:
+      "Top-level enum listed in file order. Selecting it focuses the enum node in the graph.",
   }),
   "explorer.outline.variable": ({ label }) => ({
     title: `${fallbackLabel(label, "Variable")} variable`,
-    description: "Top-level module variable listed in file order. Selecting it focuses the variable node in the graph.",
+    description:
+      "Top-level module variable listed in file order. Selecting it focuses the variable node in the graph.",
   }),
   "graph.path.repo": () => ({
     title: "Graph path: repo",
-    description: "Click to open the repo graph. Cmd/Ctrl-click reveals the repo root in Finder/Explorer.",
+    description:
+      "Click to open the repo graph. Cmd/Ctrl-click reveals the repo root in Finder/Explorer.",
     shortcut: "Cmd/Ctrl + click reveals",
   }),
   "graph.path.file": ({ label }) => ({
     title: `${fallbackLabel(label, "Path")} graph path`,
-    description: "Click to open this path in the graph. Cmd/Ctrl-click reveals the matching file or folder in Finder/Explorer.",
+    description:
+      "Click to open this path in the graph. Cmd/Ctrl-click reveals the matching file or folder in Finder/Explorer.",
     shortcut: "Cmd/Ctrl + click reveals",
   }),
   "graph.path.symbol": ({ label }) => ({
     title: `${fallbackLabel(label, "Symbol")} graph path`,
-    description: "Click to open this symbol in the graph. Cmd/Ctrl-click reveals its source file in Finder/Explorer.",
+    description:
+      "Click to open this symbol in the graph. Cmd/Ctrl-click reveals its source file in Finder/Explorer.",
     shortcut: "Cmd/Ctrl + click reveals",
   }),
   "graph.path.flow": () => ({
     title: "Flow path",
-    description: "Click to open this function or class internal flow graph. Cmd/Ctrl-click reveals its source file in Finder/Explorer.",
+    description:
+      "Click to open this function or class internal flow graph. Cmd/Ctrl-click reveals its source file in Finder/Explorer.",
     shortcut: "Cmd/Ctrl + click reveals",
   }),
   "graph.canvas": () => ({
     title: "Graph canvas",
-    description: "Main blueprint workspace. Click empty space to clear selection, drag to marquee-select, move nodes directly on the canvas, or press C to enter create mode and place new graph-backed code.",
-    shortcut: "C toggles create mode · Esc exits create mode · F fits view · Cmd/Ctrl + G groups · Cmd/Ctrl + Shift + G ungroups · Tap Space toggles inspector · Hold Space to pan · Alt/Option + scroll to zoom",
+    description:
+      "Main blueprint workspace. Click empty space to clear selection, drag to marquee-select, move nodes directly on the canvas, or press C to enter create mode and place new graph-backed code.",
+    shortcut:
+      "C toggles create mode · Esc exits create mode · F fits view · Cmd/Ctrl + G groups · Cmd/Ctrl + Shift + G ungroups · Tap Space toggles inspector · Hold Space to pan · Alt/Option + scroll to zoom",
   }),
   "graph.toolbar.drag": () => ({
     title: "Move graph controls",
@@ -228,7 +239,8 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.toolbar.fit-view": () => ({
     title: "Fit graph to view",
-    description: "Recenter the current graph so every visible node fits back into the canvas viewport.",
+    description:
+      "Recenter the current graph so every visible node fits back into the canvas viewport.",
     shortcut: "F",
   }),
   "graph.toolbar.settings": () => ({
@@ -249,7 +261,8 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.level.symbol": () => ({
     title: "Symbol level",
-    description: "Shows top-level code symbols and how they relate inside the current file or context.",
+    description:
+      "Shows top-level code symbols and how they relate inside the current file or context.",
   }),
   "graph.level.flow": () => ({
     title: "Flow level",
@@ -277,23 +290,28 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.declutter": () => ({
     title: "Declutter",
-    description: "Re-run layout for the current graph view. Flow views use a structured left-to-right pass, while the camera stays where it is.",
+    description:
+      "Re-run layout for the current graph view. Flow views use a structured left-to-right pass, while the camera stays where it is.",
   }),
   "graph.undo-layout": () => ({
     title: "Undo layout",
-    description: "Restore the last saved node positions, groups, reroutes, and pin state from before the most recent layout action.",
+    description:
+      "Restore the last saved node positions, groups, reroutes, and pin state from before the most recent layout action.",
   }),
   "graph.settings.external-dependencies": () => ({
     title: "Show external dependencies",
-    description: "Include outside-library modules and edges in the current graph. Off keeps the default authored-only view.",
+    description:
+      "Include outside-library modules and edges in the current graph. Off keeps the default authored-only view.",
   }),
   "graph.node.action.enter": () => ({
     title: "Enter node",
-    description: "Open a deeper graph view for this node. Double-clicking the node does the same thing.",
+    description:
+      "Open a deeper graph view for this node. Double-clicking the node does the same thing.",
   }),
   "graph.node.action.inspect": () => ({
     title: "Inspect node",
-    description: "Open the bottom inspector drawer for this code node. Double-clicking the node does the same thing.",
+    description:
+      "Open the bottom inspector drawer for this code node. Double-clicking the node does the same thing.",
   }),
   "graph.node.action.pin": () => ({
     title: "Pin node",
@@ -302,12 +320,14 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.node.action.unpin": () => ({
     title: "Unpin node",
-    description: "Let flow declutter reposition this node again during the next structured layout pass.",
+    description:
+      "Let flow declutter reposition this node again during the next structured layout pass.",
     shortcut: "P",
   }),
   "graph.group.box": ({ label }) => ({
     title: `${fallbackLabel(label, "Node group")} group`,
-    description: "Canvas boundary that keeps grouped nodes moving together. Nodes inside stay individually selectable, while the border and title area move the group. Click the title to rename it, use Organize to restack the group, or use Ungroup to break it apart.",
+    description:
+      "Canvas boundary that keeps grouped nodes moving together. Nodes inside stay individually selectable, while the border and title area move the group. Click the title to rename it, use Organize to restack the group, or use Ungroup to break it apart.",
     shortcut: "Cmd/Ctrl + G groups selected nodes · Cmd/Ctrl + Shift + G ungroups",
   }),
   "graph.group.organize": ({ label }) => ({
@@ -330,11 +350,13 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.node.function": ({ label }) => ({
     title: `${fallbackLabel(label, "Function")} function node`,
-    description: "Represents a top-level function. Inspect it to edit source or open its internal flow.",
+    description:
+      "Represents a top-level function. Inspect it to edit source or open its internal flow.",
   }),
   "graph.node.class": ({ label }) => ({
     title: `${fallbackLabel(label, "Class")} class node`,
-    description: "Represents a top-level class. Enter it to graph class internals, inspect it to review code details, or open its internal flow.",
+    description:
+      "Represents a top-level class. Enter it to graph class internals, inspect it to review code details, or open its internal flow.",
   }),
   "graph.node.enum": ({ label }) => ({
     title: `${fallbackLabel(label, "Enum")} enum node`,
@@ -342,11 +364,13 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.node.variable": ({ label }) => ({
     title: `${fallbackLabel(label, "Variable")} variable node`,
-    description: "Represents a top-level module variable. Inspect it to edit or review its declaration.",
+    description:
+      "Represents a top-level module variable. Inspect it to edit or review its declaration.",
   }),
   "graph.node.reroute": () => ({
     title: "Reroute node",
-    description: "Visual-only waypoint for reshaping an edge. Drag it to redirect the wire without changing code semantics.",
+    description:
+      "Visual-only waypoint for reshaping an edge. Drag it to redirect the wire without changing code semantics.",
     shortcut: "Delete / Backspace removes selected reroutes",
   }),
   "graph.node.entry": ({ label }) => ({
@@ -383,11 +407,13 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "graph.port.imports": () => ({
     title: "Imports port",
-    description: "Grouped import relationships. Hover it to trace every import connected to this handle.",
+    description:
+      "Grouped import relationships. Hover it to trace every import connected to this handle.",
   }),
   "graph.port.calls": () => ({
     title: "Calls port",
-    description: "Grouped call relationships. Hover it to trace every call connected to this handle.",
+    description:
+      "Grouped call relationships. Hover it to trace every call connected to this handle.",
   }),
   "graph.port.defines": () => ({
     title: "Defines port",
@@ -427,7 +453,8 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "inspector.close": () => ({
     title: "Dismiss inspector target",
-    description: "Dismiss the current inspector target and fall back to the current graph rail. If you have unsaved changes, HELM asks whether to save first.",
+    description:
+      "Dismiss the current inspector target and fall back to the current graph rail. If you have unsaved changes, HELM asks whether to save first.",
   }),
   "inspector.open-default-editor": () => ({
     title: "Open file in default editor",
@@ -435,7 +462,8 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "inspector.reveal-source": () => ({
     title: "Reveal source",
-    description: "Show the raw source range for this node on demand without making source the default view.",
+    description:
+      "Show the raw source range for this node on demand without making source the default view.",
   }),
   "inspector.open-flow": () => ({
     title: "Open flow",
@@ -447,15 +475,18 @@ const HELP_REGISTRY: Record<HelpDescriptorId, HelpResolver> = {
   }),
   "inspector.toggle": ({ label }) => ({
     title: `${fallbackLabel(label, "Inspector")} drawer`,
-    description: "Expand or collapse the bottom inspector drawer without discarding its current draft state.",
+    description:
+      "Expand or collapse the bottom inspector drawer without discarding its current draft state.",
   }),
   "inspector.resize": ({ label }) => ({
     title: `${fallbackLabel(label, "Inspector")} resize rail`,
-    description: "Drag this rail to resize the bottom inspector drawer, or click it to collapse the panel.",
+    description:
+      "Drag this rail to resize the bottom inspector drawer, or click it to collapse the panel.",
   }),
   "inspector.editor": () => ({
     title: "Declaration editor",
-    description: "Edit the selected declaration inline. Save writes back to the repo and refreshes the graph.",
+    description:
+      "Edit the selected declaration inline. Save writes back to the repo and refreshes the graph.",
   }),
   "inspector.save": () => ({
     title: "Save source",
@@ -487,11 +518,13 @@ export function resolveHelpDescriptor(
   id: HelpDescriptorId,
   args: HelpRuntimeArgs = {},
 ): ResolvedHelpState {
-  return resolveHelpTarget({ id, args }) ?? {
-    id,
-    title: "Hover help",
-    description: "Hover something in HELM to learn what it does.",
-  };
+  return (
+    resolveHelpTarget({ id, args }) ?? {
+      id,
+      title: "Hover help",
+      description: "Hover something in HELM to learn what it does.",
+    }
+  );
 }
 
 const DEFAULT_WORKSPACE_HELP_CONTEXT: WorkspaceHelpContextValue = {
@@ -647,9 +680,9 @@ export function WorkspaceHelpProvider({ children }: PropsWithChildren) {
 
   const currentHelp = useMemo(
     () =>
-      resolveHelpTarget(transientHelpTarget)
-      ?? resolveHelpTarget(domHelpTarget)
-      ?? resolveHelpDescriptor("workspace.idle"),
+      resolveHelpTarget(transientHelpTarget) ??
+      resolveHelpTarget(domHelpTarget) ??
+      resolveHelpDescriptor("workspace.idle"),
     [domHelpTarget, transientHelpTarget],
   );
 
@@ -662,11 +695,7 @@ export function WorkspaceHelpProvider({ children }: PropsWithChildren) {
     [currentHelp],
   );
 
-  return (
-    <WorkspaceHelpContext.Provider value={value}>
-      {children}
-    </WorkspaceHelpContext.Provider>
-  );
+  return <WorkspaceHelpContext.Provider value={value}>{children}</WorkspaceHelpContext.Provider>;
 }
 
 export function WorkspaceHelpScope({

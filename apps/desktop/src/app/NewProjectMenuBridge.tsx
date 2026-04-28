@@ -12,9 +12,7 @@ interface NewProjectMenuBridgeProps {
   enabled?: boolean;
 }
 
-export function NewProjectMenuBridge({
-  enabled = isTauriApp(),
-}: NewProjectMenuBridgeProps = {}) {
+export function NewProjectMenuBridge({ enabled = isTauriApp() }: NewProjectMenuBridgeProps = {}) {
   const { createAndIndexProject } = useWorkspaceLauncher();
 
   useEffect(() => {

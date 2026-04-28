@@ -77,12 +77,7 @@ function resolveNodeBox(node: DeclutterLayoutNode): ResolvedNodeBox {
   };
 }
 
-function overlapDepth(
-  left: ResolvedNodeBox,
-  right: ResolvedNodeBox,
-  paddingX = 0,
-  paddingY = 0,
-) {
+function overlapDepth(left: ResolvedNodeBox, right: ResolvedNodeBox, paddingX = 0, paddingY = 0) {
   const leftMinX = left.x - paddingX;
   const leftMaxX = left.x + left.width + paddingX;
   const leftMinY = left.y - paddingY;
@@ -126,7 +121,8 @@ function computeSeparationVector(
     };
   }
 
-  const direction = deltaY === 0 ? stableAxisSign(`${left.id}:y`, `${right.id}:y`) : Math.sign(deltaY);
+  const direction =
+    deltaY === 0 ? stableAxisSign(`${left.id}:y`, `${right.id}:y`) : Math.sign(deltaY);
   return {
     x: 0,
     y: direction * Math.min(overlapY * 0.52 + 8, 30),
@@ -286,9 +282,7 @@ export function declutterGraphLayout(
   }
 
   const originals = buildNodeLookup(nodes);
-  const positions = new Map(
-    nodes.map((node) => [node.id, { x: node.x, y: node.y }] as const),
-  );
+  const positions = new Map(nodes.map((node) => [node.id, { x: node.x, y: node.y }] as const));
   const nodeIds = new Set(nodes.map((node) => node.id));
   const relevantEdges = edges.filter(
     (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target),
@@ -436,16 +430,12 @@ export function declutterGraphLayout(
     .filter((node) => {
       const original = originals.get(node.id);
       return Boolean(
-        original
-        && (Math.abs(original.x - node.x) > 1 || Math.abs(original.y - node.y) > 1),
+        original && (Math.abs(original.x - node.x) > 1 || Math.abs(original.y - node.y) > 1),
       );
     })
     .map((node) => node.id);
 
-  if (
-    !movedNodeIds.length
-    || nextReport.score >= initialReport.score * 0.92
-  ) {
+  if (!movedNodeIds.length || nextReport.score >= initialReport.score * 0.92) {
     return {
       changed: false,
       positions: Object.fromEntries(nodes.map((node) => [node.id, { x: node.x, y: node.y }])),

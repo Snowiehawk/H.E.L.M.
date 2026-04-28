@@ -88,12 +88,11 @@ describe("AppProviders", () => {
     expect(screen.getByRole("dialog", { name: /preferences/i })).toBeInTheDocument();
 
     const sectionNav = screen.getByRole("navigation", { name: "Preferences" });
-    expect(within(sectionNav).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "General",
-      "Appearance",
-      "Graph",
-      "Flow",
-    ]);
+    expect(
+      within(sectionNav)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["General", "Appearance", "Graph", "Flow"]);
     expect(screen.getByRole("heading", { name: "General" })).toBeInTheDocument();
     expect(screen.getByText("Interface scale")).toBeInTheDocument();
 
@@ -137,7 +136,7 @@ describe("AppProviders", () => {
     );
 
     let editorCanUndo = true;
-    let editorOwnsFocus = true;
+    const editorOwnsFocus = true;
     const editorUndo = vi.fn().mockResolvedValue({ domain: "editor", handled: true });
     const backendUndo = vi.fn().mockResolvedValue({ domain: "backend", handled: true });
 
@@ -176,7 +175,7 @@ describe("AppProviders", () => {
     );
 
     let editorCanRedo = true;
-    let editorOwnsFocus = true;
+    const editorOwnsFocus = true;
     const editorRedo = vi.fn().mockResolvedValue({ domain: "editor", handled: true });
     const backendRedo = vi.fn().mockResolvedValue({ domain: "backend", handled: true });
 

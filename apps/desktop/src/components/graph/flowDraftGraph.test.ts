@@ -21,12 +21,50 @@ describe("flowDraftGraph", () => {
         { nodeId: "module:service", level: "module", label: "service.py", subtitle: "service.py" },
         { nodeId: "symbol:service:run", level: "symbol", label: "run", subtitle: "run" },
       ],
-      focus: { targetId: "symbol:service:run", level: "flow", label: "run", subtitle: "run", availableLevels: ["flow"] },
+      focus: {
+        targetId: "symbol:service:run",
+        level: "flow",
+        label: "run",
+        subtitle: "run",
+        availableLevels: ["flow"],
+      },
       nodes: [
-        { id: "flow:entry", kind: "entry", label: "Entry", x: 0, y: 0, metadata: {}, availableActions: [] },
-        { id: "flow:branch", kind: "branch", label: "if ready", x: 240, y: 0, metadata: {}, availableActions: [] },
-        { id: "flow:return:true", kind: "return", label: "return True", x: 480, y: -80, metadata: {}, availableActions: [] },
-        { id: "flow:return:false", kind: "return", label: "return False", x: 480, y: 80, metadata: {}, availableActions: [] },
+        {
+          id: "flow:entry",
+          kind: "entry",
+          label: "Entry",
+          x: 0,
+          y: 0,
+          metadata: {},
+          availableActions: [],
+        },
+        {
+          id: "flow:branch",
+          kind: "branch",
+          label: "if ready",
+          x: 240,
+          y: 0,
+          metadata: {},
+          availableActions: [],
+        },
+        {
+          id: "flow:return:true",
+          kind: "return",
+          label: "return True",
+          x: 480,
+          y: -80,
+          metadata: {},
+          availableActions: [],
+        },
+        {
+          id: "flow:return:false",
+          kind: "return",
+          label: "return False",
+          x: 480,
+          y: 80,
+          metadata: {},
+          availableActions: [],
+        },
       ],
       edges: [
         {
@@ -168,12 +206,19 @@ describe("flowDraftGraph", () => {
     const before = JSON.stringify(document);
     const paramMode = projectFlowDraftGraph(baseGraph, document, "param_nodes");
     const entryMode = projectFlowDraftGraph(baseGraph, document, "entry");
-    const bindingId = "flowbinding:flowslot:flow:symbol:workflow:run:statement:0:value->flowinput:symbol:workflow:run:value";
+    const bindingId =
+      "flowbinding:flowslot:flow:symbol:workflow:run:statement:0:value->flowinput:symbol:workflow:run:value";
 
     expect(JSON.stringify(document)).toBe(before);
-    expect(paramMode.nodes.map((node) => node.id)).toContain("flow:symbol:workflow:run:param:value");
-    expect(paramMode.nodes.map((node) => node.id)).toContain("flowdoc:symbol:workflow:run:assign:draft");
-    expect(paramMode.nodes.map((node) => node.id)).not.toContain("flow:symbol:workflow:run:statement:0");
+    expect(paramMode.nodes.map((node) => node.id)).toContain(
+      "flow:symbol:workflow:run:param:value",
+    );
+    expect(paramMode.nodes.map((node) => node.id)).toContain(
+      "flowdoc:symbol:workflow:run:assign:draft",
+    );
+    expect(paramMode.nodes.map((node) => node.id)).not.toContain(
+      "flow:symbol:workflow:run:statement:0",
+    );
     expect(entryMode.nodes.some((node) => node.kind === "param")).toBe(false);
     expect(paramMode.flowState?.document?.inputSlots).toEqual([
       expect.objectContaining({
@@ -371,7 +416,9 @@ describe("flowDraftGraph", () => {
       ]),
     );
 
-    const entryNode = entryMode.nodes.find((node) => node.id === "flowdoc:symbol:calculator:add:entry");
+    const entryNode = entryMode.nodes.find(
+      (node) => node.id === "flowdoc:symbol:calculator:add:entry",
+    );
     expect(entryNode?.metadata.flow_function_inputs).toEqual([
       expect.objectContaining({
         function_input_id: "flowinput:symbol:calculator:add:a",
@@ -383,7 +430,9 @@ describe("flowDraftGraph", () => {
       }),
     ]);
 
-    const paramModeEntryNode = paramMode.nodes.find((node) => node.id === "flowdoc:symbol:calculator:add:entry");
+    const paramModeEntryNode = paramMode.nodes.find(
+      (node) => node.id === "flowdoc:symbol:calculator:add:entry",
+    );
     expect(paramModeEntryNode?.metadata.flow_entry_arguments).toEqual([
       expect.objectContaining({
         label: "args",
@@ -404,7 +453,9 @@ describe("flowDraftGraph", () => {
       ]),
     );
 
-    const paramNode = paramMode.nodes.find((node) => node.id === "flow:symbol:calculator:add:param:a");
+    const paramNode = paramMode.nodes.find(
+      (node) => node.id === "flow:symbol:calculator:add:param:a",
+    );
     expect(paramNode?.metadata).toEqual(
       expect.objectContaining({
         function_input_id: "flowinput:symbol:calculator:add:a",
@@ -434,7 +485,9 @@ describe("flowDraftGraph", () => {
       ]),
     );
 
-    const returnNode = entryMode.nodes.find((node) => node.id === "flowdoc:symbol:calculator:add:return:0");
+    const returnNode = entryMode.nodes.find(
+      (node) => node.id === "flowdoc:symbol:calculator:add:return:0",
+    );
     expect(returnNode?.metadata.flow_return_input_handle).toBe(
       "in:data:return-input:flowdoc:symbol:calculator:add:return:0",
     );
@@ -450,8 +503,12 @@ describe("flowDraftGraph", () => {
     ]);
 
     const firstBindingId = document.inputBindings?.[0]?.id ?? "";
-    const entryBindingEdge = entryMode.edges.find((edge) => edge.id === flowInputBindingEdgeId(firstBindingId));
-    const paramBindingEdge = paramMode.edges.find((edge) => edge.id === flowInputBindingEdgeId(firstBindingId));
+    const entryBindingEdge = entryMode.edges.find(
+      (edge) => edge.id === flowInputBindingEdgeId(firstBindingId),
+    );
+    const paramBindingEdge = paramMode.edges.find(
+      (edge) => edge.id === flowInputBindingEdgeId(firstBindingId),
+    );
     expect(entryBindingEdge).toEqual(
       expect.objectContaining({
         kind: "data",
@@ -478,10 +535,13 @@ describe("flowDraftGraph", () => {
         }),
       }),
     );
-    expect(paramMode.edges.some((edge) => (
-      edge.source === "flow:symbol:calculator:add:param:a"
-      && edge.target === "flowdoc:symbol:calculator:add:return:0"
-    ))).toBe(false);
+    expect(
+      paramMode.edges.some(
+        (edge) =>
+          edge.source === "flow:symbol:calculator:add:param:a" &&
+          edge.target === "flowdoc:symbol:calculator:add:return:0",
+      ),
+    ).toBe(false);
     expect(entryMode.edges.some((edge) => edge.id === "data:legacy-a")).toBe(false);
     expect(paramMode.edges.some((edge) => edge.id === "data:legacy-a")).toBe(false);
     expect(entryMode.edges).toEqual(
@@ -576,9 +636,7 @@ describe("flowDraftGraph", () => {
         },
       ],
       edges: [],
-      functionInputs: [
-        { id: "flowinput:symbol:calculator:add:a", name: "a", index: 0 },
-      ],
+      functionInputs: [{ id: "flowinput:symbol:calculator:add:a", name: "a", index: 0 }],
       valueSources: [],
       inputSlots: [],
       inputBindings: [],
@@ -587,14 +645,20 @@ describe("flowDraftGraph", () => {
     const projected = projectFlowDraftGraph(baseGraph, document, "param_nodes");
 
     expect(projected.nodes.map((node) => node.id)).toContain("flow:symbol:calculator:add:param:a");
-    expect(projected.nodes.map((node) => node.id)).not.toContain("flow:symbol:calculator:add:param:b");
+    expect(projected.nodes.map((node) => node.id)).not.toContain(
+      "flow:symbol:calculator:add:param:b",
+    );
     expect(projected.flowState?.document?.functionInputs).toEqual(document.functionInputs);
-    expect(projected.edges.some((edge) => (
-      edge.id === parameterEntryEdgeId(
-        "flowinput:symbol:calculator:add:b",
-        "flowdoc:symbol:calculator:add:entry",
-      )
-    ))).toBe(false);
+    expect(
+      projected.edges.some(
+        (edge) =>
+          edge.id ===
+          parameterEntryEdgeId(
+            "flowinput:symbol:calculator:add:b",
+            "flowdoc:symbol:calculator:add:entry",
+          ),
+      ),
+    ).toBe(false);
   });
 
   it("projects canonical local value bindings as editable source handles", () => {
@@ -689,13 +753,13 @@ describe("flowDraftGraph", () => {
     const assignNode = projected.nodes.find((node) => node.id === assignId);
 
     expect(assignNode?.metadata.flow_value_sources).toEqual([
-        expect.objectContaining({
-          source_id: sourceId,
-          name: "total",
-          emitted_name: "total__flow_0",
-          source_handle: `out:data:value-source:${sourceId}`,
-        }),
-      ]);
+      expect.objectContaining({
+        source_id: sourceId,
+        name: "total",
+        emitted_name: "total__flow_0",
+        source_handle: `out:data:value-source:${sourceId}`,
+      }),
+    ]);
     expect(projected.edges).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

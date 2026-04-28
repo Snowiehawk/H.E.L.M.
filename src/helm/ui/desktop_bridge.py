@@ -70,7 +70,9 @@ def build_flow_view_payload(repo: str | Path, symbol_id: str) -> dict[str, Any]:
     return session.get_flow_view(symbol_id)
 
 
-def apply_edit_to_payload(repo: str | Path, request_payload: str | dict[str, Any]) -> dict[str, Any]:
+def apply_edit_to_payload(
+    repo: str | Path, request_payload: str | dict[str, Any]
+) -> dict[str, Any]:
     session = WorkspaceSession.open(repo)
     return session.apply_edit(request_payload)
 
@@ -164,7 +166,9 @@ def delete_workspace_entry_payload(
     return session.delete_workspace_entry(relative_path=relative_path)
 
 
-def apply_undo_to_payload(repo: str | Path, transaction_payload: str | dict[str, Any]) -> dict[str, Any]:
+def apply_undo_to_payload(
+    repo: str | Path, transaction_payload: str | dict[str, Any]
+) -> dict[str, Any]:
     session = WorkspaceSession.open(repo)
     return session.apply_undo(transaction_payload)
 
@@ -233,7 +237,9 @@ def _handle_worker_command(
         target_id = params.get("target_id")
         content = params.get("content")
         if not isinstance(target_id, str) or not isinstance(content, str):
-            raise ValueError("save-node-source requires 'target_id' and 'content' string parameters.")
+            raise ValueError(
+                "save-node-source requires 'target_id' and 'content' string parameters."
+            )
         return session.save_node_source(target_id, content)
 
     if command == "parse-flow-expression":
@@ -242,7 +248,9 @@ def _handle_worker_command(
         if not isinstance(expression, str):
             raise ValueError("parse-flow-expression requires an 'expression' string parameter.")
         if input_slot_by_name is not None and not isinstance(input_slot_by_name, dict):
-            raise ValueError("parse-flow-expression 'input_slot_by_name' must be an object when provided.")
+            raise ValueError(
+                "parse-flow-expression 'input_slot_by_name' must be an object when provided."
+            )
         return session.parse_flow_expression(
             expression,
             input_slot_by_name={
@@ -272,7 +280,9 @@ def _handle_worker_command(
         relative_path = params.get("relative_path")
         content = params.get("content")
         if not isinstance(kind, str) or not isinstance(relative_path, str):
-            raise ValueError("create-workspace-entry requires 'kind' and 'relative_path' string parameters.")
+            raise ValueError(
+                "create-workspace-entry requires 'kind' and 'relative_path' string parameters."
+            )
         if content is not None and not isinstance(content, str):
             raise ValueError("create-workspace-entry 'content' must be a string when provided.")
         return session.create_workspace_entry(
@@ -287,7 +297,11 @@ def _handle_worker_command(
         relative_path = params.get("relative_path")
         content = params.get("content")
         expected_version = params.get("expected_version")
-        if not isinstance(relative_path, str) or not isinstance(content, str) or not isinstance(expected_version, str):
+        if (
+            not isinstance(relative_path, str)
+            or not isinstance(content, str)
+            or not isinstance(expected_version, str)
+        ):
             raise ValueError(
                 "save-workspace-file requires 'relative_path', 'content', and 'expected_version' string parameters."
             )
@@ -302,7 +316,9 @@ def _handle_worker_command(
     if command == "move-workspace-entry":
         source_relative_path = params.get("source_relative_path")
         target_directory_relative_path = params.get("target_directory_relative_path")
-        if not isinstance(source_relative_path, str) or not isinstance(target_directory_relative_path, str):
+        if not isinstance(source_relative_path, str) or not isinstance(
+            target_directory_relative_path, str
+        ):
             raise ValueError(
                 "move-workspace-entry requires 'source_relative_path' and "
                 "'target_directory_relative_path' string parameters."
@@ -390,9 +406,13 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    scan_parser = subparsers.add_parser("scan", help="Scan a repository and export the workspace payload.")
+    scan_parser = subparsers.add_parser(
+        "scan", help="Scan a repository and export the workspace payload."
+    )
     scan_parser.add_argument("repo", help="Path to the repository root.")
-    scan_parser.add_argument("--top", type=int, default=24, help="Top modules to include in the summary payload.")
+    scan_parser.add_argument(
+        "--top", type=int, default=24, help="Top modules to include in the summary payload."
+    )
 
     graph_parser = subparsers.add_parser("graph-view", help="Build a graph view for a target node.")
     graph_parser.add_argument("repo", help="Path to the repository root.")
@@ -408,11 +428,15 @@ def build_argument_parser() -> argparse.ArgumentParser:
     flow_parser.add_argument("repo", help="Path to the repository root.")
     flow_parser.add_argument("symbol_id", help="Symbol id to expand.")
 
-    edit_parser = subparsers.add_parser("apply-edit", help="Apply a structural edit and return a refreshed payload.")
+    edit_parser = subparsers.add_parser(
+        "apply-edit", help="Apply a structural edit and return a refreshed payload."
+    )
     edit_parser.add_argument("repo", help="Path to the repository root.")
     edit_parser.add_argument("--request-json", required=True, help="Serialized edit request JSON.")
 
-    reveal_parser = subparsers.add_parser("reveal-source", help="Reveal the source for a graph node.")
+    reveal_parser = subparsers.add_parser(
+        "reveal-source", help="Reveal the source for a graph node."
+    )
     reveal_parser.add_argument("repo", help="Path to the repository root.")
     reveal_parser.add_argument("target_id", help="Target graph node id.")
 
@@ -429,7 +453,9 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
     save_parser.add_argument("repo", help="Path to the repository root.")
     save_parser.add_argument("target_id", help="Target graph node id.")
-    save_parser.add_argument("--content-json", required=True, help="Serialized replacement source string.")
+    save_parser.add_argument(
+        "--content-json", required=True, help="Serialized replacement source string."
+    )
 
     expression_parser = subparsers.add_parser(
         "parse-flow-expression",
@@ -445,7 +471,9 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
     undo_parser = subparsers.add_parser("apply-undo", help="Apply a serialized undo transaction.")
     undo_parser.add_argument("repo", help="Path to the repository root.")
-    undo_parser.add_argument("--transaction-json", required=True, help="Serialized undo transaction JSON.")
+    undo_parser.add_argument(
+        "--transaction-json", required=True, help="Serialized undo transaction JSON."
+    )
 
     subparsers.add_parser(
         "serve",

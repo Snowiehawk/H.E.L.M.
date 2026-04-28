@@ -1,9 +1,4 @@
-import type {
-  FileContents,
-  GraphNodeDto,
-  SymbolDetails,
-  WorkspaceTab,
-} from "../../lib/adapter";
+import type { FileContents, GraphNodeDto, SymbolDetails, WorkspaceTab } from "../../lib/adapter";
 import { isGraphSymbolNodeKind } from "../../lib/adapter";
 
 export function GraphDetailPanel({

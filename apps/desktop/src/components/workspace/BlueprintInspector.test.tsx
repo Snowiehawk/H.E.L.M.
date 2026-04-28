@@ -76,7 +76,10 @@ describe("BlueprintInspector", () => {
     );
 
     expect(screen.getByRole("heading", { name: /Declaration editor/i })).toBeInTheDocument();
-    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-read-only", "false");
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute(
+      "data-read-only",
+      "false",
+    );
     expect(screen.getByLabelText(/Function source editor/i)).toHaveTextContent("def calculate");
   });
 
@@ -144,7 +147,10 @@ describe("BlueprintInspector", () => {
     expect(screen.getByRole("heading", { name: /calculator\.py/i })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /Nothing selected/i })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Source editor/i })).toBeInTheDocument();
-    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-read-only", "false");
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute(
+      "data-read-only",
+      "false",
+    );
     expect(screen.getByLabelText(/Module source editor/i)).toHaveTextContent("def calculate");
   });
 
@@ -164,7 +170,10 @@ describe("BlueprintInspector", () => {
     expect(screen.getByRole("heading", { name: /Current Context/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /calculate/i })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /Nothing selected/i })).not.toBeInTheDocument();
-    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-read-only", "false");
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute(
+      "data-read-only",
+      "false",
+    );
     expect(screen.getByLabelText(/Function source editor/i)).toHaveTextContent("def calculate");
   });
 
@@ -187,7 +196,10 @@ describe("BlueprintInspector", () => {
     );
 
     expect(screen.getByRole("heading", { name: /Declaration editor/i })).toBeInTheDocument();
-    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-read-only", "false");
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute(
+      "data-read-only",
+      "false",
+    );
     expect(screen.getByLabelText(/Class source editor/i)).toHaveTextContent("class GraphSummary");
   });
 
@@ -212,9 +224,14 @@ describe("BlueprintInspector", () => {
     );
 
     expect(screen.getByRole("heading", { name: /Code details/i })).toBeInTheDocument();
-    expect(screen.getByTestId("inspector-readonly-source")).toHaveAttribute("data-read-only", "true");
+    expect(screen.getByTestId("inspector-readonly-source")).toHaveAttribute(
+      "data-read-only",
+      "true",
+    );
     expect(screen.getByLabelText(/Read-only variable source/i)).toHaveTextContent("repo_path: str");
-    expect(screen.getByText(/Class attribute declarations are not inline editable yet\./i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Class attribute declarations are not inline editable yet\./i),
+    ).toBeInTheDocument();
   });
 
   it("passes the selected flow highlight range through to the source surface", () => {
@@ -232,8 +249,14 @@ describe("BlueprintInspector", () => {
       />,
     );
 
-    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-highlight-start-line", "21");
-    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-highlight-end-line", "21");
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute(
+      "data-highlight-start-line",
+      "21",
+    );
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute(
+      "data-highlight-end-line",
+      "21",
+    );
   });
 
   it("renders and edits flow entry inputs", () => {
@@ -289,13 +312,10 @@ describe("BlueprintInspector", () => {
       target: { value: "repo_root" },
     });
     fireEvent.click(screen.getByRole("button", { name: /Save/i }));
-    expect(onUpdateFlowFunctionInput).toHaveBeenCalledWith(
-      "flowinput:symbol:service:run:root",
-      {
-        name: "repo_root",
-        defaultExpression: "None",
-      },
-    );
+    expect(onUpdateFlowFunctionInput).toHaveBeenCalledWith("flowinput:symbol:service:run:root", {
+      name: "repo_root",
+      defaultExpression: "None",
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /Remove/i }));
     expect(onRemoveFlowFunctionInput).toHaveBeenCalledWith("flowinput:symbol:service:run:root");

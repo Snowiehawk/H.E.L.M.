@@ -3,7 +3,7 @@ import { MetricTile } from "../shared/MetricTile";
 import { StatusPill } from "../shared/StatusPill";
 
 function liveSyncLabel(status: BackendStatus | undefined) {
-  if (!status || !status.liveSyncEnabled && status.syncState === "idle") {
+  if (!status || (!status.liveSyncEnabled && status.syncState === "idle")) {
     return "Idle";
   }
   if (status.syncState === "syncing") {
@@ -117,8 +117,11 @@ export function OverviewPanel({
             </div>
           </div>
           <p>{backendStatus?.note ?? "Waiting on backend status."}</p>
-          {backendStatus?.lastError ? <p className="error-copy">{backendStatus.lastError}</p> : null}
-          {backendStatus?.lastSyncError && backendStatus.lastSyncError !== backendStatus.lastError ? (
+          {backendStatus?.lastError ? (
+            <p className="error-copy">{backendStatus.lastError}</p>
+          ) : null}
+          {backendStatus?.lastSyncError &&
+          backendStatus.lastSyncError !== backendStatus.lastError ? (
             <p className="error-copy">{backendStatus.lastSyncError}</p>
           ) : null}
           <button className="ghost-button" type="button" onClick={onReindex}>
@@ -162,7 +165,6 @@ export function OverviewPanel({
             ))}
           </div>
         </article>
-
       </div>
 
       <div className="overview-grid">

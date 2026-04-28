@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GraphEdgeDto } from "../../lib/adapter";
-import {
-  organizeGroupedNodes,
-  type GroupOrganizeNode,
-} from "./groupOrganizeLayout";
+import { organizeGroupedNodes, type GroupOrganizeNode } from "./groupOrganizeLayout";
 
 function buildBounds(
   nodes: GroupOrganizeNode[],
@@ -33,10 +30,10 @@ function boxesOverlap(
   right: { x: number; y: number; width: number; height: number },
 ) {
   return !(
-    left.x + left.width <= right.x
-    || right.x + right.width <= left.x
-    || left.y + left.height <= right.y
-    || right.y + right.height <= left.y
+    left.x + left.width <= right.x ||
+    right.x + right.width <= left.x ||
+    left.y + left.height <= right.y ||
+    right.y + right.height <= left.y
   );
 }
 
@@ -205,20 +202,22 @@ describe("organizeGroupedNodes", () => {
     });
 
     expect(result.changed).toBe(true);
-    expect(boxesOverlap(
-      {
-        x: result.positions.entry.x,
-        y: result.positions.entry.y,
-        width: nodes[0].width,
-        height: nodes[0].height,
-      },
-      {
-        x: result.positions.branch.x,
-        y: result.positions.branch.y,
-        width: nodes[1].width,
-        height: nodes[1].height,
-      },
-    )).toBe(false);
+    expect(
+      boxesOverlap(
+        {
+          x: result.positions.entry.x,
+          y: result.positions.entry.y,
+          width: nodes[0].width,
+          height: nodes[0].height,
+        },
+        {
+          x: result.positions.branch.x,
+          y: result.positions.branch.y,
+          width: nodes[1].width,
+          height: nodes[1].height,
+        },
+      ),
+    ).toBe(false);
     expect(buildBounds(nodes, result.positions)).toEqual(
       buildBounds(
         nodes,

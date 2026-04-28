@@ -56,7 +56,13 @@ from helm.graph.models import (
     GraphViewNode,
     GraphViewNodeKind,
 )
-from helm.parser import ParsedModule, PythonModuleParser, SymbolDef, SymbolKind, discover_python_modules
+from helm.parser import (
+    ParsedModule,
+    PythonModuleParser,
+    SymbolDef,
+    SymbolKind,
+    discover_python_modules,
+)
 from helm.parser.symbols import SourceSpan
 from helm.ui.api import build_export_payload, build_graph_summary
 
@@ -105,10 +111,14 @@ def build_progress_update(
     status: str = "running",
     error: str | None = None,
 ) -> dict[str, Any]:
-    progress_percent = 100 if status == "done" else _stage_progress_percent(
-        stage,
-        processed_modules=processed_modules,
-        total_modules=total_modules,
+    progress_percent = (
+        100
+        if status == "done"
+        else _stage_progress_percent(
+            stage,
+            processed_modules=processed_modules,
+            total_modules=total_modules,
+        )
     )
     return {
         "stage": stage,
@@ -203,7 +213,9 @@ class PythonRepoAdapter:
             symbol_count=symbol_count,
         )
         graph = build_repo_graph(root_path, parsed_modules)
-        return cls(root_path=root_path, inventory=inventory, parsed_modules=parsed_modules, graph=graph)
+        return cls(
+            root_path=root_path, inventory=inventory, parsed_modules=parsed_modules, graph=graph
+        )
 
     def build_payload(
         self,
@@ -309,10 +321,7 @@ class PythonRepoAdapter:
             function_source_for_qualname(source, symbol.qualname)
         )
 
-        if (
-            persisted_document is not None
-            and persisted_document.source_hash == current_source_hash
-        ):
+        if persisted_document is not None and persisted_document.source_hash == current_source_hash:
             document = persisted_document
             if (
                 persisted_document.value_model_version is None
@@ -405,17 +414,9 @@ class PythonRepoAdapter:
             for argument in (
                 *function_node.args.posonlyargs,
                 *function_node.args.args,
-                *(
-                    (function_node.args.vararg,)
-                    if function_node.args.vararg is not None
-                    else ()
-                ),
+                *((function_node.args.vararg,) if function_node.args.vararg is not None else ()),
                 *function_node.args.kwonlyargs,
-                *(
-                    (function_node.args.kwarg,)
-                    if function_node.args.kwarg is not None
-                    else ()
-                ),
+                *((function_node.args.kwarg,) if function_node.args.kwarg is not None else ()),
             )
         }
 
@@ -473,7 +474,8 @@ class PythonRepoAdapter:
                 ),
             ),
             truncated=False,
-            flow_state=flow_state or {
+            flow_state=flow_state
+            or {
                 "editable": False,
                 "sync_state": "clean",
                 "diagnostics": [],
@@ -975,7 +977,9 @@ class PythonRepoAdapter:
             target_node = self.graph.nodes.get(target_module_id)
             if source_node is None or target_node is None:
                 continue
-            if not self._is_visible_in_view(source_node, view_filters) or not self._is_visible_in_view(
+            if not self._is_visible_in_view(
+                source_node, view_filters
+            ) or not self._is_visible_in_view(
                 target_node,
                 view_filters,
             ):
@@ -1118,13 +1122,22 @@ class PythonRepoAdapter:
             if (
                 edge.kind == EdgeKind.IMPORTS
                 and self._module_id_for_node_id(edge.source_id) == node.node_id
-                and (edge_target_node is None or self._is_visible_in_view(edge_target_node, view_filters))
+                and (
+                    edge_target_node is None
+                    or self._is_visible_in_view(edge_target_node, view_filters)
+                )
             ):
                 import_count += 1
-            if edge.kind == EdgeKind.CALLS and self._module_id_for_node_id(edge.source_id) == node.node_id:
+            if (
+                edge.kind == EdgeKind.CALLS
+                and self._module_id_for_node_id(edge.source_id) == node.node_id
+            ):
                 call_count += 1
         for graph_node in self.graph.nodes.values():
-            if graph_node.kind == NodeKind.SYMBOL and self._module_id_for_node_id(graph_node.node_id) == node.node_id:
+            if (
+                graph_node.kind == NodeKind.SYMBOL
+                and self._module_id_for_node_id(graph_node.node_id) == node.node_id
+            ):
                 symbol_count += 1
         return GraphViewNode(
             node_id=node.node_id,
@@ -1152,9 +1165,7 @@ class PythonRepoAdapter:
         inbound_count = self._inbound_dependency_count().get(node.node_id, 0)
         rename_enabled = top_level and inbound_count == 0
         structural_reason = (
-            None
-            if rename_enabled
-            else "Only dependency-free top-level symbols are writable in v1."
+            None if rename_enabled else "Only dependency-free top-level symbols are writable in v1."
         )
         return GraphViewNode(
             node_id=node.node_id,
@@ -1173,10 +1184,32 @@ class PythonRepoAdapter:
             available_actions=tuple(
                 action
                 for action in (
-                    GraphAction("rename_symbol", "Rename symbol", enabled=rename_enabled, reason=structural_reason),
-                    GraphAction("delete_symbol", "Delete symbol", enabled=rename_enabled, reason=structural_reason),
-                    GraphAction("move_symbol", "Move symbol", enabled=rename_enabled, reason=structural_reason),
-                    GraphAction("open_flow", "Open flow", enabled=flow_enabled, reason=None if flow_enabled else "Flow only exists for functions, methods, and classes."),
+                    GraphAction(
+                        "rename_symbol",
+                        "Rename symbol",
+                        enabled=rename_enabled,
+                        reason=structural_reason,
+                    ),
+                    GraphAction(
+                        "delete_symbol",
+                        "Delete symbol",
+                        enabled=rename_enabled,
+                        reason=structural_reason,
+                    ),
+                    GraphAction(
+                        "move_symbol",
+                        "Move symbol",
+                        enabled=rename_enabled,
+                        reason=structural_reason,
+                    ),
+                    GraphAction(
+                        "open_flow",
+                        "Open flow",
+                        enabled=flow_enabled,
+                        reason=None
+                        if flow_enabled
+                        else "Flow only exists for functions, methods, and classes.",
+                    ),
                     GraphAction("reveal_source", "Reveal source"),
                 )
             ),
@@ -1373,6 +1406,7 @@ def _symbol_source_order(symbol: SymbolDef) -> tuple[int, int, str]:
     if symbol.span is None:
         return (10**9, 10**9, symbol.qualname)
     return (symbol.span.start_line, symbol.span.start_column, symbol.qualname)
+
 
 @dataclass(frozen=True)
 class _PendingControlLink:
@@ -1694,8 +1728,7 @@ def _with_flow_document_inherited_input_model_from_base_view(
     )
 
     existing_input_by_name = {
-        function_input.name: function_input
-        for function_input in document.function_inputs
+        function_input.name: function_input for function_input in document.function_inputs
     }
     function_inputs: list[FlowFunctionInput] = []
     for index, node in enumerate(param_nodes):
@@ -1710,7 +1743,8 @@ def _with_flow_document_inherited_input_model_from_base_view(
         function_input_kind = (
             raw_kind
             if isinstance(raw_kind, str)
-            and raw_kind in {
+            and raw_kind
+            in {
                 "positional_only",
                 "positional_or_keyword",
                 "keyword_only",
@@ -1737,7 +1771,9 @@ def _with_flow_document_inherited_input_model_from_base_view(
 
     projected_function_inputs = tuple(function_inputs)
     if document.function_inputs and projected_function_inputs:
-        existing_by_name = {function_input.name: function_input for function_input in document.function_inputs}
+        existing_by_name = {
+            function_input.name: function_input for function_input in document.function_inputs
+        }
         projected_function_inputs = tuple(
             FlowFunctionInput(
                 input_id=existing_by_name.get(function_input.name, function_input).input_id,
@@ -1752,18 +1788,20 @@ def _with_flow_document_inherited_input_model_from_base_view(
     if document.input_slots:
         if document.value_model_version == 1:
             if document.function_inputs or not projected_function_inputs:
-                return replace(document, function_inputs=projected_function_inputs or document.function_inputs)
+                return replace(
+                    document, function_inputs=projected_function_inputs or document.function_inputs
+                )
             return replace(document, function_inputs=projected_function_inputs)
         return replace(
             document,
             value_model_version=1,
             function_inputs=projected_function_inputs or document.function_inputs,
-            value_sources=document.value_sources or _value_sources_from_base_graph(base_view, document),
+            value_sources=document.value_sources
+            or _value_sources_from_base_graph(base_view, document),
         )
 
     function_input_by_param_node_id = {
-        node.node_id: function_inputs[index]
-        for index, node in enumerate(param_nodes)
+        node.node_id: function_inputs[index] for index, node in enumerate(param_nodes)
     }
     document_node_by_identity: dict[str, FlowModelNode] = {}
     for node in document.nodes:
@@ -1789,7 +1827,9 @@ def _with_flow_document_inherited_input_model_from_base_view(
             source_node = document_node_by_identity.get(edge.source_id)
             source_label = (edge.label or "").strip()
             if source_node is not None and source_label:
-                source_id = flow_value_source_id(flow_model_node_source_identity(source_node), source_label)
+                source_id = flow_value_source_id(
+                    flow_model_node_source_identity(source_node), source_label
+                )
                 if source_id not in seen_source_ids:
                     seen_source_ids.add(source_id)
                     value_sources.append(
@@ -1852,8 +1892,7 @@ def _value_sources_from_base_graph(
         document_node_by_identity.setdefault(node.node_id, node)
 
     existing_by_node_name = {
-        (source.node_id, source.name): source
-        for source in document.value_sources
+        (source.node_id, source.name): source for source in document.value_sources
     }
     value_sources: list[FlowValueSource] = []
     seen_source_ids: set[str] = set()
@@ -1867,9 +1906,13 @@ def _value_sources_from_base_graph(
         if not source_name:
             continue
         existing = existing_by_node_name.get((source_node.node_id, source_name))
-        source_id = existing.source_id if existing else flow_value_source_id(
-            flow_model_node_source_identity(source_node),
-            source_name,
+        source_id = (
+            existing.source_id
+            if existing
+            else flow_value_source_id(
+                flow_model_node_source_identity(source_node),
+                source_name,
+            )
         )
         if source_id in seen_source_ids:
             continue
@@ -1917,8 +1960,12 @@ def _graph_view_edge_for_input_binding(
     binding: FlowInputBinding,
 ) -> GraphViewEdge:
     slot_by_id = {slot.slot_id: slot for slot in document.input_slots}
-    input_by_id = {function_input.input_id: function_input for function_input in document.function_inputs}
-    value_source_by_id = {value_source.source_id: value_source for value_source in document.value_sources}
+    input_by_id = {
+        function_input.input_id: function_input for function_input in document.function_inputs
+    }
+    value_source_by_id = {
+        value_source.source_id: value_source for value_source in document.value_sources
+    }
     slot = slot_by_id.get(binding.slot_id)
     function_input = input_by_id.get(binding.source_id)
     value_source = value_source_by_id.get(binding.source_id)
@@ -1989,18 +2036,11 @@ def _project_function_flow_document_view(
             qualname=document.qualname,
             document=document,
             existing=base_nodes_by_id.get(node.node_id)
-            or (
-                base_nodes_by_id.get(node.indexed_node_id)
-                if node.indexed_node_id
-                else None
-            ),
+            or (base_nodes_by_id.get(node.indexed_node_id) if node.indexed_node_id else None),
         )
         for index, node in enumerate(document.nodes)
     )
-    projected_node_ids = {
-        node.node_id: node.node_id
-        for node in document.nodes
-    }
+    projected_node_ids = {node.node_id: node.node_id for node in document.nodes}
     projected_node_ids.update(
         {
             flow_model_node_source_identity(node): node.node_id
@@ -2014,7 +2054,9 @@ def _project_function_flow_document_view(
             document.symbol_id,
             function_input,
             entry_node_id=entry_node_id,
-            existing=base_nodes_by_id.get(_function_input_param_node_id(document.symbol_id, function_input)),
+            existing=base_nodes_by_id.get(
+                _function_input_param_node_id(document.symbol_id, function_input)
+            ),
         )
         for function_input in document.function_inputs
     )
@@ -2030,16 +2072,16 @@ def _project_function_flow_document_view(
             continue
         projected_source_id = projected_node_ids.get(edge.source_id, edge.source_id)
         projected_target_id = projected_node_ids.get(edge.target_id, edge.target_id)
-        if (
-            edge.kind == GraphViewEdgeKind.DATA
-            and (
-                projected_target_id in {node.node_id for node in document.nodes}
-                or projected_source_id in {node.node_id for node in document.nodes}
-                or edge.source_id in function_input_param_node_ids
-            )
+        if edge.kind == GraphViewEdgeKind.DATA and (
+            projected_target_id in {node.node_id for node in document.nodes}
+            or projected_source_id in {node.node_id for node in document.nodes}
+            or edge.source_id in function_input_param_node_ids
         ):
             continue
-        if projected_source_id not in visible_node_ids or projected_target_id not in visible_node_ids:
+        if (
+            projected_source_id not in visible_node_ids
+            or projected_target_id not in visible_node_ids
+        ):
             continue
         preserved_edges.append(
             replace(
@@ -2056,7 +2098,9 @@ def _project_function_flow_document_view(
         for edge in document.edges
     )
     return_completion_edges = tuple(_graph_view_return_completion_edges(document))
-    input_binding_edges = tuple(_graph_view_edge_for_input_binding(document, binding) for binding in document.input_bindings)
+    input_binding_edges = tuple(
+        _graph_view_edge_for_input_binding(document, binding) for binding in document.input_bindings
+    )
     root_node_id = projected_node_ids.get(base_view.root_node_id, base_view.root_node_id)
     if root_node_id not in visible_node_ids:
         root_node_id = document.nodes[0].node_id if document.nodes else base_view.root_node_id
@@ -2132,31 +2176,33 @@ def _graph_view_node_for_flow_model_node(
         for source in document.value_sources
         if source.node_id == node.node_id
     ]
-    function_inputs = [
-        {
-            "function_input_id": function_input.input_id,
-            "name": function_input.name,
-            "index": function_input.index,
-            "kind": function_input.kind,
-            "default_expression": function_input.default_expression,
-            "source_handle": _function_input_source_handle(function_input.input_id),
-        }
-        for function_input in document.function_inputs
-    ] if node.kind == "entry" else []
+    function_inputs = (
+        [
+            {
+                "function_input_id": function_input.input_id,
+                "name": function_input.name,
+                "index": function_input.index,
+                "kind": function_input.kind,
+                "default_expression": function_input.default_expression,
+                "source_handle": _function_input_source_handle(function_input.input_id),
+            }
+            for function_input in document.function_inputs
+        ]
+        if node.kind == "entry"
+        else []
+    )
     return GraphViewNode(
         node_id=node.node_id,
         kind=GraphViewNodeKind(node.kind),
         label=flow_node_label(node),
-        subtitle=existing.subtitle if existing and existing.subtitle else _flow_node_subtitle(node, qualname),
+        subtitle=existing.subtitle
+        if existing and existing.subtitle
+        else _flow_node_subtitle(node, qualname),
         metadata={
             **(existing.metadata if existing else {}),
             "flow_visual": True,
             "flow_order": index,
-            **(
-                {"indexed_node_id": node.indexed_node_id}
-                if node.indexed_node_id
-                else {}
-            ),
+            **({"indexed_node_id": node.indexed_node_id} if node.indexed_node_id else {}),
             **({"flow_input_slots": input_slots} if input_slots else {}),
             **({"flow_value_sources": value_sources} if value_sources else {}),
             **({"flow_function_inputs": function_inputs} if function_inputs else {}),
@@ -2250,7 +2296,10 @@ def _find_ast_symbol(tree: ast.AST, qualname: str) -> ast.AST | None:
         current = None
         next_candidates: list[ast.AST] = []
         for candidate in candidates:
-            if isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and candidate.name == part:
+            if (
+                isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                and candidate.name == part
+            ):
                 current = candidate
                 next_candidates = list(getattr(candidate, "body", []))
                 break

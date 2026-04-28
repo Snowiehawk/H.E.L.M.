@@ -26,16 +26,16 @@ class _Binding:
     required_prefix: tuple[str, ...] = ()
 
 
-def build_repo_graph(root: Path | str, parsed_modules: list[ParsedModule] | tuple[ParsedModule, ...]) -> RepoGraph:
+def build_repo_graph(
+    root: Path | str, parsed_modules: list[ParsedModule] | tuple[ParsedModule, ...]
+) -> RepoGraph:
     root_path = str(Path(root).resolve())
     repo_id = make_repo_id(root_path)
     node_map: dict[str, GraphNode] = {}
     edge_map: dict[str, GraphEdge] = {}
     unresolved_calls: list[UnresolvedCall] = []
     diagnostics = tuple(
-        diagnostic
-        for parsed_module in parsed_modules
-        for diagnostic in parsed_module.diagnostics
+        diagnostic for parsed_module in parsed_modules for diagnostic in parsed_module.diagnostics
     )
 
     repo_node = GraphNode(
@@ -50,9 +50,7 @@ def build_repo_graph(root: Path | str, parsed_modules: list[ParsedModule] | tupl
     modules_by_name = {parsed.module.module_name: parsed for parsed in parsed_modules}
     module_name_set = set(modules_by_name)
     symbol_defs: dict[str, SymbolDef] = {
-        symbol.symbol_id: symbol
-        for parsed in parsed_modules
-        for symbol in parsed.symbols
+        symbol.symbol_id: symbol for parsed in parsed_modules for symbol in parsed.symbols
     }
     symbol_lookup = _build_symbol_lookup(parsed_modules)
     top_level_symbols = _build_top_level_symbol_lookup(parsed_modules)
@@ -219,18 +217,16 @@ def build_repo_graph(root: Path | str, parsed_modules: list[ParsedModule] | tupl
 
 
 def _build_symbol_lookup(
-    parsed_modules: list[ParsedModule] | tuple[ParsedModule, ...]
+    parsed_modules: list[ParsedModule] | tuple[ParsedModule, ...],
 ) -> dict[str, dict[str, SymbolDef]]:
     lookup: dict[str, dict[str, SymbolDef]] = {}
     for parsed in parsed_modules:
-        lookup[parsed.module.module_name] = {
-            symbol.qualname: symbol for symbol in parsed.symbols
-        }
+        lookup[parsed.module.module_name] = {symbol.qualname: symbol for symbol in parsed.symbols}
     return lookup
 
 
 def _build_top_level_symbol_lookup(
-    parsed_modules: list[ParsedModule] | tuple[ParsedModule, ...]
+    parsed_modules: list[ParsedModule] | tuple[ParsedModule, ...],
 ) -> dict[str, dict[str, SymbolDef]]:
     lookup: dict[str, dict[str, SymbolDef]] = {}
     for parsed in parsed_modules:

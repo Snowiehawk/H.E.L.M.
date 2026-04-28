@@ -69,7 +69,9 @@ class EditorIntegrationTests(unittest.TestCase):
             )
 
             self.assertIn("Renamed helper to helper_blueprint", result.summary)
-            self.assertIn("def helper_blueprint():", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertIn(
+                "def helper_blueprint():", (root / "service.py").read_text(encoding="utf-8")
+            )
 
     def test_rejects_rename_when_inbound_calls_exist(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -157,7 +159,9 @@ class EditorIntegrationTests(unittest.TestCase):
                 inbound_dependency_count=inbound,
             )
             self.assertIn("Deleted build_blueprint", delete_result.summary)
-            self.assertNotIn("def build_blueprint():", (root / "beta.py").read_text(encoding="utf-8"))
+            self.assertNotIn(
+                "def build_blueprint():", (root / "beta.py").read_text(encoding="utf-8")
+            )
 
     def test_create_symbol_rejects_invalid_python_identifiers_keywords_and_duplicates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -277,15 +281,11 @@ class EditorIntegrationTests(unittest.TestCase):
             {
                 "name": "entry",
                 "anchor_edge_id": (
-                    "controls:flow:symbol:service:run:entry"
-                    "->flow:symbol:service:run:statement:0"
+                    "controls:flow:symbol:service:run:entry->flow:symbol:service:run:statement:0"
                 ),
                 "content": "helper = 1",
                 "expected_snippet": (
-                    "def run():\n"
-                    "    helper = 1\n"
-                    "    current = 1\n"
-                    "    return current\n"
+                    "def run():\n    helper = 1\n    current = 1\n    return current\n"
                 ),
                 "expected_changed_id": "flow:symbol:service:run:statement:0",
             },
@@ -297,10 +297,7 @@ class EditorIntegrationTests(unittest.TestCase):
                 ),
                 "content": "helper = current + 1",
                 "expected_snippet": (
-                    "def run():\n"
-                    "    current = 1\n"
-                    "    helper = current + 1\n"
-                    "    return current\n"
+                    "def run():\n    current = 1\n    helper = current + 1\n    return current\n"
                 ),
                 "expected_changed_id": "flow:symbol:service:run:statement:1",
             },
@@ -313,11 +310,7 @@ class EditorIntegrationTests(unittest.TestCase):
                     write_repo_files(
                         root,
                         {
-                            "service.py": (
-                                "def run():\n"
-                                "    current = 1\n"
-                                "    return current\n"
-                            ),
+                            "service.py": ("def run():\n    current = 1\n    return current\n"),
                         },
                     )
 
@@ -387,10 +380,7 @@ class EditorIntegrationTests(unittest.TestCase):
                         root,
                         {
                             "service.py": (
-                                "def run(flag):\n"
-                                "    if flag:\n"
-                                "        return 1\n"
-                                "    return 0\n"
+                                "def run(flag):\n    if flag:\n        return 1\n    return 0\n"
                             ),
                         },
                     )
@@ -514,7 +504,9 @@ class EditorIntegrationTests(unittest.TestCase):
                 inbound_dependency_count=inbound,
             )
             self.assertIn("Added import", add_result.summary)
-            self.assertIn("from helpers import helper", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertIn(
+                "from helpers import helper", (root / "service.py").read_text(encoding="utf-8")
+            )
 
             parsed_modules, _, inbound = parse_repo(root)
             remove_result = apply_structural_edit(
@@ -531,7 +523,9 @@ class EditorIntegrationTests(unittest.TestCase):
                 inbound_dependency_count=inbound,
             )
             self.assertIn("Removed import", remove_result.summary)
-            self.assertNotIn("from helpers import helper", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertNotIn(
+                "from helpers import helper", (root / "service.py").read_text(encoding="utf-8")
+            )
 
     def test_undo_transaction_removes_created_module_and_cleans_empty_dirs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -556,7 +550,9 @@ class EditorIntegrationTests(unittest.TestCase):
 
             self.assertFalse((root / "pkg" / "tools.py").exists())
             self.assertFalse((root / "pkg").exists())
-            self.assertEqual(undo_result.focus_target.target_id, f"repo:{root.resolve().as_posix()}")
+            self.assertEqual(
+                undo_result.focus_target.target_id, f"repo:{root.resolve().as_posix()}"
+            )
             self.assertEqual(undo_result.focus_target.level, "repo")
 
     def test_backend_undo_restores_deleted_symbol_source(self) -> None:
@@ -664,7 +660,7 @@ class EditorIntegrationTests(unittest.TestCase):
                         "class Service(\n"
                         "    Base,\n"
                         "):\n"
-                        "    \"\"\"Original docstring.\"\"\"\n"
+                        '    """Original docstring."""\n'
                         "    enabled: bool = True\n\n"
                         "    def run(self) -> bool:\n"
                         "        return self.enabled\n\n"
@@ -687,7 +683,7 @@ class EditorIntegrationTests(unittest.TestCase):
                             "class Service(\n"
                             "    Base,\n"
                             "):\n"
-                            "    \"\"\"Updated docstring.\"\"\"\n"
+                            '    """Updated docstring."""\n'
                             "    enabled: bool = False\n\n"
                             "    def run(self) -> bool:\n"
                             "        return self.enabled\n"
@@ -707,7 +703,7 @@ class EditorIntegrationTests(unittest.TestCase):
                     "class Service(\n"
                     "    Base,\n"
                     "):\n"
-                    "    \"\"\"Updated docstring.\"\"\"\n"
+                    '    """Updated docstring."""\n'
                     "    enabled: bool = False\n\n"
                     "    def run(self) -> bool:\n"
                     "        return self.enabled\n\n"
@@ -717,7 +713,9 @@ class EditorIntegrationTests(unittest.TestCase):
                 ),
             )
 
-    def test_replace_symbol_source_preserves_nested_method_spacing_comments_and_async_shape(self) -> None:
+    def test_replace_symbol_source_preserves_nested_method_spacing_comments_and_async_shape(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             write_repo_files(
@@ -732,7 +730,7 @@ class EditorIntegrationTests(unittest.TestCase):
                         "        self,\n"
                         "        value: str,\n"
                         "    ) -> str:\n"
-                        "        \"\"\"Return the current value.\"\"\"\n"
+                        '        """Return the current value."""\n'
                         "        return value\n\n"
                         "    def helper(self) -> bool:\n"
                         "        return self.enabled\n"
@@ -754,7 +752,7 @@ class EditorIntegrationTests(unittest.TestCase):
                             "    value: str,\n"
                             "    fallback: str | None = None,\n"
                             ") -> str:\n"
-                            "    \"\"\"Return the latest value.\"\"\"\n"
+                            '    """Return the latest value."""\n'
                             "    return fallback or value\n"
                         ),
                     }
@@ -778,7 +776,7 @@ class EditorIntegrationTests(unittest.TestCase):
                     "        value: str,\n"
                     "        fallback: str | None = None,\n"
                     "    ) -> str:\n"
-                    "        \"\"\"Return the latest value.\"\"\"\n"
+                    '        """Return the latest value."""\n'
                     "        return fallback or value\n\n"
                     "    def helper(self) -> bool:\n"
                     "        return self.enabled\n"
@@ -792,9 +790,7 @@ class EditorIntegrationTests(unittest.TestCase):
                 root,
                 {
                     "service.py": (
-                        "class Service:\n"
-                        "    def run(self) -> bool:\n"
-                        "        return True\n"
+                        "class Service:\n    def run(self) -> bool:\n        return True\n"
                     ),
                 },
             )
@@ -829,11 +825,7 @@ class EditorIntegrationTests(unittest.TestCase):
             write_repo_files(
                 root,
                 {
-                    "service.py": (
-                        "def run():\n"
-                        "    current = 1\n"
-                        "    return current\n"
-                    ),
+                    "service.py": ("def run():\n    current = 1\n    return current\n"),
                 },
             )
 
@@ -859,18 +851,18 @@ class EditorIntegrationTests(unittest.TestCase):
 
             undo_result = apply_backend_undo(root, result.undo_transaction)
 
-            self.assertNotIn("helper = current + 1", (root / "service.py").read_text(encoding="utf-8"))
+            self.assertNotIn(
+                "helper = current + 1", (root / "service.py").read_text(encoding="utf-8")
+            )
             self.assertEqual(undo_result.focus_target.target_id, "symbol:service:run")
             self.assertEqual(undo_result.focus_target.level, "flow")
 
-    def test_replace_flow_graph_saves_invalid_graph_as_draft_without_touching_python_source(self) -> None:
+    def test_replace_flow_graph_saves_invalid_graph_as_draft_without_touching_python_source(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            original_source = (
-                "def run(value):\n"
-                "    current = value + 1\n"
-                "    return current\n"
-            )
+            original_source = "def run(value):\n    current = value + 1\n    return current\n"
             write_repo_files(root, {"service.py": original_source})
 
             imported = import_flow_document_from_function_source(
@@ -903,7 +895,9 @@ class EditorIntegrationTests(unittest.TestCase):
             )
 
             self.assertEqual(result.flow_sync_state, "draft")
-            self.assertTrue(any("Unreachable flow nodes" in message for message in result.diagnostics))
+            self.assertTrue(
+                any("Unreachable flow nodes" in message for message in result.diagnostics)
+            )
             self.assertEqual(result.touched_relative_paths, (FLOW_MODEL_RELATIVE_PATH,))
             self.assertEqual((root / "service.py").read_text(encoding="utf-8"), original_source)
             self.assertEqual(result.undo_transaction.focus_target.target_id, "symbol:service:run")
@@ -916,20 +910,13 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertTrue(
                 any("Unreachable flow nodes" in message for message in stored.diagnostics)
             )
-            indexed_node_ids = {
-                node.node_id: node.indexed_node_id
-                for node in stored.nodes
-            }
+            indexed_node_ids = {node.node_id: node.indexed_node_id for node in stored.nodes}
             self.assertEqual(
                 indexed_node_ids.get("flowdoc:symbol:service:run:entry"),
                 "flow:symbol:service:run:entry",
             )
             self.assertEqual(
-                next(
-                    node.indexed_node_id
-                    for node in stored.nodes
-                    if node.kind == "return"
-                ),
+                next(node.indexed_node_id for node in stored.nodes if node.kind == "return"),
                 "flow:symbol:service:run:statement:1",
             )
             self.assertIsNone(indexed_node_ids.get("flowdoc:symbol:service:run:call:disconnected"))
@@ -942,10 +929,7 @@ class EditorIntegrationTests(unittest.TestCase):
     def test_replace_flow_graph_rejects_parameter_nodes_in_persisted_documents(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(value):\n"
-                "    return value\n"
-            )
+            source = "def run(value):\n    return value\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -978,13 +962,12 @@ class EditorIntegrationTests(unittest.TestCase):
                     inbound_dependency_count=inbound,
                 )
 
-    def test_replace_flow_graph_saves_clean_graph_updates_source_and_undo_restores_both_files(self) -> None:
+    def test_replace_flow_graph_saves_clean_graph_updates_source_and_undo_restores_both_files(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            original_source = (
-                "def run(value):\n"
-                "    return value\n"
-            )
+            original_source = "def run(value):\n    return value\n"
             write_repo_files(root, {"service.py": original_source})
 
             imported = import_flow_document_from_function_source(
@@ -1047,9 +1030,7 @@ class EditorIntegrationTests(unittest.TestCase):
             assert stored is not None
             self.assertEqual(stored.sync_state, "clean")
             self.assertEqual(stored.diagnostics, ())
-            self.assertTrue(
-                any(node.node_id == call_node_id for node in stored.nodes)
-            )
+            self.assertTrue(any(node.node_id == call_node_id for node in stored.nodes))
             stored_call = next(node for node in stored.nodes if node.node_id == call_node_id)
             self.assertEqual(
                 stored_call.indexed_node_id,
@@ -1061,17 +1042,16 @@ class EditorIntegrationTests(unittest.TestCase):
                 "flow:symbol:service:run:statement:1",
             )
 
-            undo_result = apply_backend_undo(root, result.undo_transaction)
+            apply_backend_undo(root, result.undo_transaction)
             self.assertEqual((root / "service.py").read_text(encoding="utf-8"), original_source)
             self.assertFalse((root / FLOW_MODEL_RELATIVE_PATH).exists())
 
-    def test_replace_flow_graph_drops_derived_return_completion_edges_before_persisting(self) -> None:
+    def test_replace_flow_graph_drops_derived_return_completion_edges_before_persisting(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(value):\n"
-                "    return value\n"
-            )
+            source = "def run(value):\n    return value\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -1082,7 +1062,9 @@ class EditorIntegrationTests(unittest.TestCase):
             )
             return_node = next(node for node in imported.nodes if node.kind == "return")
             exit_node = next(node for node in imported.nodes if node.kind == "exit")
-            completion_edge_id = flow_return_completion_edge_id(return_node.node_id, exit_node.node_id)
+            completion_edge_id = flow_return_completion_edge_id(
+                return_node.node_id, exit_node.node_id
+            )
             payload = imported.to_dict()
             payload["edges"].append(
                 FlowModelEdge(
@@ -1118,10 +1100,7 @@ class EditorIntegrationTests(unittest.TestCase):
     def test_replace_flow_graph_keeps_invalid_return_control_edges_draft_backed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(value):\n"
-                "    return value\n"
-            )
+            source = "def run(value):\n    return value\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -1170,13 +1149,12 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertEqual(stored.sync_state, "draft")
             self.assertTrue(any(edge.edge_id == invalid_edge_id for edge in stored.edges))
 
-    def test_replace_flow_graph_backfills_legacy_control_only_payload_before_clean_save(self) -> None:
+    def test_replace_flow_graph_backfills_legacy_control_only_payload_before_clean_save(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def add(a, b):\n"
-                "    return a + b\n"
-            )
+            source = "def add(a, b):\n    return a + b\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -1210,7 +1188,9 @@ class EditorIntegrationTests(unittest.TestCase):
             stored = read_flow_document(root, "symbol:service:add")
             self.assertIsNotNone(stored)
             assert stored is not None
-            self.assertEqual([function_input.name for function_input in stored.function_inputs], ["a", "b"])
+            self.assertEqual(
+                [function_input.name for function_input in stored.function_inputs], ["a", "b"]
+            )
             self.assertEqual(
                 {slot.slot_id for slot in stored.input_slots},
                 {
@@ -1235,10 +1215,7 @@ class EditorIntegrationTests(unittest.TestCase):
     def test_replace_flow_graph_rewrites_function_signature_from_flow_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(a: int, b=1):\n"
-                "    return a + b\n"
-            )
+            source = "def run(a: int, b=1):\n    return a + b\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -1298,7 +1275,10 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertIsNotNone(stored)
             assert stored is not None
             self.assertEqual(
-                [(item.input_id, item.name, item.default_expression) for item in stored.function_inputs],
+                [
+                    (item.input_id, item.name, item.default_expression)
+                    for item in stored.function_inputs
+                ],
                 [
                     ("flowinput:symbol:service:run:a", "a", None),
                     ("flowinput:symbol:service:run:b", "limit", "2"),
@@ -1309,11 +1289,7 @@ class EditorIntegrationTests(unittest.TestCase):
     def test_replace_flow_graph_rewrites_rewired_function_input_bindings_semantically(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(a, b, value):\n"
-                "    label = \"b\"\n"
-                "    return value.b + b\n"
-            )
+            source = 'def run(a, b, value):\n    label = "b"\n    return value.b + b\n'
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -1361,12 +1337,7 @@ class EditorIntegrationTests(unittest.TestCase):
     def test_replace_flow_graph_rewrites_rewired_local_value_bindings_semantically(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(a, b):\n"
-                "    x = a + 1\n"
-                "    y = b + 1\n"
-                "    return x\n"
-            )
+            source = "def run(a, b):\n    x = a + 1\n    y = b + 1\n    return x\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -1416,12 +1387,7 @@ class EditorIntegrationTests(unittest.TestCase):
     def test_replace_flow_graph_duplicate_local_name_rewire_clean_saves_with_alias(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(a):\n"
-                "    x = a\n"
-                "    x = a + 1\n"
-                "    return x\n"
-            )
+            source = "def run(a):\n    x = a\n    x = a + 1\n    return x\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -1466,12 +1432,7 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertEqual(result.diagnostics, ())
             self.assertEqual(
                 (root / "service.py").read_text(encoding="utf-8"),
-                (
-                    "def run(a):\n"
-                    "    x__flow_0 = a\n"
-                    "    x = a + 1\n"
-                    "    return x__flow_0\n"
-                ),
+                ("def run(a):\n    x__flow_0 = a\n    x = a + 1\n    return x__flow_0\n"),
             )
             stored = read_flow_document(root, "symbol:service:run")
             self.assertIsNotNone(stored)
@@ -1484,16 +1445,16 @@ class EditorIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(stored_earlier_source.name, "x")
             self.assertEqual(stored_earlier_source.emitted_name, "x__flow_0")
-            self.assertTrue(any(binding.source_id == earlier_source["id"] for binding in stored.input_bindings))
+            self.assertTrue(
+                any(binding.source_id == earlier_source["id"] for binding in stored.input_bindings)
+            )
 
-    def test_replace_flow_graph_function_input_shadow_rewire_clean_saves_with_local_alias(self) -> None:
+    def test_replace_flow_graph_function_input_shadow_rewire_clean_saves_with_local_alias(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(x):\n"
-                "    x = 1\n"
-                "    return x\n"
-            )
+            source = "def run(x):\n    x = 1\n    return x\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -1541,11 +1502,7 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertEqual(result.flow_sync_state, "clean")
             self.assertEqual(
                 (root / "service.py").read_text(encoding="utf-8"),
-                (
-                    "def run(x):\n"
-                    "    x__flow_0 = 1\n"
-                    "    return x\n"
-                ),
+                ("def run(x):\n    x__flow_0 = 1\n    return x\n"),
             )
             stored = read_flow_document(root, "symbol:service:run")
             self.assertIsNotNone(stored)
@@ -1554,8 +1511,7 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertEqual(local_source.emitted_name, "x__flow_0")
             self.assertTrue(
                 any(
-                    binding.source_id == input_id
-                    and binding.slot_id.endswith(":x")
+                    binding.source_id == input_id and binding.slot_id.endswith(":x")
                     for binding in stored.input_bindings
                 )
             )
@@ -1578,7 +1534,9 @@ class EditorIntegrationTests(unittest.TestCase):
                 module_source=source,
             )
             payload = imported.to_dict()
-            input_id = next(item["id"] for item in payload["function_inputs"] if item["name"] == "value")
+            input_id = next(
+                item["id"] for item in payload["function_inputs"] if item["name"] == "value"
+            )
             node_kind_by_id = {node["id"]: node["kind"] for node in payload["nodes"]}
             return_slot = next(
                 slot
@@ -1627,12 +1585,7 @@ class EditorIntegrationTests(unittest.TestCase):
     def test_replace_flow_graph_future_source_binding_remains_draft(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(a):\n"
-                "    y = a\n"
-                "    x = a\n"
-                "    return y\n"
-            )
+            source = "def run(a):\n    y = a\n    x = a\n    return y\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -1685,12 +1638,7 @@ class EditorIntegrationTests(unittest.TestCase):
     def test_replace_flow_graph_branch_only_source_after_merge_remains_draft(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(flag, a):\n"
-                "    if flag:\n"
-                "        x = a\n"
-                "    return x\n"
-            )
+            source = "def run(flag, a):\n    if flag:\n        x = a\n    return x\n"
             write_repo_files(root, {"service.py": source})
             imported = import_flow_document_from_function_source(
                 symbol_id="symbol:service:run",
@@ -1753,14 +1701,12 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertIn("loop-body-only source after loop", " ".join(result.diagnostics))
             self.assertEqual((root / "service.py").read_text(encoding="utf-8"), source)
 
-    def test_input_binding_records_allow_one_input_to_feed_multiple_slots_independently(self) -> None:
+    def test_input_binding_records_allow_one_input_to_feed_multiple_slots_independently(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(a):\n"
-                "    x = a\n"
-                "    return a\n"
-            )
+            source = "def run(a):\n    x = a\n    return a\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -1802,7 +1748,9 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertIsNotNone(stored)
             assert stored is not None
             self.assertEqual(len(stored.input_bindings), 1)
-            self.assertEqual(stored.input_bindings[0].function_input_id, imported.function_inputs[0].input_id)
+            self.assertEqual(
+                stored.input_bindings[0].function_input_id, imported.function_inputs[0].input_id
+            )
             self.assertNotEqual(stored.input_bindings[0].binding_id, removed_binding["id"])
             self.assertEqual(result.undo_transaction.focus_target.target_id, "symbol:service:run")
             self.assertEqual(result.undo_transaction.focus_target.level, "flow")
@@ -1810,10 +1758,7 @@ class EditorIntegrationTests(unittest.TestCase):
     def test_replace_flow_graph_round_trips_all_picker_node_kinds_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            original_source = (
-                "def run(value, items, total):\n"
-                "    return value\n"
-            )
+            original_source = "def run(value, items, total):\n    return value\n"
             write_repo_files(root, {"service.py": original_source})
 
             payload = {
@@ -1950,4 +1895,7 @@ class EditorIntegrationTests(unittest.TestCase):
             self.assertIsNotNone(stored)
             assert stored is not None
             self.assertEqual(stored.sync_state, "clean")
-            self.assertEqual({node.kind for node in stored.nodes}, {"entry", "assign", "call", "branch", "loop", "return", "exit"})
+            self.assertEqual(
+                {node.kind for node in stored.nodes},
+                {"entry", "assign", "call", "branch", "loop", "return", "exit"},
+            )

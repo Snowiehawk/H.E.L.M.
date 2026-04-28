@@ -1,27 +1,12 @@
 export type IndexStatus = "queued" | "running" | "done" | "error";
-export type IndexStage =
-  | "discover"
-  | "parse"
-  | "graph_build"
-  | "cache_finalize"
-  | "watch_ready";
+export type IndexStage = "discover" | "parse" | "graph_build" | "cache_finalize" | "watch_ready";
 export type BackendMode = "mock" | "live";
-export type WorkspaceSyncState =
-  | "idle"
-  | "syncing"
-  | "synced"
-  | "error"
-  | "manual_resync_required";
+export type WorkspaceSyncState = "idle" | "syncing" | "synced" | "error" | "manual_resync_required";
 export type ThemeMode = "system" | "light" | "dark";
 export type WorkspaceTab = "overview" | "file" | "symbol" | "graph";
 export type SearchResultKind = "module" | "symbol" | "file";
 export type GraphAbstractionLevel = "repo" | "module" | "symbol" | "flow";
-export type GraphSymbolNodeKind =
-  | "symbol"
-  | "function"
-  | "class"
-  | "enum"
-  | "variable";
+export type GraphSymbolNodeKind = "symbol" | "function" | "class" | "enum" | "variable";
 export type GraphNodeKind =
   | "repo"
   | "module"
@@ -38,13 +23,7 @@ export type GraphNodeKind =
   | "loop"
   | "return"
   | "exit";
-export type GraphEdgeKind =
-  | "contains"
-  | "imports"
-  | "defines"
-  | "calls"
-  | "controls"
-  | "data";
+export type GraphEdgeKind = "contains" | "imports" | "defines" | "calls" | "controls" | "data";
 export type StructuralEditKind =
   | "create_module"
   | "rename_symbol"
@@ -433,11 +412,11 @@ export function isGraphSymbolNodeKind(
   kind: GraphNodeKind | string | null | undefined,
 ): kind is GraphSymbolNodeKind {
   return (
-    kind === "symbol"
-    || kind === "function"
-    || kind === "class"
-    || kind === "enum"
-    || kind === "variable"
+    kind === "symbol" ||
+    kind === "function" ||
+    kind === "class" ||
+    kind === "enum" ||
+    kind === "variable"
   );
 }
 
@@ -445,11 +424,11 @@ export function isInspectableGraphNodeKind(
   kind: GraphNodeKind | string | null | undefined,
 ): kind is "module" | "function" | "class" | "variable" | "enum" {
   return (
-    kind === "module"
-    || kind === "function"
-    || kind === "class"
-    || kind === "variable"
-    || kind === "enum"
+    kind === "module" ||
+    kind === "function" ||
+    kind === "class" ||
+    kind === "variable" ||
+    kind === "enum"
   );
 }
 
@@ -547,12 +526,7 @@ export interface OverviewMetric {
   tone?: "default" | "accent";
 }
 
-export type OverviewOutlineKind =
-  | "function"
-  | "async_function"
-  | "class"
-  | "enum"
-  | "variable";
+export type OverviewOutlineKind = "function" | "async_function" | "class" | "enum" | "variable";
 
 export interface OverviewOutlineItem {
   id: string;
@@ -608,10 +582,7 @@ export interface DesktopAdapter {
   getBackendStatus(): Promise<BackendStatus>;
   subscribeWorkspaceSync(onUpdate: (event: WorkspaceSyncEvent) => void): () => void;
   startIndex(repoPath: string): Promise<{ jobId: string }>;
-  subscribeIndexProgress(
-    jobId: string,
-    onUpdate: (state: IndexingJobState) => void,
-  ): () => void;
+  subscribeIndexProgress(jobId: string, onUpdate: (state: IndexingJobState) => void): () => void;
   searchRepo(query: string, filters: SearchFilters): Promise<SearchResult[]>;
   getFile(path: string): Promise<FileContents>;
   listWorkspaceFiles(repoPath: string): Promise<WorkspaceFileTree>;

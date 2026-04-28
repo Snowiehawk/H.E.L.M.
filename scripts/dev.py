@@ -45,7 +45,9 @@ def extract_force_install_flag(args: list[str]) -> tuple[bool, list[str]]:
     return force_bootstrap, remaining
 
 
-def ensure_bootstrap(*, force: bool = False, python_only: bool = False, ui_only: bool = False) -> Path:
+def ensure_bootstrap(
+    *, force: bool = False, python_only: bool = False, ui_only: bool = False
+) -> Path:
     ensure_supported_python()
     profile = get_platform_profile()
     print_step(f"Detected OS: {profile.name}.")

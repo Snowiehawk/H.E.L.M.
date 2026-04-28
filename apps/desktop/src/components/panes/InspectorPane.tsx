@@ -107,7 +107,11 @@ export function InspectorPane({
             <span>{symbol.kind}</span>
           </div>
           <p className="muted-copy">{symbol.docSummary}</p>
-          <button className="ghost-button" type="button" onClick={() => onOpenFile(symbol.filePath)}>
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => onOpenFile(symbol.filePath)}
+          >
             Open {symbol.filePath}
           </button>
           <div className="metadata-grid">

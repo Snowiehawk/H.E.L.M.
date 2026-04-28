@@ -21,9 +21,7 @@ class CliTests(unittest.TestCase):
                 {
                     "helpers.py": "def helper():\n    return 'ok'\n",
                     "service.py": (
-                        "from helpers import helper\n\n"
-                        "def run():\n"
-                        "    return helper()\n"
+                        "from helpers import helper\n\ndef run():\n    return helper()\n"
                     ),
                 },
             )

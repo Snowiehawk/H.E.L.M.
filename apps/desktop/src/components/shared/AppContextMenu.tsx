@@ -19,7 +19,8 @@ const APP_CONTEXT_MENU_MARGIN = 8;
 
 export function clampAppContextMenuPosition(x: number, y: number): AppContextMenuPosition {
   const viewportWidth = window.innerWidth || APP_CONTEXT_MENU_WIDTH + APP_CONTEXT_MENU_MARGIN * 2;
-  const viewportHeight = window.innerHeight || APP_CONTEXT_MENU_MAX_HEIGHT + APP_CONTEXT_MENU_MARGIN * 2;
+  const viewportHeight =
+    window.innerHeight || APP_CONTEXT_MENU_MAX_HEIGHT + APP_CONTEXT_MENU_MARGIN * 2;
   return {
     x: Math.max(
       APP_CONTEXT_MENU_MARGIN,
@@ -134,11 +135,15 @@ export function AppContextMenu({
           switch (event.key) {
             case "ArrowDown":
               event.preventDefault();
-              focusableItems[(currentIndex + 1 + focusableItems.length) % focusableItems.length]?.focus();
+              focusableItems[
+                (currentIndex + 1 + focusableItems.length) % focusableItems.length
+              ]?.focus();
               break;
             case "ArrowUp":
               event.preventDefault();
-              focusableItems[(currentIndex - 1 + focusableItems.length) % focusableItems.length]?.focus();
+              focusableItems[
+                (currentIndex - 1 + focusableItems.length) % focusableItems.length
+              ]?.focus();
               break;
             case "Home":
               event.preventDefault();
@@ -160,7 +165,9 @@ export function AppContextMenu({
       >
         {items.map((item) => (
           <div key={item.id} role="none">
-            {item.separatorBefore ? <div className="context-menu__separator" role="separator" /> : null}
+            {item.separatorBefore ? (
+              <div className="context-menu__separator" role="separator" />
+            ) : null}
             <button
               className="context-menu__item"
               disabled={item.disabled}

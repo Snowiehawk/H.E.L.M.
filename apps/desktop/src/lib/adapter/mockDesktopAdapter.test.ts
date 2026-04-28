@@ -99,7 +99,9 @@ describe("MockDesktopAdapter", () => {
     expect(result.touchedRelativePaths).toEqual([".helm/flow-models.v1.json"]);
     expect(result.diagnostics.some((diagnostic) => diagnostic.includes("disconnected"))).toBe(true);
     expect(updated.flowState?.syncState).toBe("draft");
-    expect(updated.flowState?.document?.nodes.some((node) => node.id.endsWith(":assign:disconnected"))).toBe(true);
+    expect(
+      updated.flowState?.document?.nodes.some((node) => node.id.endsWith(":assign:disconnected")),
+    ).toBe(true);
     expect(updated.nodes.some((node) => node.id.endsWith(":assign:disconnected"))).toBe(true);
     expect(source.content).not.toContain("helper = rank_modules(graph)");
   });
@@ -114,14 +116,14 @@ describe("MockDesktopAdapter", () => {
 
     const cleanDocument: FlowGraphDocument = {
       ...baseDocument,
-      nodes: baseDocument.nodes.map((node) => (
+      nodes: baseDocument.nodes.map((node) =>
         node.id === "flow:symbol:helm.ui.api:build_graph_summary:call:rank"
           ? {
               ...node,
               payload: { source: "rank_modules(module_summaries, top_n)" },
             }
-          : node
-      )),
+          : node,
+      ),
     };
 
     const result = await adapter.applyStructuralEdit({
@@ -140,10 +142,13 @@ describe("MockDesktopAdapter", () => {
     ]);
     expect(updated.flowState?.syncState).toBe("clean");
     expect(
-      updated.flowState?.document?.nodes.find((node) => node.id === "flow:symbol:helm.ui.api:build_graph_summary:call:rank")
-        ?.payload,
+      updated.flowState?.document?.nodes.find(
+        (node) => node.id === "flow:symbol:helm.ui.api:build_graph_summary:call:rank",
+      )?.payload,
     ).toEqual({ source: "rank_modules(module_summaries, top_n)" });
-    expect(updated.nodes.some((node) => node.label.includes("rank_modules(module_summaries, top_n)"))).toBe(true);
+    expect(
+      updated.nodes.some((node) => node.label.includes("rank_modules(module_summaries, top_n)")),
+    ).toBe(true);
     expect(source.content).toContain("rank_modules(module_summaries, top_n)");
   });
 });

@@ -13,33 +13,39 @@ export function useWorkspaceLauncher() {
   const [isOpening, setIsOpening] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
-  const indexSession = useCallback(async (session: RepoSession) => {
-    resetWorkspace();
-    setSession(session);
-    const { jobId } = await adapter.startIndex(session.path);
-    navigate(`/indexing/${encodeURIComponent(jobId)}`);
-  }, [adapter, navigate, resetWorkspace, setSession]);
+  const indexSession = useCallback(
+    async (session: RepoSession) => {
+      resetWorkspace();
+      setSession(session);
+      const { jobId } = await adapter.startIndex(session.path);
+      navigate(`/indexing/${encodeURIComponent(jobId)}`);
+    },
+    [adapter, navigate, resetWorkspace, setSession],
+  );
 
-  const openAndIndexRepo = useCallback(async (path?: string) => {
-    setError(null);
-    setIsOpening(true);
+  const openAndIndexRepo = useCallback(
+    async (path?: string) => {
+      setError(null);
+      setIsOpening(true);
 
-    try {
-      const session = await adapter.openRepo(path);
-      await indexSession(session);
-    } catch (reason) {
-      const message =
-        reason instanceof Error ? reason.message : "Unable to open the selected repository.";
-      setError(message);
-      setLastActivity({
-        domain: "backend",
-        kind: "error",
-        summary: message,
-      });
-    } finally {
-      setIsOpening(false);
-    }
-  }, [adapter, indexSession, setLastActivity]);
+      try {
+        const session = await adapter.openRepo(path);
+        await indexSession(session);
+      } catch (reason) {
+        const message =
+          reason instanceof Error ? reason.message : "Unable to open the selected repository.";
+        setError(message);
+        setLastActivity({
+          domain: "backend",
+          kind: "error",
+          summary: message,
+        });
+      } finally {
+        setIsOpening(false);
+      }
+    },
+    [adapter, indexSession, setLastActivity],
+  );
 
   const createAndIndexProject = useCallback(async () => {
     setError(null);

@@ -43,9 +43,7 @@ describe("graphLayoutPersistence", () => {
     };
 
     expect(graphLayoutViewKey(repoGraph)).toBe("repo|repo-root");
-    expect(graphLayoutViewKey(symbolGraph)).toBe(
-      "symbol|symbol:helm.ui.api:build_graph_summary",
-    );
+    expect(graphLayoutViewKey(symbolGraph)).toBe("symbol|symbol:helm.ui.api:build_graph_summary");
   });
 
   it("reads persisted positions from the opened repo", async () => {
@@ -90,7 +88,7 @@ describe("graphLayoutPersistence", () => {
       repoPath: "/workspace/project",
       viewKey: "module|module:alpha",
       layoutJson:
-        "{\"nodes\":{\"module:alpha\":{\"x\":120,\"y\":-40},\"module:beta\":{\"x\":440,\"y\":80}},\"reroutes\":[],\"pinnedNodeIds\":[\"module:beta\"],\"groups\":[]}",
+        '{"nodes":{"module:alpha":{"x":120,"y":-40},"module:beta":{"x":440,"y":80}},"reroutes":[],"pinnedNodeIds":["module:beta"],"groups":[]}',
     });
   });
 

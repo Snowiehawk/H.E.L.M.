@@ -10,10 +10,7 @@ from tests.helpers import write_repo_files
 
 
 def _graph_node_ids(payload: dict) -> set[str]:
-    return {
-        node["node_id"]
-        for node in payload["graph"]["nodes"]
-    }
+    return {node["node_id"] for node in payload["graph"]["nodes"]}
 
 
 def _unique_progress_stages(events: list[dict]) -> list[str]:
@@ -52,10 +49,7 @@ class WorkspaceSessionTests(unittest.TestCase):
             session = WorkspaceSession.open(root)
 
             tree = session.list_workspace_files()
-            entries_by_path = {
-                entry["relative_path"]: entry
-                for entry in tree["entries"]
-            }
+            entries_by_path = {entry["relative_path"]: entry for entry in tree["entries"]}
             self.assertEqual(entries_by_path["README.md"]["kind"], "file")
             self.assertEqual(entries_by_path["src"]["kind"], "directory")
             self.assertEqual(entries_by_path["src/app.py"]["kind"], "file")
@@ -207,10 +201,7 @@ class WorkspaceSessionTests(unittest.TestCase):
 
             session = WorkspaceSession.open(root)
             tree = session.list_workspace_files()
-            entries_by_path = {
-                entry["relative_path"]: entry
-                for entry in tree["entries"]
-            }
+            entries_by_path = {entry["relative_path"]: entry for entry in tree["entries"]}
 
             self.assertFalse(entries_by_path["binary.dat"]["editable"])
             self.assertIn("Binary", entries_by_path["binary.dat"]["reason"])
@@ -281,9 +272,7 @@ class WorkspaceSessionTests(unittest.TestCase):
 
             module_path.write_text("def helper(:\n    return 1\n", encoding="utf-8")
             broken = session.refresh_paths(["service.py"])
-            self.assertTrue(
-                any("syntax_error" in message for message in broken["diagnostics"])
-            )
+            self.assertTrue(any("syntax_error" in message for message in broken["diagnostics"]))
 
             module_path.write_text("def helper():\n    return 2\n", encoding="utf-8")
             payload = session.full_resync()
@@ -342,9 +331,5 @@ class WorkspaceSessionTests(unittest.TestCase):
                 _unique_progress_stages(progress_events),
                 ["discover", "parse", "graph_build", "cache_finalize"],
             )
-            parse_events = [
-                event
-                for event in progress_events
-                if event["stage"] == "parse"
-            ]
+            parse_events = [event for event in progress_events if event["stage"] == "parse"]
             self.assertTrue(any("service.py" in event["message"] for event in parse_events))

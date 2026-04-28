@@ -1,5 +1,7 @@
 # H.E.L.M.
 
+[![CI](https://github.com/Snowiehawk/H.E.L.M./actions/workflows/ci.yml/badge.svg)](https://github.com/Snowiehawk/H.E.L.M./actions/workflows/ci.yml)
+
 H.E.L.M. is a bidirectional repo-to-graph structural editor for source code. This repository currently implements the MVP backbone for Python repositories:
 
 - walk a repo and discover Python modules
@@ -74,3 +76,15 @@ For desktop work, the root `invoke` tasks automatically run inside `apps/desktop
 The bootstrap script prints fully qualified follow-up commands that use the repo-local venv directly, so you do not have to activate the venv just to use HELM.
 
 If you use zsh, keep the extras spec quoted as `'.[dev]'` so the shell does not treat `[]` as a glob. This non-editable install is intentional for compatibility with the older `pip` that ships with macOS Command Line Tools Python.
+
+## CI / Quality Gates
+
+GitHub Actions runs the current required gates on Ubuntu for pull requests, pushes to `main`, pushes to `dev`, and manual dispatches. HELM is still intended to support macOS and Windows local development; Ubuntu CI is the first automated baseline, not the whole platform matrix.
+
+After installing development dependencies, run the CI-equivalent local checks with:
+
+```bash
+python -m invoke ci
+```
+
+Use `npm ci` in `apps/desktop/` when you want the same dependency install behavior as CI. The HELM bootstrap commands use `npm install` for local convenience and first-run setup. See `docs/ci.md` for the exact commands, audit allowlist rules, and platform notes.

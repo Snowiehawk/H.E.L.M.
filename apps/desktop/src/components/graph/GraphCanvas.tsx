@@ -40,11 +40,7 @@ import {
 } from "../../lib/adapter";
 import { isFlowNodeAuthorableKind, type FlowLoopType } from "./flowDocument";
 import { GraphToolbar } from "./GraphToolbar";
-import {
-  BlueprintNode,
-  type BlueprintNodeData,
-  type BlueprintNodePort,
-} from "./BlueprintNode";
+import { BlueprintNode, type BlueprintNodeData, type BlueprintNodePort } from "./BlueprintNode";
 import { BlueprintEdge, type BlueprintEdgeData } from "./BlueprintEdge";
 import { RerouteNode, type RerouteNodeData } from "./RerouteNode";
 import {
@@ -71,10 +67,7 @@ import {
   type StoredGraphReroute,
   writeStoredGraphLayout,
 } from "./graphLayoutPersistence";
-import {
-  organizeGroupedNodes,
-  type GroupOrganizeMode,
-} from "./groupOrganizeLayout";
+import { organizeGroupedNodes, type GroupOrganizeMode } from "./groupOrganizeLayout";
 import { EmptyState } from "../shared/EmptyState";
 import {
   AppContextMenu,
@@ -245,22 +238,24 @@ function isControlFlowConnectionPair(
   sourceHandle: string | null | undefined,
   targetHandle: string | null | undefined,
 ) {
-  return sourceHandle?.startsWith("out:control:") === true
-    && targetHandle === "in:control:exec";
+  return sourceHandle?.startsWith("out:control:") === true && targetHandle === "in:control:exec";
 }
 
 function isDataFlowConnectionPair(
   sourceHandle: string | null | undefined,
   targetHandle: string | null | undefined,
 ) {
-  return sourceHandle?.startsWith("out:data:") === true
-    && targetHandle?.startsWith("in:data:") === true;
+  return (
+    sourceHandle?.startsWith("out:data:") === true && targetHandle?.startsWith("in:data:") === true
+  );
 }
 
 function isVisualFunctionInputNode(node: GraphNodeDto): boolean {
-  return node.kind === "param"
-    && node.metadata["flow_visual"] === true
-    && typeof node.metadata["function_input_id"] === "string";
+  return (
+    node.kind === "param" &&
+    node.metadata["flow_visual"] === true &&
+    typeof node.metadata["function_input_id"] === "string"
+  );
 }
 
 export function isValidFlowCanvasConnection(connection: {
@@ -273,8 +268,10 @@ export function isValidFlowCanvasConnection(connection: {
     return false;
   }
 
-  return isControlFlowConnectionPair(connection.sourceHandle, connection.targetHandle)
-    || isDataFlowConnectionPair(connection.sourceHandle, connection.targetHandle);
+  return (
+    isControlFlowConnectionPair(connection.sourceHandle, connection.targetHandle) ||
+    isDataFlowConnectionPair(connection.sourceHandle, connection.targetHandle)
+  );
 }
 
 function BlueprintConnectionLine({
@@ -302,10 +299,7 @@ function BlueprintConnectionLine({
         : "is-pending";
 
   return (
-    <g
-      className={`graph-connection-line ${statusClass}`}
-      data-testid="graph-connection-line"
-    >
+    <g className={`graph-connection-line ${statusClass}`} data-testid="graph-connection-line">
       <path className="graph-connection-line__halo" d={edgePath} />
       <path className="graph-connection-line__path" d={edgePath} />
       <circle className="graph-connection-line__cursor" cx={toX} cy={toY} r={5.5} />
@@ -315,15 +309,15 @@ function BlueprintConnectionLine({
 
 function metadataNumber(node: GraphNodeDto, key: string): number | undefined {
   const value =
-    node.metadata[key]
-    ?? node.metadata[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+    node.metadata[key] ??
+    node.metadata[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
   return typeof value === "number" ? value : undefined;
 }
 
 function metadataString(node: GraphNodeDto, key: string): string | undefined {
   const value =
-    node.metadata[key]
-    ?? node.metadata[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+    node.metadata[key] ??
+    node.metadata[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
   return typeof value === "string" ? value : undefined;
 }
 
@@ -369,8 +363,7 @@ function nodeSummary(node: GraphNodeDto): string | undefined {
   }
   if (isGraphSymbolNodeKind(node.kind)) {
     const symbolKind =
-      metadataString(node, "symbol_kind")
-      ?? (node.kind === "symbol" ? undefined : node.kind);
+      metadataString(node, "symbol_kind") ?? (node.kind === "symbol" ? undefined : node.kind);
     const moduleName = metadataString(node, "module_name");
     if (symbolKind && moduleName) {
       return `${symbolKind.replaceAll("_", " ")} · ${moduleName}`;
@@ -379,7 +372,9 @@ function nodeSummary(node: GraphNodeDto): string | undefined {
   return node.subtitle ?? undefined;
 }
 
-function expressionPreviewForNode(node: GraphNodeDto): BlueprintNodeData["expressionPreview"] | undefined {
+function expressionPreviewForNode(
+  node: GraphNodeDto,
+): BlueprintNodeData["expressionPreview"] | undefined {
   if (node.kind !== "return") {
     return undefined;
   }
@@ -413,9 +408,7 @@ function rerouteNodeId(rerouteId: string) {
 }
 
 function rerouteStorageId(nodeId: string) {
-  return nodeId.startsWith(REROUTE_NODE_PREFIX)
-    ? nodeId.slice(REROUTE_NODE_PREFIX.length)
-    : nodeId;
+  return nodeId.startsWith(REROUTE_NODE_PREFIX) ? nodeId.slice(REROUTE_NODE_PREFIX.length) : nodeId;
 }
 
 function createRerouteId(logicalEdgeId: string) {
@@ -471,11 +464,7 @@ function resolveSelectionPreviewNodeIds({
   selectedGroupId?: string;
   selectedRerouteCount: number;
 }) {
-  if (
-    marqueeSelectionActive
-    || selectedRerouteCount
-    || selectedGroupId
-  ) {
+  if (marqueeSelectionActive || selectedRerouteCount || selectedGroupId) {
     return [];
   }
 
@@ -510,7 +499,7 @@ export function resolveSelectionPreviewNodeId({
     selectedRerouteCount,
   });
 
-  return previewNodeIds.length === 1 ? previewNodeIds[0] ?? "" : "";
+  return previewNodeIds.length === 1 ? (previewNodeIds[0] ?? "") : "";
 }
 
 export function normalizeStoredGroups(
@@ -527,10 +516,9 @@ export function normalizeStoredGroups(
 
     const memberNodeIds = sortNodeIds(
       new Set(
-        (group.memberNodeIds ?? []).filter((memberNodeId) => (
-          liveNodeIds.has(memberNodeId)
-          && !claimedNodeIds.has(memberNodeId)
-        )),
+        (group.memberNodeIds ?? []).filter(
+          (memberNodeId) => liveNodeIds.has(memberNodeId) && !claimedNodeIds.has(memberNodeId),
+        ),
       ),
     );
 
@@ -570,10 +558,7 @@ function buildGroupMembership(groups: StoredGraphGroup[]): GroupMembership {
   };
 }
 
-function touchedGroupIdsForNodeIds(
-  nodeIds: Iterable<string>,
-  groupByNodeId: Map<string, string>,
-) {
+function touchedGroupIdsForNodeIds(nodeIds: Iterable<string>, groupByNodeId: Map<string, string>) {
   const groupIds = new Set<string>();
   [...nodeIds].forEach((nodeId) => {
     const groupId = groupByNodeId.get(nodeId);
@@ -620,7 +605,9 @@ function buildNodeShellClassName(
     selectionContextActive && !selectedRelatedNodeIds.has(nodeId) ? "is-dimmed" : "",
     groupedNodeIds.has(nodeId) ? "is-group-member" : "",
     selectedGroupMemberNodeIds.has(nodeId) ? "is-group-selected" : "",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function buildRerouteShellClassName(
@@ -641,11 +628,9 @@ function buildRerouteShellClassName(
       ? !selectedConnectedEdgeIds.has(logicalEdgeId)
       : false;
 
-  return [
-    "graph-reroute-shell",
-    related ? "is-related" : "",
-    dimmed ? "is-dimmed" : "",
-  ].filter(Boolean).join(" ");
+  return ["graph-reroute-shell", related ? "is-related" : "", dimmed ? "is-dimmed" : ""]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function decorateNodePorts(
@@ -734,7 +719,8 @@ function buildSemanticCanvasNodes(
         expressionPreview: expressionPreview
           ? {
               ...expressionPreview,
-              onOpen: (expressionNodeId?: string) => onOpenExpressionGraph(node.id, expressionNodeId),
+              onOpen: (expressionNodeId?: string) =>
+                onOpenExpressionGraph(node.id, expressionNodeId),
             }
           : undefined,
         isPinned,
@@ -928,9 +914,9 @@ function persistGraphLayout(
       }))
       .sort(
         (left, right) =>
-          left.edgeId.localeCompare(right.edgeId)
-          || left.order - right.order
-          || left.id.localeCompare(right.id),
+          left.edgeId.localeCompare(right.edgeId) ||
+          left.order - right.order ||
+          left.id.localeCompare(right.id),
       ),
     pinnedNodeIds: semanticNodes
       .filter((node) => node.data.isPinned)
@@ -984,22 +970,19 @@ function applyStoredLayout(nodes: GraphCanvasNode[], layout: StoredGraphLayout) 
         isPinned: pinnedNodeIds.has(node.id),
         actions: (node.data.actions ?? []).map((action) =>
           action.id === "pin"
-                ? {
-                    ...action,
-                    label: pinnedNodeIds.has(node.id) ? "Unpin" : "Pin",
-                    helpId: pinActionHelpId(pinnedNodeIds.has(node.id)),
-                  }
-                : action,
-            ),
+            ? {
+                ...action,
+                label: pinnedNodeIds.has(node.id) ? "Unpin" : "Pin",
+                helpId: pinActionHelpId(pinnedNodeIds.has(node.id)),
+              }
+            : action,
+        ),
       },
     };
   });
 }
 
-function readMeasuredDimension(
-  node: GraphCanvasNode,
-  key: "width" | "height",
-) {
+function readMeasuredDimension(node: GraphCanvasNode, key: "width" | "height") {
   const directValue = Reflect.get(node, key);
   if (typeof directValue === "number" && directValue > 0) {
     return directValue;
@@ -1020,12 +1003,11 @@ function readMeasuredDimension(
   return undefined;
 }
 
-function semanticNodeDimension(
-  node: SemanticCanvasNode,
-  key: "width" | "height",
-) {
-  return readMeasuredDimension(node, key)
-    ?? (key === "width" ? FALLBACK_GROUP_NODE_WIDTH : FALLBACK_GROUP_NODE_HEIGHT);
+function semanticNodeDimension(node: SemanticCanvasNode, key: "width" | "height") {
+  return (
+    readMeasuredDimension(node, key) ??
+    (key === "width" ? FALLBACK_GROUP_NODE_WIDTH : FALLBACK_GROUP_NODE_HEIGHT)
+  );
 }
 
 function buildGraphGroupBounds(
@@ -1052,10 +1034,10 @@ function buildGraphGroupBounds(
   });
 
   if (
-    !Number.isFinite(minX)
-    || !Number.isFinite(minY)
-    || !Number.isFinite(maxX)
-    || !Number.isFinite(maxY)
+    !Number.isFinite(minX) ||
+    !Number.isFinite(minY) ||
+    !Number.isFinite(maxX) ||
+    !Number.isFinite(maxY)
   ) {
     return undefined;
   }
@@ -1069,10 +1051,7 @@ function buildGraphGroupBounds(
   };
 }
 
-function buildGraphGroupBoundsList(
-  groups: StoredGraphGroup[],
-  nodes: GraphCanvasNode[],
-) {
+function buildGraphGroupBoundsList(groups: StoredGraphGroup[], nodes: GraphCanvasNode[]) {
   const nodesById = new Map(nodes.map((node) => [node.id, node] as const));
   return groups.flatMap((group) => {
     const bounds = buildGraphGroupBounds(group, nodesById);
@@ -1080,10 +1059,7 @@ function buildGraphGroupBoundsList(
   });
 }
 
-function organizeOptionsForGroup(
-  group: StoredGraphGroup,
-  nodes: GraphCanvasNode[],
-) {
+function organizeOptionsForGroup(group: StoredGraphGroup, nodes: GraphCanvasNode[]) {
   const kinds = new Set(
     nodes
       .filter((node) => isSemanticCanvasNode(node) && group.memberNodeIds.includes(node.id))
@@ -1124,7 +1100,7 @@ export function applyGroupedPositionChanges(
   currentNodes: GraphCanvasNode[],
   changes: NodeChange<GraphCanvasNode>[],
   groupByNodeId: Map<string, string>,
-  memberNodeIdsByGroupId: Map<string, string[]>,
+  _memberNodeIdsByGroupId: Map<string, string[]>,
 ) {
   const nextNodes = applyNodeChanges(changes, currentNodes);
   const currentNodesById = new Map(currentNodes.map((node) => [node.id, node] as const));
@@ -1243,17 +1219,15 @@ function toDeclutterNodes(nodes: GraphCanvasNode[]) {
 
 function toFlowLayoutNodes(nodes: GraphCanvasNode[], graph: GraphView) {
   const metadataByNodeId = new Map(graph.nodes.map((node) => [node.id, node.metadata] as const));
-  return nodes
-    .filter(isSemanticCanvasNode)
-    .map((node) => ({
-      id: node.id,
-      kind: node.data.kind,
-      x: node.position.x,
-      y: node.position.y,
-      width: readMeasuredDimension(node, "width"),
-      height: readMeasuredDimension(node, "height"),
-      metadata: metadataByNodeId.get(node.id) ?? {},
-    }));
+  return nodes.filter(isSemanticCanvasNode).map((node) => ({
+    id: node.id,
+    kind: node.data.kind,
+    x: node.position.x,
+    y: node.position.y,
+    width: readMeasuredDimension(node, "width"),
+    height: readMeasuredDimension(node, "height"),
+    metadata: metadataByNodeId.get(node.id) ?? {},
+  }));
 }
 
 function semanticPinnedNodeIds(nodes: GraphCanvasNode[]) {
@@ -1265,10 +1239,10 @@ function semanticPinnedNodeIds(nodes: GraphCanvasNode[]) {
 
 function storedLayoutIsEmpty(layout: StoredGraphLayout) {
   return (
-    !Object.keys(layout.nodes).length
-    && !layout.reroutes.length
-    && !(layout.pinnedNodeIds?.length ?? 0)
-    && !(layout.groups?.length ?? 0)
+    !Object.keys(layout.nodes).length &&
+    !layout.reroutes.length &&
+    !(layout.pinnedNodeIds?.length ?? 0) &&
+    !(layout.groups?.length ?? 0)
   );
 }
 
@@ -1292,8 +1266,8 @@ export function mergeGroupsForSelection(
   const { groupByNodeId, memberNodeIdsByGroupId } = buildGroupMembership(groups);
   const touchedGroupIds = touchedGroupIdsForNodeIds(normalizedSelectedNodeIds, groupByNodeId);
   if (
-    touchedGroupIds.length === 1
-    && sameNodeIds(
+    touchedGroupIds.length === 1 &&
+    sameNodeIds(
       sortNodeIds(memberNodeIdsByGroupId.get(touchedGroupIds[0] ?? "") ?? []),
       normalizedSelectedNodeIds,
     )
@@ -1348,11 +1322,7 @@ export function ungroupGroupsForSelection(
   };
 }
 
-export function renameGraphGroup(
-  groups: StoredGraphGroup[],
-  groupId: string,
-  title: string,
-) {
+export function renameGraphGroup(groups: StoredGraphGroup[], groupId: string, title: string) {
   return groups.map((group) =>
     group.id === groupId
       ? {
@@ -1383,12 +1353,12 @@ function shouldHandleRerouteDeleteKey(event: {
   target: EventTarget | null;
 }) {
   return !(
-    (event.key !== "Backspace" && event.key !== "Delete")
-    || event.altKey
-    || event.ctrlKey
-    || event.metaKey
-    || event.shiftKey
-    || isEditableEventTarget(event.target)
+    (event.key !== "Backspace" && event.key !== "Delete") ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.shiftKey ||
+    isEditableEventTarget(event.target)
   );
 }
 
@@ -1400,11 +1370,11 @@ function shouldHandlePinKey(event: {
   target: EventTarget | null;
 }) {
   return !(
-    event.key.toLowerCase() !== "p"
-    || event.altKey
-    || event.ctrlKey
-    || event.metaKey
-    || isEditableEventTarget(event.target)
+    event.key.toLowerCase() !== "p" ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    isEditableEventTarget(event.target)
   );
 }
 
@@ -1417,12 +1387,12 @@ function shouldHandleCreateModeKey(event: {
   target: EventTarget | null;
 }) {
   return !(
-    event.key.toLowerCase() !== "c"
-    || event.altKey
-    || event.ctrlKey
-    || event.metaKey
-    || event.shiftKey
-    || isEditableEventTarget(event.target)
+    event.key.toLowerCase() !== "c" ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.shiftKey ||
+    isEditableEventTarget(event.target)
   );
 }
 
@@ -1435,12 +1405,12 @@ function shouldHandleFitViewKey(event: {
   target: EventTarget | null;
 }) {
   return !(
-    event.key.toLowerCase() !== "f"
-    || event.altKey
-    || event.ctrlKey
-    || event.metaKey
-    || event.shiftKey
-    || isEditableEventTarget(event.target)
+    event.key.toLowerCase() !== "f" ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.shiftKey ||
+    isEditableEventTarget(event.target)
   );
 }
 
@@ -1453,11 +1423,11 @@ function shouldHandleGroupKey(event: {
   target: EventTarget | null;
 }) {
   return !(
-    event.key.toLowerCase() !== "g"
-    || event.altKey
-    || !(event.ctrlKey || event.metaKey)
-    || event.shiftKey
-    || isEditableEventTarget(event.target)
+    event.key.toLowerCase() !== "g" ||
+    event.altKey ||
+    !(event.ctrlKey || event.metaKey) ||
+    event.shiftKey ||
+    isEditableEventTarget(event.target)
   );
 }
 
@@ -1470,11 +1440,11 @@ function shouldHandleUngroupKey(event: {
   target: EventTarget | null;
 }) {
   return !(
-    event.key.toLowerCase() !== "g"
-    || event.altKey
-    || !(event.ctrlKey || event.metaKey)
-    || !event.shiftKey
-    || isEditableEventTarget(event.target)
+    event.key.toLowerCase() !== "g" ||
+    event.altKey ||
+    !(event.ctrlKey || event.metaKey) ||
+    !event.shiftKey ||
+    isEditableEventTarget(event.target)
   );
 }
 
@@ -1519,7 +1489,9 @@ function buildLogicalEdgeGroups(nodes: GraphCanvasNode[]) {
       edgeId,
       reroutes
         .slice()
-        .sort((left, right) => left.data.order - right.data.order || left.id.localeCompare(right.id)),
+        .sort(
+          (left, right) => left.data.order - right.data.order || left.id.localeCompare(right.id),
+        ),
     );
   });
 
@@ -1566,9 +1538,7 @@ function buildLabelLaneKey(
   return `${source}->${target}|${sourceHandle ?? ""}|${targetHandle ?? ""}`;
 }
 
-export function buildEdgeLabelOffsets(
-  labelSegments: EdgeLabelSegment[],
-) {
+export function buildEdgeLabelOffsets(labelSegments: EdgeLabelSegment[]) {
   const offsets = new Map<string, { x: number; y: number }>();
   const groups = new Map<string, EdgeLabelSegment[]>();
 
@@ -1593,9 +1563,7 @@ export function buildEdgeLabelOffsets(
     const ordered = group
       .slice()
       .sort(
-        (left, right) =>
-          left.label.localeCompare(right.label)
-          || left.id.localeCompare(right.id),
+        (left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
       );
     const gap = 12;
     const widths = ordered.map((segment) => estimateEdgeLabelWidth(segment.label));
@@ -1607,9 +1575,7 @@ export function buildEdgeLabelOffsets(
       const centerOffset = cursor + width / 2;
       offsets.set(
         segment.id,
-        axis === "x"
-          ? { x: centerOffset, y: -10 }
-          : { x: 14, y: centerOffset },
+        axis === "x" ? { x: centerOffset, y: -10 } : { x: 14, y: centerOffset },
       );
       cursor += width + gap;
     });
@@ -1743,16 +1709,16 @@ function buildCanvasEdges({
       ? edgeHovered
       : explicitlySelected
         ? true
-      : selectionContextActive
-        ? selectionHighlighted
-        : highlightGraphPath && connected;
+        : selectionContextActive
+          ? selectionHighlighted
+          : highlightGraphPath && connected;
     const dimmed = hoverActive
       ? !edgeHovered
       : selectedControlEdgeIds.size > 0
         ? !explicitlySelected
         : selectionContextActive
-        ? !selectionHighlighted
-        : false;
+          ? !selectionHighlighted
+          : false;
     const stroke = buildEdgeStroke(edge.kind, highlighted);
     const segmentCount = reroutes.length + 1;
     const labelSegmentIndex = Math.floor(segmentCount / 2);
@@ -1800,15 +1766,15 @@ function buildCanvasEdges({
         animated: highlighted && (edge.kind === "calls" || edge.kind === "controls"),
         style: {
           stroke,
-          strokeWidth:
-            highlighted
-              ? 2.8
-              : edge.kind === "data"
-                ? 1.8
-                : edge.kind === "contains"
-                  ? 1
-                  : 1.2,
-          strokeDasharray: edge.kind === "data" ? "8 6" : edge.kind === "controls" ? "0" : undefined,
+          strokeWidth: highlighted
+            ? 2.8
+            : edge.kind === "data"
+              ? 1.8
+              : edge.kind === "contains"
+                ? 1
+                : 1.2,
+          strokeDasharray:
+            edge.kind === "data" ? "8 6" : edge.kind === "controls" ? "0" : undefined,
           opacity: dimmed ? 0.18 : highlighted ? 1 : selectionContextActive ? 0.92 : 0.84,
         },
         labelShowBg: false,
@@ -1977,195 +1943,195 @@ function GraphGroupLayer({
         const nodeCountLabel = `${nodeCount} ${nodeCount === 1 ? "node" : "nodes"} grouped`;
 
         return (
+          <div
+            key={group.id}
+            data-testid={`graph-group-${group.id}`}
+            {...helpTargetProps("graph.group.box", {
+              label: group.title,
+            })}
+            className={`graph-group${selectedGroupId === group.id ? " is-selected" : ""}${editingGroupId === group.id ? " is-editing" : ""}`}
+            style={{
+              transform: `translate(${group.x}px, ${group.y}px)`,
+              width: `${group.width}px`,
+              height: `${group.height}px`,
+            }}
+          >
+            <div className="graph-group__frame" />
             <div
-              key={group.id}
-              data-testid={`graph-group-${group.id}`}
+              data-testid={`graph-group-hit-area-${group.id}-top`}
               {...helpTargetProps("graph.group.box", {
                 label: group.title,
               })}
-              className={`graph-group${selectedGroupId === group.id ? " is-selected" : ""}${editingGroupId === group.id ? " is-editing" : ""}`}
+              aria-hidden="true"
+              className="graph-group__hit-area graph-group__hit-area--top"
+              onPointerDown={(event) => {
+                beginGroupInteraction(event, group);
+              }}
+            />
+            <div
+              data-testid={`graph-group-hit-area-${group.id}-right`}
+              {...helpTargetProps("graph.group.box", {
+                label: group.title,
+              })}
+              aria-hidden="true"
+              className="graph-group__hit-area graph-group__hit-area--right"
+              onPointerDown={(event) => {
+                beginGroupInteraction(event, group);
+              }}
+            />
+            <div
+              data-testid={`graph-group-hit-area-${group.id}-bottom`}
+              {...helpTargetProps("graph.group.box", {
+                label: group.title,
+              })}
+              aria-hidden="true"
+              className="graph-group__hit-area graph-group__hit-area--bottom"
+              onPointerDown={(event) => {
+                beginGroupInteraction(event, group);
+              }}
+            />
+            <div
+              data-testid={`graph-group-hit-area-${group.id}-left`}
+              {...helpTargetProps("graph.group.box", {
+                label: group.title,
+              })}
+              aria-hidden="true"
+              className="graph-group__hit-area graph-group__hit-area--left"
+              onPointerDown={(event) => {
+                beginGroupInteraction(event, group);
+              }}
+            />
+            <div
+              {...helpTargetProps("graph.group.box", {
+                label: group.title,
+              })}
+              className="graph-group__title-anchor"
               style={{
-                transform: `translate(${group.x}px, ${group.y}px)`,
-                width: `${group.width}px`,
-                height: `${group.height}px`,
+                transform: `translate(${GROUP_BOX_PADDING}px, calc(-100% - ${GROUP_TITLE_OFFSET}px))`,
+              }}
+              onPointerDown={(event) => {
+                beginGroupInteraction(event, group);
               }}
             >
-              <div className="graph-group__frame" />
-              <div
-                data-testid={`graph-group-hit-area-${group.id}-top`}
-                {...helpTargetProps("graph.group.box", {
-                  label: group.title,
-                })}
-                aria-hidden="true"
-                className="graph-group__hit-area graph-group__hit-area--top"
-                onPointerDown={(event) => {
-                  beginGroupInteraction(event, group);
-                }}
-              />
-              <div
-                data-testid={`graph-group-hit-area-${group.id}-right`}
-                {...helpTargetProps("graph.group.box", {
-                  label: group.title,
-                })}
-                aria-hidden="true"
-                className="graph-group__hit-area graph-group__hit-area--right"
-                onPointerDown={(event) => {
-                  beginGroupInteraction(event, group);
-                }}
-              />
-              <div
-                data-testid={`graph-group-hit-area-${group.id}-bottom`}
-                {...helpTargetProps("graph.group.box", {
-                  label: group.title,
-                })}
-                aria-hidden="true"
-                className="graph-group__hit-area graph-group__hit-area--bottom"
-                onPointerDown={(event) => {
-                  beginGroupInteraction(event, group);
-                }}
-              />
-              <div
-                data-testid={`graph-group-hit-area-${group.id}-left`}
-                {...helpTargetProps("graph.group.box", {
-                  label: group.title,
-                })}
-                aria-hidden="true"
-                className="graph-group__hit-area graph-group__hit-area--left"
-                onPointerDown={(event) => {
-                  beginGroupInteraction(event, group);
-                }}
-              />
-              <div
-                {...helpTargetProps("graph.group.box", {
-                  label: group.title,
-                })}
-                className="graph-group__title-anchor"
-                style={{
-                  transform: `translate(${GROUP_BOX_PADDING}px, calc(-100% - ${GROUP_TITLE_OFFSET}px))`,
-                }}
-                onPointerDown={(event) => {
-                  beginGroupInteraction(event, group);
-                }}
-              >
-                {editingGroupId === group.id ? (
-                  <input
-                    autoFocus
-                    className="graph-group__title-input"
-                    data-testid={`graph-group-title-input-${group.id}`}
-                    value={editingGroupTitle}
-                    onBlur={() => onFinishGroupTitleEditing(group.id, "save")}
-                    onChange={(event) => onChangeEditingGroupTitle(event.target.value)}
-                    onFocus={(event) => {
-                      event.currentTarget.select();
-                    }}
-                    onKeyDown={(event) => {
-                      event.stopPropagation();
-                      if (event.key === "Enter") {
+              {editingGroupId === group.id ? (
+                <input
+                  autoFocus
+                  className="graph-group__title-input"
+                  data-testid={`graph-group-title-input-${group.id}`}
+                  value={editingGroupTitle}
+                  onBlur={() => onFinishGroupTitleEditing(group.id, "save")}
+                  onChange={(event) => onChangeEditingGroupTitle(event.target.value)}
+                  onFocus={(event) => {
+                    event.currentTarget.select();
+                  }}
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      onFinishGroupTitleEditing(group.id, "save");
+                      return;
+                    }
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      onFinishGroupTitleEditing(group.id, "cancel");
+                    }
+                  }}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                />
+              ) : (
+                <div className="graph-group__header">
+                  <div className="graph-group__title-row">
+                    <div
+                      className="graph-group__title"
+                      onClick={(event) => {
                         event.preventDefault();
-                        onFinishGroupTitleEditing(group.id, "save");
-                        return;
-                      }
-                      if (event.key === "Escape") {
+                        event.stopPropagation();
+                        onStartEditingGroup(group.id);
+                      }}
+                      onDoubleClick={(event) => {
                         event.preventDefault();
-                        onFinishGroupTitleEditing(group.id, "cancel");
-                      }
-                    }}
-                    onPointerDown={(event) => {
-                      event.stopPropagation();
-                    }}
-                  />
-                ) : (
-                  <div className="graph-group__header">
-                    <div className="graph-group__title-row">
-                      <div
-                        className="graph-group__title"
+                        event.stopPropagation();
+                        onStartEditingGroup(group.id);
+                      }}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                      }}
+                    >
+                      {group.title}
+                    </div>
+                    <div
+                      aria-label={nodeCountLabel}
+                      className="graph-group__count"
+                      title={nodeCountLabel}
+                    >
+                      {nodeCount}
+                    </div>
+                    <div className="graph-group__actions">
+                      <button
+                        {...helpTargetProps("graph.group.organize")}
+                        className={`graph-group__action${organizeGroupId === group.id ? " is-active" : ""}`}
+                        type="button"
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          onStartEditingGroup(group.id);
+                          onToggleOrganizeGroup(group.id);
                         }}
-                        onDoubleClick={(event) => {
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                        }}
+                      >
+                        Organize
+                      </button>
+                      <button
+                        className="graph-group__action graph-group__action--ungroup"
+                        type="button"
+                        onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          onStartEditingGroup(group.id);
+                          onUngroupGroup(group.id, group.title);
                         }}
                         onPointerDown={(event) => {
                           event.stopPropagation();
                         }}
                       >
-                        {group.title}
-                      </div>
-                      <div
-                        aria-label={nodeCountLabel}
-                        className="graph-group__count"
-                        title={nodeCountLabel}
-                      >
-                        {nodeCount}
-                      </div>
-                      <div className="graph-group__actions">
-                        <button
-                          {...helpTargetProps("graph.group.organize")}
-                          className={`graph-group__action${organizeGroupId === group.id ? " is-active" : ""}`}
-                          type="button"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            onToggleOrganizeGroup(group.id);
-                          }}
-                          onPointerDown={(event) => {
-                            event.stopPropagation();
-                          }}
-                        >
-                          Organize
-                        </button>
-                        <button
-                          className="graph-group__action graph-group__action--ungroup"
-                          type="button"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            onUngroupGroup(group.id, group.title);
-                          }}
-                          onPointerDown={(event) => {
-                            event.stopPropagation();
-                          }}
-                        >
-                          Ungroup
-                        </button>
-                      </div>
+                        Ungroup
+                      </button>
                     </div>
-                    {organizeGroupId === group.id ? (
-                      <div
-                        className="graph-group__organize-row"
-                        data-testid={`graph-group-organize-${group.id}`}
-                        onPointerDown={(event) => {
-                          event.stopPropagation();
-                        }}
-                      >
-                        {organizeOptionsForGroup(group, nodes).map((option) => (
-                          <button
-                            key={option.mode}
-                            {...helpTargetProps("graph.group.organize", {
-                              label: option.label,
-                            })}
-                            className="graph-group__mode"
-                            data-testid={`graph-group-organize-${group.id}-${option.mode}`}
-                            type="button"
-                            onClick={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              onApplyOrganizeMode(group.id, option.mode);
-                            }}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
                   </div>
-                )}
-              </div>
+                  {organizeGroupId === group.id ? (
+                    <div
+                      className="graph-group__organize-row"
+                      data-testid={`graph-group-organize-${group.id}`}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                      }}
+                    >
+                      {organizeOptionsForGroup(group, nodes).map((option) => (
+                        <button
+                          key={option.mode}
+                          {...helpTargetProps("graph.group.organize", {
+                            label: option.label,
+                          })}
+                          className="graph-group__mode"
+                          data-testid={`graph-group-organize-${group.id}-${option.mode}`}
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onApplyOrganizeMode(group.id, option.mode);
+                          }}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
+          </div>
         );
       })}
     </ViewportPortal>
@@ -2188,7 +2154,7 @@ export function GraphCanvas({
   onInspectNode,
   onOpenNodeInDefaultEditor,
   onRevealNodeInFileExplorer,
-  onSelectBreadcrumb,
+  onSelectBreadcrumb: _onSelectBreadcrumb,
   onSelectLevel,
   onToggleGraphFilter,
   onToggleGraphSetting,
@@ -2247,25 +2213,20 @@ export function GraphCanvas({
   onDeleteSymbolNode?: (nodeId: string) => void;
 }) {
   const { setTransientHelpTarget } = useWorkspaceHelp();
-  const blueprint = useMemo(
-    () => (graph ? buildBlueprintPresentation(graph) : undefined),
-    [graph],
-  );
+  const blueprint = useMemo(() => (graph ? buildBlueprintPresentation(graph) : undefined), [graph]);
   const denseGraph = (graph?.nodes.length ?? 0) > 12;
   const fitViewOptions = useMemo(
-    () => !graph
-      ? undefined
-      : graph.level === "flow"
-        ? { padding: 0.1, minZoom: 0.4, maxZoom: 1.08 }
-        : graph.level === "symbol"
-          ? { padding: 0.08, minZoom: denseGraph ? 0.34 : 0.44, maxZoom: 1.2 }
-          : { padding: 0.08, minZoom: denseGraph ? 0.3 : 0.4, maxZoom: 1.14 },
+    () =>
+      !graph
+        ? undefined
+        : graph.level === "flow"
+          ? { padding: 0.1, minZoom: 0.4, maxZoom: 1.08 }
+          : graph.level === "symbol"
+            ? { padding: 0.08, minZoom: denseGraph ? 0.34 : 0.44, maxZoom: 1.2 }
+            : { padding: 0.08, minZoom: denseGraph ? 0.3 : 0.4, maxZoom: 1.14 },
     [denseGraph, graph],
   );
-  const graphNodeIds = useMemo(
-    () => new Set(graph?.nodes.map((node) => node.id) ?? []),
-    [graph],
-  );
+  const graphNodeIds = useMemo(() => new Set(graph?.nodes.map((node) => node.id) ?? []), [graph]);
   const graphNodeById = useMemo(
     () => new Map(graph?.nodes.map((node) => [node.id, node] as const) ?? []),
     [graph],
@@ -2273,7 +2234,9 @@ export function GraphCanvas({
   const viewKey = graph ? graphLayoutViewKey(graph) : undefined;
   const hydrationGenerationRef = useRef(0);
   const panelRef = useRef<HTMLElement>(null);
-  const reactFlowInstanceRef = useRef<ReactFlowInstance<GraphCanvasNode, GraphCanvasEdge> | null>(null);
+  const reactFlowInstanceRef = useRef<ReactFlowInstance<GraphCanvasNode, GraphCanvasEdge> | null>(
+    null,
+  );
   const graphHotkeyActiveRef = useRef(false);
   const skipNextSelectionSyncRef = useRef(false);
   const shiftPressedRef = useRef(false);
@@ -2290,8 +2253,12 @@ export function GraphCanvas({
   const [organizeGroupId, setOrganizeGroupId] = useState<string | undefined>(undefined);
   const [editingGroupTitle, setEditingGroupTitle] = useState(DEFAULT_GROUP_TITLE);
   const [marqueeSelectionActive, setMarqueeSelectionActive] = useState(false);
-  const [layoutUndoStacks, setLayoutUndoStacks] = useState<Record<string, LayoutUndoStackEntry[]>>({});
-  const [layoutRedoStacks, setLayoutRedoStacks] = useState<Record<string, LayoutUndoStackEntry[]>>({});
+  const [layoutUndoStacks, setLayoutUndoStacks] = useState<Record<string, LayoutUndoStackEntry[]>>(
+    {},
+  );
+  const [layoutRedoStacks, setLayoutRedoStacks] = useState<Record<string, LayoutUndoStackEntry[]>>(
+    {},
+  );
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | undefined>(undefined);
   const [hoveredPortEdgeIds, setHoveredPortEdgeIds] = useState<string[]>([]);
   const [contextMenu, setContextMenu] = useState<GraphContextMenuState | null>(null);
@@ -2313,53 +2280,51 @@ export function GraphCanvas({
     [selectedControlEdgeIds],
   );
   const flowAuthoringEnabled =
-    graph?.level === "flow"
-    && graph.flowState?.editable === true
-    && Boolean(graph.flowState?.document);
+    graph?.level === "flow" &&
+    graph.flowState?.editable === true &&
+    Boolean(graph.flowState?.document);
   const authorableFlowNodeIds = useMemo(
-    () => new Set(
-      (graph?.flowState?.document?.nodes ?? [])
-        .filter((node) => isFlowNodeAuthorableKind(node.kind))
-        .map((node) => node.id),
-    ),
+    () =>
+      new Set(
+        (graph?.flowState?.document?.nodes ?? [])
+          .filter((node) => isFlowNodeAuthorableKind(node.kind))
+          .map((node) => node.id),
+      ),
     [graph?.flowState?.document],
   );
   const deletableVisualFlowNodeIds = useMemo(
-    () => new Set(
-      graph?.level === "flow"
-        ? (graph.nodes ?? [])
-            .filter(isVisualFunctionInputNode)
-            .map((node) => node.id)
-        : [],
-    ),
+    () =>
+      new Set(
+        graph?.level === "flow"
+          ? (graph.nodes ?? []).filter(isVisualFunctionInputNode).map((node) => node.id)
+          : [],
+      ),
     [graph],
   );
   const { groupByNodeId, memberNodeIdsByGroupId } = useMemo(
     () => buildGroupMembership(groups),
     [groups],
   );
-  const groupedNodeIds = useMemo(
-    () => new Set(sortNodeIds(groupByNodeId.keys())),
-    [groupByNodeId],
-  );
+  const groupedNodeIds = useMemo(() => new Set(sortNodeIds(groupByNodeId.keys())), [groupByNodeId]);
   const semanticSelection = useMemo(
     () => sortNodeIds(selectedSemanticNodeIds.filter((nodeId) => graphNodeIds.has(nodeId))),
     [graphNodeIds, selectedSemanticNodeIds],
   );
   const currentLayoutUndoStack = useMemo(
-    () => (viewKey ? layoutUndoStacks[viewKey] ?? [] : []),
+    () => (viewKey ? (layoutUndoStacks[viewKey] ?? []) : []),
     [layoutUndoStacks, viewKey],
   );
   const currentLayoutRedoStack = useMemo(
-    () => (viewKey ? layoutRedoStacks[viewKey] ?? [] : []),
+    () => (viewKey ? (layoutRedoStacks[viewKey] ?? []) : []),
     [layoutRedoStacks, viewKey],
   );
   const semanticSelectionFromNodes = useMemo(
-    () => sortNodeIds(
-      nodes
-        .filter((node) => isSemanticCanvasNode(node) && Boolean(node.selected))
-        .map((node) => node.id),
-    ),
+    () =>
+      sortNodeIds(
+        nodes
+          .filter((node) => isSemanticCanvasNode(node) && Boolean(node.selected))
+          .map((node) => node.id),
+      ),
     [nodes],
   );
   const effectiveSemanticSelection = semanticSelection.length
@@ -2367,20 +2332,21 @@ export function GraphCanvas({
     : semanticSelectionFromNodes;
   const effectiveSemanticSelectionKey = effectiveSemanticSelection.join("\0");
   const selectedGroupMemberNodeIds = useMemo(
-    () => new Set(selectedGroupId ? memberNodeIdsByGroupId.get(selectedGroupId) ?? [] : []),
+    () => new Set(selectedGroupId ? (memberNodeIdsByGroupId.get(selectedGroupId) ?? []) : []),
     [memberNodeIdsByGroupId, selectedGroupId],
   );
   const selectionPreviewNodeIds = useMemo(
-    () => (!graph
-      ? []
-      : resolveSelectionPreviewNodeIds({
-          activeNodeId,
-          effectiveSemanticSelection,
-          graphNodeIds,
-          marqueeSelectionActive,
-          selectedGroupId,
-          selectedRerouteCount,
-        })),
+    () =>
+      !graph
+        ? []
+        : resolveSelectionPreviewNodeIds({
+            activeNodeId,
+            effectiveSemanticSelection,
+            graphNodeIds,
+            marqueeSelectionActive,
+            selectedGroupId,
+            selectedRerouteCount,
+          }),
     [
       activeNodeId,
       effectiveSemanticSelectionKey,
@@ -2407,13 +2373,10 @@ export function GraphCanvas({
         selectedRerouteCount,
       });
   const highlightedEdgeIds = useMemo(
-    () => new Set(
-      hoveredPortEdgeIds.length
-        ? hoveredPortEdgeIds
-        : hoveredEdgeId
-          ? [hoveredEdgeId]
-          : [],
-    ),
+    () =>
+      new Set(
+        hoveredPortEdgeIds.length ? hoveredPortEdgeIds : hoveredEdgeId ? [hoveredEdgeId] : [],
+      ),
     [hoveredEdgeId, hoveredPortEdgeIds],
   );
   const hoverActive = highlightedEdgeIds.size > 0;
@@ -2421,7 +2384,10 @@ export function GraphCanvas({
     () =>
       new Set(
         (graph?.edges ?? [])
-          .filter((edge) => selectedPreviewNodeIds.has(edge.source) || selectedPreviewNodeIds.has(edge.target))
+          .filter(
+            (edge) =>
+              selectedPreviewNodeIds.has(edge.source) || selectedPreviewNodeIds.has(edge.target),
+          )
           .map((edge) => edge.id),
       ),
     [graph?.edges, selectedPreviewNodeIds],
@@ -2446,10 +2412,10 @@ export function GraphCanvas({
   const selectionContextActive = selectionPreviewNodeIds.length > 0;
   const canPinNodes = graph?.level === "flow";
   const selectedDeletableFlowNodeIds = useMemo(
-    () => effectiveSemanticSelection.filter((nodeId) => (
-      authorableFlowNodeIds.has(nodeId)
-      || deletableVisualFlowNodeIds.has(nodeId)
-    )),
+    () =>
+      effectiveSemanticSelection.filter(
+        (nodeId) => authorableFlowNodeIds.has(nodeId) || deletableVisualFlowNodeIds.has(nodeId),
+      ),
     [authorableFlowNodeIds, deletableVisualFlowNodeIds, effectiveSemanticSelection],
   );
   const selectedDeletableSymbolNodeId = useMemo(() => {
@@ -2460,7 +2426,9 @@ export function GraphCanvas({
     if (!selectedNode || !isGraphSymbolNodeKind(selectedNode.kind)) {
       return undefined;
     }
-    const deleteAction = selectedNode.availableActions.find((action) => action.actionId === "delete_symbol");
+    const deleteAction = selectedNode.availableActions.find(
+      (action) => action.actionId === "delete_symbol",
+    );
     return deleteAction?.enabled ? selectedNode.id : undefined;
   }, [graph, selectedNodeId]);
 
@@ -2490,154 +2458,173 @@ export function GraphCanvas({
     });
   };
 
-  const screenToFlowPosition = useCallback((clientPosition: { x: number; y: number }) => (
-    reactFlowInstanceRef.current?.screenToFlowPosition(clientPosition)
-    ?? { x: clientPosition.x, y: clientPosition.y }
-  ), []);
-  const requestExpressionGraphIntent = useCallback((
-    nodeId: string,
-    expressionNodeId?: string,
-    clientPosition?: { x: number; y: number },
-  ) => {
-    const panelBounds = panelRef.current?.getBoundingClientRect();
-    const canvasNode = nodesRef.current.find((node) => node.id === nodeId);
-    const fallbackFlowPosition = canvasNode
-      ? { x: canvasNode.position.x + 220, y: canvasNode.position.y + 48 }
-      : { x: 0, y: 0 };
-    const projectedPosition =
-      clientPosition
-      ?? (
-        canvasNode && reactFlowInstanceRef.current?.flowToScreenPosition
-          ? reactFlowInstanceRef.current.flowToScreenPosition(fallbackFlowPosition)
-          : undefined
-      );
-    onOpenExpressionGraphIntent({
-      nodeId,
-      expressionNodeId,
-      flowPosition: projectedPosition
-        ? screenToFlowPosition(projectedPosition)
-        : fallbackFlowPosition,
-      panelPosition: {
-        x: projectedPosition && panelBounds ? projectedPosition.x - panelBounds.left : projectedPosition?.x ?? 24,
-        y: projectedPosition && panelBounds ? projectedPosition.y - panelBounds.top : projectedPosition?.y ?? 24,
+  const screenToFlowPosition = useCallback(
+    (clientPosition: { x: number; y: number }) =>
+      reactFlowInstanceRef.current?.screenToFlowPosition(clientPosition) ?? {
+        x: clientPosition.x,
+        y: clientPosition.y,
       },
-    });
-  }, [onOpenExpressionGraphIntent, screenToFlowPosition]);
-  const selectControlEdge = useCallback((edgeId: string) => {
-    setSelectedControlEdgeIds([edgeId]);
-    setSelectedGroupId(undefined);
-    setOrganizeGroupId(undefined);
-    setSelectedSemanticNodeIds([]);
-    setNodes((current) =>
-      current.some((node) => node.selected)
-        ? current.map((node) => (node.selected ? { ...node, selected: false } : node))
-        : current,
-    );
-    onClearSelection();
-  }, [onClearSelection]);
-
-  const closeContextMenu = useCallback((restoreFocus = false) => {
-    const focusElement = contextMenu?.focusElement;
-    setContextMenu(null);
-    if (restoreFocus) {
-      window.requestAnimationFrame(() => {
-        focusElement?.focus();
-        panelRef.current?.focus();
+    [],
+  );
+  const requestExpressionGraphIntent = useCallback(
+    (nodeId: string, expressionNodeId?: string, clientPosition?: { x: number; y: number }) => {
+      const panelBounds = panelRef.current?.getBoundingClientRect();
+      const canvasNode = nodesRef.current.find((node) => node.id === nodeId);
+      const fallbackFlowPosition = canvasNode
+        ? { x: canvasNode.position.x + 220, y: canvasNode.position.y + 48 }
+        : { x: 0, y: 0 };
+      const projectedPosition =
+        clientPosition ??
+        (canvasNode && reactFlowInstanceRef.current?.flowToScreenPosition
+          ? reactFlowInstanceRef.current.flowToScreenPosition(fallbackFlowPosition)
+          : undefined);
+      onOpenExpressionGraphIntent({
+        nodeId,
+        expressionNodeId,
+        flowPosition: projectedPosition
+          ? screenToFlowPosition(projectedPosition)
+          : fallbackFlowPosition,
+        panelPosition: {
+          x:
+            projectedPosition && panelBounds
+              ? projectedPosition.x - panelBounds.left
+              : (projectedPosition?.x ?? 24),
+          y:
+            projectedPosition && panelBounds
+              ? projectedPosition.y - panelBounds.top
+              : (projectedPosition?.y ?? 24),
+        },
       });
-    }
-  }, [contextMenu?.focusElement]);
-
-  const openPaneContextMenu = useCallback((event: ReactMouseEvent<Element> | MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const position = clampAppContextMenuPosition(event.clientX, event.clientY);
-    setContextActionError(null);
-    setContextMenu({
-      kind: "pane",
-      ...position,
-      flowPosition: screenToFlowPosition({ x: event.clientX, y: event.clientY }),
-      focusElement: panelRef.current,
-    });
-  }, [screenToFlowPosition]);
-
-  const openEdgeContextMenu = useCallback((
-    edgeId: string,
-    edgeKind: GraphEdgeKind,
-    segmentIndex: number,
-    flowPosition: { x: number; y: number },
-    clientPosition: { x: number; y: number },
-    edgeLabel?: string,
-  ) => {
-    const position = clampAppContextMenuPosition(clientPosition.x, clientPosition.y);
-    setContextActionError(null);
-    setContextMenu({
-      kind: "edge",
-      edgeId,
-      edgeKind,
-      edgeLabel,
-      segmentIndex,
-      flowPosition,
-      ...position,
-      focusElement: panelRef.current,
-    });
-  }, []);
-
-  const openNodeContextMenu = useCallback((
-    event: ReactMouseEvent<Element>,
-    node: GraphCanvasNode,
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const position = clampAppContextMenuPosition(event.clientX, event.clientY);
-    setContextActionError(null);
-
-    if (isRerouteCanvasNode(node)) {
-      setSelectedControlEdgeIds([]);
+    },
+    [onOpenExpressionGraphIntent, screenToFlowPosition],
+  );
+  const selectControlEdge = useCallback(
+    (edgeId: string) => {
+      setSelectedControlEdgeIds([edgeId]);
       setSelectedGroupId(undefined);
       setOrganizeGroupId(undefined);
       setSelectedSemanticNodeIds([]);
       setNodes((current) =>
-        current.map((currentNode) => ({
-          ...currentNode,
-          selected: currentNode.id === node.id,
-        })),
+        current.some((node) => node.selected)
+          ? current.map((node) => (node.selected ? { ...node, selected: false } : node))
+          : current,
       );
       onClearSelection();
+    },
+    [onClearSelection],
+  );
+
+  const closeContextMenu = useCallback(
+    (restoreFocus = false) => {
+      const focusElement = contextMenu?.focusElement;
+      setContextMenu(null);
+      if (restoreFocus) {
+        window.requestAnimationFrame(() => {
+          focusElement?.focus();
+          panelRef.current?.focus();
+        });
+      }
+    },
+    [contextMenu?.focusElement],
+  );
+
+  const openPaneContextMenu = useCallback(
+    (event: ReactMouseEvent<Element> | MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const position = clampAppContextMenuPosition(event.clientX, event.clientY);
+      setContextActionError(null);
+      setContextMenu({
+        kind: "pane",
+        ...position,
+        flowPosition: screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+        focusElement: panelRef.current,
+      });
+    },
+    [screenToFlowPosition],
+  );
+
+  const openEdgeContextMenu = useCallback(
+    (
+      edgeId: string,
+      edgeKind: GraphEdgeKind,
+      segmentIndex: number,
+      flowPosition: { x: number; y: number },
+      clientPosition: { x: number; y: number },
+      edgeLabel?: string,
+    ) => {
+      const position = clampAppContextMenuPosition(clientPosition.x, clientPosition.y);
+      setContextActionError(null);
+      setContextMenu({
+        kind: "edge",
+        edgeId,
+        edgeKind,
+        edgeLabel,
+        segmentIndex,
+        flowPosition,
+        ...position,
+        focusElement: panelRef.current,
+      });
+    },
+    [],
+  );
+
+  const openNodeContextMenu = useCallback(
+    (event: ReactMouseEvent<Element>, node: GraphCanvasNode) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const position = clampAppContextMenuPosition(event.clientX, event.clientY);
+      setContextActionError(null);
+
+      if (isRerouteCanvasNode(node)) {
+        setSelectedControlEdgeIds([]);
+        setSelectedGroupId(undefined);
+        setOrganizeGroupId(undefined);
+        setSelectedSemanticNodeIds([]);
+        setNodes((current) =>
+          current.map((currentNode) => ({
+            ...currentNode,
+            selected: currentNode.id === node.id,
+          })),
+        );
+        onClearSelection();
+        setContextMenu({
+          kind: "node",
+          nodeId: node.id,
+          ...position,
+          focusElement: event.currentTarget as HTMLElement,
+        });
+        return;
+      }
+
+      if (!selectedSemanticNodeIds.includes(node.id)) {
+        setSelectedControlEdgeIds([]);
+        setSelectedGroupId(undefined);
+        setOrganizeGroupId(undefined);
+        setSelectedSemanticNodeIds([node.id]);
+        setNodes((current) =>
+          current.map((currentNode) => {
+            if (isRerouteCanvasNode(currentNode)) {
+              return currentNode.selected ? { ...currentNode, selected: false } : currentNode;
+            }
+            return {
+              ...currentNode,
+              selected: currentNode.id === node.id,
+            };
+          }),
+        );
+        onSelectNode(node.id, node.data.kind);
+      }
+
       setContextMenu({
         kind: "node",
         nodeId: node.id,
         ...position,
         focusElement: event.currentTarget as HTMLElement,
       });
-      return;
-    }
-
-    if (!selectedSemanticNodeIds.includes(node.id)) {
-      setSelectedControlEdgeIds([]);
-      setSelectedGroupId(undefined);
-      setOrganizeGroupId(undefined);
-      setSelectedSemanticNodeIds([node.id]);
-      setNodes((current) =>
-        current.map((currentNode) => {
-          if (isRerouteCanvasNode(currentNode)) {
-            return currentNode.selected ? { ...currentNode, selected: false } : currentNode;
-          }
-          return {
-            ...currentNode,
-            selected: currentNode.id === node.id,
-          };
-        }),
-      );
-      onSelectNode(node.id, node.data.kind);
-    }
-
-    setContextMenu({
-      kind: "node",
-      nodeId: node.id,
-      ...position,
-      focusElement: event.currentTarget as HTMLElement,
-    });
-  }, [onClearSelection, onSelectNode, selectedSemanticNodeIds]);
+    },
+    [onClearSelection, onSelectNode, selectedSemanticNodeIds],
+  );
   const persistCurrentLayout = (
     nextNodes: GraphCanvasNode[],
     nextGroups: StoredGraphGroup[] = groups,
@@ -2735,10 +2722,7 @@ export function GraphCanvas({
       }));
       setLayoutRedoStacks((current) => ({
         ...current,
-        [layoutHistory.viewKey]: [
-          ...(current[layoutHistory.viewKey] ?? []),
-          inverseEntry,
-        ],
+        [layoutHistory.viewKey]: [...(current[layoutHistory.viewKey] ?? []), inverseEntry],
       }));
     } else {
       setLayoutRedoStacks((current) => ({
@@ -2747,10 +2731,7 @@ export function GraphCanvas({
       }));
       setLayoutUndoStacks((current) => ({
         ...current,
-        [layoutHistory.viewKey]: [
-          ...(current[layoutHistory.viewKey] ?? []),
-          inverseEntry,
-        ],
+        [layoutHistory.viewKey]: [...(current[layoutHistory.viewKey] ?? []), inverseEntry],
       }));
     }
 
@@ -2792,10 +2773,7 @@ export function GraphCanvas({
     setEditingGroupTitle(group.title);
   };
 
-  const finishGroupTitleEditing = (
-    groupId: string,
-    mode: "save" | "cancel",
-  ) => {
+  const finishGroupTitleEditing = (groupId: string, mode: "save" | "cancel") => {
     if (editingGroupId !== groupId) {
       return;
     }
@@ -2845,15 +2823,17 @@ export function GraphCanvas({
       }
 
       const graphNode = graphNodesById.get(node.id);
-      return [{
-        id: node.id,
-        kind: node.data.kind,
-        x: node.position.x,
-        y: node.position.y,
-        width: semanticNodeDimension(node, "width"),
-        height: semanticNodeDimension(node, "height"),
-        metadata: graphNode?.metadata ?? {},
-      }];
+      return [
+        {
+          id: node.id,
+          kind: node.data.kind,
+          x: node.position.x,
+          y: node.position.y,
+          width: semanticNodeDimension(node, "width"),
+          height: semanticNodeDimension(node, "height"),
+          metadata: graphNode?.metadata ?? {},
+        },
+      ];
     });
 
     setOrganizeGroupId(undefined);
@@ -2907,9 +2887,7 @@ export function GraphCanvas({
       previousLayout = persistGraphLayout(current, groups);
       const targetNodeIds = expandGroupedNodeIds(nodeIds, groupByNodeId, memberNodeIdsByGroupId);
       const semanticNodesById = new Map(
-        current
-          .filter(isSemanticCanvasNode)
-          .map((node) => [node.id, node] as const),
+        current.filter(isSemanticCanvasNode).map((node) => [node.id, node] as const),
       );
       const nextPinnedByNodeId = new Map<string, boolean>();
       const nextPinnedByGroupId = new Map<string, boolean>();
@@ -2926,9 +2904,9 @@ export function GraphCanvas({
 
         if (!nextPinnedByGroupId.has(groupId)) {
           const memberNodeIds = memberNodeIdsByGroupId.get(groupId) ?? [targetNodeId];
-          const shouldPin = memberNodeIds.some((memberNodeId) => (
-            !semanticNodesById.get(memberNodeId)?.data.isPinned
-          ));
+          const shouldPin = memberNodeIds.some(
+            (memberNodeId) => !semanticNodesById.get(memberNodeId)?.data.isPinned,
+          );
           nextPinnedByGroupId.set(groupId, shouldPin);
         }
       });
@@ -2967,11 +2945,7 @@ export function GraphCanvas({
       persistCurrentLayout(next);
       return next;
     });
-    if (
-      previousLayout
-      && nextLayout
-      && !storedLayoutsEqual(previousLayout, nextLayout)
-    ) {
+    if (previousLayout && nextLayout && !storedLayoutsEqual(previousLayout, nextLayout)) {
       pushLayoutUndoEntry("Updated pinned layout nodes.", previousLayout);
     }
   };
@@ -3033,15 +3007,12 @@ export function GraphCanvas({
   };
 
   const ungroupGroup = async (groupId: string, title: string) => {
-    const confirmed = await confirmDialog(
-      `Ungroup "${title}"?`,
-      {
-        title: "Ungroup nodes",
-        kind: "warning",
-        okLabel: "Ungroup",
-        cancelLabel: "Cancel",
-      },
-    );
+    const confirmed = await confirmDialog(`Ungroup "${title}"?`, {
+      title: "Ungroup nodes",
+      kind: "warning",
+      okLabel: "Ungroup",
+      cancelLabel: "Cancel",
+    });
     if (!confirmed) {
       return;
     }
@@ -3083,18 +3054,12 @@ export function GraphCanvas({
         return current;
       }
 
-      const next = normalizeRerouteNodeOrders(
-        current.filter((node) => !selectedIds.has(node.id)),
-      );
+      const next = normalizeRerouteNodeOrders(current.filter((node) => !selectedIds.has(node.id)));
       nextLayout = persistGraphLayout(next, groups);
       persistCurrentLayout(next, groups);
       return next;
     });
-    if (
-      previousLayout
-      && nextLayout
-      && !storedLayoutsEqual(previousLayout, nextLayout)
-    ) {
+    if (previousLayout && nextLayout && !storedLayoutsEqual(previousLayout, nextLayout)) {
       pushLayoutUndoEntry("Removed reroute nodes.", previousLayout);
     }
   };
@@ -3147,9 +3112,9 @@ export function GraphCanvas({
     }
 
     if (
-      flowAuthoringEnabled
-      && shouldHandleRerouteDeleteKey(event)
-      && (selectedControlEdgeIds.length || selectedDeletableFlowNodeIds.length)
+      flowAuthoringEnabled &&
+      shouldHandleRerouteDeleteKey(event) &&
+      (selectedControlEdgeIds.length || selectedDeletableFlowNodeIds.length)
     ) {
       event.preventDefault();
       onDeleteFlowSelection({
@@ -3209,24 +3174,22 @@ export function GraphCanvas({
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       const panelContainsTarget = Boolean(
-        panelRef.current
-        && event.target instanceof Node
-        && panelRef.current.contains(event.target),
+        panelRef.current && event.target instanceof Node && panelRef.current.contains(event.target),
       );
       const panelContainsFocus = Boolean(
-        panelRef.current
-        && document.activeElement instanceof Node
-        && panelRef.current.contains(document.activeElement),
+        panelRef.current &&
+        document.activeElement instanceof Node &&
+        panelRef.current.contains(document.activeElement),
       );
 
       if (
-        !(graphHotkeyActiveRef.current || panelContainsTarget || panelContainsFocus)
-        || (!shouldHandleFitViewKey(event)
-          && !shouldHandleCreateModeKey(event)
-          && !shouldHandleRerouteDeleteKey(event)
-          && !shouldHandlePinKey(event)
-          && !shouldHandleGroupKey(event)
-          && !shouldHandleUngroupKey(event))
+        !(graphHotkeyActiveRef.current || panelContainsTarget || panelContainsFocus) ||
+        (!shouldHandleFitViewKey(event) &&
+          !shouldHandleCreateModeKey(event) &&
+          !shouldHandleRerouteDeleteKey(event) &&
+          !shouldHandlePinKey(event) &&
+          !shouldHandleGroupKey(event) &&
+          !shouldHandleUngroupKey(event))
       ) {
         return;
       }
@@ -3236,12 +3199,12 @@ export function GraphCanvas({
 
     const handlePanelKeyDown = (event: KeyboardEvent) => {
       if (
-        !shouldHandleFitViewKey(event)
-        && !shouldHandleCreateModeKey(event)
-        && !shouldHandleRerouteDeleteKey(event)
-        && !shouldHandlePinKey(event)
-        && !shouldHandleGroupKey(event)
-        && !shouldHandleUngroupKey(event)
+        !shouldHandleFitViewKey(event) &&
+        !shouldHandleCreateModeKey(event) &&
+        !shouldHandleRerouteDeleteKey(event) &&
+        !shouldHandlePinKey(event) &&
+        !shouldHandleGroupKey(event) &&
+        !shouldHandleUngroupKey(event)
       ) {
         return;
       }
@@ -3317,7 +3280,10 @@ export function GraphCanvas({
 
     const showPanCursor = panModeActive && (pointerInsidePanel || panPointerDragging);
     document.body.classList.toggle("graph-pan-cursor-active", showPanCursor && !panPointerDragging);
-    document.body.classList.toggle("graph-pan-cursor-dragging", showPanCursor && panPointerDragging);
+    document.body.classList.toggle(
+      "graph-pan-cursor-dragging",
+      showPanCursor && panPointerDragging,
+    );
 
     return () => {
       document.body.classList.remove("graph-pan-cursor-active");
@@ -3545,16 +3511,17 @@ export function GraphCanvas({
   useEffect(() => {
     const liveDeletableEdgeIds = new Set(
       (graph?.edges ?? [])
-        .filter((edge) =>
-          edge.kind === "controls"
-          || (edge.kind === "data" && (
-            edge.id.startsWith("data:flowbinding:")
-            || edge.id.startsWith("data:flowparam:")
-          )),
+        .filter(
+          (edge) =>
+            edge.kind === "controls" ||
+            (edge.kind === "data" &&
+              (edge.id.startsWith("data:flowbinding:") || edge.id.startsWith("data:flowparam:"))),
         )
         .map((edge) => edge.id),
     );
-    setSelectedControlEdgeIds((current) => current.filter((edgeId) => liveDeletableEdgeIds.has(edgeId)));
+    setSelectedControlEdgeIds((current) =>
+      current.filter((edgeId) => liveDeletableEdgeIds.has(edgeId)),
+    );
   }, [graph?.edges]);
 
   useEffect(() => {
@@ -3567,44 +3534,48 @@ export function GraphCanvas({
     pendingLayoutUndoRef.current = undefined;
   }, [repoPath]);
 
-  useEffect(() => useUndoStore.getState().registerDomain("layout", {
-    canUndo: () => currentLayoutUndoStack.length > 0,
-    canRedo: () => currentLayoutRedoStack.length > 0,
-    peekEntry: () => currentLayoutUndoStack[currentLayoutUndoStack.length - 1]?.entry,
-    peekRedoEntry: () => currentLayoutRedoStack[currentLayoutRedoStack.length - 1]?.entry,
-    undo: async () => {
-      const layoutUndo = currentLayoutUndoStack[currentLayoutUndoStack.length - 1];
-      if (!layoutUndo) {
-        return {
-          domain: "layout" as const,
-          handled: false,
-        };
-      }
+  useEffect(
+    () =>
+      useUndoStore.getState().registerDomain("layout", {
+        canUndo: () => currentLayoutUndoStack.length > 0,
+        canRedo: () => currentLayoutRedoStack.length > 0,
+        peekEntry: () => currentLayoutUndoStack[currentLayoutUndoStack.length - 1]?.entry,
+        peekRedoEntry: () => currentLayoutRedoStack[currentLayoutRedoStack.length - 1]?.entry,
+        undo: async () => {
+          const layoutUndo = currentLayoutUndoStack[currentLayoutUndoStack.length - 1];
+          if (!layoutUndo) {
+            return {
+              domain: "layout" as const,
+              handled: false,
+            };
+          }
 
-      applyLayoutHistoryEntry(layoutUndo, "undo");
-      return {
-        domain: "layout" as const,
-        handled: true,
-        summary: layoutUndo.entry.summary,
-      };
-    },
-    redo: async () => {
-      const layoutRedo = currentLayoutRedoStack[currentLayoutRedoStack.length - 1];
-      if (!layoutRedo) {
-        return {
-          domain: "layout" as const,
-          handled: false,
-        };
-      }
+          applyLayoutHistoryEntry(layoutUndo, "undo");
+          return {
+            domain: "layout" as const,
+            handled: true,
+            summary: layoutUndo.entry.summary,
+          };
+        },
+        redo: async () => {
+          const layoutRedo = currentLayoutRedoStack[currentLayoutRedoStack.length - 1];
+          if (!layoutRedo) {
+            return {
+              domain: "layout" as const,
+              handled: false,
+            };
+          }
 
-      applyLayoutHistoryEntry(layoutRedo, "redo");
-      return {
-        domain: "layout" as const,
-        handled: true,
-        summary: layoutRedo.entry.summary,
-      };
-    },
-  }), [applyLayoutHistoryEntry, currentLayoutRedoStack, currentLayoutUndoStack]);
+          applyLayoutHistoryEntry(layoutRedo, "redo");
+          return {
+            domain: "layout" as const,
+            handled: true,
+            summary: layoutRedo.entry.summary,
+          };
+        },
+      }),
+    [applyLayoutHistoryEntry, currentLayoutRedoStack, currentLayoutUndoStack],
+  );
 
   useEffect(() => {
     setHoveredEdgeId(undefined);
@@ -3612,18 +3583,16 @@ export function GraphCanvas({
     setTransientHelpTarget(null);
   }, [setTransientHelpTarget, viewKey]);
 
-  useEffect(() => () => {
-    setTransientHelpTarget(null);
-  }, [setTransientHelpTarget]);
+  useEffect(
+    () => () => {
+      setTransientHelpTarget(null);
+    },
+    [setTransientHelpTarget],
+  );
 
   const handleNodesChange = (changes: NodeChange<GraphCanvasNode>[]) => {
     setNodes((current) =>
-      applyGroupedPositionChanges(
-        current,
-        changes,
-        groupByNodeId,
-        memberNodeIdsByGroupId,
-      ),
+      applyGroupedPositionChanges(current, changes, groupByNodeId, memberNodeIdsByGroupId),
     );
   };
 
@@ -3651,12 +3620,14 @@ export function GraphCanvas({
     }
 
     const previousLayout = persistGraphLayout(nodes, groups);
-    const result = graph.level === "flow"
-      ? layoutFlowGraph(toFlowLayoutNodes(nodes, graph), graph.edges, semanticPinnedNodeIds(nodes))
-      : declutterGraphLayout(
-          toDeclutterNodes(nodes.filter(isSemanticCanvasNode)),
-          graph.edges,
-        );
+    const result =
+      graph.level === "flow"
+        ? layoutFlowGraph(
+            toFlowLayoutNodes(nodes, graph),
+            graph.edges,
+            semanticPinnedNodeIds(nodes),
+          )
+        : declutterGraphLayout(toDeclutterNodes(nodes.filter(isSemanticCanvasNode)), graph.edges);
     if (!result.changed) {
       return;
     }
@@ -3702,14 +3673,16 @@ export function GraphCanvas({
           (node): node is RerouteCanvasNode =>
             isRerouteCanvasNode(node) && node.data.logicalEdgeId === logicalEdgeId,
         )
-        .sort((left, right) => left.data.order - right.data.order || left.id.localeCompare(right.id));
+        .sort(
+          (left, right) => left.data.order - right.data.order || left.id.localeCompare(right.id),
+        );
       const insertAt = Math.max(0, Math.min(segmentIndex, edgeReroutes.length));
       const next = normalizeRerouteNodeOrders([
         ...current.map((node) => {
           if (
-            !isRerouteCanvasNode(node)
-            || node.data.logicalEdgeId !== logicalEdgeId
-            || node.data.order < insertAt
+            !isRerouteCanvasNode(node) ||
+            node.data.logicalEdgeId !== logicalEdgeId ||
+            node.data.order < insertAt
           ) {
             return node;
           }
@@ -3745,11 +3718,7 @@ export function GraphCanvas({
       persistCurrentLayout(next, groups);
       return next;
     });
-    if (
-      previousLayout
-      && nextLayout
-      && !storedLayoutsEqual(previousLayout, nextLayout)
-    ) {
+    if (previousLayout && nextLayout && !storedLayoutsEqual(previousLayout, nextLayout)) {
       pushLayoutUndoEntry(`Inserted reroute on ${logicalEdgeId}.`, previousLayout);
     }
   };
@@ -3809,13 +3778,13 @@ export function GraphCanvas({
 
     const relativePath = relativePathForGraphNode(graphNode);
     const qualname = metadataString(graphNode, "qualname");
-    const sourceBacked = Boolean(relativePath)
-      || graphNode.kind === "module"
-      || isGraphSymbolNodeKind(graphNode.kind);
+    const sourceBacked =
+      Boolean(relativePath) || graphNode.kind === "module" || isGraphSymbolNodeKind(graphNode.kind);
     const groupId = groupByNodeId.get(graphNode.id);
-    const selectedGroupMemberIds = groupId ? memberNodeIdsByGroupId.get(groupId) ?? [] : [];
-    const canDeleteFlowItems = flowAuthoringEnabled
-      && (selectedControlEdgeIds.length > 0 || selectedDeletableFlowNodeIds.length > 0);
+    const selectedGroupMemberIds = groupId ? (memberNodeIdsByGroupId.get(groupId) ?? []) : [];
+    const canDeleteFlowItems =
+      flowAuthoringEnabled &&
+      (selectedControlEdgeIds.length > 0 || selectedDeletableFlowNodeIds.length > 0);
     const items: AppContextMenuItem[] = [];
 
     if (isEnterableGraphNodeKind(graphNode.kind)) {
@@ -3838,20 +3807,22 @@ export function GraphCanvas({
       items.push({
         id: "open-expression-graph",
         label: "Open Expression Graph",
-        action: () => requestExpressionGraphIntent(graphNode.id, undefined, {
-          x: menu.x,
-          y: menu.y,
-        }),
+        action: () =>
+          requestExpressionGraphIntent(graphNode.id, undefined, {
+            x: menu.x,
+            y: menu.y,
+          }),
       });
     }
 
     if (flowAuthoringEnabled && authorableFlowNodeIds.has(graphNode.id)) {
-      const openFlowNodeEditor = (initialLoopType?: FlowLoopType) => onEditFlowNodeIntent({
-        nodeId: graphNode.id,
-        flowPosition: screenToFlowPosition({ x: menu.x, y: menu.y }),
-        panelPosition: panelPositionForContext(menu),
-        initialLoopType,
-      });
+      const openFlowNodeEditor = (initialLoopType?: FlowLoopType) =>
+        onEditFlowNodeIntent({
+          nodeId: graphNode.id,
+          flowPosition: screenToFlowPosition({ x: menu.x, y: menu.y }),
+          panelPosition: panelPositionForContext(menu),
+          initialLoopType,
+        });
       if (graphNode.kind === "loop") {
         items.push(
           {
@@ -3872,28 +3843,30 @@ export function GraphCanvas({
           {
             id: "add-repeat-step",
             label: "Add Repeat Step",
-            action: () => onCreateIntent({
-              flowPosition: screenToFlowPosition({ x: menu.x, y: menu.y }),
-              panelPosition: panelPositionForContext(menu),
-              seedFlowConnection: {
-                sourceNodeId: graphNode.id,
-                sourceHandle: "body",
-                label: "Repeat",
-              },
-            }),
+            action: () =>
+              onCreateIntent({
+                flowPosition: screenToFlowPosition({ x: menu.x, y: menu.y }),
+                panelPosition: panelPositionForContext(menu),
+                seedFlowConnection: {
+                  sourceNodeId: graphNode.id,
+                  sourceHandle: "body",
+                  label: "Repeat",
+                },
+              }),
           },
           {
             id: "add-done-step",
             label: "Add Done Step",
-            action: () => onCreateIntent({
-              flowPosition: screenToFlowPosition({ x: menu.x, y: menu.y }),
-              panelPosition: panelPositionForContext(menu),
-              seedFlowConnection: {
-                sourceNodeId: graphNode.id,
-                sourceHandle: "after",
-                label: "Done",
-              },
-            }),
+            action: () =>
+              onCreateIntent({
+                flowPosition: screenToFlowPosition({ x: menu.x, y: menu.y }),
+                panelPosition: panelPositionForContext(menu),
+                seedFlowConnection: {
+                  sourceNodeId: graphNode.id,
+                  sourceHandle: "after",
+                  label: "Done",
+                },
+              }),
           },
         );
       } else {
@@ -4013,12 +3986,10 @@ export function GraphCanvas({
     menu: Extract<GraphContextMenuState, { kind: "edge" }>,
   ): AppContextMenuItem[] => {
     const canModifyFlowEdge =
-      flowAuthoringEnabled
-      && (
-        menu.edgeKind === "controls"
-        || menu.edgeId.startsWith("data:flowbinding:")
-        || menu.edgeId.startsWith("data:flowparam:")
-      );
+      flowAuthoringEnabled &&
+      (menu.edgeKind === "controls" ||
+        menu.edgeId.startsWith("data:flowbinding:") ||
+        menu.edgeId.startsWith("data:flowparam:"));
     const items: AppContextMenuItem[] = [];
 
     if (canModifyFlowEdge) {
@@ -4080,18 +4051,20 @@ export function GraphCanvas({
       return [];
     }
 
-    const canDeleteFlowItems = flowAuthoringEnabled
-      && (selectedControlEdgeIds.length > 0 || selectedDeletableFlowNodeIds.length > 0);
+    const canDeleteFlowItems =
+      flowAuthoringEnabled &&
+      (selectedControlEdgeIds.length > 0 || selectedDeletableFlowNodeIds.length > 0);
     const items: AppContextMenuItem[] = [];
 
     if (flowAuthoringEnabled) {
       items.push({
         id: "create-flow-node",
         label: "Create Flow Node Here",
-        action: () => onCreateIntent({
-          flowPosition: menu.flowPosition,
-          panelPosition: panelPositionForContext(menu),
-        }),
+        action: () =>
+          onCreateIntent({
+            flowPosition: menu.flowPosition,
+            panelPosition: panelPositionForContext(menu),
+          }),
       });
     }
 
@@ -4126,7 +4099,10 @@ export function GraphCanvas({
       });
     }
 
-    if (selectedGroupId || effectiveSemanticSelection.some((nodeId) => groupedNodeIds.has(nodeId))) {
+    if (
+      selectedGroupId ||
+      effectiveSemanticSelection.some((nodeId) => groupedNodeIds.has(nodeId))
+    ) {
       items.push({
         id: "ungroup-selection",
         label: "Ungroup Selection",
@@ -4145,10 +4121,10 @@ export function GraphCanvas({
     }
 
     if (
-      effectiveSemanticSelection.length
-      || selectedControlEdgeIds.length
-      || selectedRerouteCount
-      || selectedGroupId
+      effectiveSemanticSelection.length ||
+      selectedControlEdgeIds.length ||
+      selectedRerouteCount ||
+      selectedGroupId
     ) {
       items.push({
         id: "clear-selection",
@@ -4200,10 +4176,7 @@ export function GraphCanvas({
         : "Graph actions"
     : "Graph actions";
 
-  const groupBounds = useMemo(
-    () => buildGraphGroupBoundsList(groups, nodes),
-    [groups, nodes],
-  );
+  const groupBounds = useMemo(() => buildGraphGroupBoundsList(groups, nodes), [groups, nodes]);
 
   const handlePreviewGroupMove = (
     groupId: string,
@@ -4235,16 +4208,14 @@ export function GraphCanvas({
       : isLoading
         ? "Loading graph"
         : "Blueprint canvas";
-    const emptyStateBody = errorMessage
-      ?? (isLoading
+    const emptyStateBody =
+      errorMessage ??
+      (isLoading
         ? "Building the current graph view."
         : "Index a repo to open the architecture map. Modules appear first, then symbols and flow only when you drill down.");
     return (
       <section className="content-panel graph-panel">
-        <EmptyState
-          title={emptyStateTitle}
-          body={emptyStateBody}
-        />
+        <EmptyState title={emptyStateTitle} body={emptyStateBody} />
       </section>
     );
   }
@@ -4257,15 +4228,15 @@ export function GraphCanvas({
     nodes,
     onEdgeClick: (logicalEdgeId, logicalEdgeKind, _position, _clientPosition, modifiers) => {
       if (
-        logicalEdgeKind === "data"
-        && (
-          logicalEdgeId.startsWith("data:flowbinding:")
-          || logicalEdgeId.startsWith("data:flowparam:")
-        )
+        logicalEdgeKind === "data" &&
+        (logicalEdgeId.startsWith("data:flowbinding:") ||
+          logicalEdgeId.startsWith("data:flowparam:"))
       ) {
         if (modifiers.altKey) {
           onDisconnectFlowEdge(logicalEdgeId);
-          setSelectedControlEdgeIds((current) => current.filter((edgeId) => edgeId !== logicalEdgeId));
+          setSelectedControlEdgeIds((current) =>
+            current.filter((edgeId) => edgeId !== logicalEdgeId),
+          );
           return;
         }
         selectControlEdge(logicalEdgeId);
@@ -4281,7 +4252,9 @@ export function GraphCanvas({
       }
       if (edgeInteraction === "disconnect") {
         onDisconnectFlowEdge(logicalEdgeId);
-        setSelectedControlEdgeIds((current) => current.filter((edgeId) => edgeId !== logicalEdgeId));
+        setSelectedControlEdgeIds((current) =>
+          current.filter((edgeId) => edgeId !== logicalEdgeId),
+        );
         return;
       }
       selectControlEdge(logicalEdgeId);
@@ -4372,12 +4345,10 @@ export function GraphCanvas({
           }
 
           const nextSelectedSemanticNodeIds = sortNodeIds(
-            selectedNodes
-              .filter(isSemanticCanvasNode)
-              .map((node) => node.id),
+            selectedNodes.filter(isSemanticCanvasNode).map((node) => node.id),
           );
-          const hasLocalNodeSelection = nextSelectedSemanticNodeIds.length > 0
-            || selectedNodes.some(isRerouteCanvasNode);
+          const hasLocalNodeSelection =
+            nextSelectedSemanticNodeIds.length > 0 || selectedNodes.some(isRerouteCanvasNode);
 
           setSelectedSemanticNodeIds((current) =>
             sameNodeIds(current, nextSelectedSemanticNodeIds)
@@ -4402,9 +4373,9 @@ export function GraphCanvas({
         connectionRadius={FLOW_CONNECTION_RADIUS}
         reconnectRadius={FLOW_RECONNECT_RADIUS}
         deleteKeyCode={null}
-        isValidConnection={(connection) => (
+        isValidConnection={(connection) =>
           flowAuthoringEnabled && isValidFlowCanvasConnection(connection)
-        )}
+        }
         selectionKeyCode={null}
         multiSelectionKeyCode={["Meta", "Control", "Shift"]}
         selectionOnDrag={!panModeActive && !createModeActive}
@@ -4419,10 +4390,10 @@ export function GraphCanvas({
         panOnDrag={panModeActive}
         onConnect={(connection: Connection) => {
           if (
-            !flowAuthoringEnabled
-            || !connection.source
-            || !connection.target
-            || !isValidFlowCanvasConnection(connection)
+            !flowAuthoringEnabled ||
+            !connection.source ||
+            !connection.target ||
+            !isValidFlowCanvasConnection(connection)
           ) {
             return;
           }
@@ -4437,11 +4408,11 @@ export function GraphCanvas({
         onReconnect={(oldEdge, newConnection) => {
           const logicalEdgeId = (oldEdge.data as BlueprintEdgeData | undefined)?.logicalEdgeId;
           if (
-            !flowAuthoringEnabled
-            || !logicalEdgeId
-            || !newConnection.source
-            || !newConnection.target
-            || !isValidFlowCanvasConnection(newConnection)
+            !flowAuthoringEnabled ||
+            !logicalEdgeId ||
+            !newConnection.source ||
+            !newConnection.target ||
+            !isValidFlowCanvasConnection(newConnection)
           ) {
             return;
           }
@@ -4485,10 +4456,7 @@ export function GraphCanvas({
 
           const toggleSelectionModifier = event.metaKey || event.ctrlKey;
           const shiftSelectionModifier = event.shiftKey || shiftPressedRef.current;
-          const additiveSelection = (
-            toggleSelectionModifier
-            || shiftSelectionModifier
-          );
+          const additiveSelection = toggleSelectionModifier || shiftSelectionModifier;
           const shiftOnlySelection = shiftSelectionModifier && !toggleSelectionModifier;
           const wasSelectedBeforeClick = selectedSemanticNodeIds.includes(node.id);
           skipNextSelectionSyncRef.current = additiveSelection;
@@ -4497,9 +4465,7 @@ export function GraphCanvas({
           setNodes((current) =>
             current.map((currentNode) => {
               if (isRerouteCanvasNode(currentNode)) {
-                return currentNode.selected
-                  ? { ...currentNode, selected: false }
-                  : currentNode;
+                return currentNode.selected ? { ...currentNode, selected: false } : currentNode;
               }
 
               if (currentNode.id === node.id) {
@@ -4545,11 +4511,10 @@ export function GraphCanvas({
             return;
           }
           if (flowAuthoringEnabled && node.data.kind === "return") {
-            requestExpressionGraphIntent(
-              node.id,
-              undefined,
-              { x: event.clientX, y: event.clientY },
-            );
+            requestExpressionGraphIntent(node.id, undefined, {
+              x: event.clientX,
+              y: event.clientY,
+            });
             return;
           }
           if (flowAuthoringEnabled && authorableFlowNodeIds.has(node.id)) {
@@ -4602,7 +4567,11 @@ export function GraphCanvas({
           onUngroupGroup={ungroupGroup}
         />
         <Controls showInteractive={false} />
-        <Background gap={32} size={1} color={createModeActive ? "var(--accent-strong)" : "var(--line-strong)"} />
+        <Background
+          gap={32}
+          size={1}
+          color={createModeActive ? "var(--accent-strong)" : "var(--line-strong)"}
+        />
       </ReactFlow>
 
       {contextActionError ? (
@@ -4750,7 +4719,8 @@ function applyNodeDecorations(
         expressionPreview: expressionPreview
           ? {
               ...expressionPreview,
-              onOpen: (expressionNodeId?: string) => onOpenExpressionGraph(graphNode.id, expressionNodeId),
+              onOpen: (expressionNodeId?: string) =>
+                onOpenExpressionGraph(graphNode.id, expressionNodeId),
             }
           : undefined,
         isPinned: node.data.isPinned,

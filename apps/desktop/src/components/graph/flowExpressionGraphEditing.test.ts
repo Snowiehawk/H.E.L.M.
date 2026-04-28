@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FlowExpressionGraph } from "../../lib/adapter";
-import {
-  createFlowExpressionEdge,
-  expressionFromFlowExpressionGraph,
-} from "./flowExpressionGraph";
+import { createFlowExpressionEdge, expressionFromFlowExpressionGraph } from "./flowExpressionGraph";
 import { connectExpressionGraphNodes } from "./flowExpressionGraphEditing";
 
 function extendedAddGraph(): FlowExpressionGraph {
@@ -36,7 +33,12 @@ describe("flowExpressionGraphEditing", () => {
       expression: "",
     });
 
-    const withOuterRight = connectExpressionGraphNodes(withOuterLeft, "input:c", "op:outer", "right");
+    const withOuterRight = connectExpressionGraphNodes(
+      withOuterLeft,
+      "input:c",
+      "op:outer",
+      "right",
+    );
     expect(withOuterRight.rootId).toBe("op:outer");
     expect(expressionFromFlowExpressionGraph(withOuterRight)).toEqual({
       diagnostics: [],

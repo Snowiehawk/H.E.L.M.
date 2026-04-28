@@ -18,8 +18,7 @@ export function DesktopWindow({
 }>) {
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   const isMac =
-    typeof navigator !== "undefined" &&
-    /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+    typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
   const dragRegionProps = isTauri ? { "data-tauri-drag-region": true } : {};
 
   return (

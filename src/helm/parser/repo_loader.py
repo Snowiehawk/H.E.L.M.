@@ -45,9 +45,7 @@ class _GitIgnoreRule:
 
         if self.basename_only:
             return any(
-                fnmatch.fnmatchcase(part, self.pattern)
-                for part in relative_path.split("/")
-                if part
+                fnmatch.fnmatchcase(part, self.pattern) for part in relative_path.split("/") if part
             )
         return fnmatch.fnmatchcase(relative_path, self.pattern)
 

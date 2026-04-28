@@ -3,11 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import {
-  AdapterProvider,
-  createDesktopAdapter,
-  DesktopAdapter,
-} from "../lib/adapter";
+import { AdapterProvider, createDesktopAdapter, DesktopAdapter } from "../lib/adapter";
 import { PreferencesDialog } from "../components/shared/PreferencesDialog";
 import { useUiStore } from "../store/uiStore";
 import { useUndoStore } from "../store/undoStore";
@@ -20,9 +16,9 @@ function isTauriApp() {
 
 function isNativeMacApp() {
   return (
-    isTauriApp()
-    && typeof navigator !== "undefined"
-    && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
+    isTauriApp() &&
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
   );
 }
 
@@ -33,12 +29,7 @@ function ThemeBridge() {
     const prefersDark =
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const resolved =
-      theme === "system"
-        ? prefersDark
-          ? "dark"
-          : "light"
-        : theme;
+    const resolved = theme === "system" ? (prefersDark ? "dark" : "light") : theme;
     document.documentElement.dataset.theme = resolved;
   }, [theme]);
 
@@ -61,17 +52,10 @@ function UiScaleBridge() {
         return;
       }
 
-      const isZoomInKey =
-        event.key === "="
-        || event.key === "+"
-        || event.code === "NumpadAdd";
+      const isZoomInKey = event.key === "=" || event.key === "+" || event.code === "NumpadAdd";
       const isZoomOutKey =
-        event.key === "-"
-        || event.key === "_"
-        || event.code === "NumpadSubtract";
-      const isResetKey =
-        event.key === "0"
-        || event.code === "Numpad0";
+        event.key === "-" || event.key === "_" || event.code === "NumpadSubtract";
+      const isResetKey = event.key === "0" || event.code === "Numpad0";
 
       if (!isZoomInKey && !isZoomOutKey && !isResetKey) {
         return;
@@ -101,9 +85,11 @@ function UiScaleBridge() {
       return;
     }
 
-    void getCurrentWebview().setZoom(uiScale).catch((error) => {
-      console.warn("Unable to apply native webview zoom.", error);
-    });
+    void getCurrentWebview()
+      .setZoom(uiScale)
+      .catch((error) => {
+        console.warn("Unable to apply native webview zoom.", error);
+      });
   }, [uiScale]);
 
   return null;
@@ -225,11 +211,11 @@ function PreferencesShortcutBridge() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
-        event.defaultPrevented
-        || !(event.metaKey || event.ctrlKey)
-        || event.altKey
-        || event.shiftKey
-        || (event.key !== "," && event.code !== "Comma")
+        event.defaultPrevented ||
+        !(event.metaKey || event.ctrlKey) ||
+        event.altKey ||
+        event.shiftKey ||
+        (event.key !== "," && event.code !== "Comma")
       ) {
         return;
       }
@@ -246,8 +232,9 @@ function PreferencesShortcutBridge() {
 }
 
 function isMonacoEditingTarget(target: EventTarget | null) {
-  return target instanceof HTMLElement
-    && Boolean(target.closest(".monaco-editor, .monaco-diff-editor"));
+  return (
+    target instanceof HTMLElement && Boolean(target.closest(".monaco-editor, .monaco-diff-editor"))
+  );
 }
 
 function isNativeTextEditingTarget(target: EventTarget | null) {
@@ -315,10 +302,10 @@ function GlobalUndoRedoBridge() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
-        event.defaultPrevented
-        || !(event.metaKey || event.ctrlKey)
-        || event.altKey
-        || event.key.toLowerCase() !== "z"
+        event.defaultPrevented ||
+        !(event.metaKey || event.ctrlKey) ||
+        event.altKey ||
+        event.key.toLowerCase() !== "z"
       ) {
         return;
       }

@@ -45,7 +45,9 @@ class PythonParserTests(unittest.TestCase):
                 },
             )
             self.assertEqual({item.local_name for item in parsed.imports}, {"helper", "utils"})
-            call_map = {call.callee_expr: (call.root_name, call.attribute_path) for call in parsed.calls}
+            call_map = {
+                call.callee_expr: (call.root_name, call.attribute_path) for call in parsed.calls
+            }
             self.assertIn("helper", call_map)
             self.assertIn("utils.format_value", call_map)
             self.assertEqual(call_map["self._private"], ("self", ("_private",)))

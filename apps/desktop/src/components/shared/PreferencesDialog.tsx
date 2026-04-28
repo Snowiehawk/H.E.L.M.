@@ -97,7 +97,12 @@ export function PreferencesDialog() {
         }
       }}
     >
-      <section aria-label="Preferences" aria-modal="true" className="preferences-dialog" role="dialog">
+      <section
+        aria-label="Preferences"
+        aria-modal="true"
+        className="preferences-dialog"
+        role="dialog"
+      >
         <aside className="preferences-sidebar" aria-label="Preferences sections">
           <button
             ref={backButtonRef}

@@ -67,7 +67,9 @@ def build_graph_summary(graph: RepoGraph, top_n: int = 10) -> GraphSummary:
             ModuleSummary(
                 module_id=module_node.node_id,
                 module_name=module_node.module_name or module_node.name,
-                relative_path=str(module_node.metadata.get("relative_path", module_node.display_name)),
+                relative_path=str(
+                    module_node.metadata.get("relative_path", module_node.display_name)
+                ),
                 symbol_count=symbol_counts.get(module_node.node_id, 0),
                 import_count=import_counts.get(module_node.node_id, 0),
                 outgoing_call_count=call_counts.get(module_node.node_id, 0),

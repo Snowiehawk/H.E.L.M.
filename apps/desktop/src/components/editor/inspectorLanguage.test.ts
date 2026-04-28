@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  inferInspectorLanguage,
-  normalizeMonacoLanguage,
-} from "./inspectorLanguage";
+import { inferInspectorLanguage, normalizeMonacoLanguage } from "./inspectorLanguage";
 
 describe("inspectorLanguage", () => {
   it("prefers editable source paths when available", () => {

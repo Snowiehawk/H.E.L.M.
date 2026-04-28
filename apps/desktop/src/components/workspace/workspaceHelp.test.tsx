@@ -15,15 +15,8 @@ function HelpHarness() {
 
   return (
     <>
-      <div
-        {...helpTargetProps("graph.canvas")}
-        data-testid="canvas"
-      >
-        <button
-          {...helpTargetProps("explorer.search")}
-          data-testid="search"
-          type="button"
-        >
+      <div {...helpTargetProps("graph.canvas")} data-testid="canvas">
+        <button {...helpTargetProps("explorer.search")} data-testid="search" type="button">
           Search
         </button>
       </div>
@@ -47,12 +40,22 @@ function HelpHarness() {
 
 describe("workspaceHelp", () => {
   it("resolves semantic help copy for key graph concepts", () => {
-    expect(resolveHelpDescriptor("graph.node.module", { label: "api.py" }).title).toBe("api.py module node");
-    expect(resolveHelpDescriptor("graph.node.class", { label: "Widget" }).title).toBe("Widget class node");
-    expect(resolveHelpDescriptor("graph.node.function", { label: "build_graph" }).description).toMatch(/function/i);
-    expect(resolveHelpDescriptor("graph.node.param", { label: "operation" }).description).toMatch(/function signature/i);
+    expect(resolveHelpDescriptor("graph.node.module", { label: "api.py" }).title).toBe(
+      "api.py module node",
+    );
+    expect(resolveHelpDescriptor("graph.node.class", { label: "Widget" }).title).toBe(
+      "Widget class node",
+    );
+    expect(
+      resolveHelpDescriptor("graph.node.function", { label: "build_graph" }).description,
+    ).toMatch(/function/i);
+    expect(resolveHelpDescriptor("graph.node.param", { label: "operation" }).description).toMatch(
+      /function signature/i,
+    );
     expect(resolveHelpDescriptor("graph.path.flow").description).toMatch(/function or class/i);
-    expect(resolveHelpDescriptor("graph.port.imports").description).toMatch(/import relationships/i);
+    expect(resolveHelpDescriptor("graph.port.imports").description).toMatch(
+      /import relationships/i,
+    );
     expect(resolveHelpDescriptor("graph.port.calls").description).toMatch(/call relationships/i);
   });
 

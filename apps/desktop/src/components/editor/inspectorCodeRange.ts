@@ -25,8 +25,8 @@ export function normalizeHighlightRange(
   const absoluteSnippetStartLine = Math.max(snippetStartLine ?? 1, 1);
   const absoluteSnippetEndLine = absoluteSnippetStartLine + model.getLineCount() - 1;
   if (
-    highlightRange.endLine < absoluteSnippetStartLine
-    || highlightRange.startLine > absoluteSnippetEndLine
+    highlightRange.endLine < absoluteSnippetStartLine ||
+    highlightRange.startLine > absoluteSnippetEndLine
   ) {
     return undefined;
   }
@@ -40,9 +40,7 @@ export function normalizeHighlightRange(
     startLine,
     toModelColumn(
       absoluteStartLine,
-      absoluteStartLine === highlightRange.startLine
-        ? highlightRange.startColumn ?? 0
-        : 0,
+      absoluteStartLine === highlightRange.startLine ? (highlightRange.startColumn ?? 0) : 0,
       absoluteSnippetStartLine,
       snippetStartColumn,
     ),
@@ -87,10 +85,6 @@ function toModelColumn(
   return absoluteColumn - snippetStartColumn + 1;
 }
 
-function clampRangeColumn(
-  model: HighlightableCodeModel,
-  lineNumber: number,
-  column: number,
-) {
+function clampRangeColumn(model: HighlightableCodeModel, lineNumber: number, column: number) {
   return Math.min(Math.max(column, 1), model.getLineMaxColumn(lineNumber));
 }

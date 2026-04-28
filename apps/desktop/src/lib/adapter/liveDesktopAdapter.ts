@@ -13,7 +13,6 @@ import type {
   GraphAbstractionLevel,
   GraphActionDto,
   GraphBreadcrumbDto,
-  GraphEdgeDto,
   GraphFilters,
   GraphFocusDto,
   GraphSettings,
@@ -35,7 +34,6 @@ import type {
   StructuralEditResult,
   SymbolDetails,
   WorkspaceSyncEvent,
-  WorkspaceSyncSnapshot,
   WorkspaceSyncState,
   WorkspaceFileContents,
   WorkspaceFileDeleteRequest,
@@ -472,18 +470,12 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   private workspaceSyncUnlisten?: Promise<UnlistenFn>;
 
   constructor() {
-    this.indexProgressUnlisten = listen<RawIndexProgressEvent>(
-      "helm://index-progress",
-      (event) => {
-        this.handleIndexProgress(event.payload);
-      },
-    ).catch(() => () => {});
-    this.workspaceSyncUnlisten = listen<RawWorkspaceSyncEvent>(
-      "helm://workspace-sync",
-      (event) => {
-        this.handleWorkspaceSync(event.payload);
-      },
-    ).catch(() => () => {});
+    this.indexProgressUnlisten = listen<RawIndexProgressEvent>("helm://index-progress", (event) => {
+      this.handleIndexProgress(event.payload);
+    }).catch(() => () => {});
+    this.workspaceSyncUnlisten = listen<RawWorkspaceSyncEvent>("helm://workspace-sync", (event) => {
+      this.handleWorkspaceSync(event.payload);
+    }).catch(() => () => {});
   }
 
   private handleIndexProgress(raw: RawIndexProgressEvent) {
@@ -615,10 +607,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     return { jobId };
   }
 
-  subscribeIndexProgress(
-    jobId: string,
-    onUpdate: (state: IndexingJobState) => void,
-  ): () => void {
+  subscribeIndexProgress(jobId: string, onUpdate: (state: IndexingJobState) => void): () => void {
     const job = this.jobs.get(jobId);
     if (!job) {
       onUpdate({
@@ -711,10 +700,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     };
   }
 
-  async readWorkspaceFile(
-    repoPath: string,
-    relativePath: string,
-  ): Promise<WorkspaceFileContents> {
+  async readWorkspaceFile(repoPath: string, relativePath: string): Promise<WorkspaceFileContents> {
     const raw = await invoke<RawWorkspaceFileContents>("read_workspace_file", {
       repoPath: normalizePath(repoPath),
       relativePath,
@@ -791,8 +777,8 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       .filter((edge) => edge.kind === "calls")
       .map((edge) => toRelationship(edge.target_id, cache));
     const references = [
-      ...(cache.edgesByTarget.get(symbolId) ?? []).filter((edge) =>
-        edge.kind === "defines" || edge.kind === "contains",
+      ...(cache.edgesByTarget.get(symbolId) ?? []).filter(
+        (edge) => edge.kind === "defines" || edge.kind === "contains",
       ),
       ...(cache.edgesBySource.get(symbolId) ?? []).filter((edge) => edge.kind === "imports"),
     ].map((edge) =>
@@ -1194,7 +1180,7 @@ function toWorkspaceFileMutationResult(
     relativePath: raw.relative_path,
     kind: raw.kind,
     changedRelativePaths: raw.changed_relative_paths,
-    file: raw.file ? toWorkspaceFileContents(raw.file) : raw.file ?? null,
+    file: raw.file ? toWorkspaceFileContents(raw.file) : (raw.file ?? null),
   };
 }
 
@@ -1362,7 +1348,7 @@ function toRelationship(nodeId: string, cache: ScanCache): RelationshipItem {
     label: node.name,
     subtitle:
       node.kind === "symbol"
-        ? node.qualname ?? node.display_name
+        ? (node.qualname ?? node.display_name)
         : relativePathForNode(node, cache),
     nodeId: node.node_id,
     symbolId: node.kind === "symbol" ? node.node_id : undefined,
@@ -1448,9 +1434,7 @@ function buildOverviewModules(cache: ScanCache): OverviewModule[] {
     const sourceNode = cache.nodeById.get(edge.source_id);
     const targetNode = cache.nodeById.get(edge.target_id);
     const moduleName =
-      sourceNode?.kind === "module"
-        ? sourceNode.module_name
-        : sourceNode?.module_name;
+      sourceNode?.kind === "module" ? sourceNode.module_name : sourceNode?.module_name;
     if (!moduleName) {
       return;
     }
@@ -1480,10 +1464,7 @@ function buildOverviewModules(cache: ScanCache): OverviewModule[] {
     }));
 }
 
-function buildModuleOutline(
-  moduleNode: RawGraphNode,
-  cache: ScanCache,
-): OverviewOutlineItem[] {
+function buildModuleOutline(moduleNode: RawGraphNode, cache: ScanCache): OverviewOutlineItem[] {
   return (cache.edgesBySource.get(moduleNode.node_id) ?? [])
     .filter((edge) => edge.kind === "defines")
     .map((edge) => cache.nodeById.get(edge.target_id))
@@ -1494,7 +1475,9 @@ function buildModuleOutline(
       return isOutlineSymbolKind(String(node.metadata.symbol_kind ?? ""));
     })
     .sort((left, right) => {
-      const lineDelta = (left.span?.start_line ?? Number.MAX_SAFE_INTEGER) - (right.span?.start_line ?? Number.MAX_SAFE_INTEGER);
+      const lineDelta =
+        (left.span?.start_line ?? Number.MAX_SAFE_INTEGER) -
+        (right.span?.start_line ?? Number.MAX_SAFE_INTEGER);
       if (lineDelta !== 0) {
         return lineDelta;
       }
@@ -1512,11 +1495,11 @@ function buildModuleOutline(
 
 function isOutlineSymbolKind(value: string): value is OverviewOutlineItem["kind"] {
   return (
-    value === "function"
-    || value === "async_function"
-    || value === "class"
-    || value === "enum"
-    || value === "variable"
+    value === "function" ||
+    value === "async_function" ||
+    value === "class" ||
+    value === "enum" ||
+    value === "variable"
   );
 }
 
@@ -1526,8 +1509,7 @@ function scoreSearchResult(
   degreeByNodeId: Map<string, number>,
 ): number {
   const degree = degreeByNodeId.get(result.nodeId ?? result.id) ?? 0;
-  const kindWeight =
-    result.kind === "symbol" ? 18 : result.kind === "module" ? 12 : 2;
+  const kindWeight = result.kind === "symbol" ? 18 : result.kind === "module" ? 12 : 2;
   if (!query) {
     return degree + kindWeight;
   }
@@ -1611,7 +1593,9 @@ function toRawEditRequest(request: StructuralEditRequest) {
             name: input.name,
             index: input.index,
             ...(input.kind ? { kind: input.kind } : {}),
-            ...(input.defaultExpression !== undefined ? { default_expression: input.defaultExpression } : {}),
+            ...(input.defaultExpression !== undefined
+              ? { default_expression: input.defaultExpression }
+              : {}),
           })),
           value_sources: (request.flowGraph.valueSources ?? []).map((source) => ({
             id: source.id,
@@ -1690,7 +1674,9 @@ function toStructuralEditResult(raw: RawEditResult): StructuralEditResult {
     warnings: raw.warnings,
     flowSyncState: raw.flow_sync_state ?? null,
     diagnostics: raw.diagnostics ?? [],
-    undoTransaction: raw.undo_transaction ? fromRawUndoTransaction(raw.undo_transaction) : undefined,
+    undoTransaction: raw.undo_transaction
+      ? fromRawUndoTransaction(raw.undo_transaction)
+      : undefined,
   };
 }
 
@@ -1705,7 +1691,9 @@ function toBackendUndoResult(raw: RawUndoResult) {
           level: raw.focus_target.level,
         }
       : undefined,
-    redoTransaction: raw.redo_transaction ? fromRawUndoTransaction(raw.redo_transaction) : undefined,
+    redoTransaction: raw.redo_transaction
+      ? fromRawUndoTransaction(raw.redo_transaction)
+      : undefined,
   };
 }
 
@@ -1885,7 +1873,9 @@ function toFlowGraphDocument(
             name: input.name,
             index: input.index,
             ...(input.kind ? { kind: input.kind } : {}),
-            ...(input.default_expression !== undefined ? { defaultExpression: input.default_expression } : {}),
+            ...(input.default_expression !== undefined
+              ? { defaultExpression: input.default_expression }
+              : {}),
           })),
         }
       : {}),
@@ -1928,10 +1918,7 @@ function toFlowGraphDocument(
   };
 }
 
-function buildBreadthLevels(
-  rootNodeId: string,
-  edges: RawGraphViewEdge[],
-): Map<string, number> {
+function buildBreadthLevels(rootNodeId: string, edges: RawGraphViewEdge[]): Map<string, number> {
   const adjacency = new Map<string, Set<string>>();
   const connect = (left: string, right: string) => {
     adjacency.set(left, new Set([...(adjacency.get(left) ?? []), right]));
@@ -1999,15 +1986,23 @@ function buildFlowLevels(
       return targetOrder >= sourceOrder;
     })
     .forEach((edge) => {
-      outgoingForwardEdges.set(edge.source_id, [...(outgoingForwardEdges.get(edge.source_id) ?? []), edge]);
+      outgoingForwardEdges.set(edge.source_id, [
+        ...(outgoingForwardEdges.get(edge.source_id) ?? []),
+        edge,
+      ]);
     });
 
-  const orderedNodes = nodes.slice().sort((left, right) =>
-    (rawFlowOrder(left) ?? Number.MAX_SAFE_INTEGER) - (rawFlowOrder(right) ?? Number.MAX_SAFE_INTEGER)
-    || `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
-  );
+  const orderedNodes = nodes
+    .slice()
+    .sort(
+      (left, right) =>
+        (rawFlowOrder(left) ?? Number.MAX_SAFE_INTEGER) -
+          (rawFlowOrder(right) ?? Number.MAX_SAFE_INTEGER) ||
+        `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
+    );
   orderedNodes.forEach((node) => {
-    const baseLevel = levels.get(node.node_id) ?? (node.kind === "entry" || node.kind === "param" ? 0 : 1);
+    const baseLevel =
+      levels.get(node.node_id) ?? (node.kind === "entry" || node.kind === "param" ? 0 : 1);
     levels.set(node.node_id, baseLevel);
     for (const edge of outgoingForwardEdges.get(node.node_id) ?? []) {
       const nextLevel = baseLevel + 1;
@@ -2031,9 +2026,11 @@ function layoutLightweightFlowGraph(
 ): Map<string, { x: number; y: number }> {
   const orderedNodes = nodes
     .slice()
-    .sort((left, right) =>
-      (rawFlowOrder(left) ?? Number.MAX_SAFE_INTEGER) - (rawFlowOrder(right) ?? Number.MAX_SAFE_INTEGER)
-      || `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
+    .sort(
+      (left, right) =>
+        (rawFlowOrder(left) ?? Number.MAX_SAFE_INTEGER) -
+          (rawFlowOrder(right) ?? Number.MAX_SAFE_INTEGER) ||
+        `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
     );
   const positions = new Map<string, { x: number; y: number }>();
   const controlEdges = edges.filter((edge) => edge.kind === "controls");
@@ -2054,7 +2051,9 @@ function layoutLightweightFlowGraph(
     controlNodeIds.add(edge.target_id);
   });
 
-  const mainFlowNodes = orderedNodes.filter((node) => node.kind === "entry" || controlNodeIds.has(node.node_id));
+  const mainFlowNodes = orderedNodes.filter(
+    (node) => node.kind === "entry" || controlNodeIds.has(node.node_id),
+  );
   const buckets = new Map<number, RawGraphViewNode[]>();
   mainFlowNodes.forEach((node) => {
     const level = levels.get(node.node_id) ?? 0;
@@ -2064,10 +2063,14 @@ function layoutLightweightFlowGraph(
   [...buckets.entries()]
     .sort((left, right) => left[0] - right[0])
     .forEach(([level, group]) => {
-      const sortedGroup = group.slice().sort((left, right) =>
-        (rawFlowOrder(left) ?? Number.MAX_SAFE_INTEGER) - (rawFlowOrder(right) ?? Number.MAX_SAFE_INTEGER)
-        || `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
-      );
+      const sortedGroup = group
+        .slice()
+        .sort(
+          (left, right) =>
+            (rawFlowOrder(left) ?? Number.MAX_SAFE_INTEGER) -
+              (rawFlowOrder(right) ?? Number.MAX_SAFE_INTEGER) ||
+            `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
+        );
       sortedGroup.forEach((node, index) => {
         const centeredIndex = index - (sortedGroup.length - 1) / 2;
         positions.set(node.node_id, {
@@ -2078,7 +2081,9 @@ function layoutLightweightFlowGraph(
     });
 
   const controlColumnByNodeId = new Map<string, number>(
-    Array.from(positions.entries()).map(([nodeId, position]) => [nodeId, Math.round(position.x / 320)] as const),
+    Array.from(positions.entries()).map(
+      ([nodeId, position]) => [nodeId, Math.round(position.x / 320)] as const,
+    ),
   );
   const supportAboveDepthByColumn = new Map<number, number>();
   const supportBelowDepthByColumn = new Map<number, number>();
@@ -2097,7 +2102,7 @@ function layoutLightweightFlowGraph(
       });
       const column = relatedColumns.length
         ? Math.round(relatedColumns.reduce((sum, value) => sum + value, 0) / relatedColumns.length)
-        : levels.get(node.node_id) ?? 0;
+        : (levels.get(node.node_id) ?? 0);
       const above = node.kind === "param";
       const depthByColumn = above ? supportAboveDepthByColumn : supportBelowDepthByColumn;
       const depth = depthByColumn.get(column) ?? 0;
@@ -2182,8 +2187,7 @@ function layoutRelaxedDirectedGraph(
   const buckets = new Map<number, RawGraphViewNode[]>();
 
   nodes.forEach((node) => {
-    const baseLevel =
-      node.node_id === options.repoNodeId ? -1 : (levels.get(node.node_id) ?? 0);
+    const baseLevel = node.node_id === options.repoNodeId ? -1 : (levels.get(node.node_id) ?? 0);
     buckets.set(baseLevel, [...(buckets.get(baseLevel) ?? []), node]);
   });
 
@@ -2195,17 +2199,18 @@ function layoutRelaxedDirectedGraph(
   const fixedNodeIds = new Set<string>(options.repoNodeId ? [options.repoNodeId] : []);
 
   sortedLevels.forEach((level) => {
-    const group = [...(buckets.get(level) ?? [])].sort((left, right) =>
-      (options.flowView ? (rawFlowOrder(left) ?? Number.MAX_SAFE_INTEGER) - (rawFlowOrder(right) ?? Number.MAX_SAFE_INTEGER) : 0)
-      || `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
+    const group = [...(buckets.get(level) ?? [])].sort(
+      (left, right) =>
+        (options.flowView
+          ? (rawFlowOrder(left) ?? Number.MAX_SAFE_INTEGER) -
+            (rawFlowOrder(right) ?? Number.MAX_SAFE_INTEGER)
+          : 0) || `${left.kind}:${left.label}`.localeCompare(`${right.kind}:${right.label}`),
     );
     group.forEach((node, index) => {
       const centeredIndex = index - (group.length - 1) / 2;
       positions.set(node.node_id, {
         x:
-          (level - minLevel) * levelGap
-          + centeredIndex * 54
-          + stableLayoutOffset(node.node_id, 82),
+          (level - minLevel) * levelGap + centeredIndex * 54 + stableLayoutOffset(node.node_id, 82),
         y: centeredIndex * rowGap + stableLayoutOffset(node.node_id, 96),
       });
     });
@@ -2280,11 +2285,8 @@ function layoutRelaxedDirectedGraph(
         return;
       }
 
-      const nodeLevel =
-        node.node_id === options.repoNodeId ? -1 : (levels.get(node.node_id) ?? 0);
-      const anchorX =
-        (nodeLevel - minLevel) * levelGap
-        + stableLayoutOffset(node.node_id, 82);
+      const nodeLevel = node.node_id === options.repoNodeId ? -1 : (levels.get(node.node_id) ?? 0);
+      const anchorX = (nodeLevel - minLevel) * levelGap + stableLayoutOffset(node.node_id, 82);
 
       position.x += clampLayoutDelta(change.x + (anchorX - position.x) * 0.02, 28);
       position.y += clampLayoutDelta(change.y + (0 - position.y) * 0.003, 24);
@@ -2304,7 +2306,7 @@ function stableLayoutOffset(nodeId: string, spread: number): number {
   for (let index = 0; index < nodeId.length; index += 1) {
     hash = (hash * 31 + nodeId.charCodeAt(index)) >>> 0;
   }
-  return ((hash / 0xffffffff) - 0.5) * spread;
+  return (hash / 0xffffffff - 0.5) * spread;
 }
 
 function desiredHorizontalGap(edge: RawGraphViewEdge, flowView: boolean): number {

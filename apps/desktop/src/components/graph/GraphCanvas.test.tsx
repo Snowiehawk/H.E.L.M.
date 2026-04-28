@@ -90,7 +90,9 @@ function setMockStoredGraphLayout(
 }
 
 vi.mock("./graphLayoutPersistence", async () => {
-  const actual = await vi.importActual<typeof import("./graphLayoutPersistence")>("./graphLayoutPersistence");
+  const actual = await vi.importActual<typeof import("./graphLayoutPersistence")>(
+    "./graphLayoutPersistence",
+  );
   return {
     ...actual,
     peekStoredGraphLayout: peekStoredGraphLayoutMock,
@@ -293,7 +295,7 @@ const returnExpressionGraph = {
 
 const editableFlowGraphWithReturnExpression: GraphView = {
   ...editableFlowGraph,
-  nodes: editableFlowGraph.nodes.map((node) => (
+  nodes: editableFlowGraph.nodes.map((node) =>
     node.id === "return:done"
       ? {
           ...node,
@@ -302,8 +304,8 @@ const editableFlowGraphWithReturnExpression: GraphView = {
             flow_expression_graph: returnExpressionGraph,
           },
         }
-      : node
-  )),
+      : node,
+  ),
 };
 
 const labeledPathGraph: GraphView = {
@@ -483,7 +485,7 @@ const originalLayout: StoredGraphLayout = {
   groups: [],
 };
 
-const labeledPathLayout: StoredGraphLayout = {
+const _labeledPathLayout: StoredGraphLayout = {
   nodes: {
     "entry:workflow": { x: 0, y: 220 },
     "branch:workflow": { x: 220, y: 220 },
@@ -863,7 +865,9 @@ function buildModuleStoredLayout(overrides: Partial<StoredGraphLayout> = {}): St
 }
 
 function latestPersistedLayout() {
-  return writeStoredGraphLayoutMock.mock.calls[writeStoredGraphLayoutMock.mock.calls.length - 1]?.[2];
+  return writeStoredGraphLayoutMock.mock.calls[
+    writeStoredGraphLayoutMock.mock.calls.length - 1
+  ]?.[2];
 }
 
 function renderGraphCanvas(overrides: Partial<Parameters<typeof GraphCanvas>[0]> = {}) {
@@ -907,32 +911,42 @@ function mockGraphCanvasElementRect() {
     };
   };
 
-  const clientWidthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function mockClientWidth(this: HTMLElement) {
-    return elementSize.call(this).width;
-  });
-  const clientHeightSpy = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function mockClientHeight(this: HTMLElement) {
-    return elementSize.call(this).height;
-  });
-  const offsetWidthSpy = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function mockWidth(this: HTMLElement) {
-    return elementSize.call(this).width;
-  });
-  const offsetHeightSpy = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function mockHeight(this: HTMLElement) {
-    return elementSize.call(this).height;
-  });
-  const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function mockRect(this: HTMLElement) {
-    const { width, height } = elementSize.call(this);
-    return {
-      x: 0,
-      y: 0,
-      top: 0,
-      left: 0,
-      right: width,
-      bottom: height,
-      width,
-      height,
-      toJSON: () => ({}),
-    } as DOMRect;
-  });
+  const clientWidthSpy = vi
+    .spyOn(HTMLElement.prototype, "clientWidth", "get")
+    .mockImplementation(function mockClientWidth(this: HTMLElement) {
+      return elementSize.call(this).width;
+    });
+  const clientHeightSpy = vi
+    .spyOn(HTMLElement.prototype, "clientHeight", "get")
+    .mockImplementation(function mockClientHeight(this: HTMLElement) {
+      return elementSize.call(this).height;
+    });
+  const offsetWidthSpy = vi
+    .spyOn(HTMLElement.prototype, "offsetWidth", "get")
+    .mockImplementation(function mockWidth(this: HTMLElement) {
+      return elementSize.call(this).width;
+    });
+  const offsetHeightSpy = vi
+    .spyOn(HTMLElement.prototype, "offsetHeight", "get")
+    .mockImplementation(function mockHeight(this: HTMLElement) {
+      return elementSize.call(this).height;
+    });
+  const rectSpy = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function mockRect(this: HTMLElement) {
+      const { width, height } = elementSize.call(this);
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: width,
+        bottom: height,
+        width,
+        height,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
 
   return () => {
     clientWidthSpy.mockRestore();
@@ -947,7 +961,9 @@ async function findGraphHandle(nodeId: string, handleId: string) {
   const nodeHost = await screen.findByTestId(`rf__node-${nodeId}`);
   await waitFor(() =>
     expect(
-      nodeHost.querySelector(`.react-flow__handle[data-nodeid="${nodeId}"][data-handleid="${handleId}"]`),
+      nodeHost.querySelector(
+        `.react-flow__handle[data-nodeid="${nodeId}"][data-handleid="${handleId}"]`,
+      ),
     ).not.toBeNull(),
   );
   return nodeHost.querySelector(
@@ -1029,20 +1045,28 @@ describe("GraphCanvas", () => {
     peekStoredGraphLayoutMock.mockReset();
     confirmDialogMock.mockReset();
     useUndoStore.getState().resetSession(undefined);
-    setMockStoredGraphLayout("/workspace/calculator", "flow|symbol:calculator:calculate", originalLayout);
-    readStoredGraphLayoutMock.mockImplementation(async (repoPath: string | undefined, viewKey: string | undefined) => (
-      getMockStoredGraphLayout(repoPath, viewKey) ?? cloneStoredGraphLayout(originalLayout)
-    ));
-    writeStoredGraphLayoutMock.mockImplementation(async (
-      repoPath: string | undefined,
-      viewKey: string | undefined,
-      layout: StoredGraphLayout,
-    ) => {
-      setMockStoredGraphLayout(repoPath, viewKey, layout);
-    });
-    peekStoredGraphLayoutMock.mockImplementation((repoPath: string | undefined, viewKey: string | undefined) => (
-      getMockStoredGraphLayout(repoPath, viewKey)
-    ));
+    setMockStoredGraphLayout(
+      "/workspace/calculator",
+      "flow|symbol:calculator:calculate",
+      originalLayout,
+    );
+    readStoredGraphLayoutMock.mockImplementation(
+      async (repoPath: string | undefined, viewKey: string | undefined) =>
+        getMockStoredGraphLayout(repoPath, viewKey) ?? cloneStoredGraphLayout(originalLayout),
+    );
+    writeStoredGraphLayoutMock.mockImplementation(
+      async (
+        repoPath: string | undefined,
+        viewKey: string | undefined,
+        layout: StoredGraphLayout,
+      ) => {
+        setMockStoredGraphLayout(repoPath, viewKey, layout);
+      },
+    );
+    peekStoredGraphLayoutMock.mockImplementation(
+      (repoPath: string | undefined, viewKey: string | undefined) =>
+        getMockStoredGraphLayout(repoPath, viewKey),
+    );
     confirmDialogMock.mockResolvedValue(true);
   });
 
@@ -1117,11 +1141,15 @@ describe("GraphCanvas", () => {
 
     const menu = await screen.findByRole("menu", { name: "while items actions" });
     expect(within(menu).getByRole("menuitem", { name: "Edit Loop" })).toBeInTheDocument();
-    expect(within(menu).getByRole("menuitem", { name: "Change to While Loop" })).toBeInTheDocument();
+    expect(
+      within(menu).getByRole("menuitem", { name: "Change to While Loop" }),
+    ).toBeInTheDocument();
     expect(within(menu).getByRole("menuitem", { name: "Change to For Loop" })).toBeInTheDocument();
     expect(within(menu).getByRole("menuitem", { name: "Add Repeat Step" })).toBeInTheDocument();
     expect(within(menu).getByRole("menuitem", { name: "Add Done Step" })).toBeInTheDocument();
-    expect(within(menu).queryByRole("menuitem", { name: "Edit Flow Node" })).not.toBeInTheDocument();
+    expect(
+      within(menu).queryByRole("menuitem", { name: "Edit Flow Node" }),
+    ).not.toBeInTheDocument();
 
     await user.click(within(menu).getByRole("menuitem", { name: "Change to For Loop" }));
     expect(onEditFlowNodeIntent).toHaveBeenCalledWith(
@@ -1398,7 +1426,9 @@ describe("GraphCanvas", () => {
     expect(await screen.findByTestId("rf__node-branch:left")).toBeInTheDocument();
     expect(readStoredGraphLayoutMock).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(within(await screen.findByTestId("rf__node-branch:left")).getByText("branch left"));
+    fireEvent.click(
+      within(await screen.findByTestId("rf__node-branch:left")).getByText("branch left"),
+    );
 
     await waitFor(() => expect(readStoredGraphLayoutMock).toHaveBeenCalledTimes(1));
   });
@@ -1412,7 +1442,11 @@ describe("GraphCanvas", () => {
         "return:done": { x: 1200, y: 340 },
       },
     });
-    setMockStoredGraphLayout("/workspace/calculator", "flow|symbol:calculator:calculate", persistedLayout);
+    setMockStoredGraphLayout(
+      "/workspace/calculator",
+      "flow|symbol:calculator:calculate",
+      persistedLayout,
+    );
 
     const { rerender } = renderGraphCanvas();
     const branchNode = await screen.findByTestId("rf__node-branch:left");
@@ -1422,15 +1456,15 @@ describe("GraphCanvas", () => {
 
     const rebuiltGraph: GraphView = {
       ...baseGraph,
-      nodes: baseGraph.nodes.map((node) => (
+      nodes: baseGraph.nodes.map((node) =>
         node.id === "branch:left"
           ? {
               ...node,
               x: 45,
               y: 55,
             }
-          : node
-      )),
+          : node,
+      ),
     };
 
     rerender(
@@ -1463,14 +1497,18 @@ describe("GraphCanvas", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("rf__node-branch:left").style.transform).toContain("translate(910px,340px)");
+      expect(screen.getByTestId("rf__node-branch:left").style.transform).toContain(
+        "translate(910px,340px)",
+      );
     });
   });
 
   it("treats shift-click as additive multiselect for nodes", async () => {
     renderGraphCanvas();
 
-    fireEvent.click(within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Entry"));
+    fireEvent.click(
+      within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Entry"),
+    );
     fireEvent.keyDown(window, { key: "Shift", shiftKey: true });
     fireEvent.click(
       within(await screen.findByTestId("rf__node-branch:left")).getByText("branch left"),
@@ -1487,7 +1525,9 @@ describe("GraphCanvas", () => {
   it("keeps single-select emphasis behavior across a multiselect context", async () => {
     renderGraphCanvas();
 
-    fireEvent.click(within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Entry"));
+    fireEvent.click(
+      within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Entry"),
+    );
     fireEvent.keyDown(window, { key: "Shift", shiftKey: true });
     fireEvent.click(
       within(await screen.findByTestId("rf__node-branch:left")).getByText("branch left"),
@@ -1507,29 +1547,35 @@ describe("GraphCanvas", () => {
   it("suppresses single-node emphasis while a marquee selection is active", () => {
     const graphNodeIds = new Set(baseGraph.nodes.map((node) => node.id));
 
-    expect(resolveSelectionPreviewNodeId({
-      activeNodeId: "entry:calculate",
-      effectiveSemanticSelection: ["branch:left"],
-      graphNodeIds,
-      marqueeSelectionActive: true,
-      selectedRerouteCount: 0,
-    })).toBe("");
+    expect(
+      resolveSelectionPreviewNodeId({
+        activeNodeId: "entry:calculate",
+        effectiveSemanticSelection: ["branch:left"],
+        graphNodeIds,
+        marqueeSelectionActive: true,
+        selectedRerouteCount: 0,
+      }),
+    ).toBe("");
 
-    expect(resolveSelectionPreviewNodeId({
-      activeNodeId: "entry:calculate",
-      effectiveSemanticSelection: [],
-      graphNodeIds,
-      marqueeSelectionActive: true,
-      selectedRerouteCount: 0,
-    })).toBe("");
+    expect(
+      resolveSelectionPreviewNodeId({
+        activeNodeId: "entry:calculate",
+        effectiveSemanticSelection: [],
+        graphNodeIds,
+        marqueeSelectionActive: true,
+        selectedRerouteCount: 0,
+      }),
+    ).toBe("");
 
-    expect(resolveSelectionPreviewNodeId({
-      activeNodeId: "entry:calculate",
-      effectiveSemanticSelection: ["branch:left"],
-      graphNodeIds,
-      marqueeSelectionActive: false,
-      selectedRerouteCount: 0,
-    })).toBe("branch:left");
+    expect(
+      resolveSelectionPreviewNodeId({
+        activeNodeId: "entry:calculate",
+        effectiveSemanticSelection: ["branch:left"],
+        graphNodeIds,
+        marqueeSelectionActive: false,
+        selectedRerouteCount: 0,
+      }),
+    ).toBe("branch:left");
   });
 
   it("highlights a whole handle group when you hover a grouped port", async () => {
@@ -1651,8 +1697,12 @@ describe("GraphCanvas", () => {
     const focusNode = focusNodeHost.querySelector(".graph-node");
     expect(focusNode).not.toBeNull();
 
-    const callsPort = within(focusNode as HTMLElement).getByText("calls").closest(".graph-node__port");
-    const importsPort = within(focusNode as HTMLElement).getByText("imports").closest(".graph-node__port");
+    const callsPort = within(focusNode as HTMLElement)
+      .getByText("calls")
+      .closest(".graph-node__port");
+    const importsPort = within(focusNode as HTMLElement)
+      .getByText("imports")
+      .closest(".graph-node__port");
     expect(callsPort).not.toBeNull();
     expect(importsPort).not.toBeNull();
 
@@ -1660,7 +1710,9 @@ describe("GraphCanvas", () => {
 
     await waitFor(() => {
       const liveCallsPort = within(focusNodeHost).getByText("calls").closest(".graph-node__port");
-      const liveImportsPort = within(focusNodeHost).getByText("imports").closest(".graph-node__port");
+      const liveImportsPort = within(focusNodeHost)
+        .getByText("imports")
+        .closest(".graph-node__port");
       expect(liveCallsPort).toHaveClass("is-highlighted");
       expect(liveImportsPort).toHaveClass("is-dimmed");
     });
@@ -1669,7 +1721,9 @@ describe("GraphCanvas", () => {
 
     await waitFor(() => {
       const liveCallsPort = within(focusNodeHost).getByText("calls").closest(".graph-node__port");
-      const liveImportsPort = within(focusNodeHost).getByText("imports").closest(".graph-node__port");
+      const liveImportsPort = within(focusNodeHost)
+        .getByText("imports")
+        .closest(".graph-node__port");
       expect(liveCallsPort).not.toHaveClass("is-highlighted");
       expect(liveImportsPort).not.toHaveClass("is-dimmed");
     });
@@ -1761,16 +1815,16 @@ describe("GraphCanvas", () => {
       .filter(([, label]) => label.label === undefined)
       .map(([id]) => id);
 
-    expect(visibleSegments.map((segment) => segment.label).sort()).toEqual(["CalculatorError", "value"]);
+    expect(visibleSegments.map((segment) => segment.label).sort()).toEqual([
+      "CalculatorError",
+      "value",
+    ]);
     expect(countedLabelIds).toHaveLength(1);
     expect(collapsedLabels.get(countedLabelIds[0] ?? "")).toEqual({
       label: "CalculatorError",
       count: 3,
     });
-    expect(hiddenLabelIds.sort()).toEqual([
-      "calls:error-b::segment:0",
-      "calls:error-c::segment:0",
-    ]);
+    expect(hiddenLabelIds.sort()).toEqual(["calls:error-b::segment:0", "calls:error-c::segment:0"]);
     expect(collapsedLabels.get("calls:value::segment:0")).toEqual({
       label: "value",
       count: undefined,
@@ -1913,7 +1967,8 @@ describe("GraphCanvas", () => {
 
     await waitFor(() =>
       expect(
-        writeStoredGraphLayoutMock.mock.calls[writeStoredGraphLayoutMock.mock.calls.length - 1]?.[2].pinnedNodeIds,
+        writeStoredGraphLayoutMock.mock.calls[writeStoredGraphLayoutMock.mock.calls.length - 1]?.[2]
+          .pinnedNodeIds,
       ).toEqual(["entry:calculate"]),
     );
 
@@ -1921,7 +1976,8 @@ describe("GraphCanvas", () => {
 
     await waitFor(() =>
       expect(
-        writeStoredGraphLayoutMock.mock.calls[writeStoredGraphLayoutMock.mock.calls.length - 1]?.[2].pinnedNodeIds,
+        writeStoredGraphLayoutMock.mock.calls[writeStoredGraphLayoutMock.mock.calls.length - 1]?.[2]
+          .pinnedNodeIds,
       ).toEqual([]),
     );
   });
@@ -1932,7 +1988,9 @@ describe("GraphCanvas", () => {
     expect(await screen.findByTestId("rf__node-entry:calculate")).toBeInTheDocument();
 
     const graphPanel = screen.getByRole("region", { name: /Graph canvas/i });
-    const fitViewButton = document.querySelector(".react-flow__controls-fitview") as HTMLButtonElement | null;
+    const fitViewButton = document.querySelector(
+      ".react-flow__controls-fitview",
+    ) as HTMLButtonElement | null;
     if (!fitViewButton) {
       throw new Error("Expected the React Flow fit-view control to be rendered.");
     }
@@ -1998,7 +2056,9 @@ describe("GraphCanvas", () => {
 
     expect(await screen.findByTestId("graph-create-mode-badge")).toHaveTextContent(/Create mode/i);
     expect(screen.getByTestId("graph-create-mode-watermark")).toHaveTextContent("CREATE MODE");
-    expect(screen.getByTestId("graph-create-mode-hint")).toHaveTextContent("Click the graph to create a symbol.");
+    expect(screen.getByTestId("graph-create-mode-hint")).toHaveTextContent(
+      "Click the graph to create a symbol.",
+    );
 
     const pane = document.querySelector(".react-flow__pane");
     expect(pane).not.toBeNull();
@@ -2158,53 +2218,67 @@ describe("GraphCanvas", () => {
   });
 
   it("distinguishes plain edge selection from Alt-click disconnect in editable flow views", () => {
-    expect(resolveFlowEdgeInteraction({
-      flowAuthoringEnabled: true,
-      logicalEdgeKind: "controls",
-      altKey: false,
-    })).toBe("select");
+    expect(
+      resolveFlowEdgeInteraction({
+        flowAuthoringEnabled: true,
+        logicalEdgeKind: "controls",
+        altKey: false,
+      }),
+    ).toBe("select");
 
-    expect(resolveFlowEdgeInteraction({
-      flowAuthoringEnabled: true,
-      logicalEdgeKind: "controls",
-      altKey: true,
-    })).toBe("disconnect");
+    expect(
+      resolveFlowEdgeInteraction({
+        flowAuthoringEnabled: true,
+        logicalEdgeKind: "controls",
+        altKey: true,
+      }),
+    ).toBe("disconnect");
 
-    expect(resolveFlowEdgeInteraction({
-      flowAuthoringEnabled: true,
-      logicalEdgeKind: "calls",
-      altKey: true,
-    })).toBe("ignore");
+    expect(
+      resolveFlowEdgeInteraction({
+        flowAuthoringEnabled: true,
+        logicalEdgeKind: "calls",
+        altKey: true,
+      }),
+    ).toBe("ignore");
   });
 
   it("validates only supported flow handle pairings at the canvas layer", () => {
-    expect(isValidFlowCanvasConnection({
-      source: "entry:calculate",
-      sourceHandle: "out:control:start",
-      target: "branch:left",
-      targetHandle: "in:control:exec",
-    })).toBe(true);
+    expect(
+      isValidFlowCanvasConnection({
+        source: "entry:calculate",
+        sourceHandle: "out:control:start",
+        target: "branch:left",
+        targetHandle: "in:control:exec",
+      }),
+    ).toBe(true);
 
-    expect(isValidFlowCanvasConnection({
-      source: "entry:calculate",
-      sourceHandle: "out:data:function-input:graph",
-      target: "branch:left",
-      targetHandle: "in:data:input-slot:graph",
-    })).toBe(true);
+    expect(
+      isValidFlowCanvasConnection({
+        source: "entry:calculate",
+        sourceHandle: "out:data:function-input:graph",
+        target: "branch:left",
+        targetHandle: "in:data:input-slot:graph",
+      }),
+    ).toBe(true);
 
-    expect(isValidFlowCanvasConnection({
-      source: "branch:left",
-      sourceHandle: "out:control:true",
-      target: "branch:left",
-      targetHandle: "in:control:exec",
-    })).toBe(false);
+    expect(
+      isValidFlowCanvasConnection({
+        source: "branch:left",
+        sourceHandle: "out:control:true",
+        target: "branch:left",
+        targetHandle: "in:control:exec",
+      }),
+    ).toBe(false);
 
-    expect(isValidFlowCanvasConnection({
-      source: "entry:calculate",
-      sourceHandle: "out:control:start",
-      target: "branch:left",
-      targetHandle: "in:data:input-slot:graph",
-    })).toBe(false);
+    expect(
+      isValidFlowCanvasConnection({
+        source: "entry:calculate",
+        sourceHandle: "out:control:start",
+        target: "branch:left",
+        targetHandle: "in:data:input-slot:graph",
+      }),
+    ).toBe(false);
   });
 
   it("shows a visible connection line while dragging editable flow control handles", async () => {
@@ -2261,12 +2335,14 @@ describe("GraphCanvas", () => {
       const edgeHost = await screen.findByTestId(`rf__edge-${edgeId}::segment:0`);
       const targetUpdater = edgeHost.querySelector(".react-flow__edgeupdater-target");
       expect(targetUpdater).not.toBeNull();
-      expect(isValidFlowCanvasConnection({
-        source: "entry:calculate",
-        sourceHandle: "out:control:start",
-        target: "return:done",
-        targetHandle: "in:control:exec",
-      })).toBe(true);
+      expect(
+        isValidFlowCanvasConnection({
+          source: "entry:calculate",
+          sourceHandle: "out:control:start",
+          target: "return:done",
+          targetHandle: "in:control:exec",
+        }),
+      ).toBe(true);
     } finally {
       restoreRects();
     }
@@ -2298,7 +2374,10 @@ describe("GraphCanvas", () => {
         activeNodeId: undefined,
       });
 
-      const sourceHandle = await findGraphHandle("assign:calculate", "out:data:value-source:assign-value");
+      const sourceHandle = await findGraphHandle(
+        "assign:calculate",
+        "out:data:value-source:assign-value",
+      );
       const targetHandle = await findGraphHandle("return:done", "in:data:input-slot:return-value");
       expect(sourceHandle).toHaveClass("is-flow-connectable");
       expect(targetHandle).toHaveClass("is-flow-connectable");
@@ -2517,9 +2596,11 @@ describe("GraphCanvas", () => {
 
   it("renders persisted flow groups, keeps grouped member selection working, and normalizes renamed titles", async () => {
     const onSelectNode = vi.fn();
-    readStoredGraphLayoutMock.mockResolvedValueOnce(buildStoredLayout({
-      groups: [flowGroup],
-    }));
+    readStoredGraphLayoutMock.mockResolvedValueOnce(
+      buildStoredLayout({
+        groups: [flowGroup],
+      }),
+    );
 
     renderGraphCanvas({
       onSelectNode,
@@ -2529,17 +2610,22 @@ describe("GraphCanvas", () => {
     expect(groupBox).toBeInTheDocument();
     expect(within(groupBox).getByTitle("2 nodes grouped")).toHaveTextContent("2");
     expect(await screen.findByTestId("rf__node-entry:calculate")).toHaveClass("is-group-member");
-    fireEvent.pointerDown(within(groupBox).getByTestId(`graph-group-hit-area-${flowGroup.id}-top`), {
-      button: 0,
-      clientX: 96,
-      clientY: 48,
-    });
+    fireEvent.pointerDown(
+      within(groupBox).getByTestId(`graph-group-hit-area-${flowGroup.id}-top`),
+      {
+        button: 0,
+        clientX: 96,
+        clientY: 48,
+      },
+    );
     fireEvent.pointerUp(window, {
       clientX: 96,
       clientY: 48,
     });
     await waitFor(() => expect(groupBox).toHaveClass("is-selected"));
-    fireEvent.click(within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Entry"));
+    fireEvent.click(
+      within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Entry"),
+    );
     expect(onSelectNode).toHaveBeenCalledWith("entry:calculate", "entry");
     await waitFor(() => expect(groupBox).not.toHaveClass("is-selected"));
     expect(renameGraphGroup([flowGroup], flowGroup.id, "Control path")).toEqual([
@@ -2549,9 +2635,7 @@ describe("GraphCanvas", () => {
       },
     ]);
 
-    expect(renameGraphGroup([flowGroup], flowGroup.id, "   ")).toEqual([
-      flowGroup,
-    ]);
+    expect(renameGraphGroup([flowGroup], flowGroup.id, "   ")).toEqual([flowGroup]);
   });
 
   it("selects and drags a group from the boundary band without changing membership", async () => {
@@ -2583,8 +2667,12 @@ describe("GraphCanvas", () => {
 
     await waitFor(() => expect(writeStoredGraphLayoutMock).toHaveBeenCalled());
     expect(latestPersistedLayout()?.groups).toEqual([flowGroup]);
-    expect(latestPersistedLayout()?.nodes["entry:calculate"]).not.toEqual(groupedLayout.nodes["entry:calculate"]);
-    expect(latestPersistedLayout()?.nodes["branch:left"]).not.toEqual(groupedLayout.nodes["branch:left"]);
+    expect(latestPersistedLayout()?.nodes["entry:calculate"]).not.toEqual(
+      groupedLayout.nodes["entry:calculate"],
+    );
+    expect(latestPersistedLayout()?.nodes["branch:left"]).not.toEqual(
+      groupedLayout.nodes["branch:left"],
+    );
   });
 
   it("organizes a group through inline presets and can undo the layout change", async () => {
@@ -2607,8 +2695,12 @@ describe("GraphCanvas", () => {
 
     await waitFor(() => expect(writeStoredGraphLayoutMock).toHaveBeenCalledTimes(1));
     expect(latestPersistedLayout()?.groups).toEqual([flowGroup]);
-    expect(latestPersistedLayout()?.nodes["entry:calculate"]).not.toEqual(groupedLayout.nodes["entry:calculate"]);
-    expect(latestPersistedLayout()?.nodes["branch:left"]).not.toEqual(groupedLayout.nodes["branch:left"]);
+    expect(latestPersistedLayout()?.nodes["entry:calculate"]).not.toEqual(
+      groupedLayout.nodes["entry:calculate"],
+    );
+    expect(latestPersistedLayout()?.nodes["branch:left"]).not.toEqual(
+      groupedLayout.nodes["branch:left"],
+    );
     expect(screen.queryByTestId(`graph-group-organize-${flowGroup.id}`)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /calculate/i }));
     expect(screen.getByRole("button", { name: "Undo layout" })).toBeInTheDocument();
@@ -2620,14 +2712,18 @@ describe("GraphCanvas", () => {
   });
 
   it("fans out flow pinning to every grouped member and ungroups from the group chip", async () => {
-    readStoredGraphLayoutMock.mockResolvedValueOnce(buildStoredLayout({
-      groups: [flowGroup],
-      pinnedNodeIds: ["entry:calculate"],
-    }));
+    readStoredGraphLayoutMock.mockResolvedValueOnce(
+      buildStoredLayout({
+        groups: [flowGroup],
+        pinnedNodeIds: ["entry:calculate"],
+      }),
+    );
 
     renderGraphCanvas();
 
-    fireEvent.click(within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Entry"));
+    fireEvent.click(
+      within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Entry"),
+    );
 
     const graphPanel = screen.getByRole("region", { name: /Graph canvas/i });
     fireEvent.keyDown(graphPanel, { key: "p" });
@@ -2635,55 +2731,57 @@ describe("GraphCanvas", () => {
     await waitFor(() =>
       expect(latestPersistedLayout()?.pinnedNodeIds).toEqual(["branch:left", "entry:calculate"]),
     );
-    expect(within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Unpin")).toBeInTheDocument();
-    expect(within(await screen.findByTestId("rf__node-branch:left")).getByText("Unpin")).toBeInTheDocument();
+    expect(
+      within(await screen.findByTestId("rf__node-entry:calculate")).getByText("Unpin"),
+    ).toBeInTheDocument();
+    expect(
+      within(await screen.findByTestId("rf__node-branch:left")).getByText("Unpin"),
+    ).toBeInTheDocument();
 
     fireEvent.keyDown(graphPanel, { key: "p" });
 
-    await waitFor(() =>
-      expect(latestPersistedLayout()?.pinnedNodeIds).toEqual([]),
-    );
+    await waitFor(() => expect(latestPersistedLayout()?.pinnedNodeIds).toEqual([]));
 
     fireEvent.click(
-      within(await screen.findByTestId(`graph-group-${flowGroup.id}`)).getByRole("button", { name: "Ungroup" }),
+      within(await screen.findByTestId(`graph-group-${flowGroup.id}`)).getByRole("button", {
+        name: "Ungroup",
+      }),
     );
 
     await waitFor(() =>
-      expect(confirmDialogMock).toHaveBeenCalledWith(
-        'Ungroup "Group"?',
-        {
-          title: "Ungroup nodes",
-          kind: "warning",
-          okLabel: "Ungroup",
-          cancelLabel: "Cancel",
-        },
-      ),
+      expect(confirmDialogMock).toHaveBeenCalledWith('Ungroup "Group"?', {
+        title: "Ungroup nodes",
+        kind: "warning",
+        okLabel: "Ungroup",
+        cancelLabel: "Cancel",
+      }),
     );
     await waitFor(() => expect(latestPersistedLayout()?.groups).toEqual([]));
   });
 
   it("keeps the group when ungroup confirmation is cancelled", async () => {
     confirmDialogMock.mockResolvedValue(false);
-    readStoredGraphLayoutMock.mockResolvedValueOnce(buildStoredLayout({
-      groups: [flowGroup],
-    }));
+    readStoredGraphLayoutMock.mockResolvedValueOnce(
+      buildStoredLayout({
+        groups: [flowGroup],
+      }),
+    );
 
     renderGraphCanvas();
 
     fireEvent.click(
-      within(await screen.findByTestId(`graph-group-${flowGroup.id}`)).getByRole("button", { name: "Ungroup" }),
+      within(await screen.findByTestId(`graph-group-${flowGroup.id}`)).getByRole("button", {
+        name: "Ungroup",
+      }),
     );
 
     await waitFor(() =>
-      expect(confirmDialogMock).toHaveBeenCalledWith(
-        'Ungroup "Group"?',
-        {
-          title: "Ungroup nodes",
-          kind: "warning",
-          okLabel: "Ungroup",
-          cancelLabel: "Cancel",
-        },
-      ),
+      expect(confirmDialogMock).toHaveBeenCalledWith('Ungroup "Group"?', {
+        title: "Ungroup nodes",
+        kind: "warning",
+        okLabel: "Ungroup",
+        cancelLabel: "Cancel",
+      }),
     );
     expect(writeStoredGraphLayoutMock).not.toHaveBeenCalled();
     expect(await screen.findByTestId(`graph-group-${flowGroup.id}`)).toBeInTheDocument();
@@ -2755,9 +2853,11 @@ describe("GraphCanvas", () => {
   });
 
   it("renders groups on non-flow canvases and leaves pinning unavailable", async () => {
-    readStoredGraphLayoutMock.mockResolvedValueOnce(buildModuleStoredLayout({
-      groups: [moduleGroup],
-    }));
+    readStoredGraphLayoutMock.mockResolvedValueOnce(
+      buildModuleStoredLayout({
+        groups: [moduleGroup],
+      }),
+    );
 
     renderGraphCanvas({
       graph: moduleGraph,
@@ -2765,8 +2865,12 @@ describe("GraphCanvas", () => {
     });
 
     expect(await screen.findByTestId(`graph-group-${moduleGroup.id}`)).toBeInTheDocument();
-    expect(within(await screen.findByTestId("rf__node-module:focus")).queryByText("Pin")).not.toBeInTheDocument();
-    fireEvent.click(within(await screen.findByTestId("rf__node-module:focus")).getByText("focus.py"));
+    expect(
+      within(await screen.findByTestId("rf__node-module:focus")).queryByText("Pin"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      within(await screen.findByTestId("rf__node-module:focus")).getByText("focus.py"),
+    );
     fireEvent.keyDown(screen.getByRole("region", { name: /Graph canvas/i }), { key: "p" });
 
     expect(writeStoredGraphLayoutMock).not.toHaveBeenCalled();
@@ -2774,9 +2878,11 @@ describe("GraphCanvas", () => {
 
   it("hides the by-kind preset for groups with only one node kind", async () => {
     const user = userEvent.setup();
-    readStoredGraphLayoutMock.mockResolvedValueOnce(buildModuleStoredLayout({
-      groups: [moduleGroup],
-    }));
+    readStoredGraphLayoutMock.mockResolvedValueOnce(
+      buildModuleStoredLayout({
+        groups: [moduleGroup],
+      }),
+    );
 
     renderGraphCanvas({
       graph: moduleGraph,
@@ -2787,6 +2893,8 @@ describe("GraphCanvas", () => {
     await user.click(within(groupBox).getByRole("button", { name: "Organize" }));
 
     const organizePalette = await screen.findByTestId(`graph-group-organize-${moduleGroup.id}`);
-    expect(within(organizePalette).queryByRole("button", { name: "By kind" })).not.toBeInTheDocument();
+    expect(
+      within(organizePalette).queryByRole("button", { name: "By kind" }),
+    ).not.toBeInTheDocument();
   });
 });

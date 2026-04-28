@@ -42,7 +42,7 @@ from helm.parser.symbols import ParsedModule, SymbolDef, SymbolKind, make_module
 
 ensure_vendor_packages()
 
-import libcst as cst
+import libcst as cst  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -86,9 +86,7 @@ def apply_structural_edit(
     root_path = Path(root).resolve()
     parsed_sequence = tuple(parsed_modules)
     symbol_map: dict[str, tuple[ParsedModule, SymbolDef]] = {}
-    parsed_by_relative_path = {
-        parsed.module.relative_path: parsed for parsed in parsed_sequence
-    }
+    parsed_by_relative_path = {parsed.module.relative_path: parsed for parsed in parsed_sequence}
     for parsed in parsed_sequence:
         for symbol in parsed.symbols:
             symbol_map[symbol.symbol_id] = (parsed, symbol)
@@ -600,7 +598,7 @@ def _replace_symbol_source(
         summary=f"Updated {symbol.qualname} source.",
         touched_relative_paths=(
             parsed.module.relative_path,
-            *( (FLOW_MODEL_RELATIVE_PATH,) if flow_sync_state is not None else tuple() ),
+            *((FLOW_MODEL_RELATIVE_PATH,) if flow_sync_state is not None else tuple()),
         ),
         changed_node_ids=(symbol.symbol_id,),
         flow_sync_state=flow_sync_state,
@@ -648,7 +646,9 @@ def _insert_flow_statement(
     updated = _replace_qualname_declaration(
         module,
         symbol.qualname.split("."),
-        lambda declaration: _insert_statement_into_declaration(declaration, insert_target, statement),
+        lambda declaration: _insert_statement_into_declaration(
+            declaration, insert_target, statement
+        ),
     )
     source_path.write_text(updated.code, encoding="utf-8")
     updated_tree = ast.parse(updated.code, filename=parsed.module.file_path)
@@ -687,8 +687,7 @@ def _replace_flow_graph(
     if document.symbol_id != symbol.symbol_id:
         raise ValueError("Flow graph payload does not match the requested symbol.")
     function_inputs_requested = (
-        "function_inputs" in request.flow_graph
-        or "functionInputs" in request.flow_graph
+        "function_inputs" in request.flow_graph or "functionInputs" in request.flow_graph
     )
     requested_function_inputs = tuple(
         sorted(document.function_inputs, key=lambda item: (item.index, item.name))
@@ -704,12 +703,9 @@ def _replace_flow_graph(
         source_document = None
     rewrite_signature = False
     if source_document is not None:
-        rewrite_signature = (
-            function_inputs_requested
-            and _flow_function_inputs_signature_changed(
-                requested_function_inputs,
-                source_document.function_inputs,
-            )
+        rewrite_signature = function_inputs_requested and _flow_function_inputs_signature_changed(
+            requested_function_inputs,
+            source_document.function_inputs,
         )
         inheritance_source_document = (
             dataclass_replace(source_document, function_inputs=requested_function_inputs)
@@ -765,7 +761,10 @@ def _replace_flow_graph(
             request=request,
             summary=f"Updated visual flow for {symbol.qualname}.",
             touched_relative_paths=touched_relative_paths,
-            changed_node_ids=(symbol.symbol_id, *(node.node_id for node in compiled_document.nodes)),
+            changed_node_ids=(
+                symbol.symbol_id,
+                *(node.node_id for node in compiled_document.nodes),
+            ),
             flow_sync_state="clean",
             diagnostics=(),
         )
@@ -896,9 +895,7 @@ def _extract_statement(body: Iterable[cst.CSTNode], symbol_name: str) -> cst.CST
 def _build_import_statement(request: StructuralEditRequest) -> cst.CSTNode:
     if request.imported_name:
         alias_fragment = f" as {request.alias}" if request.alias else ""
-        snippet = (
-            f"from {request.imported_module} import {request.imported_name}{alias_fragment}\n"
-        )
+        snippet = f"from {request.imported_module} import {request.imported_name}{alias_fragment}\n"
     else:
         alias_fragment = f" as {request.alias}" if request.alias else ""
         snippet = f"import {request.imported_module}{alias_fragment}\n"
@@ -1025,18 +1022,14 @@ def _parse_replacement_statement(symbol: SymbolDef, content: str) -> cst.CSTNode
         if not isinstance(statement, cst.FunctionDef):
             raise ValueError("Function replacements must parse as exactly one top-level function.")
         if statement.name.value != symbol.name:
-            raise ValueError(
-                f"Function replacement must keep the original name '{symbol.name}'."
-            )
+            raise ValueError(f"Function replacement must keep the original name '{symbol.name}'.")
         return statement
 
     if symbol.kind == SymbolKind.CLASS:
         if not isinstance(statement, cst.ClassDef):
             raise ValueError("Class replacements must parse as exactly one top-level class.")
         if statement.name.value != symbol.name:
-            raise ValueError(
-                f"Class replacement must keep the original name '{symbol.name}'."
-            )
+            raise ValueError(f"Class replacement must keep the original name '{symbol.name}'.")
         return statement
 
     if isinstance(statement, cst.SimpleStatementLine) and len(statement.body) == 1:
@@ -1060,10 +1053,7 @@ def _validate_created_symbol_name(parsed: ParsedModule, name: str) -> None:
         raise ValueError(f"Created symbol name '{name}' must be a valid Python identifier.")
     if keyword.iskeyword(name):
         raise ValueError(f"Created symbol name '{name}' cannot be a Python keyword.")
-    if any(
-        symbol.parent_symbol_id is None and symbol.name == name
-        for symbol in parsed.symbols
-    ):
+    if any(symbol.parent_symbol_id is None and symbol.name == name for symbol in parsed.symbols):
         raise ValueError(
             f"Top-level symbol '{name}' already exists in {parsed.module.relative_path}."
         )
@@ -1093,13 +1083,13 @@ def _build_flow_insert_targets(
         target_location: _FlowStatementLocation | None,
     ) -> None:
         for pending in pending_links:
-            insert_targets[
-                _control_edge_id(pending.source_id, target_id, pending.path_key)
-            ] = _flow_insert_target_for_pending(
-                pending,
-                entry_id=entry_id,
-                statement_locations=statement_locations,
-                target_location=target_location,
+            insert_targets[_control_edge_id(pending.source_id, target_id, pending.path_key)] = (
+                _flow_insert_target_for_pending(
+                    pending,
+                    entry_id=entry_id,
+                    statement_locations=statement_locations,
+                    target_location=target_location,
+                )
             )
 
     def append_statement_block(
@@ -1226,7 +1216,10 @@ def _flow_insert_target_for_pending(
         )
     if pending.path_key == "false":
         return _FlowInsertTarget(
-            container_path=(*source_location.container_path, (source_location.local_index, "orelse")),
+            container_path=(
+                *source_location.container_path,
+                (source_location.local_index, "orelse"),
+            ),
             insert_index=0,
         )
     if pending.path_key == "body":
@@ -1351,7 +1344,9 @@ def _replace_function_body_with_source(
     temp_function = temp_module.body[0]
     if not isinstance(temp_function, cst.FunctionDef):
         raise ValueError("Unable to parse generated flow function body.")
-    return declaration.with_changes(body=suite.with_changes(body=_suite_to_block(temp_function.body).body))
+    return declaration.with_changes(
+        body=suite.with_changes(body=_suite_to_block(temp_function.body).body)
+    )
 
 
 def _replace_function_declaration_with_flow_source(
@@ -1373,7 +1368,9 @@ def _flow_function_inputs_signature_changed(
     requested: tuple[FlowFunctionInput, ...],
     current: tuple[FlowFunctionInput, ...],
 ) -> bool:
-    def comparable(function_inputs: tuple[FlowFunctionInput, ...]) -> tuple[tuple[str, str, str | None], ...]:
+    def comparable(
+        function_inputs: tuple[FlowFunctionInput, ...],
+    ) -> tuple[tuple[str, str, str | None], ...]:
         return tuple(
             (
                 function_input.name,
@@ -1411,7 +1408,9 @@ def _validated_flow_function_inputs(
     for function_input in inputs:
         name = function_input.name.strip()
         if not name.isidentifier() or keyword.iskeyword(name):
-            raise ValueError(f"Flow input name '{function_input.name}' is not a valid Python parameter name.")
+            raise ValueError(
+                f"Flow input name '{function_input.name}' is not a valid Python parameter name."
+            )
         if name in names:
             raise ValueError(f"Flow input name '{name}' is duplicated.")
         names.add(name)
@@ -1419,14 +1418,20 @@ def _validated_flow_function_inputs(
         kind = function_input.kind or "positional_or_keyword"
         if kind == "positional_only":
             if state > 0:
-                raise ValueError("Positional-only flow inputs must appear before regular parameters.")
+                raise ValueError(
+                    "Positional-only flow inputs must appear before regular parameters."
+                )
         elif kind == "positional_or_keyword":
             if state > 1:
-                raise ValueError("Regular flow inputs must appear before *args and keyword-only parameters.")
+                raise ValueError(
+                    "Regular flow inputs must appear before *args and keyword-only parameters."
+                )
             state = max(state, 1)
         elif kind == "vararg":
             if seen_vararg or state > 2 or seen_kwarg:
-                raise ValueError("A flow signature can only include one *args parameter before keyword-only inputs.")
+                raise ValueError(
+                    "A flow signature can only include one *args parameter before keyword-only inputs."
+                )
             seen_vararg = True
             state = 2
         elif kind == "keyword_only":
@@ -1604,7 +1609,9 @@ def _sync_flow_document_from_symbol_source(
                         {"id": f"flowdoc:{symbol.symbol_id}:exit", "kind": "exit", "payload": {}},
                     ],
                     "edges": [],
-                    "function_inputs": [function_input.to_dict() for function_input in current_function_inputs],
+                    "function_inputs": [
+                        function_input.to_dict() for function_input in current_function_inputs
+                    ],
                     "editable": False,
                 }
             )
@@ -1659,7 +1666,7 @@ def _replace_qualname_in_body(
                 body=_suite_to_block(statement.body).with_changes(body=updated_nested_body)
             )
         return (
-            (*body[:index], replacement, *body[index + 1:]),
+            (*body[:index], replacement, *body[index + 1 :]),
             True,
         )
     return body, False
@@ -1722,7 +1729,7 @@ def _insert_statement_into_body(
         insert_index,
         statement,
     )
-    return (*body[:statement_index], updated_statement, *body[statement_index + 1:])
+    return (*body[:statement_index], updated_statement, *body[statement_index + 1 :])
 
 
 def _insert_statement_into_nested_suite(
@@ -1756,7 +1763,9 @@ def _insert_statement_into_nested_suite(
             insert_index,
             new_statement,
         )
-        return statement.with_changes(orelse=current_orelse.with_changes(body=suite.with_changes(body=updated_body)))
+        return statement.with_changes(
+            orelse=current_orelse.with_changes(body=suite.with_changes(body=updated_body))
+        )
 
     synthetic_else_body = (current_orelse,) if isinstance(current_orelse, cst.If) else tuple()
     updated_body = _insert_statement_into_body(
@@ -1765,9 +1774,7 @@ def _insert_statement_into_nested_suite(
         insert_index,
         new_statement,
     )
-    return statement.with_changes(
-        orelse=cst.Else(body=cst.IndentedBlock(body=updated_body))
-    )
+    return statement.with_changes(orelse=cst.Else(body=cst.IndentedBlock(body=updated_body)))
 
 
 def _suite_to_block(suite: cst.BaseSuite) -> cst.IndentedBlock:

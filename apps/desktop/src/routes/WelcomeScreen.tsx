@@ -7,13 +7,8 @@ import { useWorkspaceLauncher } from "./useWorkspaceLauncher";
 
 export function WelcomeScreen() {
   const adapter = useDesktopAdapter();
-  const {
-    createAndIndexProject,
-    error,
-    isCreating,
-    isOpening,
-    openAndIndexRepo,
-  } = useWorkspaceLauncher();
+  const { createAndIndexProject, error, isCreating, isOpening, openAndIndexRepo } =
+    useWorkspaceLauncher();
   const recentReposQuery = useQuery({
     queryKey: ["recent-repos"],
     queryFn: () => adapter.listRecentRepos(),
@@ -36,8 +31,8 @@ export function WelcomeScreen() {
           <span className="window-bar__eyebrow">Desktop Blueprint Shell</span>
           <h2>Start a workspace.</h2>
           <p>
-            Create a starter project or open a local repository and H.E.L.M. will index it,
-            open at the architecture layer, and let you drill into symbols and flow only when you choose.
+            Create a starter project or open a local repository and H.E.L.M. will index it, open at
+            the architecture layer, and let you drill into symbols and flow only when you choose.
           </p>
           <div className="hero-card__actions">
             <button

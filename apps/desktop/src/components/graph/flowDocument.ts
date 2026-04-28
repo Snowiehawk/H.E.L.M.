@@ -22,18 +22,12 @@ export const FLOW_DOCUMENT_NODE_KINDS = [
   "exit",
 ] as const satisfies readonly FlowVisualNodeKind[];
 
-export const FLOW_AUTHORABLE_NODE_KINDS = [
-  "assign",
-  "call",
-  "return",
-  "branch",
-  "loop",
-] as const;
+export const FLOW_AUTHORABLE_NODE_KINDS = ["assign", "call", "return", "branch", "loop"] as const;
 
 const FLOW_DOCUMENT_NODE_KIND_SET = new Set<string>(FLOW_DOCUMENT_NODE_KINDS);
 const FLOW_AUTHORABLE_NODE_KIND_SET = new Set<string>(FLOW_AUTHORABLE_NODE_KINDS);
 
-export type AuthoredFlowNodeKind = typeof FLOW_AUTHORABLE_NODE_KINDS[number];
+export type AuthoredFlowNodeKind = (typeof FLOW_AUTHORABLE_NODE_KINDS)[number];
 export type AuthoredFlowNode = FlowGraphNode & { kind: AuthoredFlowNodeKind };
 export type FlowLoopType = "while" | "for";
 
@@ -44,19 +38,27 @@ export interface FlowLoopDraft {
   iterable: string;
 }
 
-export function isFlowNodeStructuralKind(kind: FlowVisualNodeKind | string): kind is "entry" | "exit" {
+export function isFlowNodeStructuralKind(
+  kind: FlowVisualNodeKind | string,
+): kind is "entry" | "exit" {
   return kind === "entry" || kind === "exit";
 }
 
-export function isFlowDocumentNodeKind(kind: FlowVisualNodeKind | string): kind is FlowVisualNodeKind {
+export function isFlowDocumentNodeKind(
+  kind: FlowVisualNodeKind | string,
+): kind is FlowVisualNodeKind {
   return FLOW_DOCUMENT_NODE_KIND_SET.has(kind);
 }
 
-export function isFlowNodeAuthorableKind(kind: FlowVisualNodeKind | string): kind is AuthoredFlowNodeKind {
+export function isFlowNodeAuthorableKind(
+  kind: FlowVisualNodeKind | string,
+): kind is AuthoredFlowNodeKind {
   return FLOW_AUTHORABLE_NODE_KIND_SET.has(kind);
 }
 
-export function isAuthoredFlowNodeKind(kind: FlowVisualNodeKind | string): kind is AuthoredFlowNodeKind {
+export function isAuthoredFlowNodeKind(
+  kind: FlowVisualNodeKind | string,
+): kind is AuthoredFlowNodeKind {
   return isFlowNodeAuthorableKind(kind);
 }
 
@@ -128,35 +130,42 @@ export function flowNodeContentFromPayload(
   return expression ? `return ${expression}` : "return";
 }
 
-export function normalizeFlowLoopPayload(payload: Record<string, unknown>): FlowLoopDraft & { header: string } {
-  const rawHeader = typeof payload.header === "string" ? payload.header.trim().replace(/:$/, "") : "";
+export function normalizeFlowLoopPayload(
+  payload: Record<string, unknown>,
+): FlowLoopDraft & { header: string } {
+  const rawHeader =
+    typeof payload.header === "string" ? payload.header.trim().replace(/:$/, "") : "";
   const inferred = inferFlowLoopDraftFromHeader(rawHeader);
-  const rawLoopType = typeof payload.loop_type === "string"
-    ? payload.loop_type
-    : typeof payload.loopType === "string"
-      ? payload.loopType
-      : undefined;
+  const rawLoopType =
+    typeof payload.loop_type === "string"
+      ? payload.loop_type
+      : typeof payload.loopType === "string"
+        ? payload.loopType
+        : undefined;
   const loopType: FlowLoopType =
     rawLoopType === "for_each" || rawLoopType === "for"
       ? "for"
       : rawLoopType === "while"
         ? "while"
-        : inferred?.loopType ?? "while";
-  const condition = typeof payload.condition === "string"
-    ? payload.condition.trim()
-    : loopType === "while" && inferred?.loopType === "while"
-      ? inferred.condition
-      : "";
-  const target = typeof payload.target === "string"
-    ? payload.target.trim()
-    : loopType === "for" && inferred?.loopType === "for"
-      ? inferred.target
-      : "";
-  const iterable = typeof payload.iterable === "string"
-    ? payload.iterable.trim()
-    : loopType === "for" && inferred?.loopType === "for"
-      ? inferred.iterable
-      : "";
+        : (inferred?.loopType ?? "while");
+  const condition =
+    typeof payload.condition === "string"
+      ? payload.condition.trim()
+      : loopType === "while" && inferred?.loopType === "while"
+        ? inferred.condition
+        : "";
+  const target =
+    typeof payload.target === "string"
+      ? payload.target.trim()
+      : loopType === "for" && inferred?.loopType === "for"
+        ? inferred.target
+        : "";
+  const iterable =
+    typeof payload.iterable === "string"
+      ? payload.iterable.trim()
+      : loopType === "for" && inferred?.loopType === "for"
+        ? inferred.iterable
+        : "";
   const draft = { loopType, condition, target, iterable };
   const header = canonicalFlowLoopHeader(draft) || rawHeader;
   return { ...draft, header };
@@ -189,7 +198,10 @@ export function canonicalFlowLoopHeader(draft: FlowLoopDraft): string {
   return condition ? `while ${condition}` : "";
 }
 
-export function flowControlPathLabel(kind: FlowVisualNodeKind | string, sourceHandle: string): string {
+export function flowControlPathLabel(
+  kind: FlowVisualNodeKind | string,
+  sourceHandle: string,
+): string {
   if (kind === "loop") {
     if (sourceHandle === "body") {
       return "Repeat";
@@ -236,9 +248,7 @@ export function flowDocumentHandleFromBlueprintHandle(
     return handleId === "in:control:exec" ? "in" : undefined;
   }
 
-  return handleId.startsWith("out:control:")
-    ? handleId.slice("out:control:".length)
-    : undefined;
+  return handleId.startsWith("out:control:") ? handleId.slice("out:control:".length) : undefined;
 }
 
 export function allowedOutputHandles(kind: FlowVisualNodeKind): string[] {
@@ -271,11 +281,7 @@ export function updateFlowNodePayload(
 ): FlowGraphDocument {
   return {
     ...document,
-    nodes: document.nodes.map((node) => (
-      node.id === nodeId
-        ? { ...node, payload }
-        : node
-    )),
+    nodes: document.nodes.map((node) => (node.id === nodeId ? { ...node, payload } : node)),
   };
 }
 
@@ -407,27 +413,38 @@ export function validateFlowConnection(
   }
 
   if (!allowedOutputHandles(sourceNode.kind).includes(connection.sourceHandle)) {
-    return { ok: false, message: "That control output is not available for the selected source node." };
+    return {
+      ok: false,
+      message: "That control output is not available for the selected source node.",
+    };
   }
 
   if (!allowedInputHandles(targetNode.kind).includes(connection.targetHandle)) {
-    return { ok: false, message: "That control input is not available for the selected target node." };
+    return {
+      ok: false,
+      message: "That control input is not available for the selected target node.",
+    };
   }
 
   const competingEdges = document.edges.filter((edge) => edge.id !== previousEdgeId);
-  if (competingEdges.some((edge) => (
-    edge.sourceId === connection.sourceId
-    && edge.sourceHandle === connection.sourceHandle
-    && edge.targetId === connection.targetId
-    && edge.targetHandle === connection.targetHandle
-  ))) {
+  if (
+    competingEdges.some(
+      (edge) =>
+        edge.sourceId === connection.sourceId &&
+        edge.sourceHandle === connection.sourceHandle &&
+        edge.targetId === connection.targetId &&
+        edge.targetHandle === connection.targetHandle,
+    )
+  ) {
     return { ok: false, message: "That flow connection already exists." };
   }
 
-  if (competingEdges.some((edge) => (
-    edge.sourceId === connection.sourceId
-    && edge.sourceHandle === connection.sourceHandle
-  ))) {
+  if (
+    competingEdges.some(
+      (edge) =>
+        edge.sourceId === connection.sourceId && edge.sourceHandle === connection.sourceHandle,
+    )
+  ) {
     return { ok: false, message: "That control output is already connected." };
   }
 
@@ -475,8 +492,9 @@ export function validateFlowInputBindingConnection(
   document: FlowGraphDocument,
   connection: FlowInputBindingConnection,
 ): { ok: true } | { ok: false; message: string } {
-  const sourceExists = (document.functionInputs ?? []).some((input) => input.id === connection.sourceId)
-    || (document.valueSources ?? []).some((source) => source.id === connection.sourceId);
+  const sourceExists =
+    (document.functionInputs ?? []).some((input) => input.id === connection.sourceId) ||
+    (document.valueSources ?? []).some((source) => source.id === connection.sourceId);
   if (!sourceExists) {
     return { ok: false, message: "Unable to find the selected value source." };
   }
@@ -490,8 +508,9 @@ export function validateFlowReturnInputBindingConnection(
   document: FlowGraphDocument,
   connection: FlowReturnInputBindingConnection,
 ): { ok: true } | { ok: false; message: string } {
-  const sourceExists = (document.functionInputs ?? []).some((input) => input.id === connection.sourceId)
-    || (document.valueSources ?? []).some((source) => source.id === connection.sourceId);
+  const sourceExists =
+    (document.functionInputs ?? []).some((input) => input.id === connection.sourceId) ||
+    (document.valueSources ?? []).some((source) => source.id === connection.sourceId);
   if (!sourceExists) {
     return { ok: false, message: "Unable to find the selected value source." };
   }
@@ -512,7 +531,9 @@ export function upsertFlowInputBinding(
     return document;
   }
 
-  const functionInput = (document.functionInputs ?? []).find((input) => input.id === connection.sourceId);
+  const functionInput = (document.functionInputs ?? []).find(
+    (input) => input.id === connection.sourceId,
+  );
   const binding: FlowInputBinding = {
     id: flowInputBindingId(connection.slotId, connection.sourceId),
     sourceId: connection.sourceId,
@@ -522,10 +543,9 @@ export function upsertFlowInputBinding(
   return {
     ...document,
     inputBindings: [
-      ...(document.inputBindings ?? []).filter((candidate) => (
-        candidate.id !== previousBindingId
-        && candidate.slotId !== connection.slotId
-      )),
+      ...(document.inputBindings ?? []).filter(
+        (candidate) => candidate.id !== previousBindingId && candidate.slotId !== connection.slotId,
+      ),
       binding,
     ],
   };
@@ -547,10 +567,9 @@ export function upsertFlowReturnInputBinding(
     return document;
   }
 
-  const existingSlot = (document.inputSlots ?? []).find((slot) => (
-    slot.nodeId === targetNode.id
-    && slot.slotKey === sourceLabel
-  ));
+  const existingSlot = (document.inputSlots ?? []).find(
+    (slot) => slot.nodeId === targetNode.id && slot.slotKey === sourceLabel,
+  );
   const slot = existingSlot ?? {
     id: flowInputSlotId(flowGraphNodeSourceIdentity(targetNode), sourceLabel),
     nodeId: targetNode.id,
@@ -566,14 +585,14 @@ export function upsertFlowReturnInputBinding(
       };
   const documentWithExpressionInput = {
     ...documentWithSlot,
-    nodes: documentWithSlot.nodes.map((node) => (
+    nodes: documentWithSlot.nodes.map((node) =>
       node.id === targetNode.id
         ? {
             ...node,
             payload: withReturnExpressionInputNode(node.payload, slot.id, sourceLabel),
           }
-        : node
-    )),
+        : node,
+    ),
   };
   return upsertFlowInputBinding(
     documentWithExpressionInput,
@@ -608,9 +627,9 @@ export function flowFunctionInputUsage(
 } {
   return {
     input: (document.functionInputs ?? []).find((input) => input.id === inputId),
-    bindings: (document.inputBindings ?? []).filter((binding) => (
-      binding.sourceId === inputId || binding.functionInputId === inputId
-    )),
+    bindings: (document.inputBindings ?? []).filter(
+      (binding) => binding.sourceId === inputId || binding.functionInputId === inputId,
+    ),
   };
 }
 
@@ -646,20 +665,22 @@ export function flowFunctionInputRemovalSummary(
       return count;
     }
     const graph = flowExpressionGraphFromPayload(node.payload.expression_graph);
-    return count + graph.nodes.filter((expressionNode) => {
-      if (expressionNode.kind !== "input") {
-        return false;
-      }
-      const payloadSlotId = expressionNode.payload.slot_id ?? expressionNode.payload.slotId;
-      const payloadName = typeof expressionNode.payload.name === "string"
-        ? expressionNode.payload.name.trim()
-        : "";
-      return (
-        (typeof payloadSlotId === "string" && slotIds.has(payloadSlotId))
-        || (payloadName && slotNames.has(payloadName))
-        || slotNames.has(expressionNode.label.trim())
-      );
-    }).length;
+    return (
+      count +
+      graph.nodes.filter((expressionNode) => {
+        if (expressionNode.kind !== "input") {
+          return false;
+        }
+        const payloadSlotId = expressionNode.payload.slot_id ?? expressionNode.payload.slotId;
+        const payloadName =
+          typeof expressionNode.payload.name === "string" ? expressionNode.payload.name.trim() : "";
+        return (
+          (typeof payloadSlotId === "string" && slotIds.has(payloadSlotId)) ||
+          (payloadName && slotNames.has(payloadName)) ||
+          slotNames.has(expressionNode.label.trim())
+        );
+      }).length
+    );
   }, 0);
 
   const connectionCount = usage.bindings.length;
@@ -703,23 +724,27 @@ export function updateFlowFunctionInput(
     return document;
   }
   const otherInputs = inputs.filter((input) => input.id !== inputId);
-  const nextName = draft.name === undefined
-    ? target.name
-    : uniqueFlowFunctionInputName(otherInputs, draft.name, target.name);
-  const nextDefaultExpression = draft.defaultExpression === undefined
-    ? target.defaultExpression ?? null
-    : normalizeOptionalExpression(draft.defaultExpression);
+  const nextName =
+    draft.name === undefined
+      ? target.name
+      : uniqueFlowFunctionInputName(otherInputs, draft.name, target.name);
+  const nextDefaultExpression =
+    draft.defaultExpression === undefined
+      ? (target.defaultExpression ?? null)
+      : normalizeOptionalExpression(draft.defaultExpression);
   return {
     ...document,
-    functionInputs: reindexFlowFunctionInputs(inputs.map((input) => (
-      input.id === inputId
-        ? {
-            ...input,
-            name: nextName,
-            defaultExpression: nextDefaultExpression,
-          }
-        : input
-    ))),
+    functionInputs: reindexFlowFunctionInputs(
+      inputs.map((input) =>
+        input.id === inputId
+          ? {
+              ...input,
+              name: nextName,
+              defaultExpression: nextDefaultExpression,
+            }
+          : input,
+      ),
+    ),
   };
 }
 
@@ -754,9 +779,9 @@ export function removeFlowFunctionInput(
   return {
     ...document,
     functionInputs: reindexFlowFunctionInputs(inputs.filter((input) => input.id !== inputId)),
-    inputBindings: (document.inputBindings ?? []).filter((binding) => (
-      binding.sourceId !== inputId && binding.functionInputId !== inputId
-    )),
+    inputBindings: (document.inputBindings ?? []).filter(
+      (binding) => binding.sourceId !== inputId && binding.functionInputId !== inputId,
+    ),
   };
 }
 
@@ -793,20 +818,18 @@ export function removeFlowFunctionInputAndDownstreamUses(
 
   return {
     ...withoutInput,
-    nodes: withoutInput.nodes.map((node) => (
+    nodes: withoutInput.nodes.map((node) =>
       node.kind === "return"
         ? {
             ...node,
-            payload: withoutExpressionInputSlots(
-              node.payload,
-              slotIdsToRemove,
-              slotNamesToRemove,
-            ),
+            payload: withoutExpressionInputSlots(node.payload, slotIdsToRemove, slotNamesToRemove),
           }
-        : node
-    )),
+        : node,
+    ),
     inputSlots: (withoutInput.inputSlots ?? []).filter((slot) => !slotIdsToRemove.has(slot.id)),
-    inputBindings: (withoutInput.inputBindings ?? []).filter((binding) => !slotIdsToRemove.has(binding.slotId)),
+    inputBindings: (withoutInput.inputBindings ?? []).filter(
+      (binding) => !slotIdsToRemove.has(binding.slotId),
+    ),
   };
 }
 
@@ -831,9 +854,7 @@ export function removeFlowNodes(
   }
 
   const removedSlotIds = new Set(
-    (document.inputSlots ?? [])
-      .filter((slot) => removable.has(slot.nodeId))
-      .map((slot) => slot.id),
+    (document.inputSlots ?? []).filter((slot) => removable.has(slot.nodeId)).map((slot) => slot.id),
   );
   const removedSourceIds = new Set(
     (document.valueSources ?? [])
@@ -844,13 +865,14 @@ export function removeFlowNodes(
   return {
     ...document,
     nodes: document.nodes.filter((node) => !removable.has(node.id)),
-    edges: document.edges.filter((edge) => !removable.has(edge.sourceId) && !removable.has(edge.targetId)),
+    edges: document.edges.filter(
+      (edge) => !removable.has(edge.sourceId) && !removable.has(edge.targetId),
+    ),
     valueSources: (document.valueSources ?? []).filter((source) => !removable.has(source.nodeId)),
     inputSlots: (document.inputSlots ?? []).filter((slot) => !removable.has(slot.nodeId)),
-    inputBindings: (document.inputBindings ?? []).filter((binding) => (
-      !removedSlotIds.has(binding.slotId)
-      && !removedSourceIds.has(binding.sourceId)
-    )),
+    inputBindings: (document.inputBindings ?? []).filter(
+      (binding) => !removedSlotIds.has(binding.slotId) && !removedSourceIds.has(binding.sourceId),
+    ),
   };
 }
 
@@ -878,11 +900,11 @@ export function withoutFlowReturnCompletionEdges(document: FlowGraphDocument): F
     const sourceNode = nodeById.get(edge.sourceId);
     const targetNode = nodeById.get(edge.targetId);
     return !(
-      sourceNode?.kind === "return"
-      && targetNode?.kind === "exit"
-      && edge.sourceHandle === "exit"
-      && edge.targetHandle === "in"
-      && edge.id === flowReturnCompletionEdgeId(edge.sourceId, edge.targetId)
+      sourceNode?.kind === "return" &&
+      targetNode?.kind === "exit" &&
+      edge.sourceHandle === "exit" &&
+      edge.targetHandle === "in" &&
+      edge.id === flowReturnCompletionEdgeId(edge.sourceId, edge.targetId)
     );
   });
   return edges.length === document.edges.length ? document : { ...document, edges };
@@ -897,7 +919,9 @@ function flowInputSlotId(nodeSourceIdentity: string, slotKey: string) {
 }
 
 function sortedFlowFunctionInputs(inputs: FlowFunctionInput[]): FlowFunctionInput[] {
-  return [...inputs].sort((left, right) => left.index - right.index || left.name.localeCompare(right.name));
+  return [...inputs].sort(
+    (left, right) => left.index - right.index || left.name.localeCompare(right.name),
+  );
 }
 
 function reindexFlowFunctionInputs(inputs: FlowFunctionInput[]): FlowFunctionInput[] {
@@ -909,9 +933,7 @@ function normalizeFlowFunctionInputName(value: string, fallback = "input"): stri
   if (!trimmed) {
     return fallback;
   }
-  const identifier = trimmed
-    .replace(/^[^A-Za-z_]+/, "")
-    .replace(/[^A-Za-z0-9_]+/g, "_");
+  const identifier = trimmed.replace(/^[^A-Za-z_]+/, "").replace(/[^A-Za-z0-9_]+/g, "_");
   return identifier || fallback;
 }
 
@@ -937,7 +959,11 @@ function uniqueFlowFunctionInputName(
   return `${baseName}_${Date.now()}`;
 }
 
-function uniqueFlowFunctionInputId(symbolId: string, name: string, existingIds: Set<string>): string {
+function uniqueFlowFunctionInputId(
+  symbolId: string,
+  name: string,
+  existingIds: Set<string>,
+): string {
   const baseId = `flowinput:${symbolId}:${name}`;
   if (!existingIds.has(baseId)) {
     return baseId;
@@ -960,7 +986,9 @@ export function returnInputTargetHandle(nodeId: string): string {
   return `in:data:return-input:${nodeId}`;
 }
 
-export function parseReturnInputTargetHandle(handleId: string | null | undefined): string | undefined {
+export function parseReturnInputTargetHandle(
+  handleId: string | null | undefined,
+): string | undefined {
   const prefix = "in:data:return-input:";
   return handleId?.startsWith(prefix) ? handleId.slice(prefix.length) : undefined;
 }
@@ -997,17 +1025,25 @@ export function mergeFlowDraftWithSourceDocument(
     }
   });
   const remapNodeId = (nodeId: string) => nodeIdByCurrentNodeId.get(nodeId) ?? nodeId;
-  const draftOnlyNodes = currentDocument.nodes.filter((node) => (
-    !baseSourceBackedIdentities.has(flowGraphNodeSourceIdentity(node))
-    && !sourceNodeByIdentity.has(flowGraphNodeSourceIdentity(node))
-    && !sourceNodeIds.has(node.id)
-  ));
-  const nextNodeIds = new Set([...sourceDocument.nodes.map((node) => node.id), ...draftOnlyNodes.map((node) => node.id)]);
+  const draftOnlyNodes = currentDocument.nodes.filter(
+    (node) =>
+      !baseSourceBackedIdentities.has(flowGraphNodeSourceIdentity(node)) &&
+      !sourceNodeByIdentity.has(flowGraphNodeSourceIdentity(node)) &&
+      !sourceNodeIds.has(node.id),
+  );
+  const nextNodeIds = new Set([
+    ...sourceDocument.nodes.map((node) => node.id),
+    ...draftOnlyNodes.map((node) => node.id),
+  ]);
 
   const baseEdgeIds = new Set(baseDocument.edges.map((edge) => edge.id));
   const sourceEdgeKeys = new Set(sourceDocument.edges.map(flowEdgeKey));
-  const sourceControlOutputs = new Set(sourceDocument.edges.map((edge) => `${edge.sourceId}\u0000${edge.sourceHandle}`));
-  const sourceControlInputs = new Set(sourceDocument.edges.map((edge) => `${edge.targetId}\u0000${edge.targetHandle}`));
+  const sourceControlOutputs = new Set(
+    sourceDocument.edges.map((edge) => `${edge.sourceId}\u0000${edge.sourceHandle}`),
+  );
+  const sourceControlInputs = new Set(
+    sourceDocument.edges.map((edge) => `${edge.targetId}\u0000${edge.targetHandle}`),
+  );
   const draftOnlyEdges = currentDocument.edges.flatMap((edge) => {
     if (baseEdgeIds.has(edge.id)) {
       return [];
@@ -1027,14 +1063,19 @@ export function mergeFlowDraftWithSourceDocument(
     if (sourceControlOutputs.has(`${remapped.sourceId}\u0000${remapped.sourceHandle}`)) {
       return [];
     }
-    if (remapped.targetHandle !== "in" && sourceControlInputs.has(`${remapped.targetId}\u0000${remapped.targetHandle}`)) {
+    if (
+      remapped.targetHandle !== "in" &&
+      sourceControlInputs.has(`${remapped.targetId}\u0000${remapped.targetHandle}`)
+    ) {
       return [];
     }
     return [remapped];
   });
 
   const baseValueSourceIds = new Set((baseDocument.valueSources ?? []).map((source) => source.id));
-  const sourceValueSourceIds = new Set((sourceDocument.valueSources ?? []).map((source) => source.id));
+  const sourceValueSourceIds = new Set(
+    (sourceDocument.valueSources ?? []).map((source) => source.id),
+  );
   const nextValueSources = [
     ...(sourceDocument.valueSources ?? []),
     ...(currentDocument.valueSources ?? []).flatMap((source) => {
@@ -1047,7 +1088,9 @@ export function mergeFlowDraftWithSourceDocument(
   ];
 
   const baseSlotIds = new Set((baseDocument.inputSlots ?? []).map((slot) => slot.id));
-  const sourceSlotKeys = new Set((sourceDocument.inputSlots ?? []).map((slot) => `${slot.nodeId}\u0000${slot.slotKey}`));
+  const sourceSlotKeys = new Set(
+    (sourceDocument.inputSlots ?? []).map((slot) => `${slot.nodeId}\u0000${slot.slotKey}`),
+  );
   const sourceSlotIds = new Set((sourceDocument.inputSlots ?? []).map((slot) => slot.id));
   const nextInputSlots = [
     ...(sourceDocument.inputSlots ?? []),
@@ -1069,17 +1112,21 @@ export function mergeFlowDraftWithSourceDocument(
   ]);
   const nextSlotIds = new Set(nextInputSlots.map((slot) => slot.id));
   const baseBindingIds = new Set((baseDocument.inputBindings ?? []).map((binding) => binding.id));
-  const sourceBindingSlotIds = new Set((sourceDocument.inputBindings ?? []).map((binding) => binding.slotId));
-  const sourceBindingIds = new Set((sourceDocument.inputBindings ?? []).map((binding) => binding.id));
+  const sourceBindingSlotIds = new Set(
+    (sourceDocument.inputBindings ?? []).map((binding) => binding.slotId),
+  );
+  const sourceBindingIds = new Set(
+    (sourceDocument.inputBindings ?? []).map((binding) => binding.id),
+  );
   const nextInputBindings = [
     ...(sourceDocument.inputBindings ?? []),
     ...(currentDocument.inputBindings ?? []).flatMap((binding) => {
       if (
-        baseBindingIds.has(binding.id)
-        || sourceBindingIds.has(binding.id)
-        || sourceBindingSlotIds.has(binding.slotId)
-        || !nextSourceIds.has(binding.sourceId)
-        || !nextSlotIds.has(binding.slotId)
+        baseBindingIds.has(binding.id) ||
+        sourceBindingIds.has(binding.id) ||
+        sourceBindingSlotIds.has(binding.slotId) ||
+        !nextSourceIds.has(binding.sourceId) ||
+        !nextSlotIds.has(binding.slotId)
       ) {
         return [];
       }
@@ -1125,8 +1172,10 @@ function withReturnExpressionInputNode(
   const existing = graph.nodes.some((node) => {
     const payloadSlotId = node.payload.slot_id ?? node.payload.slotId;
     const payloadName = node.payload.name;
-    return node.kind === "input"
-      && (payloadSlotId === slotId || payloadName === name || node.label === name);
+    return (
+      node.kind === "input" &&
+      (payloadSlotId === slotId || payloadName === name || node.label === name)
+    );
   });
   if (existing) {
     return { ...payload, expression_graph: graph };
@@ -1167,9 +1216,9 @@ function withoutExpressionInputSlots(
         const payloadSlotId = node.payload.slot_id ?? node.payload.slotId;
         const payloadName = typeof node.payload.name === "string" ? node.payload.name.trim() : "";
         return (
-          (typeof payloadSlotId === "string" && slotIdsToRemove.has(payloadSlotId))
-          || (payloadName && slotNamesToRemove.has(payloadName))
-          || slotNamesToRemove.has(node.label.trim())
+          (typeof payloadSlotId === "string" && slotIdsToRemove.has(payloadSlotId)) ||
+          (payloadName && slotNamesToRemove.has(payloadName)) ||
+          slotNamesToRemove.has(node.label.trim())
         );
       })
       .map((node) => node.id),
@@ -1219,15 +1268,13 @@ function simplifyExpressionGraphWithoutNodes(
       targetHandle,
     });
   };
-  const singleChild = (nodeId: string, handle: string) => (
-    (incomingByTarget.get(nodeId) ?? []).find((edge) => edge.targetHandle === handle)
-  );
-  const indexedChildren = (nodeId: string, prefix: string) => (
+  const singleChild = (nodeId: string, handle: string) =>
+    (incomingByTarget.get(nodeId) ?? []).find((edge) => edge.targetHandle === handle);
+  const indexedChildren = (nodeId: string, prefix: string) =>
     (incomingByTarget.get(nodeId) ?? [])
       .filter((edge) => edge.targetHandle.startsWith(prefix))
       .slice()
-      .sort((left, right) => left.targetHandle.localeCompare(right.targetHandle))
-  );
+      .sort((left, right) => left.targetHandle.localeCompare(right.targetHandle));
 
   const visit = (nodeId: string): string | undefined => {
     if (removedNodeIds.has(nodeId) || visiting.has(nodeId)) {
@@ -1239,8 +1286,12 @@ function simplifyExpressionGraphWithoutNodes(
     }
     visiting.add(nodeId);
 
-    const keepWithRequiredChildren = (children: Array<[FlowExpressionEdge | undefined, string]>) => {
-      const resolved = children.map(([edge, handle]) => [edge ? visit(edge.sourceId) : undefined, handle] as const);
+    const keepWithRequiredChildren = (
+      children: Array<[FlowExpressionEdge | undefined, string]>,
+    ) => {
+      const resolved = children.map(
+        ([edge, handle]) => [edge ? visit(edge.sourceId) : undefined, handle] as const,
+      );
       if (resolved.some(([sourceId]) => !sourceId)) {
         visiting.delete(nodeId);
         return undefined;
@@ -1313,9 +1364,10 @@ function simplifyExpressionGraphWithoutNodes(
     }
 
     if (node.kind === "collection") {
-      const childPrefix = node.payload.collection_type === "dict" || node.payload.collectionType === "dict"
-        ? "value:"
-        : "item:";
+      const childPrefix =
+        node.payload.collection_type === "dict" || node.payload.collectionType === "dict"
+          ? "value:"
+          : "item:";
       const children = indexedChildren(node.id, childPrefix)
         .map((edge) => visit(edge.sourceId))
         .filter((sourceId): sourceId is string => Boolean(sourceId));
@@ -1390,10 +1442,10 @@ function simplifyExpressionGraphWithoutNodes(
 
 function flowExpressionGraphFromPayload(value: unknown): FlowExpressionGraph {
   if (
-    value
-    && typeof value === "object"
-    && Array.isArray((value as Partial<FlowExpressionGraph>).nodes)
-    && Array.isArray((value as Partial<FlowExpressionGraph>).edges)
+    value &&
+    typeof value === "object" &&
+    Array.isArray((value as Partial<FlowExpressionGraph>).nodes) &&
+    Array.isArray((value as Partial<FlowExpressionGraph>).edges)
   ) {
     const graph = value as FlowExpressionGraph;
     return {

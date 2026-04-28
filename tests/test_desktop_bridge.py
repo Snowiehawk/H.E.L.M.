@@ -25,11 +25,7 @@ from tests.helpers import write_repo_files
 
 
 def _progress_frames(responses: list[dict]) -> list[dict]:
-    return [
-        response["payload"]
-        for response in responses
-        if response.get("event") == "progress"
-    ]
+    return [response["payload"] for response in responses if response.get("event") == "progress"]
 
 
 def _unique_progress_stages(frames: list[dict]) -> list[str]:
@@ -240,11 +236,7 @@ class DesktopBridgeTests(unittest.TestCase):
             write_repo_files(
                 root,
                 {
-                    "service.py": (
-                        "def run():\n"
-                        "    current = 1\n"
-                        "    return current\n"
-                    ),
+                    "service.py": ("def run():\n    current = 1\n    return current\n"),
                 },
             )
 
@@ -272,10 +264,7 @@ class DesktopBridgeTests(unittest.TestCase):
     def test_apply_edit_to_payload_round_trips_draft_replace_flow_graph(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir) / "repo"
-            source = (
-                "def run(value):\n"
-                "    return value\n"
-            )
+            source = "def run(value):\n    return value\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -306,7 +295,9 @@ class DesktopBridgeTests(unittest.TestCase):
             flow = build_flow_view_payload(root, "symbol:service:run")
 
             self.assertEqual(response["edit"]["flow_sync_state"], "draft")
-            self.assertEqual(response["edit"]["touched_relative_paths"], [".helm/flow-models.v1.json"])
+            self.assertEqual(
+                response["edit"]["touched_relative_paths"], [".helm/flow-models.v1.json"]
+            )
             self.assertTrue(response["edit"]["diagnostics"])
             self.assertEqual(flow["flow_state"]["sync_state"], "draft")
             self.assertTrue(flow["flow_state"]["diagnostics"])
@@ -320,10 +311,7 @@ class DesktopBridgeTests(unittest.TestCase):
     def test_apply_edit_to_payload_round_trips_clean_replace_flow_graph(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir) / "repo"
-            source = (
-                "def run(value):\n"
-                "    return value\n"
-            )
+            source = "def run(value):\n    return value\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(

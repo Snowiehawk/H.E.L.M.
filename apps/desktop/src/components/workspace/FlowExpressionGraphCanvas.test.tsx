@@ -78,26 +78,32 @@ function mockCanvasElementRect() {
     };
   };
 
-  const clientWidthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function mockClientWidth(this: HTMLElement) {
-    return elementSize.call(this).width;
-  });
-  const clientHeightSpy = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function mockClientHeight(this: HTMLElement) {
-    return elementSize.call(this).height;
-  });
-  const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function mockRect(this: HTMLElement) {
-    const { width, height } = elementSize.call(this);
-    return {
-      x: 0,
-      y: 0,
-      top: 0,
-      left: 0,
-      right: width,
-      bottom: height,
-      width,
-      height,
-      toJSON: () => ({}),
-    } as DOMRect;
-  });
+  const clientWidthSpy = vi
+    .spyOn(HTMLElement.prototype, "clientWidth", "get")
+    .mockImplementation(function mockClientWidth(this: HTMLElement) {
+      return elementSize.call(this).width;
+    });
+  const clientHeightSpy = vi
+    .spyOn(HTMLElement.prototype, "clientHeight", "get")
+    .mockImplementation(function mockClientHeight(this: HTMLElement) {
+      return elementSize.call(this).height;
+    });
+  const rectSpy = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function mockRect(this: HTMLElement) {
+      const { width, height } = elementSize.call(this);
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: width,
+        bottom: height,
+        width,
+        height,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
 
   return () => {
     clientWidthSpy.mockRestore();
@@ -148,9 +154,13 @@ describe("FlowExpressionGraphCanvas", () => {
     mockCanvasElementRect();
     renderCanvas({ selectedExpressionNodeId: "expr:input:a" });
 
-    expect(await screen.findByTestId("flow-expression-node-expr:input:a")).toHaveClass("is-selected");
+    expect(await screen.findByTestId("flow-expression-node-expr:input:a")).toHaveClass(
+      "is-selected",
+    );
     expect(screen.getByTestId("flow-expression-node-expr:input:b")).not.toHaveClass("is-selected");
-    expect(screen.getByTestId("flow-expression-node-expr:operator:add")).not.toHaveClass("is-selected");
+    expect(screen.getByTestId("flow-expression-node-expr:operator:add")).not.toHaveClass(
+      "is-selected",
+    );
   });
 
   it("keeps target handle labels inside nodes with reserved label space", async () => {

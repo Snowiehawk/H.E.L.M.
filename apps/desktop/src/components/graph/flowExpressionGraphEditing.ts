@@ -5,10 +5,7 @@ import type {
   FlowExpressionNodeKind,
   FlowInputSlot,
 } from "../../lib/adapter";
-import {
-  createFlowExpressionEdge,
-  normalizeFlowExpressionGraph,
-} from "./flowExpressionGraph";
+import { createFlowExpressionEdge, normalizeFlowExpressionGraph } from "./flowExpressionGraph";
 
 export interface ExpressionGraphPosition {
   x: number;
@@ -48,7 +45,18 @@ export const EXPRESSION_INPUT_NODE_KINDS = new Set<FlowExpressionNodeKind>([
 export const BINARY_OPERATOR_OPTIONS = ["+", "-", "*", "/", "//", "%", "**"];
 export const UNARY_OPERATOR_OPTIONS = ["-", "+", "not"];
 export const BOOL_OPERATOR_OPTIONS = ["and", "or"];
-export const COMPARE_OPERATOR_OPTIONS = ["==", "!=", "<", "<=", ">", ">=", "is", "is not", "in", "not in"];
+export const COMPARE_OPERATOR_OPTIONS = [
+  "==",
+  "!=",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "is",
+  "is not",
+  "in",
+  "not in",
+];
 
 export function expressionInputSlotByName(inputSlots: FlowInputSlot[]) {
   return inputSlots.reduce<Record<string, string>>((slotByName, slot) => {
@@ -101,27 +109,28 @@ export function layoutExpressionGraph(
     nodesByDepth.set(depth, [...(nodesByDepth.get(depth) ?? []), node]);
   });
 
-  const layoutNodes = [...nodesByDepth.entries()].flatMap<ExpressionGraphLayoutNode>(([depth, nodesAtDepth]) => (
-    nodesAtDepth
-      .slice()
-      .sort((left, right) => {
-        if (left.id === graph.rootId) {
-          return -1;
-        }
-        if (right.id === graph.rootId) {
-          return 1;
-        }
-        return left.id.localeCompare(right.id);
-      })
-      .map((node, row) => {
-        const manualPosition = nodePositions[node.id];
-        return {
-          node,
-          x: manualPosition?.x ?? 24 + depth * EXPRESSION_COLUMN_GAP,
-          y: manualPosition?.y ?? 24 + row * EXPRESSION_ROW_GAP,
-        };
-      })
-  ));
+  const layoutNodes = [...nodesByDepth.entries()].flatMap<ExpressionGraphLayoutNode>(
+    ([depth, nodesAtDepth]) =>
+      nodesAtDepth
+        .slice()
+        .sort((left, right) => {
+          if (left.id === graph.rootId) {
+            return -1;
+          }
+          if (right.id === graph.rootId) {
+            return 1;
+          }
+          return left.id.localeCompare(right.id);
+        })
+        .map((node, row) => {
+          const manualPosition = nodePositions[node.id];
+          return {
+            node,
+            x: manualPosition?.x ?? 24 + depth * EXPRESSION_COLUMN_GAP,
+            y: manualPosition?.y ?? 24 + row * EXPRESSION_ROW_GAP,
+          };
+        }),
+  );
   const maxX = Math.max(...layoutNodes.map((node) => node.x), 24);
   const maxY = Math.max(...layoutNodes.map((node) => node.y), 24);
   return {
@@ -154,7 +163,9 @@ function indexedTargetHandles(
 ) {
   const indexes = incomingEdges
     .filter((edge) => edge.targetHandle.startsWith(prefix))
-    .map((edge) => Number.parseInt(edge.targetHandle.slice(prefix.length).split(":", 1)[0] ?? "", 10))
+    .map((edge) =>
+      Number.parseInt(edge.targetHandle.slice(prefix.length).split(":", 1)[0] ?? "", 10),
+    )
     .filter((index) => !Number.isNaN(index));
   const maxIndex = Math.max(minimumCount - 1, ...indexes, -1);
   const handles: ExpressionTargetHandle[] = [];
@@ -223,7 +234,11 @@ export function targetHandlesForExpressionNode(
   return [];
 }
 
-export function nextExpressionNodeId(graph: FlowExpressionGraph, kind: FlowExpressionNodeKind, label: string) {
+export function nextExpressionNodeId(
+  graph: FlowExpressionGraph,
+  kind: FlowExpressionNodeKind,
+  label: string,
+) {
   const safeLabel = label.trim().replace(/[^a-zA-Z0-9_-]+/g, "-") || "value";
   const existingIds = new Set(graph.nodes.map((node) => node.id));
   let index = graph.nodes.length;
@@ -280,9 +295,10 @@ export function defaultExpressionNode(
     id: nextExpressionNodeId(graph, kind, "+"),
     kind,
     label: kind === "bool" ? "and" : kind === "unary" ? "-" : kind === "compare" ? "==" : "+",
-    payload: kind === "compare"
-      ? { operators: ["=="] }
-      : { operator: kind === "bool" ? "and" : kind === "unary" ? "-" : "+" },
+    payload:
+      kind === "compare"
+        ? { operators: ["=="] }
+        : { operator: kind === "bool" ? "and" : kind === "unary" ? "-" : "+" },
   };
 }
 
@@ -331,23 +347,24 @@ export function connectExpressionGraphNodes(
   if (sourceId === targetId) {
     return graph;
   }
-  const handle = typeof targetHandle === "string"
-    ? { id: targetHandle, replaceExisting: true }
-    : targetHandle;
+  const handle =
+    typeof targetHandle === "string" ? { id: targetHandle, replaceExisting: true } : targetHandle;
   const nextEdge = createFlowExpressionEdge(sourceId, targetId, handle.id);
   const nextEdges = graph.edges.filter((edge) => {
     if (edge.id === nextEdge.id) {
       return false;
     }
-    return !(handle.replaceExisting && edge.targetId === targetId && edge.targetHandle === handle.id);
+    return !(
+      handle.replaceExisting &&
+      edge.targetId === targetId &&
+      edge.targetHandle === handle.id
+    );
   });
   const edges = [...nextEdges, nextEdge];
   const targetNode = graph.nodes.find((node) => node.id === targetId);
   const targetHasOutgoingEdge = edges.some((edge) => edge.sourceId === targetId);
   const shouldPromoteTargetToRoot =
-    targetNode
-    && !EXPRESSION_INPUT_NODE_KINDS.has(targetNode.kind)
-    && !targetHasOutgoingEdge;
+    targetNode && !EXPRESSION_INPUT_NODE_KINDS.has(targetNode.kind) && !targetHasOutgoingEdge;
 
   return {
     ...graph,

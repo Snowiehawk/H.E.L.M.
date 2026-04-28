@@ -32,17 +32,19 @@ def _replace_flow_node_id(
     return replace(
         document,
         nodes=tuple(
-            replace(node, node_id=replacement_node_id)
-            if node.node_id == original_node_id
-            else node
+            replace(node, node_id=replacement_node_id) if node.node_id == original_node_id else node
             for node in document.nodes
         ),
         edges=tuple(
             replace(
                 edge,
                 edge_id=edge.edge_id.replace(original_node_id, replacement_node_id),
-                source_id=replacement_node_id if edge.source_id == original_node_id else edge.source_id,
-                target_id=replacement_node_id if edge.target_id == original_node_id else edge.target_id,
+                source_id=replacement_node_id
+                if edge.source_id == original_node_id
+                else edge.source_id,
+                target_id=replacement_node_id
+                if edge.target_id == original_node_id
+                else edge.target_id,
             )
             for edge in document.edges
         ),
@@ -50,7 +52,9 @@ def _replace_flow_node_id(
 
 
 class PythonRepoAdapterTests(unittest.TestCase):
-    def test_default_level_uses_repo_for_empty_repos_symbol_for_small_repo_and_module_for_large_repo(self) -> None:
+    def test_default_level_uses_repo_for_empty_repos_symbol_for_small_repo_and_module_for_large_repo(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             empty_root = Path(tmp_dir) / "empty"
             empty_root.mkdir()
@@ -82,9 +86,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 {
                     "alpha.py": "def one():\n    return 1\n\ndef two():\n    return 2\n",
                     "beta.py": (
-                        "from alpha import one, two\n\n"
-                        "def run():\n"
-                        "    return one() + two()\n"
+                        "from alpha import one, two\n\ndef run():\n    return one() + two()\n"
                     ),
                 },
             )
@@ -138,7 +140,11 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertIn("branch", kinds)
             self.assertIn("return", kinds)
             node_ids_by_kind = {
-                node.kind.value: {candidate.node_id for candidate in flow.nodes if candidate.kind.value == node.kind.value}
+                node.kind.value: {
+                    candidate.node_id
+                    for candidate in flow.nodes
+                    if candidate.kind.value == node.kind.value
+                }
                 for node in flow.nodes
             }
             self.assertTrue(
@@ -166,10 +172,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
                     for edge in control_edges
                     if edge.metadata.get("flow_return_completion")
                 },
-                {
-                    (return_node, exit_node, True)
-                    for return_node in return_nodes
-                },
+                {(return_node, exit_node, True) for return_node in return_nodes},
             )
             param_node = next(node for node in flow.nodes if node.node_id.endswith(":param:value"))
             self.assertEqual(param_node.metadata["source_start_line"], 1)
@@ -217,10 +220,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            [
-                item.get("kind")
-                for item in document.to_dict()["function_inputs"]
-            ],
+            [item.get("kind") for item in document.to_dict()["function_inputs"]],
             [
                 "positional_only",
                 "positional_only",
@@ -244,7 +244,9 @@ class PythonRepoAdapterTests(unittest.TestCase):
         return_node = next(node for node in document.nodes if node.kind == "return")
         expression_graph = return_node.payload["expression_graph"]
 
-        self.assertEqual([function_input.name for function_input in document.function_inputs], ["a", "b", "c"])
+        self.assertEqual(
+            [function_input.name for function_input in document.function_inputs], ["a", "b", "c"]
+        )
         self.assertEqual({slot.slot_key for slot in document.input_slots}, {"a", "b", "c"})
         self.assertEqual(
             {binding.source_id for binding in document.input_bindings},
@@ -263,7 +265,12 @@ class PythonRepoAdapterTests(unittest.TestCase):
             },
             {"a", "b", "c"},
         )
-        self.assertTrue(any(node["kind"] == "operator" and node["label"] == "+" for node in expression_graph["nodes"]))
+        self.assertTrue(
+            any(
+                node["kind"] == "operator" and node["label"] == "+"
+                for node in expression_graph["nodes"]
+            )
+        )
         compiled = compile_flow_document(document)
         self.assertEqual(compiled.sync_state, "clean")
         self.assertEqual(compiled.body_source, "return a + b + c")
@@ -287,15 +294,17 @@ class PythonRepoAdapterTests(unittest.TestCase):
         )
         return_node = next(node for node in document.nodes if node.kind == "return")
         graph = return_node.payload["expression_graph"]
-        graph["nodes"].append({
-            "id": "expr:input:c",
-            "kind": "input",
-            "label": "c",
-            "payload": {
-                "name": "c",
-                "slot_id": "flowslot:flow:symbol:service:add:statement:0:c",
-            },
-        })
+        graph["nodes"].append(
+            {
+                "id": "expr:input:c",
+                "kind": "input",
+                "label": "c",
+                "payload": {
+                    "name": "c",
+                    "slot_id": "flowslot:flow:symbol:service:add:statement:0:c",
+                },
+            }
+        )
         document = replace(
             document,
             nodes=tuple(
@@ -309,7 +318,12 @@ class PythonRepoAdapterTests(unittest.TestCase):
         result = compile_flow_document(document)
 
         self.assertEqual(result.sync_state, "draft")
-        self.assertTrue(any("not connected to the return expression: c" in diagnostic for diagnostic in result.diagnostics))
+        self.assertTrue(
+            any(
+                "not connected to the return expression: c" in diagnostic
+                for diagnostic in result.diagnostics
+            )
+        )
 
     def test_structured_loop_payloads_compile_without_header_only_fields(self) -> None:
         while_document = import_flow_document_from_function_source(
@@ -317,10 +331,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
             relative_path="service.py",
             qualname="run",
             module_source=(
-                "def run(items):\n"
-                "    while items:\n"
-                "        consume(items)\n"
-                "    return len(items)\n"
+                "def run(items):\n    while items:\n        consume(items)\n    return len(items)\n"
             ),
         )
         while_loop = next(node for node in while_document.nodes if node.kind == "loop")
@@ -392,7 +403,9 @@ class PythonRepoAdapterTests(unittest.TestCase):
         result = compile_flow_document(document)
 
         self.assertEqual(result.sync_state, "draft")
-        self.assertTrue(any("needs an item target" in diagnostic for diagnostic in result.diagnostics))
+        self.assertTrue(
+            any("needs an item target" in diagnostic for diagnostic in result.diagnostics)
+        )
 
     def test_flow_view_marks_loop_body_and_exit_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -427,10 +440,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
     def test_flow_view_rehydrates_persisted_draft_documents_with_diagnostics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(value):\n"
-                "    return value\n"
-            )
+            source = "def run(value):\n    return value\n"
             write_repo_files(root, {"service.py": source})
 
             adapter = PythonRepoAdapter.scan(root)
@@ -441,9 +451,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 module_source=source,
             )
             source_backed_return_id = next(
-                node.node_id
-                for node in imported.nodes
-                if node.kind == "return"
+                node.node_id for node in imported.nodes if node.kind == "return"
             )
             renamed_document = _replace_flow_node_id(
                 imported,
@@ -461,7 +469,9 @@ class PythonRepoAdapterTests(unittest.TestCase):
                     ),
                 ),
                 sync_state="draft",
-                diagnostics=("Unreachable flow nodes block code generation: flowdoc:symbol:service:run:call:disconnected.",),
+                diagnostics=(
+                    "Unreachable flow nodes block code generation: flowdoc:symbol:service:run:call:disconnected.",
+                ),
             )
             write_flow_document(root, draft_document)
 
@@ -472,17 +482,27 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertEqual(flow.flow_state["sync_state"], "draft")
             self.assertTrue(flow.flow_state["editable"])
             self.assertTrue(
-                any("Unreachable flow nodes" in message for message in flow.flow_state["diagnostics"])
+                any(
+                    "Unreachable flow nodes" in message
+                    for message in flow.flow_state["diagnostics"]
+                )
             )
             document = flow.flow_state["document"]
             self.assertIsNotNone(document)
             assert document is not None
             self.assertEqual(document["sync_state"], "draft")
             self.assertTrue(
-                any(node["id"] == "flowdoc:symbol:service:run:call:disconnected" for node in document["nodes"])
+                any(
+                    node["id"] == "flowdoc:symbol:service:run:call:disconnected"
+                    for node in document["nodes"]
+                )
             )
-            self.assertIn("flow:symbol:service:run:param:value", {node.node_id for node in flow.nodes})
-            self.assertIn("flowdoc:symbol:service:run:return:draft", {node.node_id for node in flow.nodes})
+            self.assertIn(
+                "flow:symbol:service:run:param:value", {node.node_id for node in flow.nodes}
+            )
+            self.assertIn(
+                "flowdoc:symbol:service:run:return:draft", {node.node_id for node in flow.nodes}
+            )
             self.assertTrue(
                 any(
                     edge.kind.value == "data"
@@ -497,7 +517,8 @@ class PythonRepoAdapterTests(unittest.TestCase):
                     edge.kind.value == "controls"
                     and edge.source_id == "flowdoc:symbol:service:run:return:draft"
                     and edge.target_id == exit_node
-                    and edge.edge_id == flow_return_completion_edge_id(
+                    and edge.edge_id
+                    == flow_return_completion_edge_id(
                         "flowdoc:symbol:service:run:return:draft",
                         exit_node,
                     )
@@ -506,14 +527,12 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 for edge in flow.edges
             )
 
-    def test_flow_view_keeps_method_parameter_wires_when_persisted_document_is_draft_backed(self) -> None:
+    def test_flow_view_keeps_method_parameter_wires_when_persisted_document_is_draft_backed(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "class Service:\n"
-                "    def run(self, value):\n"
-                "        return self.scale(value)\n"
-            )
+            source = "class Service:\n    def run(self, value):\n        return self.scale(value)\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -523,9 +542,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 module_source=source,
             )
             source_backed_return_id = next(
-                node.node_id
-                for node in imported.nodes
-                if node.kind == "return"
+                node.node_id for node in imported.nodes if node.kind == "return"
             )
             draft_document = replace(
                 _replace_flow_node_id(
@@ -541,8 +558,12 @@ class PythonRepoAdapterTests(unittest.TestCase):
             adapter = PythonRepoAdapter.scan(root)
             flow = adapter.get_flow_view("symbol:service:Service.run")
 
-            self.assertIn("flow:symbol:service:Service.run:param:self", {node.node_id for node in flow.nodes})
-            self.assertIn("flow:symbol:service:Service.run:param:value", {node.node_id for node in flow.nodes})
+            self.assertIn(
+                "flow:symbol:service:Service.run:param:self", {node.node_id for node in flow.nodes}
+            )
+            self.assertIn(
+                "flow:symbol:service:Service.run:param:value", {node.node_id for node in flow.nodes}
+            )
             self.assertIn(
                 "flowdoc:symbol:service:Service.run:return:draft",
                 {node.node_id for node in flow.nodes},
@@ -567,10 +588,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
     def test_flow_view_backfills_function_inputs_for_legacy_persisted_documents(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def add(a, b):\n"
-                "    return a + b\n"
-            )
+            source = "def add(a, b):\n    return a + b\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -629,11 +647,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
     def test_flow_view_projects_local_value_sources_as_canonical_bindings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(value):\n"
-                "    current = value + 1\n"
-                "    return current\n"
-            )
+            source = "def run(value):\n    current = value + 1\n    return current\n"
             write_repo_files(root, {"service.py": source})
 
             adapter = PythonRepoAdapter.scan(root)
@@ -668,14 +682,12 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 "current",
             )
 
-    def test_flow_view_preserves_prompt2_removed_bindings_when_backfilling_value_model(self) -> None:
+    def test_flow_view_preserves_prompt2_removed_bindings_when_backfilling_value_model(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(value):\n"
-                "    current = value + 1\n"
-                "    return current\n"
-            )
+            source = "def run(value):\n    current = value + 1\n    return current\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -685,9 +697,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 module_source=source,
             )
             value_slot_ids = {
-                slot.slot_id
-                for slot in imported.input_slots
-                if slot.slot_key == "value"
+                slot.slot_id for slot in imported.input_slots if slot.slot_key == "value"
             }
             prompt2_document = replace(
                 imported,
@@ -716,11 +726,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
     def test_flow_view_backfills_method_inputs_for_legacy_persisted_documents(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "class Service:\n"
-                "    def run(self, value):\n"
-                "        return self.scale(value)\n"
-            )
+            source = "class Service:\n    def run(self, value):\n        return self.scale(value)\n"
             write_repo_files(root, {"service.py": source})
 
             imported = import_flow_document_from_function_source(
@@ -744,7 +750,9 @@ class PythonRepoAdapterTests(unittest.TestCase):
             document = flow.flow_state["document"] if flow.flow_state else None
             self.assertIsNotNone(document)
             assert document is not None
-            self.assertEqual([item["name"] for item in document["function_inputs"]], ["self", "value"])
+            self.assertEqual(
+                [item["name"] for item in document["function_inputs"]], ["self", "value"]
+            )
             self.assertEqual(
                 {slot["slot_key"] for slot in document["input_slots"]},
                 {"self", "value"},
@@ -770,10 +778,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
     def test_flow_view_reimports_stale_persisted_documents_instead_of_exposing_them(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(value):\n"
-                "    return value\n"
-            )
+            source = "def run(value):\n    return value\n"
             write_repo_files(root, {"service.py": source})
 
             write_flow_document(
@@ -783,13 +788,17 @@ class PythonRepoAdapterTests(unittest.TestCase):
                     relative_path="service.py",
                     qualname="run",
                     nodes=(
-                        FlowModelNode(node_id="flowdoc:symbol:service:run:entry", kind="entry", payload={}),
+                        FlowModelNode(
+                            node_id="flowdoc:symbol:service:run:entry", kind="entry", payload={}
+                        ),
                         FlowModelNode(
                             node_id="flowdoc:symbol:service:run:call:stale",
                             kind="call",
                             payload={"source": "stale()"},
                         ),
-                        FlowModelNode(node_id="flowdoc:symbol:service:run:exit", kind="exit", payload={}),
+                        FlowModelNode(
+                            node_id="flowdoc:symbol:service:run:exit", kind="exit", payload={}
+                        ),
                     ),
                     edges=(
                         FlowModelEdge(
@@ -823,7 +832,9 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertEqual(document["sync_state"], "clean")
             self.assertFalse(any(node["id"].endswith(":call:stale") for node in document["nodes"]))
             self.assertFalse(any(node.node_id.endswith(":call:stale") for node in flow.nodes))
-            visible_return = next(node.node_id for node in flow.nodes if node.kind.value == "return")
+            visible_return = next(
+                node.node_id for node in flow.nodes if node.kind.value == "return"
+            )
             self.assertTrue(
                 any(
                     edge.kind.value == "data"
@@ -833,14 +844,12 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 for edge in flow.edges
             )
 
-    def test_flow_view_returns_import_error_for_stale_documents_when_current_source_cannot_import(self) -> None:
+    def test_flow_view_returns_import_error_for_stale_documents_when_current_source_cannot_import(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            source = (
-                "def run(value):\n"
-                "    with helper(value) as current:\n"
-                "        return current\n"
-            )
+            source = "def run(value):\n    with helper(value) as current:\n        return current\n"
             write_repo_files(root, {"service.py": source})
 
             previous_source = "def run(value):\n    return value\n"
@@ -878,7 +887,9 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertTrue(document["input_slots"])
             self.assertTrue(document["input_bindings"])
             self.assertTrue(any(node["kind"] == "return" for node in document["nodes"]))
-            self.assertTrue(any(node.kind.value == "param" and node.label == "value" for node in flow.nodes))
+            self.assertTrue(
+                any(node.kind.value == "param" and node.label == "value" for node in flow.nodes)
+            )
 
     def test_class_symbol_view_surfaces_direct_members_and_flow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -899,7 +910,9 @@ class PythonRepoAdapterTests(unittest.TestCase):
             )
 
             adapter = PythonRepoAdapter.scan(root)
-            class_view = adapter.get_graph_view("symbol:service:Service", GraphAbstractionLevel.SYMBOL)
+            class_view = adapter.get_graph_view(
+                "symbol:service:Service", GraphAbstractionLevel.SYMBOL
+            )
 
             node_ids = {node.node_id for node in class_view.nodes}
             self.assertIn("symbol:service:Service.enabled", node_ids)
@@ -912,17 +925,21 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 for edge in class_view.edges
                 if edge.kind.value == "contains"
             }
-            self.assertIn(("symbol:service:Service", "symbol:service:Service.enabled"), contains_edges)
-            self.assertIn(("symbol:service:Service", "symbol:service:Service.threshold"), contains_edges)
-            self.assertIn(("symbol:service:Service", "symbol:service:Service.helper"), contains_edges)
+            self.assertIn(
+                ("symbol:service:Service", "symbol:service:Service.enabled"), contains_edges
+            )
+            self.assertIn(
+                ("symbol:service:Service", "symbol:service:Service.threshold"), contains_edges
+            )
+            self.assertIn(
+                ("symbol:service:Service", "symbol:service:Service.helper"), contains_edges
+            )
             self.assertIn(("symbol:service:Service", "symbol:service:Service.run"), contains_edges)
 
             class_node = next(
                 node for node in class_view.nodes if node.node_id == "symbol:service:Service"
             )
-            actions = {
-                action.action_id: action.enabled for action in class_node.available_actions
-            }
+            actions = {action.action_id: action.enabled for action in class_node.available_actions}
             self.assertTrue(actions["open_flow"])
             self.assertIn(
                 GraphAbstractionLevel.FLOW,
@@ -961,22 +978,39 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 for edge in flow.edges
                 if edge.kind.value == "contains"
             }
-            self.assertIn(("flow:symbol:service:Service:entry", "symbol:service:Service.enabled"), contains_edges)
-            self.assertIn(("flow:symbol:service:Service:entry", "symbol:service:Service.threshold"), contains_edges)
-            self.assertIn(("flow:symbol:service:Service:entry", "symbol:service:Service.helper"), contains_edges)
-            self.assertIn(("flow:symbol:service:Service:entry", "symbol:service:Service.run"), contains_edges)
+            self.assertIn(
+                ("flow:symbol:service:Service:entry", "symbol:service:Service.enabled"),
+                contains_edges,
+            )
+            self.assertIn(
+                ("flow:symbol:service:Service:entry", "symbol:service:Service.threshold"),
+                contains_edges,
+            )
+            self.assertIn(
+                ("flow:symbol:service:Service:entry", "symbol:service:Service.helper"),
+                contains_edges,
+            )
+            self.assertIn(
+                ("flow:symbol:service:Service:entry", "symbol:service:Service.run"), contains_edges
+            )
 
             call_edges = {
                 (edge.source_id, edge.target_id)
                 for edge in flow.edges
                 if edge.kind.value == "calls"
             }
-            self.assertIn(("symbol:service:Service.run", "symbol:service:Service.helper"), call_edges)
-            helper_node = next(node for node in flow.nodes if node.node_id == "symbol:service:Service.helper")
+            self.assertIn(
+                ("symbol:service:Service.run", "symbol:service:Service.helper"), call_edges
+            )
+            helper_node = next(
+                node for node in flow.nodes if node.node_id == "symbol:service:Service.helper"
+            )
             self.assertEqual(helper_node.metadata["source_start_line"], 5)
             self.assertEqual(helper_node.metadata["source_end_line"], 6)
 
-    def test_external_dependencies_are_hidden_by_default_but_available_in_advanced_settings(self) -> None:
+    def test_external_dependencies_are_hidden_by_default_but_available_in_advanced_settings(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             write_repo_files(
@@ -1090,11 +1124,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
             write_repo_files(
                 root,
                 {
-                    "service.py": (
-                        "def run():\n"
-                        "    current = 1\n"
-                        "    return current\n"
-                    ),
+                    "service.py": ("def run():\n    current = 1\n    return current\n"),
                 },
             )
 
@@ -1113,7 +1143,9 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 )
             )
 
-            self.assertEqual(response["edit"]["changed_node_ids"], ["flow:symbol:service:run:statement:1"])
+            self.assertEqual(
+                response["edit"]["changed_node_ids"], ["flow:symbol:service:run:statement:1"]
+            )
             flow = adapter.get_flow_view("symbol:service:run")
             self.assertTrue(
                 any(
@@ -1190,7 +1222,9 @@ class PythonRepoAdapterTests(unittest.TestCase):
             self.assertEqual(module_symbols["symbol:service:Mode"], "enum")
             self.assertEqual(module_symbols["symbol:service:run"], "function")
 
-            variable_view = adapter.get_graph_view("symbol:service:READY", GraphAbstractionLevel.SYMBOL)
+            variable_view = adapter.get_graph_view(
+                "symbol:service:READY", GraphAbstractionLevel.SYMBOL
+            )
             enum_view = adapter.get_graph_view("symbol:service:Mode", GraphAbstractionLevel.SYMBOL)
 
             variable_node = next(
@@ -1220,11 +1254,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
             write_repo_files(
                 root,
                 {
-                    "service.py": (
-                        "READY = True\n\n"
-                        "def run():\n"
-                        "    return READY\n"
-                    ),
+                    "service.py": ("READY = True\n\ndef run():\n    return READY\n"),
                 },
             )
 
@@ -1256,15 +1286,14 @@ class PythonRepoAdapterTests(unittest.TestCase):
 
             self.assertEqual(response["edit"]["request"]["kind"], "replace_module_source")
             self.assertEqual(response["edit"]["touched_relative_paths"], ["service.py"])
-            node_ids = {
-                node["node_id"]
-                for node in response["payload"]["graph"]["nodes"]
-            }
+            node_ids = {node["node_id"] for node in response["payload"]["graph"]["nodes"]}
             self.assertIn("symbol:service:run", node_ids)
             function_source = adapter.get_editable_node_source("symbol:service:run")
             self.assertIn("return 42", function_source["content"])
 
-    def test_get_editable_node_source_supports_classes_and_methods_but_blocks_class_attributes(self) -> None:
+    def test_get_editable_node_source_supports_classes_and_methods_but_blocks_class_attributes(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             write_repo_files(
@@ -1281,7 +1310,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
                         "        self,\n"
                         "        value: str,\n"
                         "    ) -> str:\n"
-                        "        \"\"\"Return a value.\"\"\"\n"
+                        '        """Return a value."""\n'
                         "        return value\n"
                     ),
                 },
@@ -1341,11 +1370,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
             write_repo_files(
                 root,
                 {
-                    "service.py": (
-                        "READY = True\n\n"
-                        "def run():\n"
-                        "    return READY\n"
-                    ),
+                    "service.py": ("READY = True\n\ndef run():\n    return READY\n"),
                 },
             )
 
@@ -1391,10 +1416,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
             )
             adapter.save_node_source(
                 "symbol:service:Service.run",
-                (
-                    "async def run(self) -> bool:\n"
-                    "    return False\n"
-                ),
+                ("async def run(self) -> bool:\n    return False\n"),
             )
 
             class_source = adapter.get_editable_node_source("symbol:service:Service")
@@ -1408,11 +1430,7 @@ class PythonRepoAdapterTests(unittest.TestCase):
             write_repo_files(
                 root,
                 {
-                    "service.py": (
-                        "READY = True\n\n"
-                        "def run():\n"
-                        "    return READY\n"
-                    ),
+                    "service.py": ("READY = True\n\ndef run():\n    return READY\n"),
                 },
             )
 
@@ -1437,16 +1455,16 @@ class PythonRepoAdapterTests(unittest.TestCase):
                 root,
                 {
                     "service.py": (
-                        "class Service:\n"
-                        "    async def run(self) -> bool:\n"
-                        "        return True\n"
+                        "class Service:\n    async def run(self) -> bool:\n        return True\n"
                     ),
                 },
             )
 
             adapter = PythonRepoAdapter.scan(root)
 
-            with self.assertRaisesRegex(ValueError, "original name 'Service'|keep the original name 'Service'"):
+            with self.assertRaisesRegex(
+                ValueError, "original name 'Service'|keep the original name 'Service'"
+            ):
                 adapter.save_node_source(
                     "symbol:service:Service",
                     "class RenamedService:\n    pass\n",
@@ -1479,7 +1497,9 @@ class PythonRepoAdapterTests(unittest.TestCase):
 
             adapter = PythonRepoAdapter.scan(root)
 
-            with self.assertRaisesRegex(ValueError, "Enum declarations are not inline editable yet."):
+            with self.assertRaisesRegex(
+                ValueError, "Enum declarations are not inline editable yet."
+            ):
                 adapter.save_node_source(
                     "symbol:service:Mode",
                     "class Mode:\n    FAST = 'fast'\n",

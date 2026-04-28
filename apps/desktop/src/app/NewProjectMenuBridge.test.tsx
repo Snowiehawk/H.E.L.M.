@@ -88,6 +88,8 @@ describe("NewProjectMenuBridge", () => {
     });
 
     expect(await screen.findByText(/Preparing the workspace/i)).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "untitled-helm-project" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "untitled-helm-project" }),
+    ).toBeInTheDocument();
   });
 });

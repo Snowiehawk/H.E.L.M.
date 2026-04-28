@@ -152,8 +152,7 @@ def ensure_supported_python() -> None:
     if sys.version_info < (3, 9):
         version = ".".join(str(part) for part in sys.version_info[:3])
         raise BootstrapError(
-            "HELM requires Python 3.9+ for bootstrap, "
-            f"but the current interpreter is {version}."
+            f"HELM requires Python 3.9+ for bootstrap, but the current interpreter is {version}."
         )
 
 

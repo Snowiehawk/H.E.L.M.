@@ -89,7 +89,9 @@ describe("welcome flow", () => {
     await user.click(screen.getByRole("button", { name: /new project/i }));
 
     expect(await screen.findByText(/Preparing the workspace/i)).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "untitled-helm-project" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "untitled-helm-project" }),
+    ).toBeInTheDocument();
     expect(await screen.findByText(/Job ID/i)).toBeInTheDocument();
   });
 });

@@ -43,9 +43,7 @@ function RerouteHandles({ type }: { type: "source" | "target" }) {
   );
 }
 
-export const RerouteNode = memo(function RerouteNode({
-  selected,
-}: NodeProps) {
+export const RerouteNode = memo(function RerouteNode({ selected }: NodeProps) {
   return (
     <div
       {...helpTargetProps("graph.node.reroute")}

@@ -1,9 +1,4 @@
-import type {
-  BackendStatus,
-  OverviewData,
-  OverviewModule,
-  SearchResult,
-} from "../../lib/adapter";
+import type { BackendStatus, OverviewData, OverviewModule, SearchResult } from "../../lib/adapter";
 import { StatusPill } from "../shared/StatusPill";
 
 export function BlueprintSidebar({
@@ -124,9 +119,7 @@ export function BlueprintSidebar({
               {(overview?.modules ?? []).map((module) => (
                 <button
                   key={module.id}
-                  className={`list-button${
-                    selectedNodeId === module.moduleId ? " is-active" : ""
-                  }`}
+                  className={`list-button${selectedNodeId === module.moduleId ? " is-active" : ""}`}
                   type="button"
                   onClick={() => onSelectModule(module)}
                 >

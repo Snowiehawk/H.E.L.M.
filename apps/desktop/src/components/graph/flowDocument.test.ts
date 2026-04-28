@@ -95,7 +95,10 @@ describe("flowDocument logical helpers", () => {
     ]);
 
     const withSecondInput = addFlowFunctionInput(withFirstInput, { name: "repo_path" });
-    expect(withSecondInput.functionInputs?.map((input) => input.name)).toEqual(["repo_path", "repo_path_2"]);
+    expect(withSecondInput.functionInputs?.map((input) => input.name)).toEqual([
+      "repo_path",
+      "repo_path_2",
+    ]);
 
     const firstInputId = withSecondInput.functionInputs?.[0]?.id ?? "";
     const secondInputId = withSecondInput.functionInputs?.[1]?.id ?? "";
@@ -160,17 +163,66 @@ describe("flowDocument logical helpers", () => {
               version: 1,
               rootId: "expr:operator:plus:2",
               nodes: [
-                { id: "expr:input:a", kind: "input", label: "a", payload: { name: "a", slot_id: "flowslot:return:a" } },
-                { id: "expr:input:b", kind: "input", label: "b", payload: { name: "b", slot_id: "flowslot:return:b" } },
-                { id: "expr:input:c", kind: "input", label: "c", payload: { name: "c", slot_id: "flowslot:return:c" } },
-                { id: "expr:operator:plus:1", kind: "operator", label: "+", payload: { operator: "+" } },
-                { id: "expr:operator:plus:2", kind: "operator", label: "+", payload: { operator: "+" } },
+                {
+                  id: "expr:input:a",
+                  kind: "input",
+                  label: "a",
+                  payload: { name: "a", slot_id: "flowslot:return:a" },
+                },
+                {
+                  id: "expr:input:b",
+                  kind: "input",
+                  label: "b",
+                  payload: { name: "b", slot_id: "flowslot:return:b" },
+                },
+                {
+                  id: "expr:input:c",
+                  kind: "input",
+                  label: "c",
+                  payload: { name: "c", slot_id: "flowslot:return:c" },
+                },
+                {
+                  id: "expr:operator:plus:1",
+                  kind: "operator",
+                  label: "+",
+                  payload: { operator: "+" },
+                },
+                {
+                  id: "expr:operator:plus:2",
+                  kind: "operator",
+                  label: "+",
+                  payload: { operator: "+" },
+                },
               ],
               edges: [
-                { id: "expr-edge:a", sourceId: "expr:input:a", sourceHandle: "value", targetId: "expr:operator:plus:1", targetHandle: "left" },
-                { id: "expr-edge:b", sourceId: "expr:input:b", sourceHandle: "value", targetId: "expr:operator:plus:1", targetHandle: "right" },
-                { id: "expr-edge:plus", sourceId: "expr:operator:plus:1", sourceHandle: "value", targetId: "expr:operator:plus:2", targetHandle: "left" },
-                { id: "expr-edge:c", sourceId: "expr:input:c", sourceHandle: "value", targetId: "expr:operator:plus:2", targetHandle: "right" },
+                {
+                  id: "expr-edge:a",
+                  sourceId: "expr:input:a",
+                  sourceHandle: "value",
+                  targetId: "expr:operator:plus:1",
+                  targetHandle: "left",
+                },
+                {
+                  id: "expr-edge:b",
+                  sourceId: "expr:input:b",
+                  sourceHandle: "value",
+                  targetId: "expr:operator:plus:1",
+                  targetHandle: "right",
+                },
+                {
+                  id: "expr-edge:plus",
+                  sourceId: "expr:operator:plus:1",
+                  sourceHandle: "value",
+                  targetId: "expr:operator:plus:2",
+                  targetHandle: "left",
+                },
+                {
+                  id: "expr-edge:c",
+                  sourceId: "expr:input:c",
+                  sourceHandle: "value",
+                  targetId: "expr:operator:plus:2",
+                  targetHandle: "right",
+                },
               ],
             },
           },
@@ -188,13 +240,31 @@ describe("flowDocument logical helpers", () => {
         { id: "flowslot:return:c", nodeId: returnNodeId, slotKey: "c", label: "c", required: true },
       ],
       inputBindings: [
-        { id: "binding:a", sourceId: "flowinput:symbol:workflow:run:a", functionInputId: "flowinput:symbol:workflow:run:a", slotId: "flowslot:return:a" },
-        { id: "binding:b", sourceId: "flowinput:symbol:workflow:run:b", functionInputId: "flowinput:symbol:workflow:run:b", slotId: "flowslot:return:b" },
-        { id: "binding:c", sourceId: "flowinput:symbol:workflow:run:c", functionInputId: "flowinput:symbol:workflow:run:c", slotId: "flowslot:return:c" },
+        {
+          id: "binding:a",
+          sourceId: "flowinput:symbol:workflow:run:a",
+          functionInputId: "flowinput:symbol:workflow:run:a",
+          slotId: "flowslot:return:a",
+        },
+        {
+          id: "binding:b",
+          sourceId: "flowinput:symbol:workflow:run:b",
+          functionInputId: "flowinput:symbol:workflow:run:b",
+          slotId: "flowslot:return:b",
+        },
+        {
+          id: "binding:c",
+          sourceId: "flowinput:symbol:workflow:run:c",
+          functionInputId: "flowinput:symbol:workflow:run:c",
+          slotId: "flowslot:return:c",
+        },
       ],
     };
 
-    const removed = removeFlowFunctionInputAndDownstreamUses(document, "flowinput:symbol:workflow:run:b");
+    const removed = removeFlowFunctionInputAndDownstreamUses(
+      document,
+      "flowinput:symbol:workflow:run:b",
+    );
     const returnPayload = removed.nodes.find((node) => node.id === returnNodeId)?.payload;
     const expressionGraph = returnPayload?.expression_graph;
 
@@ -213,22 +283,26 @@ describe("flowDocument logical helpers", () => {
   });
 
   it("validates control-flow connections before mutating the logical document", () => {
-    expect(validateFlowConnection(baseDocument, {
-      sourceId: "flowdoc:symbol:workflow:run:entry",
-      sourceHandle: "start",
-      targetId: "flowdoc:symbol:workflow:run:exit",
-      targetHandle: "in",
-    })).toEqual({
+    expect(
+      validateFlowConnection(baseDocument, {
+        sourceId: "flowdoc:symbol:workflow:run:entry",
+        sourceHandle: "start",
+        targetId: "flowdoc:symbol:workflow:run:exit",
+        targetHandle: "in",
+      }),
+    ).toEqual({
       ok: false,
       message: "That control output is already connected.",
     });
 
-    expect(validateFlowConnection(baseDocument, {
-      sourceId: "flowdoc:symbol:workflow:run:call:0",
-      sourceHandle: "next",
-      targetId: "flowdoc:symbol:workflow:run:call:0",
-      targetHandle: "in",
-    })).toEqual({
+    expect(
+      validateFlowConnection(baseDocument, {
+        sourceId: "flowdoc:symbol:workflow:run:call:0",
+        sourceHandle: "next",
+        targetId: "flowdoc:symbol:workflow:run:call:0",
+        targetHandle: "in",
+      }),
+    ).toEqual({
       ok: false,
       message: "Flow nodes cannot connect back into themselves.",
     });
@@ -275,7 +349,11 @@ describe("flowDocument logical helpers", () => {
       ...baseDocument,
       nodes: [
         { id: "flowdoc:symbol:workflow:run:entry", kind: "entry", payload: {} },
-        { id: "flowdoc:symbol:workflow:run:return:0", kind: "return", payload: { expression: "value" } },
+        {
+          id: "flowdoc:symbol:workflow:run:return:0",
+          kind: "return",
+          payload: { expression: "value" },
+        },
         { id: "flowdoc:symbol:workflow:run:exit", kind: "exit", payload: {} },
       ],
       edges: [
@@ -293,12 +371,14 @@ describe("flowDocument logical helpers", () => {
       "flowdoc:symbol:workflow:run:exit",
     );
 
-    expect(validateFlowConnection(returnDocument, {
-      sourceId: "flowdoc:symbol:workflow:run:return:0",
-      sourceHandle: "exit",
-      targetId: "flowdoc:symbol:workflow:run:exit",
-      targetHandle: "in",
-    })).toEqual({
+    expect(
+      validateFlowConnection(returnDocument, {
+        sourceId: "flowdoc:symbol:workflow:run:return:0",
+        sourceHandle: "exit",
+        targetId: "flowdoc:symbol:workflow:run:exit",
+        targetHandle: "in",
+      }),
+    ).toEqual({
       ok: false,
       message: "That control output is not available for the selected source node.",
     });
@@ -341,7 +421,9 @@ describe("flowDocument logical helpers", () => {
       ],
     } as FlowGraphDocument;
 
-    const result = removeFlowNodes(documentWithSupportNode, ["flow:symbol:workflow:run:param:value"]);
+    const result = removeFlowNodes(documentWithSupportNode, [
+      "flow:symbol:workflow:run:param:value",
+    ]);
 
     expect(result.nodes.map((node) => node.id)).toContain("flow:symbol:workflow:run:param:value");
   });
@@ -351,8 +433,16 @@ describe("flowDocument logical helpers", () => {
       ...baseDocument,
       nodes: [
         { id: "flowdoc:symbol:workflow:run:entry", kind: "entry", payload: {} },
-        { id: "flowdoc:symbol:workflow:run:assign:0", kind: "assign", payload: { source: "x = a" } },
-        { id: "flowdoc:symbol:workflow:run:return:1", kind: "return", payload: { expression: "a" } },
+        {
+          id: "flowdoc:symbol:workflow:run:assign:0",
+          kind: "assign",
+          payload: { source: "x = a" },
+        },
+        {
+          id: "flowdoc:symbol:workflow:run:return:1",
+          kind: "return",
+          payload: { expression: "a" },
+        },
         { id: "flowdoc:symbol:workflow:run:exit", kind: "exit", payload: {} },
       ],
       functionInputs: [
@@ -391,10 +481,12 @@ describe("flowDocument logical helpers", () => {
       ],
     };
 
-    expect(validateFlowInputBindingConnection(document, {
-      sourceId: "flowinput:symbol:workflow:run:b",
-      slotId: "flowslot:flow:symbol:workflow:run:statement:0:a",
-    })).toEqual({ ok: true });
+    expect(
+      validateFlowInputBindingConnection(document, {
+        sourceId: "flowinput:symbol:workflow:run:b",
+        slotId: "flowslot:flow:symbol:workflow:run:statement:0:a",
+      }),
+    ).toEqual({ ok: true });
 
     const withoutAssignBinding = removeFlowInputBindings(document, [
       "flowbinding:flowslot:flow:symbol:workflow:run:statement:0:a->flowinput:symbol:workflow:run:a",
@@ -437,8 +529,16 @@ describe("flowDocument logical helpers", () => {
       ...baseDocument,
       nodes: [
         { id: "flowdoc:symbol:workflow:run:entry", kind: "entry", payload: {} },
-        { id: "flowdoc:symbol:workflow:run:assign:0", kind: "assign", payload: { source: "current = prepare()" } },
-        { id: "flowdoc:symbol:workflow:run:return:1", kind: "return", payload: { expression: "current" } },
+        {
+          id: "flowdoc:symbol:workflow:run:assign:0",
+          kind: "assign",
+          payload: { source: "current = prepare()" },
+        },
+        {
+          id: "flowdoc:symbol:workflow:run:return:1",
+          kind: "return",
+          payload: { expression: "current" },
+        },
         { id: "flowdoc:symbol:workflow:run:exit", kind: "exit", payload: {} },
       ],
       valueSources: [
@@ -461,10 +561,12 @@ describe("flowDocument logical helpers", () => {
       inputBindings: [],
     };
 
-    expect(validateFlowInputBindingConnection(document, {
-      sourceId,
-      slotId,
-    })).toEqual({ ok: true });
+    expect(
+      validateFlowInputBindingConnection(document, {
+        sourceId,
+        slotId,
+      }),
+    ).toEqual({ ok: true });
 
     const connected = upsertFlowInputBinding(document, { sourceId, slotId });
     expect(connected.inputBindings).toEqual([
@@ -496,12 +598,14 @@ describe("flowDocument logical helpers", () => {
             expression_graph: {
               version: 1,
               rootId: "expr:input:0",
-              nodes: [{
-                id: "expr:input:0",
-                kind: "input",
-                label: "a",
-                payload: { name: "a" },
-              }],
+              nodes: [
+                {
+                  id: "expr:input:0",
+                  kind: "input",
+                  label: "a",
+                  payload: { name: "a" },
+                },
+              ],
               edges: [],
             },
           },
@@ -517,10 +621,12 @@ describe("flowDocument logical helpers", () => {
     };
 
     expect(parseReturnInputTargetHandle(returnInputTargetHandle(returnNodeId))).toBe(returnNodeId);
-    expect(validateFlowReturnInputBindingConnection(document, {
-      sourceId: "flowinput:symbol:workflow:run:c",
-      targetNodeId: returnNodeId,
-    })).toEqual({ ok: true });
+    expect(
+      validateFlowReturnInputBindingConnection(document, {
+        sourceId: "flowinput:symbol:workflow:run:c",
+        targetNodeId: returnNodeId,
+      }),
+    ).toEqual({ ok: true });
 
     const connected = upsertFlowReturnInputBinding(document, {
       sourceId: "flowinput:symbol:workflow:run:c",
@@ -543,7 +649,9 @@ describe("flowDocument logical helpers", () => {
       }),
     ]);
     const returnPayload = connected.nodes.find((node) => node.id === returnNodeId)?.payload;
-    const expressionGraph = returnPayload?.expression_graph as { nodes: Array<{ kind: string; payload: Record<string, unknown> }> };
+    const expressionGraph = returnPayload?.expression_graph as {
+      nodes: Array<{ kind: string; payload: Record<string, unknown> }>;
+    };
     expect(expressionGraph.nodes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -562,8 +670,18 @@ describe("flowDocument logical helpers", () => {
       ...baseDocument,
       symbolId: "symbol:calculator:add",
       nodes: [
-        { id: "flowdoc:symbol:calculator:add:entry", kind: "entry", payload: {}, indexedNodeId: "flow:symbol:calculator:add:entry" },
-        { id: "flowdoc:symbol:calculator:add:return:0", kind: "return", payload: { expression: "a + b" }, indexedNodeId: "flow:symbol:calculator:add:statement:0" },
+        {
+          id: "flowdoc:symbol:calculator:add:entry",
+          kind: "entry",
+          payload: {},
+          indexedNodeId: "flow:symbol:calculator:add:entry",
+        },
+        {
+          id: "flowdoc:symbol:calculator:add:return:0",
+          kind: "return",
+          payload: { expression: "a + b" },
+          indexedNodeId: "flow:symbol:calculator:add:statement:0",
+        },
         { id: "flowdoc:symbol:calculator:add:exit", kind: "exit", payload: {} },
       ],
       functionInputs: [
@@ -571,39 +689,74 @@ describe("flowDocument logical helpers", () => {
         { id: "flowinput:symbol:calculator:add:b", name: "b", index: 1 },
       ],
       inputSlots: [
-        { id: "flowslot:flow:symbol:calculator:add:statement:0:a", nodeId: "flowdoc:symbol:calculator:add:return:0", slotKey: "a", label: "a", required: true },
-        { id: "flowslot:flow:symbol:calculator:add:statement:0:b", nodeId: "flowdoc:symbol:calculator:add:return:0", slotKey: "b", label: "b", required: true },
+        {
+          id: "flowslot:flow:symbol:calculator:add:statement:0:a",
+          nodeId: "flowdoc:symbol:calculator:add:return:0",
+          slotKey: "a",
+          label: "a",
+          required: true,
+        },
+        {
+          id: "flowslot:flow:symbol:calculator:add:statement:0:b",
+          nodeId: "flowdoc:symbol:calculator:add:return:0",
+          slotKey: "b",
+          label: "b",
+          required: true,
+        },
       ],
       inputBindings: [
-        { id: "flowbinding:flowslot:flow:symbol:calculator:add:statement:0:a->flowinput:symbol:calculator:add:a", sourceId: "flowinput:symbol:calculator:add:a", functionInputId: "flowinput:symbol:calculator:add:a", slotId: "flowslot:flow:symbol:calculator:add:statement:0:a" },
-        { id: "flowbinding:flowslot:flow:symbol:calculator:add:statement:0:b->flowinput:symbol:calculator:add:b", sourceId: "flowinput:symbol:calculator:add:b", functionInputId: "flowinput:symbol:calculator:add:b", slotId: "flowslot:flow:symbol:calculator:add:statement:0:b" },
+        {
+          id: "flowbinding:flowslot:flow:symbol:calculator:add:statement:0:a->flowinput:symbol:calculator:add:a",
+          sourceId: "flowinput:symbol:calculator:add:a",
+          functionInputId: "flowinput:symbol:calculator:add:a",
+          slotId: "flowslot:flow:symbol:calculator:add:statement:0:a",
+        },
+        {
+          id: "flowbinding:flowslot:flow:symbol:calculator:add:statement:0:b->flowinput:symbol:calculator:add:b",
+          sourceId: "flowinput:symbol:calculator:add:b",
+          functionInputId: "flowinput:symbol:calculator:add:b",
+          slotId: "flowslot:flow:symbol:calculator:add:statement:0:b",
+        },
       ],
     };
     const currentDraft: FlowGraphDocument = {
       ...base,
       nodes: [
         ...base.nodes,
-        { id: "flowdoc:symbol:calculator:add:assign:draft", kind: "assign", payload: { source: "total = a + b" } },
+        {
+          id: "flowdoc:symbol:calculator:add:assign:draft",
+          kind: "assign",
+          payload: { source: "total = a + b" },
+        },
       ],
     };
     const refreshedSource: FlowGraphDocument = {
       ...base,
-      nodes: base.nodes.map((node) => (
-        node.kind === "return"
-          ? { ...node, payload: { expression: "a + b + c" } }
-          : node
-      )),
+      nodes: base.nodes.map((node) =>
+        node.kind === "return" ? { ...node, payload: { expression: "a + b + c" } } : node,
+      ),
       functionInputs: [
         ...base.functionInputs!,
         { id: "flowinput:symbol:calculator:add:c", name: "c", index: 2 },
       ],
       inputSlots: [
         ...base.inputSlots!,
-        { id: "flowslot:flow:symbol:calculator:add:statement:0:c", nodeId: "flowdoc:symbol:calculator:add:return:0", slotKey: "c", label: "c", required: true },
+        {
+          id: "flowslot:flow:symbol:calculator:add:statement:0:c",
+          nodeId: "flowdoc:symbol:calculator:add:return:0",
+          slotKey: "c",
+          label: "c",
+          required: true,
+        },
       ],
       inputBindings: [
         ...base.inputBindings!,
-        { id: "flowbinding:flowslot:flow:symbol:calculator:add:statement:0:c->flowinput:symbol:calculator:add:c", sourceId: "flowinput:symbol:calculator:add:c", functionInputId: "flowinput:symbol:calculator:add:c", slotId: "flowslot:flow:symbol:calculator:add:statement:0:c" },
+        {
+          id: "flowbinding:flowslot:flow:symbol:calculator:add:statement:0:c->flowinput:symbol:calculator:add:c",
+          sourceId: "flowinput:symbol:calculator:add:c",
+          functionInputId: "flowinput:symbol:calculator:add:c",
+          slotId: "flowslot:flow:symbol:calculator:add:statement:0:c",
+        },
       ],
     };
 
@@ -612,10 +765,15 @@ describe("flowDocument logical helpers", () => {
     expect(merged.nodes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "flowdoc:symbol:calculator:add:assign:draft" }),
-        expect.objectContaining({ id: "flowdoc:symbol:calculator:add:return:0", payload: { expression: "a + b + c" } }),
+        expect.objectContaining({
+          id: "flowdoc:symbol:calculator:add:return:0",
+          payload: { expression: "a + b + c" },
+        }),
       ]),
     );
     expect(merged.functionInputs?.map((input) => input.name)).toEqual(["a", "b", "c"]);
-    expect(merged.inputBindings?.map((binding) => binding.sourceId)).toContain("flowinput:symbol:calculator:add:c");
+    expect(merged.inputBindings?.map((binding) => binding.sourceId)).toContain(
+      "flowinput:symbol:calculator:add:c",
+    );
   });
 });

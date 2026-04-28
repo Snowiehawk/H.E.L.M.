@@ -107,10 +107,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
     };
   }
 
-  subscribeIndexProgress(
-    jobId: string,
-    onUpdate: (state: IndexingJobState) => void,
-  ): () => void {
+  subscribeIndexProgress(jobId: string, onUpdate: (state: IndexingJobState) => void): () => void {
     const frames: IndexingJobState[] = [
       {
         jobId,
@@ -141,7 +138,8 @@ export class MockDesktopAdapter implements DesktopAdapter {
         stage: "watch_ready",
         processedModules: 3,
         totalModules: 3,
-        symbolCount: 5 + this.workspace.uiApiExtraSymbols.length + this.workspace.moduleExtraSymbols.length,
+        symbolCount:
+          5 + this.workspace.uiApiExtraSymbols.length + this.workspace.moduleExtraSymbols.length,
         message: "Workspace ready. Watching for workspace changes.",
         progressPercent: 100,
       },
@@ -201,10 +199,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
     return buildMockWorkspaceFileTree(repoPath, this.workspace);
   }
 
-  async readWorkspaceFile(
-    _repoPath: string,
-    relativePath: string,
-  ): Promise<WorkspaceFileContents> {
+  async readWorkspaceFile(_repoPath: string, relativePath: string): Promise<WorkspaceFileContents> {
     await delay(60);
     return readMockWorkspaceFile(this.workspace, relativePath);
   }
@@ -269,7 +264,9 @@ export class MockDesktopAdapter implements DesktopAdapter {
       throw new Error("Workspace file changed on disk. Reload it before saving again.");
     }
 
-    const extraModule = this.workspace.extraModules.find((module) => module.relativePath === normalized);
+    const extraModule = this.workspace.extraModules.find(
+      (module) => module.relativePath === normalized,
+    );
     if (extraModule) {
       extraModule.content = content;
     } else {
@@ -307,8 +304,8 @@ export class MockDesktopAdapter implements DesktopAdapter {
       throw new Error(`Workspace path does not exist: ${sourceRelativePath}`);
     }
     if (
-      targetDirectoryRelativePath
-      && !mockWorkspaceDirectoryExists(this.workspace, targetDirectoryRelativePath)
+      targetDirectoryRelativePath &&
+      !mockWorkspaceDirectoryExists(this.workspace, targetDirectoryRelativePath)
     ) {
       throw new Error(`Workspace folder does not exist: ${targetDirectoryRelativePath}`);
     }
@@ -316,11 +313,9 @@ export class MockDesktopAdapter implements DesktopAdapter {
       throw new Error(`Workspace path already exists: ${targetRelativePath}`);
     }
     if (
-      mockWorkspaceDirectoryExists(this.workspace, sourceRelativePath)
-      && (
-        targetDirectoryRelativePath === sourceRelativePath
-        || targetDirectoryRelativePath.startsWith(`${sourceRelativePath}/`)
-      )
+      mockWorkspaceDirectoryExists(this.workspace, sourceRelativePath) &&
+      (targetDirectoryRelativePath === sourceRelativePath ||
+        targetDirectoryRelativePath.startsWith(`${sourceRelativePath}/`))
     ) {
       throw new Error("Cannot move a folder into itself or one of its descendants.");
     }
@@ -406,12 +401,14 @@ export class MockDesktopAdapter implements DesktopAdapter {
       graph: {
         version: 1,
         rootId: "expr:raw:0",
-        nodes: [{
-          id: "expr:raw:0",
-          kind: "raw",
-          label: normalized,
-          payload: { expression: normalized },
-        }],
+        nodes: [
+          {
+            id: "expr:raw:0",
+            kind: "raw",
+            label: normalized,
+            payload: { expression: normalized },
+          },
+        ],
         edges: [],
       },
       diagnostics: [],
@@ -443,9 +440,10 @@ export class MockDesktopAdapter implements DesktopAdapter {
       }
     }
 
-    const entry = redoIndex >= 0
-      ? this.backendRedoHistory.splice(redoIndex, 1)[0]
-      : this.backendUndoHistory.pop();
+    const entry =
+      redoIndex >= 0
+        ? this.backendRedoHistory.splice(redoIndex, 1)[0]
+        : this.backendUndoHistory.pop();
     if (!entry) {
       throw new Error("No backend undo history is available in the mock adapter.");
     }
@@ -566,8 +564,10 @@ function mockWorkspacePathExists(state: MockWorkspaceState, relativePath: string
   if (buildFiles(state)[relativePath]) {
     return true;
   }
-  return Object.keys(buildFiles(state)).some((filePath) => filePath.startsWith(`${relativePath}/`))
-    || Object.keys(state.workspaceFiles).some((filePath) => filePath.startsWith(`${relativePath}/`));
+  return (
+    Object.keys(buildFiles(state)).some((filePath) => filePath.startsWith(`${relativePath}/`)) ||
+    Object.keys(state.workspaceFiles).some((filePath) => filePath.startsWith(`${relativePath}/`))
+  );
 }
 
 function mockWorkspaceDirectoryExists(state: MockWorkspaceState, relativePath: string) {
@@ -577,8 +577,10 @@ function mockWorkspaceDirectoryExists(state: MockWorkspaceState, relativePath: s
   if (state.workspaceFiles[relativePath]?.kind === "directory") {
     return true;
   }
-  return Object.keys(buildFiles(state)).some((filePath) => filePath.startsWith(`${relativePath}/`))
-    || Object.keys(state.workspaceFiles).some((filePath) => filePath.startsWith(`${relativePath}/`));
+  return (
+    Object.keys(buildFiles(state)).some((filePath) => filePath.startsWith(`${relativePath}/`)) ||
+    Object.keys(state.workspaceFiles).some((filePath) => filePath.startsWith(`${relativePath}/`))
+  );
 }
 
 function moveMockWorkspacePath(
@@ -587,30 +589,33 @@ function moveMockWorkspacePath(
   targetRelativePath: string,
 ) {
   let moved = false;
-  const workspaceMoves = Object.entries(state.workspaceFiles)
-    .filter(([relativePath]) => (
-      relativePath === sourceRelativePath || relativePath.startsWith(`${sourceRelativePath}/`)
-    ));
+  const workspaceMoves = Object.entries(state.workspaceFiles).filter(
+    ([relativePath]) =>
+      relativePath === sourceRelativePath || relativePath.startsWith(`${sourceRelativePath}/`),
+  );
 
   workspaceMoves.forEach(([relativePath]) => {
     delete state.workspaceFiles[relativePath];
   });
   workspaceMoves.forEach(([relativePath, entry]) => {
-    const suffix = relativePath === sourceRelativePath
-      ? ""
-      : relativePath.slice(sourceRelativePath.length);
+    const suffix =
+      relativePath === sourceRelativePath ? "" : relativePath.slice(sourceRelativePath.length);
     state.workspaceFiles[`${targetRelativePath}${suffix}`] = { ...entry };
     moved = true;
   });
 
   state.extraModules.forEach((module) => {
-    if (module.relativePath !== sourceRelativePath && !module.relativePath.startsWith(`${sourceRelativePath}/`)) {
+    if (
+      module.relativePath !== sourceRelativePath &&
+      !module.relativePath.startsWith(`${sourceRelativePath}/`)
+    ) {
       return;
     }
 
-    const suffix = module.relativePath === sourceRelativePath
-      ? ""
-      : module.relativePath.slice(sourceRelativePath.length);
+    const suffix =
+      module.relativePath === sourceRelativePath
+        ? ""
+        : module.relativePath.slice(sourceRelativePath.length);
     module.relativePath = `${targetRelativePath}${suffix}`;
     module.moduleName = moduleNameFromMockRelativePath(module.relativePath);
     moved = true;
@@ -634,17 +639,13 @@ function mockWorkspaceMoveResult(
   return {
     relativePath: targetRelativePath,
     kind,
-    changedRelativePaths: sourceRelativePath === targetRelativePath
-      ? []
-      : [sourceRelativePath, targetRelativePath],
+    changedRelativePaths:
+      sourceRelativePath === targetRelativePath ? [] : [sourceRelativePath, targetRelativePath],
     file: kind === "file" ? readMockWorkspaceFile(state, targetRelativePath) : null,
   };
 }
 
-function deleteMockWorkspacePath(
-  state: MockWorkspaceState,
-  relativePath: string,
-) {
+function deleteMockWorkspacePath(state: MockWorkspaceState, relativePath: string) {
   const changedRelativePaths = new Set<string>([relativePath]);
   let deleted = false;
 
@@ -658,7 +659,10 @@ function deleteMockWorkspacePath(
   });
 
   const nextExtraModules = state.extraModules.filter((module) => {
-    if (module.relativePath !== relativePath && !module.relativePath.startsWith(`${relativePath}/`)) {
+    if (
+      module.relativePath !== relativePath &&
+      !module.relativePath.startsWith(`${relativePath}/`)
+    ) {
       return true;
     }
     changedRelativePaths.add(module.relativePath);
@@ -683,9 +687,10 @@ function readMockWorkspaceFile(
   if (workspaceEntry?.kind === "directory") {
     throw new Error(`Workspace path is not a file: ${normalized}`);
   }
-  const content = workspaceEntry?.kind === "file"
-    ? workspaceEntry.content ?? ""
-    : buildFiles(state)[normalized]?.content;
+  const content =
+    workspaceEntry?.kind === "file"
+      ? (workspaceEntry.content ?? "")
+      : buildFiles(state)[normalized]?.content;
   if (content === undefined) {
     throw new Error(`Unknown workspace file requested: ${normalized}`);
   }
@@ -768,10 +773,7 @@ function cloneBackendUndoTransaction(transaction: BackendUndoTransaction): Backe
   return JSON.parse(JSON.stringify(transaction)) as BackendUndoTransaction;
 }
 
-function backendUndoTransactionsEqual(
-  left: BackendUndoTransaction,
-  right: BackendUndoTransaction,
-) {
+function backendUndoTransactionsEqual(left: BackendUndoTransaction, right: BackendUndoTransaction) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
@@ -800,10 +802,10 @@ function inferMockUndoFocusTarget(
   }
 
   if (
-    result.request.kind === "create_symbol"
-    || result.request.kind === "add_import"
-    || result.request.kind === "remove_import"
-    || result.request.kind === "replace_module_source"
+    result.request.kind === "create_symbol" ||
+    result.request.kind === "add_import" ||
+    result.request.kind === "remove_import" ||
+    result.request.kind === "replace_module_source"
   ) {
     const relativePath = result.request.relative_path ?? result.touchedRelativePaths[0];
     const moduleName = relativePath ? mockModuleNameForFocusPath(relativePath) : "helm.ui.api";
@@ -814,8 +816,8 @@ function inferMockUndoFocusTarget(
   }
 
   if (
-    result.request.kind === "insert_flow_statement"
-    || result.request.kind === "replace_flow_graph"
+    result.request.kind === "insert_flow_statement" ||
+    result.request.kind === "replace_flow_graph"
   ) {
     return result.request.target_id
       ? {
@@ -852,14 +854,12 @@ function filterGraphView(
   settings: GraphSettings,
 ): GraphView {
   const externalNodeIds = new Set(
-    graph.nodes
-      .filter((node) => node.metadata.isExternal === true)
-      .map((node) => node.id),
+    graph.nodes.filter((node) => node.metadata.isExternal === true).map((node) => node.id),
   );
   const edges = graph.edges.filter((edge) => {
     if (
-      !settings.includeExternalDependencies
-      && (externalNodeIds.has(edge.source) || externalNodeIds.has(edge.target))
+      !settings.includeExternalDependencies &&
+      (externalNodeIds.has(edge.source) || externalNodeIds.has(edge.target))
     ) {
       return false;
     }
@@ -886,8 +886,8 @@ function filterGraphView(
     edges,
     nodes: graph.nodes.filter(
       (node) =>
-        connectedNodeIds.has(node.id)
-        && (settings.includeExternalDependencies || node.metadata.isExternal !== true),
+        connectedNodeIds.has(node.id) &&
+        (settings.includeExternalDependencies || node.metadata.isExternal !== true),
     ),
   };
 }

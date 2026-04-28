@@ -189,9 +189,10 @@ export const BlueprintEdge = memo(function BlueprintEdge({
   };
 
   const labelText = typeof label === "string" ? label : undefined;
-  const labelCount = typeof edgeData?.labelCount === "number" && edgeData.labelCount > 1
-    ? edgeData.labelCount
-    : undefined;
+  const labelCount =
+    typeof edgeData?.labelCount === "number" && edgeData.labelCount > 1
+      ? edgeData.labelCount
+      : undefined;
   const edgeOpacity = typeof style?.opacity === "number" ? style.opacity : 1;
   const styles = labelText
     ? labelStyles(

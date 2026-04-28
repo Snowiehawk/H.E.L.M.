@@ -101,10 +101,7 @@ function setStoredGraphLayoutSnapshot(
   storedGraphLayoutSnapshots.set(snapshotKey, cloneStoredGraphLayout(layout));
 }
 
-export function graphLayoutNodeKey(
-  nodeId: string,
-  kind?: GraphNodeKind,
-): string {
+export function graphLayoutNodeKey(nodeId: string, kind?: GraphNodeKind): string {
   return kind === "repo" || nodeId.startsWith("repo:") ? "repo-root" : nodeId;
 }
 
@@ -147,11 +144,11 @@ function normalizeReroute(value: unknown): StoredGraphReroute | null {
   const y = Reflect.get(value, "y");
 
   if (
-    typeof id !== "string"
-    || typeof edgeId !== "string"
-    || typeof order !== "number"
-    || typeof x !== "number"
-    || typeof y !== "number"
+    typeof id !== "string" ||
+    typeof edgeId !== "string" ||
+    typeof order !== "number" ||
+    typeof x !== "number" ||
+    typeof y !== "number"
   ) {
     return null;
   }
@@ -176,10 +173,10 @@ function normalizeLayout(value: unknown): StoredGraphLayout {
   const maybeGroups = Reflect.get(value, "groups");
 
   if (
-    maybeNodes !== undefined
-    || maybeReroutes !== undefined
-    || maybePinnedNodeIds !== undefined
-    || maybeGroups !== undefined
+    maybeNodes !== undefined ||
+    maybeReroutes !== undefined ||
+    maybePinnedNodeIds !== undefined ||
+    maybeGroups !== undefined
   ) {
     return {
       nodes: normalizeNodeLayout(maybeNodes),
@@ -203,18 +200,22 @@ function normalizeLayout(value: unknown): StoredGraphLayout {
             const memberNodeIds = Reflect.get(item, "memberNodeIds");
 
             if (
-              typeof id !== "string"
-              || typeof title !== "string"
-              || !Array.isArray(memberNodeIds)
+              typeof id !== "string" ||
+              typeof title !== "string" ||
+              !Array.isArray(memberNodeIds)
             ) {
               return [];
             }
 
-            return [{
-              id,
-              title,
-              memberNodeIds: memberNodeIds.filter((memberId): memberId is string => typeof memberId === "string"),
-            } satisfies StoredGraphGroup];
+            return [
+              {
+                id,
+                title,
+                memberNodeIds: memberNodeIds.filter(
+                  (memberId): memberId is string => typeof memberId === "string",
+                ),
+              } satisfies StoredGraphGroup,
+            ];
           })
         : [],
     };
@@ -258,10 +259,12 @@ export async function readStoredGraphLayout(
   }
 
   try {
-    const layout = normalizeLayout(await invoke<unknown>("read_repo_graph_layout", {
-      repoPath,
-      viewKey,
-    }));
+    const layout = normalizeLayout(
+      await invoke<unknown>("read_repo_graph_layout", {
+        repoPath,
+        viewKey,
+      }),
+    );
     setStoredGraphLayoutSnapshot(repoPath, viewKey, layout);
     return cloneStoredGraphLayout(layout);
   } catch {

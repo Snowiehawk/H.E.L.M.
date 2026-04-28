@@ -36,11 +36,7 @@ function uiScaleStorage(): Pick<Storage, "getItem" | "setItem"> | null {
   }
 
   const storage = window.localStorage;
-  if (
-    !storage
-    || typeof storage.getItem !== "function"
-    || typeof storage.setItem !== "function"
-  ) {
+  if (!storage || typeof storage.getItem !== "function" || typeof storage.setItem !== "function") {
     return null;
   }
 
@@ -243,10 +239,9 @@ export const useUiStore = create<UiState>((set) => ({
       activeNodeId: nodeId ?? state.activeNodeId ?? state.activeSymbolId,
       graphTargetId: nodeId ?? state.graphTargetId ?? state.activeNodeId ?? state.activeSymbolId,
       activeLevel: level ?? state.activeLevel,
-      activeSymbolId:
-        (nodeId ?? state.activeNodeId)?.startsWith("symbol:")
-          ? (nodeId ?? state.activeNodeId)
-          : state.activeSymbolId,
+      activeSymbolId: (nodeId ?? state.activeNodeId)?.startsWith("symbol:")
+        ? (nodeId ?? state.activeNodeId)
+        : state.activeSymbolId,
       activeTab: "graph",
       revealedSource: undefined,
     })),
@@ -286,18 +281,15 @@ export const useUiStore = create<UiState>((set) => ({
   selectNode: (activeNodeId) =>
     set((state) => ({
       activeNodeId,
-      activeSymbolId:
-        activeNodeId?.startsWith("symbol:")
-          ? activeNodeId
-          : activeNodeId === undefined
-            ? undefined
-            : state.activeSymbolId,
+      activeSymbolId: activeNodeId?.startsWith("symbol:")
+        ? activeNodeId
+        : activeNodeId === undefined
+          ? undefined
+          : state.activeSymbolId,
       activeTab: state.activeTab,
     })),
-  expandGraphDepth: () =>
-    set((state) => ({ graphDepth: Math.min(state.graphDepth + 1, 4) })),
-  reduceGraphDepth: () =>
-    set((state) => ({ graphDepth: Math.max(state.graphDepth - 1, 1) })),
+  expandGraphDepth: () => set((state) => ({ graphDepth: Math.min(state.graphDepth + 1, 4) })),
+  reduceGraphDepth: () => set((state) => ({ graphDepth: Math.max(state.graphDepth - 1, 1) })),
   toggleGraphFilter: (key) =>
     set((state) => ({
       graphFilters: {
@@ -318,8 +310,7 @@ export const useUiStore = create<UiState>((set) => ({
   },
   toggleGraphPathHighlight: () =>
     set((state) => ({ highlightGraphPath: !state.highlightGraphPath })),
-  toggleEdgeLabels: () =>
-    set((state) => ({ showEdgeLabels: !state.showEdgeLabels })),
+  toggleEdgeLabels: () => set((state) => ({ showEdgeLabels: !state.showEdgeLabels })),
   setRevealedSource: (revealedSource) => set({ revealedSource }),
   setLastEdit: (lastEdit) =>
     set({

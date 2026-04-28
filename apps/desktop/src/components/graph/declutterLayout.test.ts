@@ -7,10 +7,10 @@ function boxesOverlap(
   right: { x: number; y: number; width: number; height: number },
 ) {
   return !(
-    left.x + left.width <= right.x
-    || right.x + right.width <= left.x
-    || left.y + left.height <= right.y
-    || right.y + right.height <= left.y
+    left.x + left.width <= right.x ||
+    right.x + right.width <= left.x ||
+    left.y + left.height <= right.y ||
+    right.y + right.height <= left.y
   );
 }
 

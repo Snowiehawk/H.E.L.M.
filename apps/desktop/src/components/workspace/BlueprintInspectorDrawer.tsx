@@ -7,10 +7,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import { StatusPill } from "../shared/StatusPill";
-import {
-  helpTargetProps,
-  type HelpDescriptorId,
-} from "./workspaceHelp";
+import { helpTargetProps, type HelpDescriptorId } from "./workspaceHelp";
 
 export type BlueprintInspectorDrawerMode = "collapsed" | "expanded";
 export type BlueprintInspectorDrawerTone = "default" | "accent" | "warning";
@@ -115,7 +112,8 @@ export function BlueprintInspectorDrawer({
   }, [containerSize.width]);
 
   const clampedHeight = useMemo(
-    () => clampBlueprintInspectorDrawerHeight(drawerHeight, containerSize.height || 640, narrowLayout),
+    () =>
+      clampBlueprintInspectorDrawerHeight(drawerHeight, containerSize.height || 640, narrowLayout),
     [containerSize.height, drawerHeight, narrowLayout],
   );
 
@@ -274,7 +272,9 @@ export function BlueprintInspectorDrawer({
         </div>
       )}
 
-      {actionError ? <p className="error-copy blueprint-inspector-drawer__error">{actionError}</p> : null}
+      {actionError ? (
+        <p className="error-copy blueprint-inspector-drawer__error">{actionError}</p>
+      ) : null}
 
       <div
         className={`blueprint-inspector-drawer__body${mode === "collapsed" ? " blueprint-inspector-drawer__body--hidden" : ""}`}

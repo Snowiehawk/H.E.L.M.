@@ -798,7 +798,7 @@ fn matches_ignored_watch_dir(component: Component<'_>) -> bool {
     let Some(value) = name.to_str() else {
         return false;
     };
-    IGNORED_WATCH_DIRS.iter().any(|ignored| value == *ignored)
+    IGNORED_WATCH_DIRS.contains(&value)
 }
 
 fn normalize_path(path: &Path) -> String {

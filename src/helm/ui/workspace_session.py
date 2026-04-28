@@ -198,11 +198,7 @@ class WorkspaceSession:
             source_relative_path=source_relative_path,
             target_directory_relative_path=target_directory_relative_path,
         )
-        python_paths = [
-            path
-            for path in result["changed_relative_paths"]
-            if path.endswith(".py")
-        ]
+        python_paths = [path for path in result["changed_relative_paths"] if path.endswith(".py")]
         if python_paths:
             refresh = self.refresh_paths(
                 python_paths,
@@ -223,11 +219,7 @@ class WorkspaceSession:
             self.root_path,
             relative_path=relative_path,
         )
-        python_paths = [
-            path
-            for path in result["changed_relative_paths"]
-            if path.endswith(".py")
-        ]
+        python_paths = [path for path in result["changed_relative_paths"] if path.endswith(".py")]
         if python_paths:
             refresh = self.refresh_paths(
                 python_paths,
@@ -303,7 +295,8 @@ class WorkspaceSession:
         modules_to_parse_total = sum(
             1
             for module in refreshed_inventory.modules
-            if module.relative_path in modules_to_reparse or previous_by_relative.get(module.relative_path) is None
+            if module.relative_path in modules_to_reparse
+            or previous_by_relative.get(module.relative_path) is None
         )
         if modules_to_parse_total == 0:
             emit_progress(
@@ -351,11 +344,7 @@ class WorkspaceSession:
         self.adapter.graph = build_repo_graph(self.root_path, self.adapter.parsed_modules)
 
         changed_paths = tuple(
-            sorted(
-                set(normalized_paths)
-                | added_relative_paths
-                | removed_relative_paths
-            )
+            sorted(set(normalized_paths) | added_relative_paths | removed_relative_paths)
         )
         if changed_paths or reparsed_relative_paths:
             self.session_version += 1

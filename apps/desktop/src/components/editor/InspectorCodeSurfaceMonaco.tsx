@@ -5,11 +5,7 @@ import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { useUiStore } from "../../store/uiStore";
 import { useUndoStore } from "../../store/undoStore";
 import type { InspectorCodeSurfaceProps } from "./InspectorCodeSurface";
-import {
-  ensureHelmMonacoThemes,
-  ensureMonacoSetup,
-  type MonacoEditorOptions,
-} from "./monacoSetup";
+import { ensureHelmMonacoThemes, ensureMonacoSetup, type MonacoEditorOptions } from "./monacoSetup";
 import { normalizeHighlightRange } from "./inspectorCodeRange";
 
 ensureMonacoSetup();
@@ -69,7 +65,7 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
         horizontalScrollbarSize: 8,
         verticalScrollbarSize: 8,
       },
-      fontFamily: "\"SF Mono\", \"JetBrains Mono\", \"Fira Code\", monospace",
+      fontFamily: '"SF Mono", "JetBrains Mono", "Fira Code", monospace',
       fontSize: 12.5,
       lineHeight: 20,
       tabSize: 2,
@@ -78,17 +74,17 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
       domReadOnly: readOnly,
     };
   }, [readOnly, startLine]);
-  const handleMount = useCallback((
-    editorInstance: MonacoEditor.IStandaloneCodeEditor,
-    monacoInstance: Monaco,
-  ) => {
-    editorRef.current = editorInstance;
-    monacoRef.current = monacoInstance;
-    const model = editorInstance.getModel();
-    if (model) {
-      monacoInstance.editor.setModelLanguage(model, language);
-    }
-  }, [language]);
+  const handleMount = useCallback(
+    (editorInstance: MonacoEditor.IStandaloneCodeEditor, monacoInstance: Monaco) => {
+      editorRef.current = editorInstance;
+      monacoRef.current = monacoInstance;
+      const model = editorInstance.getModel();
+      if (model) {
+        monacoInstance.editor.setModelLanguage(model, language);
+      }
+    },
+    [language],
+  );
 
   useEffect(() => {
     const model = editorRef.current?.getModel();
@@ -119,8 +115,7 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
             options: {
               className: "inspector-code-surface__range-highlight",
               inlineClassName: "inspector-code-surface__range-highlight-inline",
-              stickiness:
-                monacoInstance.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+              stickiness: monacoInstance.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
             },
           },
         ]
@@ -136,13 +131,16 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
     }
   }, [highlightRange, startColumn, startLine, value]);
 
-  useEffect(() => () => {
-    const editorInstance = editorRef.current;
-    if (!editorInstance || decorationIdsRef.current.length === 0) {
-      return;
-    }
-    decorationIdsRef.current = editorInstance.deltaDecorations(decorationIdsRef.current, []);
-  }, []);
+  useEffect(
+    () => () => {
+      const editorInstance = editorRef.current;
+      if (!editorInstance || decorationIdsRef.current.length === 0) {
+        return;
+      }
+      decorationIdsRef.current = editorInstance.deltaDecorations(decorationIdsRef.current, []);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (readOnly) {
@@ -232,8 +230,8 @@ function useResolvedMonacoTheme() {
   }
 
   const prefersDark =
-    typeof window.matchMedia === "function"
-    && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches;
   return prefersDark ? "helm-dark" : "helm-light";
 }
 

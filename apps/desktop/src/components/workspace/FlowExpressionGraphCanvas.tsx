@@ -119,10 +119,7 @@ function FlowExpressionConnectionLine({
         : "is-pending";
 
   return (
-    <g
-      className={`graph-connection-line ${statusClass}`}
-      data-testid="graph-connection-line"
-    >
+    <g className={`graph-connection-line ${statusClass}`} data-testid="graph-connection-line">
       <path className="graph-connection-line__halo" d={edgePath} />
       <path className="graph-connection-line__path" d={edgePath} />
       <circle className="graph-connection-line__cursor" cx={toX} cy={toY} r={5.5} />
@@ -143,7 +140,9 @@ function ExpressionNodeView({ data, selected }: NodeProps<ExpressionCanvasNode>)
         data.isRoot ? "is-root" : "",
         selected ? "is-selected" : "",
         data.targetHandles.length ? "has-targets" : "",
-      ].filter(Boolean).join(" ")}
+      ]
+        .filter(Boolean)
+        .join(" ")}
       data-testid={`flow-expression-node-${node.id}`}
       title={label}
       style={{ minHeight }}
@@ -233,8 +232,9 @@ function targetHandleForConnection(
     return undefined;
   }
   const incomingByTarget = expressionGraphIncomingByTarget(graph);
-  return targetHandlesForExpressionNode(target, incomingByTarget.get(target.id) ?? [])
-    .find((handle) => handle.id === connection.targetHandle);
+  return targetHandlesForExpressionNode(target, incomingByTarget.get(target.id) ?? []).find(
+    (handle) => handle.id === connection.targetHandle,
+  );
 }
 
 function selectedNodeTargetHandles(
@@ -249,11 +249,13 @@ function selectedNodeTargetHandles(
 }
 
 function isEditableEventTarget(target: EventTarget | null) {
-  return target instanceof HTMLInputElement
-    || target instanceof HTMLTextAreaElement
-    || target instanceof HTMLSelectElement
-    || target instanceof HTMLButtonElement
-    || (target instanceof HTMLElement && target.isContentEditable);
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target instanceof HTMLButtonElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
 }
 
 export function FlowExpressionGraphCanvas({
@@ -271,10 +273,7 @@ export function FlowExpressionGraphCanvas({
   onSelectExpressionNode,
 }: FlowExpressionGraphCanvasProps) {
   const panelRef = useRef<HTMLElement>(null);
-  const normalizedGraph = useMemo(
-    () => normalizeExpressionGraphOrEmpty(graph),
-    [graph],
-  );
+  const normalizedGraph = useMemo(() => normalizeExpressionGraphOrEmpty(graph), [graph]);
   const panModeActive = useKeyPress("Space");
   const [pointerInsidePanel, setPointerInsidePanel] = useState(false);
   const [panPointerDragging, setPanPointerDragging] = useState(false);
@@ -310,11 +309,11 @@ export function FlowExpressionGraphCanvas({
   }, [normalizedGraph, selectedEdgeId]);
 
   useEffect(() => {
-    setNewInputSlotId((current) => (
+    setNewInputSlotId((current) =>
       current && inputSlots.some((slot) => slot.id === current)
         ? current
-        : inputSlots[0]?.id ?? ""
-    ));
+        : (inputSlots[0]?.id ?? ""),
+    );
   }, [inputSlots]);
 
   useEffect(() => {
@@ -333,7 +332,10 @@ export function FlowExpressionGraphCanvas({
 
     const showPanCursor = panModeActive && (pointerInsidePanel || panPointerDragging);
     document.body.classList.toggle("graph-pan-cursor-active", showPanCursor && !panPointerDragging);
-    document.body.classList.toggle("graph-pan-cursor-dragging", showPanCursor && panPointerDragging);
+    document.body.classList.toggle(
+      "graph-pan-cursor-dragging",
+      showPanCursor && panPointerDragging,
+    );
 
     return () => {
       document.body.classList.remove("graph-pan-cursor-active");
@@ -341,127 +343,164 @@ export function FlowExpressionGraphCanvas({
     };
   }, [panModeActive, panPointerDragging, pointerInsidePanel]);
 
-  const commitGraph = useCallback((
-    nextGraph: FlowExpressionGraph,
-    options?: FlowExpressionGraphCanvasChangeOptions,
-  ) => {
-    const normalized = normalizeFlowExpressionGraph(nextGraph) ?? EMPTY_EXPRESSION_GRAPH;
-    onGraphChange(normalized, options);
-  }, [onGraphChange]);
+  const commitGraph = useCallback(
+    (nextGraph: FlowExpressionGraph, options?: FlowExpressionGraphCanvasChangeOptions) => {
+      const normalized = normalizeFlowExpressionGraph(nextGraph) ?? EMPTY_EXPRESSION_GRAPH;
+      onGraphChange(normalized, options);
+    },
+    [onGraphChange],
+  );
 
-  const addExpressionNode = useCallback((kind: FlowExpressionNodeKind) => {
-    const inputSlot = kind === "input"
-      ? inputSlots.find((slot) => slot.id === newInputSlotId) ?? inputSlots[0]
-      : undefined;
-    const node = defaultExpressionNode(normalizedGraph, kind, inputSlot);
-    const selectedCanvasNode = selectedExpressionNodeId
-      ? nodes.find((candidate) => candidate.id === selectedExpressionNodeId)
-      : undefined;
-    const positionedGraph = withExpressionNodePosition(
-      {
-        ...normalizedGraph,
-        rootId: normalizedGraph.rootId ?? node.id,
-        nodes: [...normalizedGraph.nodes, node],
-      },
-      node.id,
-      {
-        x: Math.max(24, (selectedCanvasNode?.position.x ?? 24) + (selectedCanvasNode ? 154 : 0)),
-        y: Math.max(24, selectedCanvasNode?.position.y ?? 24 + normalizedGraph.nodes.length * 78),
-      },
-    );
-    setSelectedEdgeId(undefined);
-    commitGraph(positionedGraph, { selectedExpressionNodeId: node.id });
-    onSelectExpressionNode(node.id);
-  }, [
-    commitGraph,
-    inputSlots,
-    newInputSlotId,
-    nodes,
-    normalizedGraph,
-    onSelectExpressionNode,
-    selectedExpressionNodeId,
-  ]);
-
-  const updateExpressionNode = useCallback((
-    nodeId: string,
-    update: (node: FlowExpressionNode) => FlowExpressionNode,
-  ) => {
-    commitGraph({
-      ...normalizedGraph,
-      nodes: normalizedGraph.nodes.map((node) => (node.id === nodeId ? update(node) : node)),
-    }, { selectedExpressionNodeId: nodeId });
-  }, [commitGraph, normalizedGraph]);
-
-  const deleteExpressionNode = useCallback((nodeId: string) => {
-    const nextNodes = normalizedGraph.nodes.filter((node) => node.id !== nodeId);
-    const nextGraph = withoutExpressionNodePosition({
-      ...normalizedGraph,
-      rootId: normalizedGraph.rootId === nodeId ? nextNodes[0]?.id ?? null : normalizedGraph.rootId,
-      nodes: nextNodes,
-      edges: normalizedGraph.edges.filter((edge) => edge.sourceId !== nodeId && edge.targetId !== nodeId),
-    }, nodeId);
-    setSelectedEdgeId(undefined);
-    commitGraph(nextGraph, { selectedExpressionNodeId: nextGraph.rootId ?? nextGraph.nodes[0]?.id });
-  }, [commitGraph, normalizedGraph]);
-
-  const deleteExpressionEdges = useCallback((edgeIds: string[]) => {
-    if (!edgeIds.length) {
-      return;
-    }
-    const edgeIdSet = new Set(edgeIds);
-    commitGraph({
-      ...normalizedGraph,
-      edges: normalizedGraph.edges.filter((edge) => !edgeIdSet.has(edge.id)),
-    }, { selectedExpressionNodeId });
-    setSelectedEdgeId(undefined);
-  }, [commitGraph, normalizedGraph, selectedExpressionNodeId]);
-
-  const setExpressionRoot = useCallback((nodeId: string) => {
-    commitGraph({ ...normalizedGraph, rootId: nodeId }, { selectedExpressionNodeId: nodeId });
-    onSelectExpressionNode(nodeId);
-  }, [commitGraph, normalizedGraph, onSelectExpressionNode]);
-
-  const connectExpressionNodes = useCallback((connection: Connection) => {
-    if (!connection.source || !connection.target || connection.source === connection.target) {
-      return;
-    }
-    const targetHandle = targetHandleForConnection(normalizedGraph, connection);
-    if (!targetHandle) {
-      return;
-    }
-    const nextGraph = connectExpressionGraphNodes(
+  const addExpressionNode = useCallback(
+    (kind: FlowExpressionNodeKind) => {
+      const inputSlot =
+        kind === "input"
+          ? (inputSlots.find((slot) => slot.id === newInputSlotId) ?? inputSlots[0])
+          : undefined;
+      const node = defaultExpressionNode(normalizedGraph, kind, inputSlot);
+      const selectedCanvasNode = selectedExpressionNodeId
+        ? nodes.find((candidate) => candidate.id === selectedExpressionNodeId)
+        : undefined;
+      const positionedGraph = withExpressionNodePosition(
+        {
+          ...normalizedGraph,
+          rootId: normalizedGraph.rootId ?? node.id,
+          nodes: [...normalizedGraph.nodes, node],
+        },
+        node.id,
+        {
+          x: Math.max(24, (selectedCanvasNode?.position.x ?? 24) + (selectedCanvasNode ? 154 : 0)),
+          y: Math.max(24, selectedCanvasNode?.position.y ?? 24 + normalizedGraph.nodes.length * 78),
+        },
+      );
+      setSelectedEdgeId(undefined);
+      commitGraph(positionedGraph, { selectedExpressionNodeId: node.id });
+      onSelectExpressionNode(node.id);
+    },
+    [
+      commitGraph,
+      inputSlots,
+      newInputSlotId,
+      nodes,
       normalizedGraph,
-      connection.source,
-      connection.target,
-      targetHandle,
-    );
-    setSelectedEdgeId(undefined);
-    commitGraph(nextGraph, { selectedExpressionNodeId: connection.target });
-    onSelectExpressionNode(connection.target);
-  }, [commitGraph, normalizedGraph, onSelectExpressionNode]);
+      onSelectExpressionNode,
+      selectedExpressionNodeId,
+    ],
+  );
 
-  const handleReconnect = useCallback((oldEdge: Edge, newConnection: Connection) => {
-    if (!newConnection.source || !newConnection.target || newConnection.source === newConnection.target) {
-      return;
-    }
-    const graphWithoutOldEdge = {
-      ...normalizedGraph,
-      edges: normalizedGraph.edges.filter((edge) => edge.id !== oldEdge.id),
-    };
-    const targetHandle = targetHandleForConnection(graphWithoutOldEdge, newConnection);
-    if (!targetHandle) {
-      return;
-    }
-    const nextGraph = connectExpressionGraphNodes(
-      graphWithoutOldEdge,
-      newConnection.source,
-      newConnection.target,
-      targetHandle,
-    );
-    setSelectedEdgeId(undefined);
-    commitGraph(nextGraph, { selectedExpressionNodeId: newConnection.target });
-    onSelectExpressionNode(newConnection.target);
-  }, [commitGraph, normalizedGraph, onSelectExpressionNode]);
+  const updateExpressionNode = useCallback(
+    (nodeId: string, update: (node: FlowExpressionNode) => FlowExpressionNode) => {
+      commitGraph(
+        {
+          ...normalizedGraph,
+          nodes: normalizedGraph.nodes.map((node) => (node.id === nodeId ? update(node) : node)),
+        },
+        { selectedExpressionNodeId: nodeId },
+      );
+    },
+    [commitGraph, normalizedGraph],
+  );
+
+  const deleteExpressionNode = useCallback(
+    (nodeId: string) => {
+      const nextNodes = normalizedGraph.nodes.filter((node) => node.id !== nodeId);
+      const nextGraph = withoutExpressionNodePosition(
+        {
+          ...normalizedGraph,
+          rootId:
+            normalizedGraph.rootId === nodeId ? (nextNodes[0]?.id ?? null) : normalizedGraph.rootId,
+          nodes: nextNodes,
+          edges: normalizedGraph.edges.filter(
+            (edge) => edge.sourceId !== nodeId && edge.targetId !== nodeId,
+          ),
+        },
+        nodeId,
+      );
+      setSelectedEdgeId(undefined);
+      commitGraph(nextGraph, {
+        selectedExpressionNodeId: nextGraph.rootId ?? nextGraph.nodes[0]?.id,
+      });
+    },
+    [commitGraph, normalizedGraph],
+  );
+
+  const deleteExpressionEdges = useCallback(
+    (edgeIds: string[]) => {
+      if (!edgeIds.length) {
+        return;
+      }
+      const edgeIdSet = new Set(edgeIds);
+      commitGraph(
+        {
+          ...normalizedGraph,
+          edges: normalizedGraph.edges.filter((edge) => !edgeIdSet.has(edge.id)),
+        },
+        { selectedExpressionNodeId },
+      );
+      setSelectedEdgeId(undefined);
+    },
+    [commitGraph, normalizedGraph, selectedExpressionNodeId],
+  );
+
+  const setExpressionRoot = useCallback(
+    (nodeId: string) => {
+      commitGraph({ ...normalizedGraph, rootId: nodeId }, { selectedExpressionNodeId: nodeId });
+      onSelectExpressionNode(nodeId);
+    },
+    [commitGraph, normalizedGraph, onSelectExpressionNode],
+  );
+
+  const connectExpressionNodes = useCallback(
+    (connection: Connection) => {
+      if (!connection.source || !connection.target || connection.source === connection.target) {
+        return;
+      }
+      const targetHandle = targetHandleForConnection(normalizedGraph, connection);
+      if (!targetHandle) {
+        return;
+      }
+      const nextGraph = connectExpressionGraphNodes(
+        normalizedGraph,
+        connection.source,
+        connection.target,
+        targetHandle,
+      );
+      setSelectedEdgeId(undefined);
+      commitGraph(nextGraph, { selectedExpressionNodeId: connection.target });
+      onSelectExpressionNode(connection.target);
+    },
+    [commitGraph, normalizedGraph, onSelectExpressionNode],
+  );
+
+  const handleReconnect = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      if (
+        !newConnection.source ||
+        !newConnection.target ||
+        newConnection.source === newConnection.target
+      ) {
+        return;
+      }
+      const graphWithoutOldEdge = {
+        ...normalizedGraph,
+        edges: normalizedGraph.edges.filter((edge) => edge.id !== oldEdge.id),
+      };
+      const targetHandle = targetHandleForConnection(graphWithoutOldEdge, newConnection);
+      if (!targetHandle) {
+        return;
+      }
+      const nextGraph = connectExpressionGraphNodes(
+        graphWithoutOldEdge,
+        newConnection.source,
+        newConnection.target,
+        targetHandle,
+      );
+      setSelectedEdgeId(undefined);
+      commitGraph(nextGraph, { selectedExpressionNodeId: newConnection.target });
+      onSelectExpressionNode(newConnection.target);
+    },
+    [commitGraph, normalizedGraph, onSelectExpressionNode],
+  );
 
   const handleNodesChange = useCallback((changes: NodeChange<ExpressionCanvasNode>[]) => {
     setNodes((current) => applyNodeChanges(changes, current));
@@ -471,12 +510,15 @@ export function FlowExpressionGraphCanvas({
     setEdges((current) => applyEdgeChanges(changes, current));
   }, []);
 
-  const isValidConnection = useCallback((connection: Connection | ExpressionCanvasEdge) => {
-    if (!connection.source || !connection.target || connection.source === connection.target) {
-      return false;
-    }
-    return Boolean(targetHandleForConnection(normalizedGraph, connection));
-  }, [normalizedGraph]);
+  const isValidConnection = useCallback(
+    (connection: Connection | ExpressionCanvasEdge) => {
+      if (!connection.source || !connection.target || connection.source === connection.target) {
+        return false;
+      }
+      return Boolean(targetHandleForConnection(normalizedGraph, connection));
+    },
+    [normalizedGraph],
+  );
 
   const closeContextMenu = () => setContextMenu(null);
 
@@ -497,12 +539,14 @@ export function FlowExpressionGraphCanvas({
 
   const contextMenuItems = (): AppContextMenuItem[] => {
     const items: AppContextMenuItem[] = [];
-    const targetNode = contextMenu?.kind === "node"
-      ? normalizedGraph.nodes.find((node) => node.id === contextMenu.targetId)
-      : undefined;
-    const targetEdge = contextMenu?.kind === "edge"
-      ? normalizedGraph.edges.find((edge) => edge.id === contextMenu.targetId)
-      : undefined;
+    const targetNode =
+      contextMenu?.kind === "node"
+        ? normalizedGraph.nodes.find((node) => node.id === contextMenu.targetId)
+        : undefined;
+    const targetEdge =
+      contextMenu?.kind === "edge"
+        ? normalizedGraph.edges.find((edge) => edge.id === contextMenu.targetId)
+        : undefined;
 
     if (targetNode) {
       items.push(
@@ -641,25 +685,43 @@ export function FlowExpressionGraphCanvas({
             value={newInputSlotId}
             onChange={(event) => setNewInputSlotId(event.target.value)}
           >
-            {inputSlots.length ? inputSlots.map((slot) => (
-              <option key={slot.id} value={slot.id}>
-                {slot.label || slot.slotKey}
-              </option>
-            )) : (
+            {inputSlots.length ? (
+              inputSlots.map((slot) => (
+                <option key={slot.id} value={slot.id}>
+                  {slot.label || slot.slotKey}
+                </option>
+              ))
+            ) : (
               <option value="">value</option>
             )}
           </select>
         </label>
-        <button type="button" className="secondary-button" onClick={() => addExpressionNode("input")}>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => addExpressionNode("input")}
+        >
           Add input
         </button>
-        <button type="button" className="secondary-button" onClick={() => addExpressionNode("operator")}>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => addExpressionNode("operator")}
+        >
           Add +
         </button>
-        <button type="button" className="secondary-button" onClick={() => addExpressionNode("call")}>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => addExpressionNode("call")}
+        >
           Add call
         </button>
-        <button type="button" className="secondary-button" onClick={() => addExpressionNode("literal")}>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => addExpressionNode("literal")}
+        >
           Add literal
         </button>
         <button type="button" className="secondary-button" onClick={() => addExpressionNode("raw")}>
@@ -701,24 +763,31 @@ export function FlowExpressionGraphCanvas({
             }}
             onPaneContextMenu={(event) => openContextMenu(event, "pane")}
             onNodeDragStop={(_, node) => {
-              commitGraph(
-                withExpressionNodePosition(normalizedGraph, node.id, node.position),
-                { selectedExpressionNodeId: node.id },
-              );
+              commitGraph(withExpressionNodePosition(normalizedGraph, node.id, node.position), {
+                selectedExpressionNodeId: node.id,
+              });
               onSelectExpressionNode(node.id);
             }}
             onNodesDelete={(deletedNodes) => {
               let nextGraph = normalizedGraph;
               deletedNodes.forEach((node) => {
                 const nextNodes = nextGraph.nodes.filter((candidate) => candidate.id !== node.id);
-                nextGraph = withoutExpressionNodePosition({
-                  ...nextGraph,
-                  rootId: nextGraph.rootId === node.id ? nextNodes[0]?.id ?? null : nextGraph.rootId,
-                  nodes: nextNodes,
-                  edges: nextGraph.edges.filter((edge) => edge.sourceId !== node.id && edge.targetId !== node.id),
-                }, node.id);
+                nextGraph = withoutExpressionNodePosition(
+                  {
+                    ...nextGraph,
+                    rootId:
+                      nextGraph.rootId === node.id ? (nextNodes[0]?.id ?? null) : nextGraph.rootId,
+                    nodes: nextNodes,
+                    edges: nextGraph.edges.filter(
+                      (edge) => edge.sourceId !== node.id && edge.targetId !== node.id,
+                    ),
+                  },
+                  node.id,
+                );
               });
-              commitGraph(nextGraph, { selectedExpressionNodeId: nextGraph.rootId ?? nextGraph.nodes[0]?.id });
+              commitGraph(nextGraph, {
+                selectedExpressionNodeId: nextGraph.rootId ?? nextGraph.nodes[0]?.id,
+              });
             }}
             onEdgesDelete={(deletedEdges) => {
               deleteExpressionEdges(deletedEdges.map((edge) => edge.id));
@@ -853,7 +922,9 @@ export function FlowExpressionGraphCanvas({
                       }}
                     >
                       {BINARY_OPERATOR_OPTIONS.map((operator) => (
-                        <option key={operator} value={operator}>{operator}</option>
+                        <option key={operator} value={operator}>
+                          {operator}
+                        </option>
                       ))}
                     </select>
                   </label>
@@ -876,7 +947,9 @@ export function FlowExpressionGraphCanvas({
                       }}
                     >
                       {UNARY_OPERATOR_OPTIONS.map((operator) => (
-                        <option key={operator} value={operator}>{operator}</option>
+                        <option key={operator} value={operator}>
+                          {operator}
+                        </option>
                       ))}
                     </select>
                   </label>
@@ -899,7 +972,9 @@ export function FlowExpressionGraphCanvas({
                       }}
                     >
                       {BOOL_OPERATOR_OPTIONS.map((operator) => (
-                        <option key={operator} value={operator}>{operator}</option>
+                        <option key={operator} value={operator}>
+                          {operator}
+                        </option>
                       ))}
                     </select>
                   </label>
@@ -911,7 +986,10 @@ export function FlowExpressionGraphCanvas({
                     </span>
                     <select
                       aria-label="Expression compare operator"
-                      value={String((selectedNode.payload.operators as unknown[] | undefined)?.[0] ?? selectedNode.label)}
+                      value={String(
+                        (selectedNode.payload.operators as unknown[] | undefined)?.[0] ??
+                          selectedNode.label,
+                      )}
                       onChange={(event) => {
                         const operator = event.target.value;
                         updateExpressionNode(selectedNode.id, (node) => ({
@@ -922,7 +1000,9 @@ export function FlowExpressionGraphCanvas({
                       }}
                     >
                       {COMPARE_OPERATOR_OPTIONS.map((operator) => (
-                        <option key={operator} value={operator}>{operator}</option>
+                        <option key={operator} value={operator}>
+                          {operator}
+                        </option>
                       ))}
                     </select>
                   </label>

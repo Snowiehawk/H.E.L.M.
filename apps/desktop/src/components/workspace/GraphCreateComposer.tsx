@@ -12,7 +12,6 @@ import {
 import { useClampedFloatingPanel } from "../shared/floatingPanel";
 
 type FlowCreateKind = AuthoredFlowNodeKind | "param";
-type LoopStarterOutput = "repeat" | "done";
 
 export interface GraphCreateComposerAnchor {
   x: number;
@@ -164,7 +163,11 @@ export function GraphCreateComposer({
     const nextPayload = composer.initialPayload ?? {};
     setFlowKind(nextKind);
     setFlowStatement(flowStatementFromComposer(nextKind, nextPayload));
-    setBranchCondition(nextKind === "branch" && typeof nextPayload.condition === "string" ? nextPayload.condition : "");
+    setBranchCondition(
+      nextKind === "branch" && typeof nextPayload.condition === "string"
+        ? nextPayload.condition
+        : "",
+    );
     setLoopDraft(
       nextKind === "loop"
         ? loopDraftFromPayload(nextPayload, composer.initialLoopType)
@@ -232,9 +235,10 @@ export function GraphCreateComposer({
       flowNodeKind: flowKind,
       content: flowNodeContentFromPayload(flowKind, payload),
       payload,
-      starterSteps: flowKind === "loop" && composer.mode === "create"
-        ? buildStarterStepSubmits(repeatStep, doneStep)
-        : undefined,
+      starterSteps:
+        flowKind === "loop" && composer.mode === "create"
+          ? buildStarterStepSubmits(repeatStep, doneStep)
+          : undefined,
     });
   };
 
@@ -254,9 +258,7 @@ export function GraphCreateComposer({
       branchCondition,
       loopDraft,
     });
-    return mainValid
-      && isStarterStepValid(repeatStep)
-      && isStarterStepValid(doneStep);
+    return mainValid && isStarterStepValid(repeatStep) && isStarterStepValid(doneStep);
   })();
   const floatingPanel = useClampedFloatingPanel(composer.anchor);
 
@@ -417,7 +419,9 @@ export function GraphCreateComposer({
                   {flowNodeKindLabel(kind)}
                 </option>
               ))}
-              {composer.mode === "create" && !composer.seedFlowConnection ? <option value="param">Parameter</option> : null}
+              {composer.mode === "create" && !composer.seedFlowConnection ? (
+                <option value="param">Parameter</option>
+              ) : null}
             </select>
           </label>
 
@@ -463,11 +467,7 @@ export function GraphCreateComposer({
 
           {flowKind === "loop" ? (
             <>
-              <LoopDraftFields
-                autoFocus
-                draft={loopDraft}
-                onChange={setLoopDraft}
-              />
+              <LoopDraftFields autoFocus draft={loopDraft} onChange={setLoopDraft} />
               {composer.mode === "create" && !composer.seedFlowConnection ? (
                 <div className="graph-create-composer__loop-starters">
                   <LoopStarterStepFields
@@ -564,10 +564,12 @@ function LoopDraftFields({
           aria-label={`${ariaPrefix}Loop type`}
           autoFocus={autoFocus}
           value={draft.loopType}
-          onChange={(event) => onChange({
-            ...draft,
-            loopType: event.target.value as FlowLoopType,
-          })}
+          onChange={(event) =>
+            onChange({
+              ...draft,
+              loopType: event.target.value as FlowLoopType,
+            })
+          }
         >
           <option value="while">While</option>
           <option value="for">For</option>
@@ -624,7 +626,9 @@ function LoopDraftFields({
 
       <div className="graph-create-composer__preview" aria-label={`${ariaPrefix}Loop preview`}>
         <span>Preview</span>
-        <code>{preview ? `${preview}:` : draft.loopType === "while" ? "while ..." : "for ... in ...:"}</code>
+        <code>
+          {preview ? `${preview}:` : draft.loopType === "while" ? "while ..." : "for ... in ...:"}
+        </code>
       </div>
     </>
   );
@@ -671,11 +675,7 @@ function LoopStarterStepFields({
               ))}
             </select>
           </label>
-          <FlowStepBodyFields
-            labelPrefix={`${outputLabel} step`}
-            step={step}
-            onChange={onChange}
-          />
+          <FlowStepBodyFields labelPrefix={`${outputLabel} step`} step={step} onChange={onChange} />
         </>
       ) : null}
     </section>
@@ -789,12 +789,15 @@ function isFlowDraftValid({
 }
 
 function isStarterStepValid(step: FlowStepDraft) {
-  return !step.enabled || isFlowDraftValid({
-    flowKind: step.flowKind,
-    statement: step.statement,
-    branchCondition: step.branchCondition,
-    loopDraft: step.loopDraft,
-  });
+  return (
+    !step.enabled ||
+    isFlowDraftValid({
+      flowKind: step.flowKind,
+      statement: step.statement,
+      branchCondition: step.branchCondition,
+      loopDraft: step.loopDraft,
+    })
+  );
 }
 
 function buildStarterStepSubmits(

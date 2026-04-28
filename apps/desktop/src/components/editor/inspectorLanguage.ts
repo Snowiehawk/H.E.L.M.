@@ -57,9 +57,9 @@ export function inferInspectorLanguage({
   metadata,
 }: InspectorLanguageInput): string {
   const fromPath =
-    languageFromPath(editablePath)
-    ?? languageFromPath(selectedRelativePath)
-    ?? languageFromPath(symbolFilePath);
+    languageFromPath(editablePath) ??
+    languageFromPath(selectedRelativePath) ??
+    languageFromPath(symbolFilePath);
   if (fromPath) {
     return fromPath;
   }

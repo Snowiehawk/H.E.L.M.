@@ -28,7 +28,7 @@ const FLOW_EXPRESSION_ATOM_NODE_KINDS = new Set<FlowExpressionNodeKind>([
 ]);
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" ? value as Record<string, unknown> : undefined;
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -40,8 +40,9 @@ function numberValue(value: unknown): number | undefined {
 }
 
 function expressionNodeKind(value: unknown): FlowExpressionNodeKind | undefined {
-  return typeof value === "string" && FLOW_EXPRESSION_NODE_KINDS.has(value as FlowExpressionNodeKind)
-    ? value as FlowExpressionNodeKind
+  return typeof value === "string" &&
+    FLOW_EXPRESSION_NODE_KINDS.has(value as FlowExpressionNodeKind)
+    ? (value as FlowExpressionNodeKind)
     : undefined;
 }
 
@@ -86,12 +87,14 @@ export function normalizeFlowExpressionGraph(value: unknown): FlowExpressionGrap
       return [];
     }
     const payload = recordValue(node.payload) ?? {};
-    return [{
-      id,
-      kind,
-      label: stringValue(node.label) ?? kind,
-      payload: { ...payload },
-    }];
+    return [
+      {
+        id,
+        kind,
+        label: stringValue(node.label) ?? kind,
+        payload: { ...payload },
+      },
+    ];
   });
   const nodeIds = new Set(nodes.map((node) => node.id));
 
@@ -102,23 +105,25 @@ export function normalizeFlowExpressionGraph(value: unknown): FlowExpressionGrap
     const targetId = stringValue(edge?.targetId) ?? stringValue(edge?.target_id);
     const targetHandle = stringValue(edge?.targetHandle) ?? stringValue(edge?.target_handle);
     if (
-      !edge
-      || !sourceId
-      || !sourceHandle
-      || !targetId
-      || !targetHandle
-      || !nodeIds.has(sourceId)
-      || !nodeIds.has(targetId)
+      !edge ||
+      !sourceId ||
+      !sourceHandle ||
+      !targetId ||
+      !targetHandle ||
+      !nodeIds.has(sourceId) ||
+      !nodeIds.has(targetId)
     ) {
       return [];
     }
-    return [{
-      id: stringValue(edge.id) ?? `expr-edge:${sourceId}->${targetId}:${targetHandle}`,
-      sourceId,
-      sourceHandle,
-      targetId,
-      targetHandle,
-    }];
+    return [
+      {
+        id: stringValue(edge.id) ?? `expr-edge:${sourceId}->${targetId}:${targetHandle}`,
+        sourceId,
+        sourceHandle,
+        targetId,
+        targetHandle,
+      },
+    ];
   });
 
   const rootId = stringValue(graph.rootId) ?? stringValue(graph.root_id) ?? null;
@@ -127,21 +132,21 @@ export function normalizeFlowExpressionGraph(value: unknown): FlowExpressionGrap
   const layoutNodesRecord = recordValue(layoutRecord?.nodes);
   const layoutNodes = layoutNodesRecord
     ? Object.entries(layoutNodesRecord).reduce<NonNullable<FlowExpressionGraphLayout["nodes"]>>(
-      (current, [nodeId, rawPosition]) => {
-        if (!nodeIds.has(nodeId)) {
+        (current, [nodeId, rawPosition]) => {
+          if (!nodeIds.has(nodeId)) {
+            return current;
+          }
+          const position = recordValue(rawPosition);
+          const x = numberValue(position?.x);
+          const y = numberValue(position?.y);
+          if (x === undefined || y === undefined) {
+            return current;
+          }
+          current[nodeId] = { x, y };
           return current;
-        }
-        const position = recordValue(rawPosition);
-        const x = numberValue(position?.x);
-        const y = numberValue(position?.y);
-        if (x === undefined || y === undefined) {
-          return current;
-        }
-        current[nodeId] = { x, y };
-        return current;
-      },
-      {},
-    )
+        },
+        {},
+      )
     : undefined;
 
   return {
@@ -158,13 +163,15 @@ export function flowExpressionNodeDisplayLabel(node: FlowExpressionNode): string
   const payloadOperator = stringValue(node.payload.operator);
   const payloadValue = node.payload.value;
   return (
-    payloadName
-    ?? payloadOperator
-    ?? (typeof payloadValue === "string" || typeof payloadValue === "number" || typeof payloadValue === "boolean"
+    payloadName ??
+    payloadOperator ??
+    (typeof payloadValue === "string" ||
+    typeof payloadValue === "number" ||
+    typeof payloadValue === "boolean"
       ? String(payloadValue)
-      : undefined)
-    ?? node.label
-    ?? node.kind
+      : undefined) ??
+    node.label ??
+    node.kind
   );
 }
 
@@ -209,11 +216,7 @@ function expressionNodeSourceValue(node: FlowExpressionNode) {
     return name.trim();
   }
   const value = node.payload.value;
-  if (
-    typeof value === "string"
-    || typeof value === "number"
-    || typeof value === "boolean"
-  ) {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return JSON.stringify(value);
   }
   return node.label.trim();
@@ -231,16 +234,19 @@ function incomingExpressionEdgesByTarget(graph: FlowExpressionGraph) {
   return incoming;
 }
 
-function sortedIndexedEdges(
-  edges: FlowExpressionEdge[],
-  prefix: string,
-): FlowExpressionEdge[] {
+function sortedIndexedEdges(edges: FlowExpressionEdge[], prefix: string): FlowExpressionEdge[] {
   return edges
     .filter((edge) => edge.targetHandle.startsWith(prefix))
     .slice()
     .sort((left, right) => {
-      const leftIndex = Number.parseInt(left.targetHandle.slice(prefix.length).split(":", 1)[0] ?? "", 10);
-      const rightIndex = Number.parseInt(right.targetHandle.slice(prefix.length).split(":", 1)[0] ?? "", 10);
+      const leftIndex = Number.parseInt(
+        left.targetHandle.slice(prefix.length).split(":", 1)[0] ?? "",
+        10,
+      );
+      const rightIndex = Number.parseInt(
+        right.targetHandle.slice(prefix.length).split(":", 1)[0] ?? "",
+        10,
+      );
       if (Number.isNaN(leftIndex) || Number.isNaN(rightIndex)) {
         return left.targetHandle.localeCompare(right.targetHandle);
       }
@@ -262,11 +268,7 @@ function childSource(
   return child.source;
 }
 
-function uniqueExpressionEdgeId(
-  sourceId: string,
-  targetId: string,
-  targetHandle: string,
-) {
+function uniqueExpressionEdgeId(sourceId: string, targetId: string, targetHandle: string) {
   return `expr-edge:${sourceId}->${targetId}:${targetHandle}`;
 }
 
@@ -311,7 +313,9 @@ export function expressionFromFlowExpressionGraph(
     function singleChild(handle: string): CompiledExpressionNode {
       const candidates = incomingEdges.filter((edge) => edge.targetHandle === handle);
       if (candidates.length !== 1) {
-        diagnostics.push(`${flowExpressionNodeDisplayLabel(currentNode)} needs one ${handle} input.`);
+        diagnostics.push(
+          `${flowExpressionNodeDisplayLabel(currentNode)} needs one ${handle} input.`,
+        );
         return { precedence: ATOM_PRECEDENCE, source: "..." };
       }
       return compile(candidates[0]!.sourceId);
@@ -375,7 +379,8 @@ export function expressionFromFlowExpressionGraph(
         }
         return {
           precedence,
-          source: values.map((value) => childSource(value, precedence)).join(` ${operator} `) || "...",
+          source:
+            values.map((value) => childSource(value, precedence)).join(` ${operator} `) || "...",
         };
       }
 
@@ -439,9 +444,10 @@ export function expressionFromFlowExpressionGraph(
       }
 
       if (node.kind === "collection") {
-        const collectionType = stringValue(node.payload.collection_type)
-          ?? stringValue(node.payload.collectionType)
-          ?? node.label;
+        const collectionType =
+          stringValue(node.payload.collection_type) ??
+          stringValue(node.payload.collectionType) ??
+          node.label;
         if (collectionType === "dict") {
           const keyEdges = sortedIndexedEdges(incomingEdges, "key:");
           const valueEdges = sortedIndexedEdges(incomingEdges, "value:");
@@ -454,7 +460,10 @@ export function expressionFromFlowExpressionGraph(
         }
         const items = indexedChildren("item:").map((item) => item.source);
         if (collectionType === "tuple") {
-          return { precedence: ATOM_PRECEDENCE, source: `(${items.join(", ")}${items.length === 1 ? "," : ""})` };
+          return {
+            precedence: ATOM_PRECEDENCE,
+            source: `(${items.join(", ")}${items.length === 1 ? "," : ""})`,
+          };
         }
         if (collectionType === "set") {
           return { precedence: ATOM_PRECEDENCE, source: `{${items.join(", ")}}` };

@@ -15,9 +15,9 @@ Object.defineProperty(window, "matchMedia", {
 });
 
 if (
-  typeof window.localStorage?.getItem !== "function"
-  || typeof window.localStorage?.setItem !== "function"
-  || typeof window.localStorage?.clear !== "function"
+  typeof window.localStorage?.getItem !== "function" ||
+  typeof window.localStorage?.setItem !== "function" ||
+  typeof window.localStorage?.clear !== "function"
 ) {
   const storageState = new Map<string, string>();
   const localStorageMock: Storage = {
@@ -51,10 +51,7 @@ class ResizeObserverMock {
   }
 
   observe(target: Element) {
-    this.callback(
-      [{ target } as ResizeObserverEntry],
-      this as unknown as ResizeObserver,
-    );
+    this.callback([{ target } as ResizeObserverEntry], this as unknown as ResizeObserver);
   }
 
   unobserve() {}

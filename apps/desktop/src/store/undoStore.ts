@@ -28,10 +28,7 @@ interface UndoState {
   sessionKey?: string;
   registrations: Partial<Record<UndoDomainId, UndoDomainRegistration>>;
   resetSession: (sessionKey?: string) => void;
-  registerDomain: (
-    domain: UndoDomainId,
-    registration: UndoDomainRegistration,
-  ) => () => void;
+  registerDomain: (domain: UndoDomainId, registration: UndoDomainRegistration) => () => void;
   getPreferredUndoDomain: () => UndoDomainId | undefined;
   getPreferredRedoDomain: () => UndoDomainId | undefined;
   performUndo: () => Promise<UndoResult | undefined>;

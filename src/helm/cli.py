@@ -15,7 +15,9 @@ from helm.utils import configure_logging
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="helm", description="Scan Python repos into structural graphs.")
+    parser = argparse.ArgumentParser(
+        prog="helm", description="Scan Python repos into structural graphs."
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     scan_parser = subparsers.add_parser("scan", help="Scan a repository and print a summary.")

@@ -9,11 +9,7 @@ export function ThemeCycleButton() {
   const nextTheme = order[(order.indexOf(theme) + 1) % order.length];
 
   return (
-    <button
-      className="ghost-button"
-      type="button"
-      onClick={() => setTheme(nextTheme)}
-    >
+    <button className="ghost-button" type="button" onClick={() => setTheme(nextTheme)}>
       Theme: {theme}
     </button>
   );

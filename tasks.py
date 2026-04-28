@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -9,7 +10,10 @@ from invoke import Exit, task
 
 REPO_ROOT = Path(__file__).resolve().parent
 DESKTOP_DIR = REPO_ROOT / "apps" / "desktop"
+TAURI_DIR = DESKTOP_DIR / "src-tauri"
 BOOTSTRAP_SCRIPT = REPO_ROOT / "scripts" / "bootstrap.py"
+AUDIT_SCRIPT = REPO_ROOT / "scripts" / "audit.py"
+PYTHON_CHECK_PATHS = ["src", "tests", "scripts", "tasks.py"]
 
 
 def _pty_supported() -> bool:
@@ -27,6 +31,53 @@ def _preferred_python_bin() -> str:
     if repo_python.exists():
         return str(repo_python)
     return sys.executable
+
+
+def _same_python_tool(name: str) -> str:
+    candidates = [name]
+    if os.name == "nt":
+        candidates = [f"{name}.exe", f"{name}.cmd", name]
+
+    scripts_dir = Path(sys.executable).resolve().parent
+    for candidate in candidates:
+        local = scripts_dir / candidate
+        if local.exists():
+            return str(local)
+
+    for candidate in candidates:
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+
+    raise Exit(f"Required Python tool `{name}` was not found. Run `pip install '.[dev]'`.")
+
+
+def _command(name: str) -> str:
+    candidates = [name]
+    if os.name == "nt":
+        candidates = [f"{name}.cmd", f"{name}.exe", name]
+
+    for candidate in candidates:
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+
+    raise Exit(f"Required command `{name}` was not found on PATH.")
+
+
+def _npm() -> str:
+    return _command("npm")
+
+
+def _cargo() -> str:
+    return _command("cargo")
+
+
+def _run(command: list[str], *, cwd: Path = REPO_ROOT, env: dict[str, str] | None = None) -> None:
+    print(f"Running: {' '.join(command)}")
+    completed = subprocess.run(command, cwd=str(cwd), env=env, check=False)
+    if completed.returncode:
+        raise Exit(code=completed.returncode)
 
 
 def _run_bootstrap(ctx, *, force: bool = False, ui_only: bool = False) -> None:
@@ -59,13 +110,6 @@ def _install_desktop_dependencies(ctx) -> None:
     _ensure_desktop_app()
     with ctx.cd(str(DESKTOP_DIR)):
         ctx.run("npm install", pty=_pty_supported())
-
-
-def _ensure_desktop_dependencies(ctx) -> None:
-    if (DESKTOP_DIR / "node_modules").exists():
-        return
-    print("Desktop dependencies are missing; running `npm install` first.")
-    _install_desktop_dependencies(ctx)
 
 
 def _run_desktop_command(ctx, command: str, *, install: bool) -> None:
@@ -120,7 +164,7 @@ def bootstrap(ctx, force: bool = False, ui_only: bool = False) -> None:
 
 @task(aliases=["install"])
 def install_desktop(ctx) -> None:
-    """Install desktop npm dependencies."""
+    """Install desktop npm dependencies with bootstrap-friendly npm install."""
     _install_desktop_dependencies(ctx)
 
 
@@ -140,3 +184,98 @@ def ui(ctx, install: bool = False) -> None:
 def desktop(ctx, install: bool = False) -> None:
     """Run the Tauri desktop app from the repo root."""
     _run_desktop_command(ctx, "npm run tauri dev", install=install)
+
+
+@task(name="format-python")
+def format_python(ctx) -> None:
+    """Apply Python Ruff lint fixes and formatting."""
+    ruff = _same_python_tool("ruff")
+    _run([ruff, "check", "--fix", *PYTHON_CHECK_PATHS])
+    _run([ruff, "format", *PYTHON_CHECK_PATHS])
+
+
+@task(name="check-python")
+def check_python(ctx) -> None:
+    """Run Python lint, format, and test gates."""
+    ruff = _same_python_tool("ruff")
+    _run([ruff, "check", *PYTHON_CHECK_PATHS])
+    _run([ruff, "format", "--check", *PYTHON_CHECK_PATHS])
+    _run([sys.executable, "-m", "pytest"])
+
+
+@task(name="format-desktop")
+def format_desktop(ctx) -> None:
+    """Apply frontend ESLint fixes and Prettier formatting."""
+    npm = _npm()
+    _run([npm, "run", "lint:fix"], cwd=DESKTOP_DIR)
+    _run([npm, "run", "format"], cwd=DESKTOP_DIR)
+
+
+@task(name="check-desktop")
+def check_desktop(ctx) -> None:
+    """Run frontend lint, format, tests, and build gates."""
+    npm = _npm()
+    _run([npm, "run", "lint"], cwd=DESKTOP_DIR)
+    _run([npm, "run", "format:check"], cwd=DESKTOP_DIR)
+    _run([npm, "test"], cwd=DESKTOP_DIR)
+    _run([npm, "run", "build"], cwd=DESKTOP_DIR)
+
+
+@task(name="format-tauri")
+def format_tauri(ctx) -> None:
+    """Apply Rust formatting in the Tauri shell."""
+    _run([_cargo(), "fmt"], cwd=TAURI_DIR)
+
+
+@task(name="check-tauri")
+def check_tauri(ctx) -> None:
+    """Run frontend build plus Rust format, Clippy, and cargo check gates."""
+    npm = _npm()
+    cargo = _cargo()
+    _run([npm, "run", "build"], cwd=DESKTOP_DIR)
+    _run([cargo, "fmt", "--", "--check"], cwd=TAURI_DIR)
+    _run([cargo, "clippy", "--locked", "--", "-D", "warnings"], cwd=TAURI_DIR)
+    _run([cargo, "check", "--locked"], cwd=TAURI_DIR)
+
+
+@task(name="audit-python")
+def audit_python(ctx) -> None:
+    """Run the Python dependency audit with the HELM allowlist."""
+    _run([sys.executable, str(AUDIT_SCRIPT), "python"])
+
+
+@task(name="audit-desktop")
+def audit_desktop(ctx) -> None:
+    """Run the desktop npm dependency audit with the HELM allowlist."""
+    _run([sys.executable, str(AUDIT_SCRIPT), "npm"])
+
+
+@task(name="audit-tauri")
+def audit_tauri(ctx) -> None:
+    """Run the Tauri Cargo dependency audit with the HELM allowlist."""
+    _run([sys.executable, str(AUDIT_SCRIPT), "cargo"])
+
+
+@task
+def format(ctx) -> None:
+    """Apply all project formatters."""
+    format_python(ctx)
+    format_desktop(ctx)
+    format_tauri(ctx)
+
+
+@task
+def check(ctx) -> None:
+    """Run all non-audit quality gates."""
+    check_python(ctx)
+    check_desktop(ctx)
+    check_tauri(ctx)
+
+
+@task
+def ci(ctx) -> None:
+    """Run the local CI-equivalent checks and blocking audits."""
+    check(ctx)
+    audit_python(ctx)
+    audit_desktop(ctx)
+    audit_tauri(ctx)

@@ -21,13 +21,7 @@ function PreferencesButton() {
       type="button"
       onClick={() => setPreferencesOpen(true)}
     >
-      <svg
-        aria-hidden="true"
-        fill="none"
-        height="18"
-        viewBox="0 0 18 18"
-        width="18"
-      >
+      <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 18 18" width="18">
         <path
           d="M9 6.35a2.65 2.65 0 1 0 0 5.3 2.65 2.65 0 0 0 0-5.3Z"
           stroke="currentColor"

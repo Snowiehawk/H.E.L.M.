@@ -145,7 +145,7 @@ def create_workspace_entry(
         raise ValueError("Workspace entry kind must be 'file' or 'directory'.")
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    target_path.write_text(content or "", encoding="utf-8")
+    _write_workspace_text(target_path, content or "")
     return {
         "relative_path": normalized_relative_path,
         "kind": "file",
@@ -177,13 +177,17 @@ def save_workspace_file(
     if current["version"] != expected_version:
         raise ValueError("Workspace file changed on disk. Reload it before saving again.")
 
-    file_path.write_text(content, encoding="utf-8")
+    _write_workspace_text(file_path, content)
     return {
         "relative_path": normalized_relative_path,
         "kind": "file",
         "changed_relative_paths": [normalized_relative_path],
         "file": read_workspace_file(root_path, normalized_relative_path),
     }
+
+
+def _write_workspace_text(path: Path, content: str) -> None:
+    path.write_bytes(content.encode("utf-8"))
 
 
 def move_workspace_entry(
@@ -201,9 +205,13 @@ def move_workspace_entry(
         raise ValueError(f"Workspace path does not exist: {normalized_source_relative_path}")
 
     normalized_target_directory = _validated_repo_directory_path(target_directory_relative_path)
-    target_directory_path = root_path if not normalized_target_directory else _resolve_repo_relative_path(
-        root_path,
-        normalized_target_directory,
+    target_directory_path = (
+        root_path
+        if not normalized_target_directory
+        else _resolve_repo_relative_path(
+            root_path,
+            normalized_target_directory,
+        )
     )
     if not target_directory_path.exists():
         raise ValueError(f"Workspace folder does not exist: {normalized_target_directory}")

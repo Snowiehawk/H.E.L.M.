@@ -33,7 +33,9 @@ class GraphBuilderTests(unittest.TestCase):
             )
 
             inventory = discover_python_modules(root)
-            parsed_modules = [PythonModuleParser().parse_module(module) for module in inventory.modules]
+            parsed_modules = [
+                PythonModuleParser().parse_module(module) for module in inventory.modules
+            ]
             graph = build_repo_graph(root, parsed_modules)
 
             self.assertEqual(graph.report.module_count, 3)
@@ -61,16 +63,14 @@ class GraphBuilderTests(unittest.TestCase):
             write_repo_files(
                 root,
                 {
-                    "service.py": (
-                        "import requests\n\n"
-                        "def run():\n"
-                        "    requests.get()\n"
-                    ),
+                    "service.py": ("import requests\n\ndef run():\n    requests.get()\n"),
                 },
             )
 
             inventory = discover_python_modules(root)
-            parsed_modules = [PythonModuleParser().parse_module(module) for module in inventory.modules]
+            parsed_modules = [
+                PythonModuleParser().parse_module(module) for module in inventory.modules
+            ]
             graph = build_repo_graph(root, parsed_modules)
 
             self.assertEqual(graph.report.unresolved_call_count, 1)
@@ -93,12 +93,16 @@ class GraphBuilderTests(unittest.TestCase):
             )
 
             inventory = discover_python_modules(root)
-            parsed_modules = [PythonModuleParser().parse_module(module) for module in inventory.modules]
+            parsed_modules = [
+                PythonModuleParser().parse_module(module) for module in inventory.modules
+            ]
             graph = build_repo_graph(root, parsed_modules)
 
             self.assertIn("symbol:service:READY", graph.nodes)
             self.assertIn("symbol:service:Mode", graph.nodes)
-            self.assertEqual(graph.nodes["symbol:service:READY"].metadata["symbol_kind"], "variable")
+            self.assertEqual(
+                graph.nodes["symbol:service:READY"].metadata["symbol_kind"], "variable"
+            )
             self.assertEqual(graph.nodes["symbol:service:Mode"].metadata["symbol_kind"], "enum")
 
             define_edges = {
@@ -125,17 +129,23 @@ class GraphBuilderTests(unittest.TestCase):
             )
 
             inventory = discover_python_modules(root)
-            parsed_modules = [PythonModuleParser().parse_module(module) for module in inventory.modules]
+            parsed_modules = [
+                PythonModuleParser().parse_module(module) for module in inventory.modules
+            ]
             graph = build_repo_graph(root, parsed_modules)
 
             self.assertIn("symbol:service:Service", graph.nodes)
             self.assertIn("symbol:service:Service.enabled", graph.nodes)
-            self.assertEqual(graph.nodes["symbol:service:Service.enabled"].metadata["symbol_kind"], "variable")
+            self.assertEqual(
+                graph.nodes["symbol:service:Service.enabled"].metadata["symbol_kind"], "variable"
+            )
 
             contain_edges = {
                 (edge.source_id, edge.target_id)
                 for edge in graph.edges
                 if edge.kind == EdgeKind.CONTAINS
             }
-            self.assertIn(("symbol:service:Service", "symbol:service:Service.enabled"), contain_edges)
+            self.assertIn(
+                ("symbol:service:Service", "symbol:service:Service.enabled"), contain_edges
+            )
             self.assertIn(("symbol:service:Service", "symbol:service:Service.run"), contain_edges)

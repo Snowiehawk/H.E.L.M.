@@ -142,13 +142,10 @@ function graphNodeRelativePath(
   return undefined;
 }
 
-function graphNodeMetadataNumber(
-  metadata: Record<string, unknown> | undefined,
-  key: string,
-) {
+function graphNodeMetadataNumber(metadata: Record<string, unknown> | undefined, key: string) {
   const value =
-    metadata?.[key]
-    ?? metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+    metadata?.[key] ??
+    metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
   return typeof value === "number" ? value : undefined;
 }
 
@@ -187,11 +184,14 @@ function flowFunctionInputIdForParamNode(
   return document.functionInputs?.find((input) => input.name === node.label)?.id;
 }
 
-async function confirmFlowRemoval(message: string, options: {
-  cancelLabel?: string;
-  okLabel: string;
-  title: string;
-}) {
+async function confirmFlowRemoval(
+  message: string,
+  options: {
+    cancelLabel?: string;
+    okLabel: string;
+    title: string;
+  },
+) {
   try {
     return await confirmDialog(message, {
       cancelLabel: options.cancelLabel ?? "Cancel",
@@ -319,13 +319,13 @@ function shouldTrackInspectorSpaceTap(
 ) {
   const pressedSpace = event.code === "Space" || event.key === " " || event.key === "Spacebar";
   if (
-    !pressedSpace
-    || event.altKey
-    || event.ctrlKey
-    || event.metaKey
-    || event.shiftKey
-    || isTextEditingTarget(event.target)
-    || isShortcutBypassTarget(event.target)
+    !pressedSpace ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.shiftKey ||
+    isTextEditingTarget(event.target) ||
+    isShortcutBypassTarget(event.target)
   ) {
     return false;
   }
@@ -371,15 +371,15 @@ interface ReturnExpressionGraphViewState {
 
 type ResolvedFlowInputBindingConnection =
   | {
-    kind: "slot";
-    sourceId: string;
-    slotId: string;
-  }
+      kind: "slot";
+      sourceId: string;
+      slotId: string;
+    }
   | {
-    kind: "return-input";
-    sourceId: string;
-    targetNodeId: string;
-  };
+      kind: "return-input";
+      sourceId: string;
+      targetNodeId: string;
+    };
 
 const INSPECTOR_DRAWER_HEIGHT_STORAGE_KEY = "helm.blueprint.inspectorDrawerHeight";
 const EXPLORER_SIDEBAR_WIDTH_STORAGE_KEY = "helm.blueprint.explorerSidebarWidth";
@@ -392,10 +392,7 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function readStoredInspectorDrawerHeight() {
-  if (
-    typeof window === "undefined"
-    || typeof window.localStorage?.getItem !== "function"
-  ) {
+  if (typeof window === "undefined" || typeof window.localStorage?.getItem !== "function") {
     return DEFAULT_BLUEPRINT_INSPECTOR_DRAWER_HEIGHT;
   }
 
@@ -407,10 +404,7 @@ function readStoredInspectorDrawerHeight() {
 }
 
 function readStoredExplorerSidebarWidth() {
-  if (
-    typeof window === "undefined"
-    || typeof window.localStorage?.getItem !== "function"
-  ) {
+  if (typeof window === "undefined" || typeof window.localStorage?.getItem !== "function") {
     return DEFAULT_EXPLORER_SIDEBAR_WIDTH;
   }
 
@@ -429,10 +423,7 @@ function clampExplorerSidebarWidth(nextWidth: number, containerWidth: number) {
   );
   const maxWidth = Math.max(
     MIN_EXPLORER_SIDEBAR_WIDTH,
-    Math.min(
-      Math.floor(safeContainerWidth * 0.42),
-      safeContainerWidth - 360,
-    ),
+    Math.min(Math.floor(safeContainerWidth * 0.42), safeContainerWidth - 360),
   );
   return clamp(nextWidth, MIN_EXPLORER_SIDEBAR_WIDTH, maxWidth);
 }
@@ -589,11 +580,8 @@ function isWorkspacePathAtOrBelow(
   ancestorRelativePath: string,
 ): boolean {
   return Boolean(
-    relativePath
-    && (
-      relativePath === ancestorRelativePath
-      || relativePath.startsWith(`${ancestorRelativePath}/`)
-    ),
+    relativePath &&
+    (relativePath === ancestorRelativePath || relativePath.startsWith(`${ancestorRelativePath}/`)),
   );
 }
 
@@ -638,7 +626,9 @@ function synchronizeFlowLayoutWithDocumentMutation({
   const nextEdgeIds = new Set(nextDocument.edges.map((edge) => edge.id));
   const nextLayout: StoredGraphLayout = {
     nodes: { ...layout.nodes },
-    reroutes: layout.reroutes.filter((reroute) => !removedEdgeIds.has(reroute.edgeId) && nextEdgeIds.has(reroute.edgeId)),
+    reroutes: layout.reroutes.filter(
+      (reroute) => !removedEdgeIds.has(reroute.edgeId) && nextEdgeIds.has(reroute.edgeId),
+    ),
     pinnedNodeIds: layout.pinnedNodeIds.filter((nodeId) => !removedNodeIds.has(nodeId)),
     groups: layout.groups
       .map((group) => ({
@@ -713,12 +703,11 @@ function buildFallbackGraphPathItems(
     },
   ];
 
-  const moduleId =
-    targetId?.startsWith("module:")
-      ? targetId
-      : targetId?.startsWith("symbol:")
-        ? moduleIdFromSymbolId(targetId)
-        : undefined;
+  const moduleId = targetId?.startsWith("module:")
+    ? targetId
+    : targetId?.startsWith("symbol:")
+      ? moduleIdFromSymbolId(targetId)
+      : undefined;
   const modulePath = relativePathForModuleId(moduleId, modules);
   const moduleRevealPath = joinRepoPath(repoSession.path, modulePath);
 
@@ -924,17 +913,24 @@ export function WorkspaceScreen() {
   const [inspectorPanelMode, setInspectorPanelMode] = useState<InspectorPanelMode>("hidden");
   const [inspectorTargetId, setInspectorTargetId] = useState<string | undefined>(undefined);
   const [inspectorSnapshot, setInspectorSnapshot] = useState<GraphView["nodes"][number]>();
-  const [inspectorDrawerHeight, setInspectorDrawerHeight] = useState(readStoredInspectorDrawerHeight);
+  const [inspectorDrawerHeight, setInspectorDrawerHeight] = useState(
+    readStoredInspectorDrawerHeight,
+  );
   const [explorerSidebarWidth, setExplorerSidebarWidth] = useState(readStoredExplorerSidebarWidth);
   const [isSavingSource, setIsSavingSource] = useState(false);
   const [createModeState, setCreateModeState] = useState<CreateModeState>("inactive");
-  const [createComposer, setCreateComposer] = useState<GraphCreateComposerState | undefined>(undefined);
+  const [createComposer, setCreateComposer] = useState<GraphCreateComposerState | undefined>(
+    undefined,
+  );
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
-  const [returnExpressionGraphView, setReturnExpressionGraphView] =
-    useState<ReturnExpressionGraphViewState | undefined>(undefined);
+  const [returnExpressionGraphView, setReturnExpressionGraphView] = useState<
+    ReturnExpressionGraphViewState | undefined
+  >(undefined);
   const [isSubmittingExpressionGraph, setIsSubmittingExpressionGraph] = useState(false);
   const [flowDraftState, setFlowDraftState] = useState<FlowDraftState | undefined>(undefined);
-  const [activeWorkspaceFilePath, setActiveWorkspaceFilePath] = useState<string | undefined>(undefined);
+  const [activeWorkspaceFilePath, setActiveWorkspaceFilePath] = useState<string | undefined>(
+    undefined,
+  );
   const [workspaceFileDraft, setWorkspaceFileDraft] = useState("");
   const [workspaceFileStale, setWorkspaceFileStale] = useState(false);
   const [workspaceFileSaveError, setWorkspaceFileSaveError] = useState<string | null>(null);
@@ -951,14 +947,17 @@ export function WorkspaceScreen() {
   const [dismissedPeekNodeId, setDismissedPeekNodeId] = useState<string | undefined>(undefined);
   const [pendingCreatedNodeId, setPendingCreatedNodeId] = useState<string | undefined>(undefined);
   const inspectorDraftContentRef = useRef<string | undefined>(undefined);
-  const saveInspectorDraftRef = useRef<(targetId: string, draftContent: string) => Promise<void>>(async () => {});
+  const saveInspectorDraftRef = useRef<(targetId: string, draftContent: string) => Promise<void>>(
+    async () => {},
+  );
   const createModeContextKeyRef = useRef<string | undefined>(undefined);
   const workspaceFileLoadedKeyRef = useRef<string | undefined>(undefined);
   const [graphPathRevealError, setGraphPathRevealError] = useState<string | null>(null);
   const [backendUndoStack, setBackendUndoStack] = useState<BackendUndoHistoryEntry[]>([]);
   const [backendRedoStack, setBackendRedoStack] = useState<BackendUndoHistoryEntry[]>([]);
-  const [inspectorEditableSourceOverride, setInspectorEditableSourceOverride] =
-    useState<EditableNodeSource | undefined>(undefined);
+  const [inspectorEditableSourceOverride, setInspectorEditableSourceOverride] = useState<
+    EditableNodeSource | undefined
+  >(undefined);
   const [inspectorSourceVersion, setInspectorSourceVersion] = useState(0);
   const repoSession = useUiStore((state) => state.repoSession);
   const graphTargetId = useUiStore((state) => state.graphTargetId);
@@ -1032,10 +1031,7 @@ export function WorkspaceScreen() {
   }, [repoSession?.id]);
 
   useEffect(() => {
-    if (
-      typeof window === "undefined"
-      || typeof window.localStorage?.setItem !== "function"
-    ) {
+    if (typeof window === "undefined" || typeof window.localStorage?.setItem !== "function") {
       return;
     }
 
@@ -1070,10 +1066,7 @@ export function WorkspaceScreen() {
   }, []);
 
   useEffect(() => {
-    if (
-      typeof window === "undefined"
-      || typeof window.localStorage?.setItem !== "function"
-    ) {
+    if (typeof window === "undefined" || typeof window.localStorage?.setItem !== "function") {
       return;
     }
 
@@ -1130,7 +1123,12 @@ export function WorkspaceScreen() {
       if (activeLevel === "flow") {
         return adapter.getFlowView(graphTargetId as string);
       }
-      return adapter.getGraphView(graphTargetId as string, activeLevel, graphFilters, graphSettings);
+      return adapter.getGraphView(
+        graphTargetId as string,
+        activeLevel,
+        graphFilters,
+        graphSettings,
+      );
     },
     enabled: Boolean(repoSession && graphTargetId),
   });
@@ -1142,8 +1140,7 @@ export function WorkspaceScreen() {
   });
   const activeWorkspaceFile = workspaceFileQuery.data;
   const workspaceFileDirty = Boolean(
-    activeWorkspaceFile?.editable
-    && workspaceFileDraft !== activeWorkspaceFile.content,
+    activeWorkspaceFile?.editable && workspaceFileDraft !== activeWorkspaceFile.content,
   );
 
   useEffect(() => {
@@ -1179,9 +1176,9 @@ export function WorkspaceScreen() {
 
   useEffect(() => {
     if (
-      !currentSymbolTargetId
-      || !flowDraftState?.symbolId
-      || currentSymbolTargetId === flowDraftState.symbolId
+      !currentSymbolTargetId ||
+      !flowDraftState?.symbolId ||
+      currentSymbolTargetId === flowDraftState.symbolId
     ) {
       return;
     }
@@ -1210,8 +1207,8 @@ export function WorkspaceScreen() {
       }
 
       if (
-        current.status === "reconcile-pending"
-        && (current.reconcileAfterUpdatedAt ?? 0) >= graphQuery.dataUpdatedAt
+        current.status === "reconcile-pending" &&
+        (current.reconcileAfterUpdatedAt ?? 0) >= graphQuery.dataUpdatedAt
       ) {
         return current;
       }
@@ -1224,10 +1221,10 @@ export function WorkspaceScreen() {
       const nextStatus = current.status === "reconcile-pending" ? "idle" : current.status;
       const nextError = current.status === "reconcile-pending" ? null : current.error;
       if (
-        flowDocumentsEqual(current.baseDocument, flowDraftSeedDocument)
-        && flowDocumentsEqual(current.document, mergedDocument)
-        && current.status === nextStatus
-        && current.error === nextError
+        flowDocumentsEqual(current.baseDocument, flowDraftSeedDocument) &&
+        flowDocumentsEqual(current.document, mergedDocument) &&
+        current.status === nextStatus &&
+        current.error === nextError
       ) {
         return current;
       }
@@ -1243,9 +1240,10 @@ export function WorkspaceScreen() {
     });
   }, [currentFlowSymbolId, flowDraftSeedDocument, graphQuery.dataUpdatedAt]);
 
-  const activeFlowDraft = currentFlowSymbolId && flowDraftState?.symbolId === currentFlowSymbolId
-    ? flowDraftState
-    : undefined;
+  const activeFlowDraft =
+    currentFlowSymbolId && flowDraftState?.symbolId === currentFlowSymbolId
+      ? flowDraftState
+      : undefined;
   const effectiveGraph = useMemo(() => {
     if (activeLevel === "flow" && graphQuery.data && activeFlowDraft) {
       return projectFlowDraftGraph(graphQuery.data, activeFlowDraft.document, flowInputDisplayMode);
@@ -1263,23 +1261,18 @@ export function WorkspaceScreen() {
       return flowDraftSeedDocument;
     }
     return undefined;
-  }, [
-    activeFlowDraft,
-    activeLevel,
-    flowDraftSeedDocument,
-    returnExpressionGraphView,
-  ]);
+  }, [activeFlowDraft, activeLevel, flowDraftSeedDocument, returnExpressionGraphView]);
 
   useEffect(() => {
     if (!returnExpressionGraphView) {
       return;
     }
     const returnNode =
-      activeLevel === "flow" && returnExpressionFlowDocument?.symbolId === returnExpressionGraphView.symbolId
-        ? returnExpressionFlowDocument.nodes.find((node) => (
-          node.id === returnExpressionGraphView.returnNodeId
-          && node.kind === "return"
-        ))
+      activeLevel === "flow" &&
+      returnExpressionFlowDocument?.symbolId === returnExpressionGraphView.symbolId
+        ? returnExpressionFlowDocument.nodes.find(
+            (node) => node.id === returnExpressionGraphView.returnNodeId && node.kind === "return",
+          )
         : undefined;
 
     if (!returnNode) {
@@ -1297,18 +1290,19 @@ export function WorkspaceScreen() {
         return current;
       }
       const selectedExpressionNodeStillExists =
-        current.selectedExpressionNodeId
-        && normalizeExpressionGraphOrEmpty(returnNode.payload.expression_graph as FlowExpressionGraph | undefined)
-          .nodes.some((node) => node.id === current.selectedExpressionNodeId);
+        current.selectedExpressionNodeId &&
+        normalizeExpressionGraphOrEmpty(
+          returnNode.payload.expression_graph as FlowExpressionGraph | undefined,
+        ).nodes.some((node) => node.id === current.selectedExpressionNodeId);
       const nextSelectedExpressionNodeId = selectedExpressionNodeStillExists
         ? current.selectedExpressionNodeId
         : undefined;
       if (
-        current.draftGraph === undefined
-        && current.draftExpression === undefined
-        && current.diagnostics.length === 0
-        && current.error === null
-        && current.selectedExpressionNodeId === nextSelectedExpressionNodeId
+        current.draftGraph === undefined &&
+        current.draftExpression === undefined &&
+        current.diagnostics.length === 0 &&
+        current.error === null &&
+        current.selectedExpressionNodeId === nextSelectedExpressionNodeId
       ) {
         return current;
       }
@@ -1323,28 +1317,32 @@ export function WorkspaceScreen() {
     });
   }, [activeLevel, returnExpressionFlowDocument, returnExpressionGraphView]);
 
-  const returnExpressionGraphViewNode = useMemo(() => (
-    returnExpressionGraphView && returnExpressionFlowDocument
-      ? returnExpressionFlowDocument.nodes.find((node) => (
-        node.id === returnExpressionGraphView.returnNodeId
-        && node.kind === "return"
-      ))
-      : undefined
-  ), [returnExpressionFlowDocument, returnExpressionGraphView]);
+  const returnExpressionGraphViewNode = useMemo(
+    () =>
+      returnExpressionGraphView && returnExpressionFlowDocument
+        ? returnExpressionFlowDocument.nodes.find(
+            (node) => node.id === returnExpressionGraphView.returnNodeId && node.kind === "return",
+          )
+        : undefined,
+    [returnExpressionFlowDocument, returnExpressionGraphView],
+  );
   const returnExpressionGraphViewInputSlots = useMemo<FlowInputSlot[]>(() => {
     if (!returnExpressionGraphView || !returnExpressionFlowDocument) {
       return [];
     }
-    return (returnExpressionFlowDocument.inputSlots ?? [])
-      .filter((slot) => slot.nodeId === returnExpressionGraphView.returnNodeId);
+    return (returnExpressionFlowDocument.inputSlots ?? []).filter(
+      (slot) => slot.nodeId === returnExpressionGraphView.returnNodeId,
+    );
   }, [returnExpressionFlowDocument, returnExpressionGraphView]);
   const returnExpressionGraphViewGraph = useMemo(() => {
     if (!returnExpressionGraphView) {
       return EMPTY_EXPRESSION_GRAPH;
     }
     return normalizeExpressionGraphOrEmpty(
-      returnExpressionGraphView.draftGraph
-      ?? (returnExpressionGraphViewNode?.payload.expression_graph as FlowExpressionGraph | undefined),
+      returnExpressionGraphView.draftGraph ??
+        (returnExpressionGraphViewNode?.payload.expression_graph as
+          | FlowExpressionGraph
+          | undefined),
     );
   }, [returnExpressionGraphView, returnExpressionGraphViewNode?.payload.expression_graph]);
   const returnExpressionGraphViewExpression = useMemo(() => {
@@ -1381,9 +1379,10 @@ export function WorkspaceScreen() {
     return undefined;
   }, [selectedGraphNode]);
   const currentModuleBreadcrumb = useMemo(
-    () => [...(effectiveGraph?.breadcrumbs ?? [])]
-      .reverse()
-      .find((breadcrumb) => breadcrumb.level === "module"),
+    () =>
+      [...(effectiveGraph?.breadcrumbs ?? [])]
+        .reverse()
+        .find((breadcrumb) => breadcrumb.level === "module"),
     [effectiveGraph?.breadcrumbs],
   );
   const currentModulePath = currentModuleBreadcrumb?.subtitle ?? undefined;
@@ -1392,7 +1391,9 @@ export function WorkspaceScreen() {
     if (!moduleBreadcrumbId) {
       return undefined;
     }
-    return effectiveGraph?.nodes.find((node) => node.id === moduleBreadcrumbId && node.kind === "module");
+    return effectiveGraph?.nodes.find(
+      (node) => node.id === moduleBreadcrumbId && node.kind === "module",
+    );
   }, [currentModuleBreadcrumb?.nodeId, effectiveGraph]);
   const narrowWorkspaceLayout = workspaceLayoutWidth <= 920;
   const clampedExplorerSidebarWidth = useMemo(
@@ -1440,21 +1441,18 @@ export function WorkspaceScreen() {
 
   const inspectorNode = useMemo(() => {
     if (inspectorTargetId) {
-      return effectiveGraph?.nodes.find((node) => node.id === inspectorTargetId) ?? inspectorSnapshot;
+      return (
+        effectiveGraph?.nodes.find((node) => node.id === inspectorTargetId) ?? inspectorSnapshot
+      );
     }
     if (inspectorPanelMode !== "hidden" && selectedGraphNode) {
       return selectedGraphNode;
     }
     return undefined;
   }, [effectiveGraph, inspectorPanelMode, inspectorSnapshot, inspectorTargetId, selectedGraphNode]);
-  const inspectorSelectionNode =
-    inspectorPanelMode !== "hidden" ? selectedGraphNode : undefined;
+  const inspectorSelectionNode = inspectorPanelMode !== "hidden" ? selectedGraphNode : undefined;
   const inspectorSourceTarget = useMemo(() => {
-    const pinnedTarget = inspectorSourceTargetForId(
-      inspectorTargetId,
-      "pinned",
-      inspectorNode,
-    );
+    const pinnedTarget = inspectorSourceTargetForId(inspectorTargetId, "pinned", inspectorNode);
     if (pinnedTarget) {
       return pinnedTarget;
     }
@@ -1479,8 +1477,8 @@ export function WorkspaceScreen() {
 
     if (activeLevel === "module") {
       const moduleContextTarget =
-        inspectorSourceTargetForNode(currentModuleNode, "module-context")
-        ?? inspectorSourceTargetForId(graphTargetId, "module-context", currentModuleNode);
+        inspectorSourceTargetForNode(currentModuleNode, "module-context") ??
+        inspectorSourceTargetForId(graphTargetId, "module-context", currentModuleNode);
       if (moduleContextTarget) {
         return moduleContextTarget;
       }
@@ -1496,8 +1494,8 @@ export function WorkspaceScreen() {
     selectedGraphNode,
   ]);
   const inspectorSymbolTargetId =
-    inspectorSourceTarget?.fetchMode === "editable"
-    && inspectorSourceTarget.targetId.startsWith("symbol:")
+    inspectorSourceTarget?.fetchMode === "editable" &&
+    inspectorSourceTarget.targetId.startsWith("symbol:")
       ? inspectorSourceTarget.targetId
       : undefined;
   const symbolQuery = useQuery({
@@ -1548,13 +1546,16 @@ export function WorkspaceScreen() {
       ? inspectorEditableSourceOverride
       : editableSourceQuery.data;
   const inspectorSourcePath =
-    effectiveEditableSource?.path
-    ?? graphNodeRelativePath(inspectorSourceTarget?.node?.metadata, inspectorSourceTarget?.node?.subtitle);
+    effectiveEditableSource?.path ??
+    graphNodeRelativePath(
+      inspectorSourceTarget?.node?.metadata,
+      inspectorSourceTarget?.node?.subtitle,
+    );
 
   useEffect(() => {
     if (
-      inspectorEditableSourceOverride
-      && inspectorEditableSourceOverride.targetId !== inspectorSourceTarget?.targetId
+      inspectorEditableSourceOverride &&
+      inspectorEditableSourceOverride.targetId !== inspectorSourceTarget?.targetId
     ) {
       setInspectorEditableSourceOverride(undefined);
     }
@@ -1575,95 +1576,99 @@ export function WorkspaceScreen() {
 
     const currentDraft = inspectorDraftContentRef.current;
     if (
-      effectiveEditableSource?.content !== undefined
-      && currentDraft !== undefined
-      && currentDraft === effectiveEditableSource.content
+      effectiveEditableSource?.content !== undefined &&
+      currentDraft !== undefined &&
+      currentDraft === effectiveEditableSource.content
     ) {
       setInspectorDraftStale(false);
     }
   }, [effectiveEditableSource?.content, effectiveEditableSource?.targetId, inspectorDirty]);
 
-  useEffect(() => adapter.subscribeWorkspaceSync((event) => {
-    if (!repoSession?.path || event.repoPath !== repoSession.path) {
-      return;
-    }
-
-    const matchingSnapshot = event.snapshot;
-    const liveNodeIds = new Set(matchingSnapshot?.nodeIds ?? []);
-    const sameFileChanged = Boolean(
-      inspectorDirty
-      && inspectorSourcePath
-      && event.changedRelativePaths.includes(inspectorSourcePath),
-    );
-    if (sameFileChanged) {
-      setInspectorDraftStale(true);
-    }
-    const activeWorkspaceFileChanged = Boolean(
-      activeWorkspaceFilePath
-      && event.changedRelativePaths.includes(activeWorkspaceFilePath),
-    );
-    if (activeWorkspaceFileChanged && workspaceFileDirty) {
-      setWorkspaceFileStale(true);
-    }
-
-    if (event.status === "synced" && matchingSnapshot) {
-      if (activeNodeId && !liveNodeIds.has(activeNodeId)) {
-        selectNode(undefined);
-      }
-
-      if (graphTargetId && !liveNodeIds.has(graphTargetId)) {
-        const fallbackBreadcrumb = [...(effectiveGraph?.breadcrumbs ?? [])]
-          .reverse()
-          .find((breadcrumb) => breadcrumb.nodeId !== graphTargetId && liveNodeIds.has(breadcrumb.nodeId));
-        if (fallbackBreadcrumb) {
-          focusGraph(fallbackBreadcrumb.nodeId, fallbackBreadcrumb.level);
-        } else if (liveNodeIds.has(matchingSnapshot.defaultFocusNodeId)) {
-          focusGraph(matchingSnapshot.defaultFocusNodeId, matchingSnapshot.defaultLevel);
-        } else {
-          focusGraph(matchingSnapshot.repoId, "repo");
+  useEffect(
+    () =>
+      adapter.subscribeWorkspaceSync((event) => {
+        if (!repoSession?.path || event.repoPath !== repoSession.path) {
+          return;
         }
-      }
 
-      if (inspectorTargetId && !liveNodeIds.has(inspectorTargetId) && !sameFileChanged) {
-        setInspectorTargetId(undefined);
-        setInspectorSnapshot(undefined);
-        setInspectorEditableSourceOverride(undefined);
-      }
-    }
+        const matchingSnapshot = event.snapshot;
+        const liveNodeIds = new Set(matchingSnapshot?.nodeIds ?? []);
+        const sameFileChanged = Boolean(
+          inspectorDirty &&
+          inspectorSourcePath &&
+          event.changedRelativePaths.includes(inspectorSourcePath),
+        );
+        if (sameFileChanged) {
+          setInspectorDraftStale(true);
+        }
+        const activeWorkspaceFileChanged = Boolean(
+          activeWorkspaceFilePath && event.changedRelativePaths.includes(activeWorkspaceFilePath),
+        );
+        if (activeWorkspaceFileChanged && workspaceFileDirty) {
+          setWorkspaceFileStale(true);
+        }
 
-    const invalidations = [
-      queryClient.invalidateQueries({ queryKey: ["backend-status"] }),
-    ];
-    const shouldRefreshWorkspaceData =
-      event.status !== "syncing" || Boolean(event.snapshot) || event.needsManualResync;
-    if (shouldRefreshWorkspaceData) {
-      invalidations.push(
-        queryClient.invalidateQueries({ queryKey: ["overview"] }),
-        queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
-        queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
-        queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
-        queryClient.invalidateQueries({ queryKey: ["symbol"] }),
-        queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
-        queryClient.invalidateQueries({ queryKey: ["editable-node-source"] }),
-      );
-    }
+        if (event.status === "synced" && matchingSnapshot) {
+          if (activeNodeId && !liveNodeIds.has(activeNodeId)) {
+            selectNode(undefined);
+          }
 
-    void Promise.all(invalidations);
-  }), [
-    activeNodeId,
-    activeWorkspaceFilePath,
-    adapter,
-    focusGraph,
-    effectiveGraph?.breadcrumbs,
-    graphTargetId,
-    inspectorDirty,
-    inspectorSourcePath,
-    inspectorTargetId,
-    queryClient,
-    repoSession?.path,
-    selectNode,
-    workspaceFileDirty,
-  ]);
+          if (graphTargetId && !liveNodeIds.has(graphTargetId)) {
+            const fallbackBreadcrumb = [...(effectiveGraph?.breadcrumbs ?? [])]
+              .reverse()
+              .find(
+                (breadcrumb) =>
+                  breadcrumb.nodeId !== graphTargetId && liveNodeIds.has(breadcrumb.nodeId),
+              );
+            if (fallbackBreadcrumb) {
+              focusGraph(fallbackBreadcrumb.nodeId, fallbackBreadcrumb.level);
+            } else if (liveNodeIds.has(matchingSnapshot.defaultFocusNodeId)) {
+              focusGraph(matchingSnapshot.defaultFocusNodeId, matchingSnapshot.defaultLevel);
+            } else {
+              focusGraph(matchingSnapshot.repoId, "repo");
+            }
+          }
+
+          if (inspectorTargetId && !liveNodeIds.has(inspectorTargetId) && !sameFileChanged) {
+            setInspectorTargetId(undefined);
+            setInspectorSnapshot(undefined);
+            setInspectorEditableSourceOverride(undefined);
+          }
+        }
+
+        const invalidations = [queryClient.invalidateQueries({ queryKey: ["backend-status"] })];
+        const shouldRefreshWorkspaceData =
+          event.status !== "syncing" || Boolean(event.snapshot) || event.needsManualResync;
+        if (shouldRefreshWorkspaceData) {
+          invalidations.push(
+            queryClient.invalidateQueries({ queryKey: ["overview"] }),
+            queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
+            queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
+            queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
+            queryClient.invalidateQueries({ queryKey: ["symbol"] }),
+            queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
+            queryClient.invalidateQueries({ queryKey: ["editable-node-source"] }),
+          );
+        }
+
+        void Promise.all(invalidations);
+      }),
+    [
+      activeNodeId,
+      activeWorkspaceFilePath,
+      adapter,
+      focusGraph,
+      effectiveGraph?.breadcrumbs,
+      graphTargetId,
+      inspectorDirty,
+      inspectorSourcePath,
+      inspectorTargetId,
+      queryClient,
+      repoSession?.path,
+      selectNode,
+      workspaceFileDirty,
+    ],
+  );
 
   const selectSidebarResult = (result: SearchResult) => {
     setActiveWorkspaceFilePath(undefined);
@@ -1692,152 +1697,162 @@ export function WorkspaceScreen() {
     workspaceFileLoadedKeyRef.current = undefined;
   }, []);
 
-  const createWorkspaceEntry = useCallback(async (request: WorkspaceFileMutationRequest) => {
-    if (!repoSession) {
-      throw new Error("Open a repository before creating files.");
-    }
+  const createWorkspaceEntry = useCallback(
+    async (request: WorkspaceFileMutationRequest) => {
+      if (!repoSession) {
+        throw new Error("Open a repository before creating files.");
+      }
 
-    const result = await adapter.createWorkspaceEntry(repoSession.path, request);
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
-      queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
-      queryClient.invalidateQueries({ queryKey: ["overview"] }),
-      queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
-      queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
-    ]);
+      const result = await adapter.createWorkspaceEntry(repoSession.path, request);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
+        queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
+        queryClient.invalidateQueries({ queryKey: ["overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
+        queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
+      ]);
 
-    if (result.kind === "file") {
-      if (result.relativePath.endsWith(".py")) {
+      if (result.kind === "file") {
+        if (result.relativePath.endsWith(".py")) {
+          focusGraph(moduleIdFromRelativePath(result.relativePath), "module");
+          setActiveWorkspaceFilePath(undefined);
+        } else {
+          selectWorkspaceFile(result.relativePath);
+        }
+      }
+    },
+    [adapter, focusGraph, queryClient, repoSession, selectWorkspaceFile],
+  );
+
+  const moveWorkspaceEntry = useCallback(
+    async (request: WorkspaceFileMoveRequest) => {
+      if (!repoSession) {
+        throw new Error("Open a repository before moving files.");
+      }
+
+      const targetRelativePath = request.targetDirectoryRelativePath
+        ? `${request.targetDirectoryRelativePath}/${request.sourceRelativePath.split("/").pop() ?? request.sourceRelativePath}`
+        : (request.sourceRelativePath.split("/").pop() ?? request.sourceRelativePath);
+      const movedActiveFilePath = movedWorkspaceRelativePath(
+        activeWorkspaceFilePath,
+        request.sourceRelativePath,
+        targetRelativePath,
+      );
+      if (movedActiveFilePath && workspaceFileDirty) {
+        throw new Error("Save or cancel the open file before moving it.");
+      }
+
+      const result = await adapter.moveWorkspaceEntry(repoSession.path, request);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
+        queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
+        queryClient.invalidateQueries({ queryKey: ["overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
+        queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
+      ]);
+
+      if (movedActiveFilePath) {
+        if (movedActiveFilePath.endsWith(".py")) {
+          setActiveWorkspaceFilePath(undefined);
+          focusGraph(moduleIdFromRelativePath(movedActiveFilePath), "module");
+        } else {
+          selectWorkspaceFile(movedActiveFilePath);
+        }
+        return;
+      }
+
+      if (result.kind === "file" && result.relativePath.endsWith(".py")) {
         focusGraph(moduleIdFromRelativePath(result.relativePath), "module");
-        setActiveWorkspaceFilePath(undefined);
-      } else {
-        selectWorkspaceFile(result.relativePath);
       }
-    }
-  }, [adapter, focusGraph, queryClient, repoSession, selectWorkspaceFile]);
-
-  const moveWorkspaceEntry = useCallback(async (request: WorkspaceFileMoveRequest) => {
-    if (!repoSession) {
-      throw new Error("Open a repository before moving files.");
-    }
-
-    const targetRelativePath = request.targetDirectoryRelativePath
-      ? `${request.targetDirectoryRelativePath}/${request.sourceRelativePath.split("/").pop() ?? request.sourceRelativePath}`
-      : request.sourceRelativePath.split("/").pop() ?? request.sourceRelativePath;
-    const movedActiveFilePath = movedWorkspaceRelativePath(
+    },
+    [
       activeWorkspaceFilePath,
-      request.sourceRelativePath,
-      targetRelativePath,
-    );
-    if (movedActiveFilePath && workspaceFileDirty) {
-      throw new Error("Save or cancel the open file before moving it.");
-    }
+      adapter,
+      focusGraph,
+      queryClient,
+      repoSession,
+      selectWorkspaceFile,
+      workspaceFileDirty,
+    ],
+  );
 
-    const result = await adapter.moveWorkspaceEntry(repoSession.path, request);
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
-      queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
-      queryClient.invalidateQueries({ queryKey: ["overview"] }),
-      queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
-      queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
-    ]);
+  const deleteWorkspaceEntry = useCallback(
+    async (request: WorkspaceFileDeleteRequest) => {
+      if (!repoSession) {
+        throw new Error("Open a repository before deleting files.");
+      }
 
-    if (movedActiveFilePath) {
-      if (movedActiveFilePath.endsWith(".py")) {
+      const deletingOpenFile = isWorkspacePathAtOrBelow(
+        activeWorkspaceFilePath,
+        request.relativePath,
+      );
+      if (deletingOpenFile && workspaceFileDirty) {
+        throw new Error("Save or cancel the open file before deleting it.");
+      }
+
+      const confirmed = await confirmFlowRemoval(
+        `Delete ${request.relativePath}? This cannot be undone from H.E.L.M.`,
+        {
+          okLabel: "Delete",
+          title: "Delete Workspace Entry",
+        },
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      const deletingActiveGraphPath =
+        isWorkspacePathAtOrBelow(selectedFilePath, request.relativePath) ||
+        isWorkspacePathAtOrBelow(currentModulePath, request.relativePath) ||
+        isWorkspacePathAtOrBelow(inspectorSourcePath, request.relativePath);
+
+      const deletedOpenFilePath = deletingOpenFile ? activeWorkspaceFilePath : undefined;
+      const result = await adapter.deleteWorkspaceEntry(repoSession.path, request);
+      if (deletingOpenFile) {
         setActiveWorkspaceFilePath(undefined);
-        focusGraph(moduleIdFromRelativePath(movedActiveFilePath), "module");
-      } else {
-        selectWorkspaceFile(movedActiveFilePath);
+        setWorkspaceFileDraft("");
+        setWorkspaceFileStale(false);
+        setWorkspaceFileSaveError(null);
+        workspaceFileLoadedKeyRef.current = undefined;
+        if (deletedOpenFilePath) {
+          queryClient.removeQueries({
+            queryKey: ["workspace-file", repoSession.id, deletedOpenFilePath],
+            exact: true,
+          });
+        }
       }
-      return;
-    }
 
-    if (result.kind === "file" && result.relativePath.endsWith(".py")) {
-      focusGraph(moduleIdFromRelativePath(result.relativePath), "module");
-    }
-  }, [
-    activeWorkspaceFilePath,
-    adapter,
-    focusGraph,
-    queryClient,
-    repoSession,
-    selectWorkspaceFile,
-    workspaceFileDirty,
-  ]);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
+        deletingOpenFile
+          ? Promise.resolve()
+          : queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
+        queryClient.invalidateQueries({ queryKey: ["overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
+        queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
+      ]);
 
-  const deleteWorkspaceEntry = useCallback(async (request: WorkspaceFileDeleteRequest) => {
-    if (!repoSession) {
-      throw new Error("Open a repository before deleting files.");
-    }
-
-    const deletingOpenFile = isWorkspacePathAtOrBelow(
+      if (
+        deletingActiveGraphPath ||
+        result.changedRelativePaths.some(
+          (path) => path.endsWith(".py") && path === currentModulePath,
+        )
+      ) {
+        focusGraph(repoSession.id, "repo");
+      }
+    },
+    [
       activeWorkspaceFilePath,
-      request.relativePath,
-    );
-    if (deletingOpenFile && workspaceFileDirty) {
-      throw new Error("Save or cancel the open file before deleting it.");
-    }
-
-    const confirmed = await confirmFlowRemoval(
-      `Delete ${request.relativePath}? This cannot be undone from H.E.L.M.`,
-      {
-        okLabel: "Delete",
-        title: "Delete Workspace Entry",
-      },
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    const deletingActiveGraphPath = (
-      isWorkspacePathAtOrBelow(selectedFilePath, request.relativePath)
-      || isWorkspacePathAtOrBelow(currentModulePath, request.relativePath)
-      || isWorkspacePathAtOrBelow(inspectorSourcePath, request.relativePath)
-    );
-
-    const deletedOpenFilePath = deletingOpenFile ? activeWorkspaceFilePath : undefined;
-    const result = await adapter.deleteWorkspaceEntry(repoSession.path, request);
-    if (deletingOpenFile) {
-      setActiveWorkspaceFilePath(undefined);
-      setWorkspaceFileDraft("");
-      setWorkspaceFileStale(false);
-      setWorkspaceFileSaveError(null);
-      workspaceFileLoadedKeyRef.current = undefined;
-      if (deletedOpenFilePath) {
-        queryClient.removeQueries({
-          queryKey: ["workspace-file", repoSession.id, deletedOpenFilePath],
-          exact: true,
-        });
-      }
-    }
-
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
-      deletingOpenFile
-        ? Promise.resolve()
-        : queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
-      queryClient.invalidateQueries({ queryKey: ["overview"] }),
-      queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
-      queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
-    ]);
-
-    if (
-      deletingActiveGraphPath
-      || result.changedRelativePaths.some((path) => path.endsWith(".py") && path === currentModulePath)
-    ) {
-      focusGraph(repoSession.id, "repo");
-    }
-  }, [
-    activeWorkspaceFilePath,
-    adapter,
-    currentModulePath,
-    focusGraph,
-    inspectorSourcePath,
-    queryClient,
-    repoSession,
-    selectedFilePath,
-    workspaceFileDirty,
-  ]);
+      adapter,
+      currentModulePath,
+      focusGraph,
+      inspectorSourcePath,
+      queryClient,
+      repoSession,
+      selectedFilePath,
+      workspaceFileDirty,
+    ],
+  );
 
   const saveWorkspaceFile = useCallback(async () => {
     if (!repoSession || !activeWorkspaceFile) {
@@ -1921,9 +1936,9 @@ export function WorkspaceScreen() {
     }
 
     if (
-      inspectorPanelMode !== "hidden"
-      && activeLevel !== "flow"
-      && (isEnterableGraphNodeKind(kind) || isInspectableGraphNodeKind(kind))
+      inspectorPanelMode !== "hidden" &&
+      activeLevel !== "flow" &&
+      (isEnterableGraphNodeKind(kind) || isInspectableGraphNodeKind(kind))
     ) {
       const node = effectiveGraph?.nodes.find((candidate) => candidate.id === nodeId);
       if (node) {
@@ -1933,54 +1948,60 @@ export function WorkspaceScreen() {
     }
   };
 
-  const handleGraphActivateNode = useCallback((nodeId: string, kind: GraphNodeKind) => {
-    selectNode(nodeId);
-    const node = effectiveGraph?.nodes.find((candidate) => candidate.id === nodeId);
+  const handleGraphActivateNode = useCallback(
+    (nodeId: string, kind: GraphNodeKind) => {
+      selectNode(nodeId);
+      const node = effectiveGraph?.nodes.find((candidate) => candidate.id === nodeId);
 
-    if (isEnterableGraphNodeKind(kind)) {
-      setRevealedSource(undefined);
-      if (kind === "repo") {
-        focusGraph(nodeId, "repo");
+      if (isEnterableGraphNodeKind(kind)) {
+        setRevealedSource(undefined);
+        if (kind === "repo") {
+          focusGraph(nodeId, "repo");
+          return;
+        }
+        if (kind === "module") {
+          focusGraph(nodeId, "module");
+          return;
+        }
+        focusGraph(nodeId, "symbol");
         return;
       }
-      if (kind === "module") {
-        focusGraph(nodeId, "module");
+
+      if (isInspectableGraphNodeKind(kind)) {
+        if (node) {
+          setInspectorSnapshot(node);
+        }
+        setDismissedPeekNodeId(undefined);
+        setInspectorTargetId(nodeId);
+        setInspectorPanelMode("expanded");
+      }
+    },
+    [effectiveGraph, focusGraph, selectNode, setRevealedSource],
+  );
+
+  const handleGraphInspectNode = useCallback(
+    (nodeId: string, kind: GraphNodeKind) => {
+      if (!isInspectableGraphNodeKind(kind)) {
         return;
       }
-      focusGraph(nodeId, "symbol");
-      return;
-    }
 
-    if (isInspectableGraphNodeKind(kind)) {
+      selectNode(nodeId);
+      if (activeLevel === "flow" && inspectorPanelMode !== "hidden") {
+        setDismissedPeekNodeId(undefined);
+        setInspectorPanelMode("expanded");
+        return;
+      }
+
+      const node = effectiveGraph?.nodes.find((candidate) => candidate.id === nodeId);
       if (node) {
         setInspectorSnapshot(node);
       }
       setDismissedPeekNodeId(undefined);
       setInspectorTargetId(nodeId);
       setInspectorPanelMode("expanded");
-    }
-  }, [effectiveGraph, focusGraph, selectNode, setRevealedSource]);
-
-  const handleGraphInspectNode = useCallback((nodeId: string, kind: GraphNodeKind) => {
-    if (!isInspectableGraphNodeKind(kind)) {
-      return;
-    }
-
-    selectNode(nodeId);
-    if (activeLevel === "flow" && inspectorPanelMode !== "hidden") {
-      setDismissedPeekNodeId(undefined);
-      setInspectorPanelMode("expanded");
-      return;
-    }
-
-    const node = effectiveGraph?.nodes.find((candidate) => candidate.id === nodeId);
-    if (node) {
-      setInspectorSnapshot(node);
-    }
-    setDismissedPeekNodeId(undefined);
-    setInspectorTargetId(nodeId);
-    setInspectorPanelMode("expanded");
-  }, [activeLevel, effectiveGraph, inspectorPanelMode, selectNode]);
+    },
+    [activeLevel, effectiveGraph, inspectorPanelMode, selectNode],
+  );
 
   const handleSelectBreadcrumb = (breadcrumb: GraphBreadcrumbDto) => {
     if (breadcrumb.level === "flow") {
@@ -2040,8 +2061,9 @@ export function WorkspaceScreen() {
     }
 
     if (activeLevel === "flow") {
-      const symbolTarget =
-        graphTargetId?.startsWith("symbol:") ? graphTargetId : activeGraphSymbolId;
+      const symbolTarget = graphTargetId?.startsWith("symbol:")
+        ? graphTargetId
+        : activeGraphSymbolId;
       if (symbolTarget) {
         focusGraph(symbolTarget, "symbol");
       }
@@ -2049,11 +2071,12 @@ export function WorkspaceScreen() {
     }
 
     if (activeLevel === "symbol") {
-      const symbolTarget =
-        graphTargetId?.startsWith("symbol:") ? graphTargetId : activeGraphSymbolId;
+      const symbolTarget = graphTargetId?.startsWith("symbol:")
+        ? graphTargetId
+        : activeGraphSymbolId;
       const moduleTarget =
-        (symbolTarget ? moduleIdFromSymbolId(symbolTarget) : undefined)
-        ?? [...(effectiveGraph?.breadcrumbs ?? [])]
+        (symbolTarget ? moduleIdFromSymbolId(symbolTarget) : undefined) ??
+        [...(effectiveGraph?.breadcrumbs ?? [])]
           .reverse()
           .find((breadcrumb) => breadcrumb.level === "module")?.nodeId;
       if (moduleTarget) {
@@ -2129,7 +2152,11 @@ export function WorkspaceScreen() {
         ? symbolIdForModuleAndName(moduleTarget, request.newName)
         : undefined;
       if (renamedSymbolTarget) {
-        nextFocusTarget = { targetId: renamedSymbolTarget, level: "symbol", pinInspectorTarget: true };
+        nextFocusTarget = {
+          targetId: renamedSymbolTarget,
+          level: "symbol",
+          pinInspectorTarget: true,
+        };
       }
     } else if (request.kind === "delete_symbol" && request.targetId) {
       const moduleTarget = moduleIdFromSymbolId(request.targetId);
@@ -2143,8 +2170,8 @@ export function WorkspaceScreen() {
         pinInspectorTarget: true,
       };
     } else if (
-      (request.kind === "add_import" || request.kind === "remove_import")
-      && request.relativePath
+      (request.kind === "add_import" || request.kind === "remove_import") &&
+      request.relativePath
     ) {
       nextFocusTarget = {
         targetId: moduleIdFromRelativePath(request.relativePath),
@@ -2169,7 +2196,9 @@ export function WorkspaceScreen() {
     if (nextFocusTarget) {
       setDismissedPeekNodeId(undefined);
       setInspectorSnapshot(undefined);
-      setInspectorTargetId(nextFocusTarget.pinInspectorTarget ? nextFocusTarget.targetId : undefined);
+      setInspectorTargetId(
+        nextFocusTarget.pinInspectorTarget ? nextFocusTarget.targetId : undefined,
+      );
       focusGraph(nextFocusTarget.targetId, nextFocusTarget.level);
       return result;
     }
@@ -2179,72 +2208,80 @@ export function WorkspaceScreen() {
     return result;
   };
 
-  const handleDeleteSymbolNode = useCallback((nodeId: string) => {
-    const node = effectiveGraph?.nodes.find((candidate) => candidate.id === nodeId);
-    if (!node || !isGraphSymbolNodeKind(node.kind)) {
-      return;
-    }
+  const handleDeleteSymbolNode = useCallback(
+    (nodeId: string) => {
+      const node = effectiveGraph?.nodes.find((candidate) => candidate.id === nodeId);
+      if (!node || !isGraphSymbolNodeKind(node.kind)) {
+        return;
+      }
 
-    const deleteAction = node.availableActions.find((action) => action.actionId === "delete_symbol");
-    if (!deleteAction?.enabled) {
-      setInspectorTargetId(node.id);
-      setInspectorSnapshot(node);
-      setInspectorPanelMode("expanded");
-      setInspectorActionError(deleteAction?.reason ?? "This symbol cannot be deleted from the graph.");
-      return;
-    }
-
-    if (isSavingSource || inspectorDraftStale || inspectorDirty) {
-      setInspectorTargetId(node.id);
-      setInspectorSnapshot(node);
-      setInspectorPanelMode("expanded");
-      setInspectorActionError("Save or cancel inline source edits before deleting a symbol.");
-      return;
-    }
-
-    if (!window.confirm(`Delete ${node.label}? This removes the declaration from the current module.`)) {
-      return;
-    }
-
-    setInspectorActionError(null);
-    void handleApplyEdit({
-      kind: "delete_symbol",
-      targetId: node.id,
-    }).catch((reason) => {
-      setInspectorTargetId(node.id);
-      setInspectorSnapshot(node);
-      setInspectorPanelMode("expanded");
-      setInspectorActionError(
-        reason instanceof Error ? reason.message : "Unable to delete the selected symbol.",
+      const deleteAction = node.availableActions.find(
+        (action) => action.actionId === "delete_symbol",
       );
-    });
-  }, [
-    effectiveGraph,
-    handleApplyEdit,
-    inspectorDirty,
-    inspectorDraftStale,
-    isSavingSource,
-  ]);
+      if (!deleteAction?.enabled) {
+        setInspectorTargetId(node.id);
+        setInspectorSnapshot(node);
+        setInspectorPanelMode("expanded");
+        setInspectorActionError(
+          deleteAction?.reason ?? "This symbol cannot be deleted from the graph.",
+        );
+        return;
+      }
 
-  const refreshWorkspaceData = useCallback(async (editableTargetId?: string) => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["overview"] }),
-      queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
-      queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
-      queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
-      queryClient.invalidateQueries({ queryKey: ["symbol"] }),
-      queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
-      queryClient.invalidateQueries({ queryKey: ["editable-node-source"] }),
-    ]);
+      if (isSavingSource || inspectorDraftStale || inspectorDirty) {
+        setInspectorTargetId(node.id);
+        setInspectorSnapshot(node);
+        setInspectorPanelMode("expanded");
+        setInspectorActionError("Save or cancel inline source edits before deleting a symbol.");
+        return;
+      }
 
-    if (editableTargetId) {
-      return queryClient.fetchQuery({
-        queryKey: ["editable-node-source", repoSession?.id, "editable", editableTargetId],
-        queryFn: () => adapter.getEditableNodeSource(editableTargetId),
+      if (
+        !window.confirm(
+          `Delete ${node.label}? This removes the declaration from the current module.`,
+        )
+      ) {
+        return;
+      }
+
+      setInspectorActionError(null);
+      void handleApplyEdit({
+        kind: "delete_symbol",
+        targetId: node.id,
+      }).catch((reason) => {
+        setInspectorTargetId(node.id);
+        setInspectorSnapshot(node);
+        setInspectorPanelMode("expanded");
+        setInspectorActionError(
+          reason instanceof Error ? reason.message : "Unable to delete the selected symbol.",
+        );
       });
-    }
-    return undefined;
-  }, [adapter, queryClient, repoSession?.id]);
+    },
+    [effectiveGraph, handleApplyEdit, inspectorDirty, inspectorDraftStale, isSavingSource],
+  );
+
+  const refreshWorkspaceData = useCallback(
+    async (editableTargetId?: string) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
+        queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
+        queryClient.invalidateQueries({ queryKey: ["graph-view"] }),
+        queryClient.invalidateQueries({ queryKey: ["symbol"] }),
+        queryClient.invalidateQueries({ queryKey: ["workspace-search"] }),
+        queryClient.invalidateQueries({ queryKey: ["editable-node-source"] }),
+      ]);
+
+      if (editableTargetId) {
+        return queryClient.fetchQuery({
+          queryKey: ["editable-node-source", repoSession?.id, "editable", editableTargetId],
+          queryFn: () => adapter.getEditableNodeSource(editableTargetId),
+        });
+      }
+      return undefined;
+    },
+    [adapter, queryClient, repoSession?.id],
+  );
 
   const handleSaveNodeSource = async (targetId: string, content: string) => {
     if (inspectorDraftStale) {
@@ -2266,11 +2303,11 @@ export function WorkspaceScreen() {
               domain: "backend",
               summary: result.summary,
               createdAt: Date.now(),
+            },
           },
-        },
-      ]);
-      setBackendRedoStack([]);
-    }
+        ]);
+        setBackendRedoStack([]);
+      }
       setDismissedPeekNodeId(undefined);
       setInspectorPanelMode("expanded");
       setLastEdit(result);
@@ -2288,161 +2325,165 @@ export function WorkspaceScreen() {
     }
   };
 
-  useEffect(() => useUndoStore.getState().registerDomain("backend", {
-    canUndo: () => backendUndoStack.length > 0,
-    canRedo: () => backendRedoStack.length > 0,
-    peekEntry: () => backendUndoStack[backendUndoStack.length - 1]?.entry,
-    peekRedoEntry: () => backendRedoStack[backendRedoStack.length - 1]?.entry,
-    undo: async () => {
-      const undoEntry = backendUndoStack[backendUndoStack.length - 1];
-      if (!undoEntry) {
-        return {
-          domain: "backend" as const,
-          handled: false,
-        };
-      }
+  useEffect(
+    () =>
+      useUndoStore.getState().registerDomain("backend", {
+        canUndo: () => backendUndoStack.length > 0,
+        canRedo: () => backendRedoStack.length > 0,
+        peekEntry: () => backendUndoStack[backendUndoStack.length - 1]?.entry,
+        peekRedoEntry: () => backendRedoStack[backendRedoStack.length - 1]?.entry,
+        undo: async () => {
+          const undoEntry = backendUndoStack[backendUndoStack.length - 1];
+          if (!undoEntry) {
+            return {
+              domain: "backend" as const,
+              handled: false,
+            };
+          }
 
-      try {
-        const result = await adapter.applyBackendUndo(undoEntry.transaction);
-        setBackendUndoStack((current) => current.slice(0, -1));
-        const redoTransaction = result.redoTransaction;
-        if (redoTransaction) {
-          setBackendRedoStack((current) => [
-            ...current,
-            {
-              transaction: redoTransaction,
-              entry: {
-                ...undoEntry.entry,
-                createdAt: Date.now(),
-              },
-            },
-          ]);
-        }
-        setDismissedPeekNodeId(undefined);
-        setInspectorPanelMode("expanded");
-        setLastEdit(undefined);
-        setLastActivity({
-          domain: "backend",
-          kind: "undo",
-          summary: result.summary,
-          touchedRelativePaths: result.restoredRelativePaths,
-          warnings: result.warnings,
-        });
-        setRevealedSource(undefined);
-        setInspectorDirty(false);
-        inspectorDraftContentRef.current = undefined;
-        const refreshedSource = await refreshWorkspaceData(inspectorTargetId);
-        setInspectorEditableSourceOverride(refreshedSource);
-        setInspectorSourceVersion((current) => current + 1);
+          try {
+            const result = await adapter.applyBackendUndo(undoEntry.transaction);
+            setBackendUndoStack((current) => current.slice(0, -1));
+            const redoTransaction = result.redoTransaction;
+            if (redoTransaction) {
+              setBackendRedoStack((current) => [
+                ...current,
+                {
+                  transaction: redoTransaction,
+                  entry: {
+                    ...undoEntry.entry,
+                    createdAt: Date.now(),
+                  },
+                },
+              ]);
+            }
+            setDismissedPeekNodeId(undefined);
+            setInspectorPanelMode("expanded");
+            setLastEdit(undefined);
+            setLastActivity({
+              domain: "backend",
+              kind: "undo",
+              summary: result.summary,
+              touchedRelativePaths: result.restoredRelativePaths,
+              warnings: result.warnings,
+            });
+            setRevealedSource(undefined);
+            setInspectorDirty(false);
+            inspectorDraftContentRef.current = undefined;
+            const refreshedSource = await refreshWorkspaceData(inspectorTargetId);
+            setInspectorEditableSourceOverride(refreshedSource);
+            setInspectorSourceVersion((current) => current + 1);
 
-        if (result.focusTarget) {
-          focusGraph(result.focusTarget.targetId, result.focusTarget.level);
-        } else if (graphTargetId) {
-          focusGraph(graphTargetId, activeLevel);
-        }
+            if (result.focusTarget) {
+              focusGraph(result.focusTarget.targetId, result.focusTarget.level);
+            } else if (graphTargetId) {
+              focusGraph(graphTargetId, activeLevel);
+            }
 
-        return {
-          domain: "backend" as const,
-          handled: true,
-          summary: result.summary,
-        };
-      } catch (reason) {
-        const summary =
-          reason instanceof Error ? reason.message : "Unable to undo the last backend change.";
-        setLastActivity({
-          domain: "backend",
-          kind: "error",
-          summary,
-        });
-        return {
-          domain: "backend" as const,
-          handled: false,
-          summary,
-        };
-      }
-    },
-    redo: async () => {
-      const redoEntry = backendRedoStack[backendRedoStack.length - 1];
-      if (!redoEntry) {
-        return {
-          domain: "backend" as const,
-          handled: false,
-        };
-      }
+            return {
+              domain: "backend" as const,
+              handled: true,
+              summary: result.summary,
+            };
+          } catch (reason) {
+            const summary =
+              reason instanceof Error ? reason.message : "Unable to undo the last backend change.";
+            setLastActivity({
+              domain: "backend",
+              kind: "error",
+              summary,
+            });
+            return {
+              domain: "backend" as const,
+              handled: false,
+              summary,
+            };
+          }
+        },
+        redo: async () => {
+          const redoEntry = backendRedoStack[backendRedoStack.length - 1];
+          if (!redoEntry) {
+            return {
+              domain: "backend" as const,
+              handled: false,
+            };
+          }
 
-      try {
-        const result = await adapter.applyBackendUndo(redoEntry.transaction);
-        const summary = `Redid: ${redoEntry.entry.summary}`;
-        setBackendRedoStack((current) => current.slice(0, -1));
-        const undoTransaction = result.redoTransaction;
-        if (undoTransaction) {
-          setBackendUndoStack((current) => [
-            ...current,
-            {
-              transaction: undoTransaction,
-              entry: {
-                ...redoEntry.entry,
-                createdAt: Date.now(),
-              },
-            },
-          ]);
-        }
-        setDismissedPeekNodeId(undefined);
-        setInspectorPanelMode("expanded");
-        setLastEdit(undefined);
-        setLastActivity({
-          domain: "backend",
-          kind: "redo",
-          summary,
-          touchedRelativePaths: result.restoredRelativePaths,
-          warnings: result.warnings,
-        });
-        setRevealedSource(undefined);
-        setInspectorDirty(false);
-        inspectorDraftContentRef.current = undefined;
-        const refreshedSource = await refreshWorkspaceData(inspectorTargetId);
-        setInspectorEditableSourceOverride(refreshedSource);
-        setInspectorSourceVersion((current) => current + 1);
+          try {
+            const result = await adapter.applyBackendUndo(redoEntry.transaction);
+            const summary = `Redid: ${redoEntry.entry.summary}`;
+            setBackendRedoStack((current) => current.slice(0, -1));
+            const undoTransaction = result.redoTransaction;
+            if (undoTransaction) {
+              setBackendUndoStack((current) => [
+                ...current,
+                {
+                  transaction: undoTransaction,
+                  entry: {
+                    ...redoEntry.entry,
+                    createdAt: Date.now(),
+                  },
+                },
+              ]);
+            }
+            setDismissedPeekNodeId(undefined);
+            setInspectorPanelMode("expanded");
+            setLastEdit(undefined);
+            setLastActivity({
+              domain: "backend",
+              kind: "redo",
+              summary,
+              touchedRelativePaths: result.restoredRelativePaths,
+              warnings: result.warnings,
+            });
+            setRevealedSource(undefined);
+            setInspectorDirty(false);
+            inspectorDraftContentRef.current = undefined;
+            const refreshedSource = await refreshWorkspaceData(inspectorTargetId);
+            setInspectorEditableSourceOverride(refreshedSource);
+            setInspectorSourceVersion((current) => current + 1);
 
-        if (result.focusTarget) {
-          focusGraph(result.focusTarget.targetId, result.focusTarget.level);
-        } else if (graphTargetId) {
-          focusGraph(graphTargetId, activeLevel);
-        }
+            if (result.focusTarget) {
+              focusGraph(result.focusTarget.targetId, result.focusTarget.level);
+            } else if (graphTargetId) {
+              focusGraph(graphTargetId, activeLevel);
+            }
 
-        return {
-          domain: "backend" as const,
-          handled: true,
-          summary,
-        };
-      } catch (reason) {
-        const summary =
-          reason instanceof Error ? reason.message : "Unable to redo the last backend change.";
-        setLastActivity({
-          domain: "backend",
-          kind: "error",
-          summary,
-        });
-        return {
-          domain: "backend" as const,
-          handled: false,
-          summary,
-        };
-      }
-    },
-  }), [
-    activeLevel,
-    adapter,
-    backendRedoStack,
-    backendUndoStack,
-    focusGraph,
-    graphTargetId,
-    inspectorTargetId,
-    refreshWorkspaceData,
-    setLastActivity,
-    setLastEdit,
-    setRevealedSource,
-  ]);
+            return {
+              domain: "backend" as const,
+              handled: true,
+              summary,
+            };
+          } catch (reason) {
+            const summary =
+              reason instanceof Error ? reason.message : "Unable to redo the last backend change.";
+            setLastActivity({
+              domain: "backend",
+              kind: "error",
+              summary,
+            });
+            return {
+              domain: "backend" as const,
+              handled: false,
+              summary,
+            };
+          }
+        },
+      }),
+    [
+      activeLevel,
+      adapter,
+      backendRedoStack,
+      backendUndoStack,
+      focusGraph,
+      graphTargetId,
+      inspectorTargetId,
+      refreshWorkspaceData,
+      setLastActivity,
+      setLastEdit,
+      setRevealedSource,
+    ],
+  );
 
   const handleInspectorEditorStateChange = useCallback((content?: string, dirty?: boolean) => {
     inspectorDraftContentRef.current = content;
@@ -2452,10 +2493,7 @@ export function WorkspaceScreen() {
     });
   }, []);
 
-  const handleSaveInspectorDraft = useCallback(async (
-    targetId: string,
-    draftContent: string,
-  ) => {
+  const handleSaveInspectorDraft = useCallback(async (targetId: string, draftContent: string) => {
     await saveInspectorDraftRef.current(targetId, draftContent);
   }, []);
 
@@ -2465,16 +2503,21 @@ export function WorkspaceScreen() {
     focusGraph(symbolId, "symbol");
   };
 
-  const handleOpenInDefaultEditor = useCallback(async (targetId: string) => {
-    setInspectorActionError(null);
-    try {
-      await adapter.openNodeInDefaultEditor(targetId);
-    } catch (reason) {
-      setInspectorActionError(
-        reason instanceof Error ? reason.message : "Unable to open the file in the default editor.",
-      );
-    }
-  }, [adapter]);
+  const handleOpenInDefaultEditor = useCallback(
+    async (targetId: string) => {
+      setInspectorActionError(null);
+      try {
+        await adapter.openNodeInDefaultEditor(targetId);
+      } catch (reason) {
+        setInspectorActionError(
+          reason instanceof Error
+            ? reason.message
+            : "Unable to open the file in the default editor.",
+        );
+      }
+    },
+    [adapter],
+  );
 
   const handleOpenNodeInDefaultEditor = useCallback(
     (targetId: string) => adapter.openNodeInDefaultEditor(targetId),
@@ -2529,12 +2572,7 @@ export function WorkspaceScreen() {
 
     clearSelectionState();
     return true;
-  }, [
-    clearSelectionState,
-    inspectorDraftTargetId,
-    inspectorDirty,
-    inspectorDraftStale,
-  ]);
+  }, [clearSelectionState, inspectorDraftTargetId, inspectorDirty, inspectorDraftStale]);
 
   const structuralDestinationModulePaths = useMemo(
     () => overviewQuery.data?.modules.map((module) => module.relativePath) ?? [],
@@ -2542,19 +2580,19 @@ export function WorkspaceScreen() {
   );
   const flowOwnerKind = flowOwnerSymbolQuery.data?.kind;
   const flowCreateEnabled =
-    activeLevel === "flow"
-    && (
-      flowOwnerKind === "function"
-      || flowOwnerKind === "async_function"
-      || flowOwnerKind === "method"
-      || flowOwnerKind === "async_method"
-    );
-  const flowEditable = flowCreateEnabled && (effectiveGraph?.flowState?.editable ?? activeFlowDraft?.document.editable ?? false);
+    activeLevel === "flow" &&
+    (flowOwnerKind === "function" ||
+      flowOwnerKind === "async_function" ||
+      flowOwnerKind === "method" ||
+      flowOwnerKind === "async_method");
+  const flowEditable =
+    flowCreateEnabled &&
+    (effectiveGraph?.flowState?.editable ?? activeFlowDraft?.document.editable ?? false);
   const flowDraftBackedCreateEnabled = flowEditable && Boolean(activeFlowDraft?.document);
   const createModeCanvasEnabled =
-    activeLevel === "repo"
-    || ((activeLevel === "module" || activeLevel === "symbol") && Boolean(currentModulePath))
-    || flowDraftBackedCreateEnabled;
+    activeLevel === "repo" ||
+    ((activeLevel === "module" || activeLevel === "symbol") && Boolean(currentModulePath)) ||
+    flowDraftBackedCreateEnabled;
   const createModeHint =
     createModeState === "inactive"
       ? undefined
@@ -2574,9 +2612,9 @@ export function WorkspaceScreen() {
     flowOwnerKind ?? "",
   ].join("|");
   const createModeSupported =
-    activeLevel === "repo"
-    || ((activeLevel === "module" || activeLevel === "symbol") && Boolean(currentModulePath))
-    || flowDraftBackedCreateEnabled;
+    activeLevel === "repo" ||
+    ((activeLevel === "module" || activeLevel === "symbol") && Boolean(currentModulePath)) ||
+    flowDraftBackedCreateEnabled;
 
   const handleExitCreateMode = useCallback(() => {
     setCreateComposer(undefined);
@@ -2585,57 +2623,60 @@ export function WorkspaceScreen() {
     setCreateModeState("inactive");
   }, []);
 
-  const handleOpenCreateComposer = useCallback((intent: GraphCreateIntent) => {
-    setCreateModeError(null);
-    setReturnExpressionGraphView(undefined);
-    const composerAnchor = {
-      x: intent.panelPosition.x,
-      y: intent.panelPosition.y,
-    };
-    if (activeLevel === "repo") {
-      setCreateComposer({
-        id: `${Date.now()}:repo`,
-        kind: "repo",
-        anchor: composerAnchor,
-        flowPosition: intent.flowPosition,
-      });
-      setCreateModeState("composing");
-      return;
-    }
+  const handleOpenCreateComposer = useCallback(
+    (intent: GraphCreateIntent) => {
+      setCreateModeError(null);
+      setReturnExpressionGraphView(undefined);
+      const composerAnchor = {
+        x: intent.panelPosition.x,
+        y: intent.panelPosition.y,
+      };
+      if (activeLevel === "repo") {
+        setCreateComposer({
+          id: `${Date.now()}:repo`,
+          kind: "repo",
+          anchor: composerAnchor,
+          flowPosition: intent.flowPosition,
+        });
+        setCreateModeState("composing");
+        return;
+      }
 
-    if ((activeLevel === "module" || activeLevel === "symbol") && currentModulePath) {
-      setCreateComposer({
-        id: `${Date.now()}:symbol`,
-        kind: "symbol",
-        anchor: composerAnchor,
-        flowPosition: intent.flowPosition,
-        targetModulePath: currentModulePath,
-      });
-      setCreateModeState("composing");
-      return;
-    }
+      if ((activeLevel === "module" || activeLevel === "symbol") && currentModulePath) {
+        setCreateComposer({
+          id: `${Date.now()}:symbol`,
+          kind: "symbol",
+          anchor: composerAnchor,
+          flowPosition: intent.flowPosition,
+          targetModulePath: currentModulePath,
+        });
+        setCreateModeState("composing");
+        return;
+      }
 
-    if (activeLevel === "flow" && flowDraftBackedCreateEnabled) {
-      setCreateComposer({
-        id: `${Date.now()}:flow`,
-        kind: "flow",
-        mode: "create",
-        anchor: composerAnchor,
-        flowPosition: intent.flowPosition,
-        ownerLabel: flowOwnerSymbolQuery.data?.qualname ?? effectiveGraph?.focus?.label ?? "Flow",
-        initialFlowNodeKind: "assign",
-        initialPayload: { source: "" },
-        seedFlowConnection: intent.seedFlowConnection,
-      });
-      setCreateModeState("composing");
-    }
-  }, [
-    activeLevel,
-    currentModulePath,
-    flowDraftBackedCreateEnabled,
-    flowOwnerSymbolQuery.data?.qualname,
-    effectiveGraph?.focus?.label,
-  ]);
+      if (activeLevel === "flow" && flowDraftBackedCreateEnabled) {
+        setCreateComposer({
+          id: `${Date.now()}:flow`,
+          kind: "flow",
+          mode: "create",
+          anchor: composerAnchor,
+          flowPosition: intent.flowPosition,
+          ownerLabel: flowOwnerSymbolQuery.data?.qualname ?? effectiveGraph?.focus?.label ?? "Flow",
+          initialFlowNodeKind: "assign",
+          initialPayload: { source: "" },
+          seedFlowConnection: intent.seedFlowConnection,
+        });
+        setCreateModeState("composing");
+      }
+    },
+    [
+      activeLevel,
+      currentModulePath,
+      flowDraftBackedCreateEnabled,
+      flowOwnerSymbolQuery.data?.qualname,
+      effectiveGraph?.focus?.label,
+    ],
+  );
 
   const handleToggleCreateMode = useCallback(async () => {
     if (createModeState !== "inactive") {
@@ -2656,1010 +2697,1095 @@ export function WorkspaceScreen() {
     setCreateComposer(undefined);
     setReturnExpressionGraphView(undefined);
     setCreateModeState("active");
-  }, [
-    createModeState,
-    createModeSupported,
-    handleExitCreateMode,
-    requestClearSelectionState,
-  ]);
+  }, [createModeState, createModeSupported, handleExitCreateMode, requestClearSelectionState]);
 
-  const seedCreatedNodeLayout = useCallback(async (
-    nodeId: string,
-    nodeKind: GraphNodeKind | undefined,
-    composerState: GraphCreateComposerState,
-    override: { targetId: string; level: GraphAbstractionLevel } | undefined = undefined,
-  ) => {
-    if (!repoSession?.path) {
-      return;
-    }
-
-    const targetId = override?.targetId ?? graphTargetId;
-    const level = override?.level ?? activeLevel;
-    if (!targetId) {
-      return;
-    }
-
-    const viewKey = level === "repo" ? "repo|repo-root" : `${level}|${targetId}`;
-    const nextLayout =
-      peekStoredGraphLayout(repoSession.path, viewKey)
-      ?? await readStoredGraphLayout(repoSession.path, viewKey);
-    nextLayout.nodes[graphLayoutNodeKey(nodeId, nodeKind)] = {
-      x: composerState.flowPosition.x,
-      y: composerState.flowPosition.y,
-    };
-    void writeStoredGraphLayout(repoSession.path, viewKey, nextLayout);
-  }, [
-    activeLevel,
-    graphTargetId,
-    repoSession?.path,
-  ]);
-
-  const syncFlowDraftLayout = useCallback(async (
-    currentDocument: FlowGraphDocument,
-    nextDocument: FlowGraphDocument,
-    seededNodes: Array<{
-      nodeId: string;
-      kind: GraphNodeKind;
-      position: { x: number; y: number };
-    }> = [],
-  ) => {
-    if (!repoSession?.path || !graphTargetId?.startsWith("symbol:")) {
-      return;
-    }
-
-    const viewKey = flowLayoutViewKey(graphTargetId);
-    const layout =
-      peekStoredGraphLayout(repoSession.path, viewKey)
-      ?? await readStoredGraphLayout(repoSession.path, viewKey)
-      ?? emptyStoredGraphLayout();
-    const nextLayout = synchronizeFlowLayoutWithDocumentMutation({
-      currentDocument,
-      nextDocument,
-      layout,
-      seededNodes,
-    });
-    await writeStoredGraphLayout(repoSession.path, viewKey, nextLayout);
-  }, [
-    graphTargetId,
-    repoSession?.path,
-  ]);
-
-  const applyFlowDraftMutation = useCallback(async ({
-    transform,
-    seededNodes,
-    selectedNodeId,
-  }: {
-    transform: (document: FlowGraphDocument) => FlowGraphDocument;
-    seededNodes?: Array<{
-      nodeId: string;
-      kind: GraphNodeKind;
-      position: { x: number; y: number };
-    }>;
-    selectedNodeId?: string;
-  }) => {
-    if (!graphTargetId?.startsWith("symbol:") || activeFlowDraft?.symbolId !== graphTargetId) {
-      throw new Error("Editable flow draft state is no longer available for this symbol.");
-    }
-
-    const flowTargetId = graphTargetId;
-    const currentDocument = activeFlowDraft.document;
-    const nextDocument = transform(currentDocument);
-    if (flowDocumentsEqual(currentDocument, nextDocument)) {
-      return {
-        document: currentDocument,
-        result: undefined,
-      };
-    }
-    const optimisticDocument: FlowGraphDocument = {
-      ...nextDocument,
-      syncState: currentDocument.syncState,
-      diagnostics: [...currentDocument.diagnostics],
-      sourceHash: nextDocument.sourceHash ?? currentDocument.sourceHash ?? null,
-      editable: currentDocument.editable,
-    };
-
-    await syncFlowDraftLayout(currentDocument, optimisticDocument, seededNodes);
-    setFlowDraftState({
-      symbolId: flowTargetId,
-      baseDocument: activeFlowDraft.baseDocument,
-      document: optimisticDocument,
-      status: "saving",
-      error: null,
-    });
-    if (selectedNodeId) {
-      selectNode(selectedNodeId);
-    }
-
-    try {
-      const result = await handleApplyEdit({
-        kind: "replace_flow_graph",
-        targetId: flowTargetId,
-        flowGraph: optimisticDocument,
-      }, { preserveView: true });
-
-      if (
-        result.flowSyncState === "clean"
-        && inspectorSourceTarget?.fetchMode === "editable"
-        && inspectorSourceTarget.targetId === flowTargetId
-      ) {
-        try {
-          const refreshedSource = await queryClient.fetchQuery({
-            queryKey: ["editable-node-source", repoSession?.id, "editable", flowTargetId],
-            queryFn: () => adapter.getEditableNodeSource(flowTargetId),
-          });
-          setInspectorEditableSourceOverride(refreshedSource);
-          setInspectorSourceVersion((current) => current + 1);
-          setInspectorActionError(null);
-        } catch (reason) {
-          setInspectorActionError(
-            reason instanceof Error
-              ? `Graph updated, but source refresh failed: ${reason.message}`
-              : "Graph updated, but source refresh failed.",
-          );
-        }
-      }
-
-      setFlowDraftState((current) => {
-        if (!current || current.symbolId !== flowTargetId) {
-          return current;
-        }
-
-        return {
-          symbolId: current.symbolId,
-          baseDocument: current.baseDocument,
-          document: {
-            ...optimisticDocument,
-            syncState: result.flowSyncState ?? optimisticDocument.syncState,
-            diagnostics: [...result.diagnostics],
-          },
-          status: "reconcile-pending",
-          error: null,
-          reconcileAfterUpdatedAt: graphQuery.dataUpdatedAt,
-        };
-      });
-
-      return {
-        document: optimisticDocument,
-        result,
-      };
-    } catch (reason) {
-      const message =
-        reason instanceof Error ? reason.message : "Unable to update the current visual flow.";
-      setFlowDraftState((current) => {
-        if (!current || current.symbolId !== flowTargetId) {
-          return current;
-        }
-
-        return {
-          ...current,
-          document: optimisticDocument,
-          status: "dirty",
-          error: message,
-        };
-      });
-      throw reason;
-    }
-  }, [
-    activeFlowDraft,
-    adapter,
-    graphQuery.dataUpdatedAt,
-    graphTargetId,
-    handleApplyEdit,
-    inspectorSourceTarget?.fetchMode,
-    inspectorSourceTarget?.targetId,
-    queryClient,
-    repoSession?.id,
-    selectNode,
-    syncFlowDraftLayout,
-  ]);
-
-  const selectedFlowEntryNodeId = activeFlowDraft?.document.nodes.find((node) => node.kind === "entry")?.id;
-
-  const handleAddFlowFunctionInput = useCallback((draft: {
-    name?: string;
-    defaultExpression?: string | null;
-  }) => {
-    void applyFlowDraftMutation({
-      transform: (document) => addFlowFunctionInput(document, draft),
-      selectedNodeId: selectedFlowEntryNodeId,
-    }).catch((reason) => {
-      const message =
-        reason instanceof Error ? reason.message : "Unable to add the flow input.";
-      setCreateModeError(message);
-    });
-  }, [applyFlowDraftMutation, selectedFlowEntryNodeId]);
-
-  const handleUpdateFlowFunctionInput = useCallback((inputId: string, patch: {
-    name?: string;
-    defaultExpression?: string | null;
-  }) => {
-    void applyFlowDraftMutation({
-      transform: (document) => updateFlowFunctionInput(document, inputId, patch),
-      selectedNodeId: selectedFlowEntryNodeId,
-    }).catch((reason) => {
-      const message =
-        reason instanceof Error ? reason.message : "Unable to update the flow input.";
-      setCreateModeError(message);
-    });
-  }, [applyFlowDraftMutation, selectedFlowEntryNodeId]);
-
-  const handleMoveFlowFunctionInput = useCallback((inputId: string, direction: -1 | 1) => {
-    void applyFlowDraftMutation({
-      transform: (document) => moveFlowFunctionInput(document, inputId, direction),
-      selectedNodeId: selectedFlowEntryNodeId,
-    }).catch((reason) => {
-      const message =
-        reason instanceof Error ? reason.message : "Unable to reorder the flow input.";
-      setCreateModeError(message);
-    });
-  }, [applyFlowDraftMutation, selectedFlowEntryNodeId]);
-
-  const confirmFlowFunctionInputRemoval = useCallback((
-    inputIds: string[],
-    subjectLabel: "input" | "param node" = "input",
-  ): Promise<string[] | undefined> => {
-    if (!activeFlowDraft) {
-      return Promise.resolve(undefined);
-    }
-    return (async () => {
-      const uniqueInputIds = [...new Set(inputIds)];
-      for (const inputId of uniqueInputIds) {
-        const summary = flowFunctionInputRemovalSummary(activeFlowDraft.document, inputId);
-        if (!summary.input) {
-          continue;
-        }
-        const downstreamUseCount = summary.downstreamUseCount;
-        const connectionCount = summary.connectionCount;
-        const shouldDelete = await confirmFlowRemoval(
-          `Are you sure you would like to delete ${subjectLabel} "${summary.input.name}"? It has ${downstreamUseCount} downstream use${downstreamUseCount === 1 ? "" : "s"} and ${connectionCount} connection${connectionCount === 1 ? "" : "s"}.`,
-          {
-            okLabel: subjectLabel === "param node" ? "Delete param" : "Delete input",
-            title: subjectLabel === "param node" ? "Delete param node" : "Delete input",
-          },
-        );
-        if (!shouldDelete) {
-          return undefined;
-        }
-        if (!downstreamUseCount && !connectionCount) {
-          continue;
-        }
-        const shouldRemoveDownstream = await confirmFlowRemoval(
-          `Would you like to remove downstream uses and connections for "${summary.input.name}"?`,
-          {
-            okLabel: "Remove downstream",
-            title: "Remove downstream uses",
-          },
-        );
-        if (!shouldRemoveDownstream) {
-          return undefined;
-        }
-      }
-      return uniqueInputIds.filter((inputId) =>
-        Boolean(flowFunctionInputRemovalSummary(activeFlowDraft.document, inputId).input),
-      );
-    })();
-  }, [activeFlowDraft]);
-
-  const removeFlowFunctionInputWithConfirmation = useCallback(async (inputId: string) => {
-    if (!activeFlowDraft) {
-      return;
-    }
-    const inputIdsToRemove = await confirmFlowFunctionInputRemoval([inputId], "input");
-    if (!inputIdsToRemove?.length) {
-      return;
-    }
-    await applyFlowDraftMutation({
-      transform: (document) => inputIdsToRemove.reduce(
-        (nextDocument, nextInputId) => removeFlowFunctionInputAndDownstreamUses(nextDocument, nextInputId),
-        document,
-      ),
-      selectedNodeId: selectedFlowEntryNodeId,
-    }).catch((reason) => {
-      const message =
-        reason instanceof Error ? reason.message : "Unable to remove the flow input.";
-      setCreateModeError(message);
-    });
-  }, [activeFlowDraft, applyFlowDraftMutation, confirmFlowFunctionInputRemoval, selectedFlowEntryNodeId]);
-
-  saveInspectorDraftRef.current = async (targetId: string, draftContent: string) => {
-    await handleSaveNodeSource(targetId, draftContent);
-  };
-
-  const handleCreateSubmit = useCallback(async (payload: GraphCreateComposerSubmit) => {
-    if (!createComposer) {
-      return;
-    }
-
-    const resumeCreateMode = createModeState === "composing";
-    setCreateModeError(null);
-    setIsSubmittingCreate(true);
-    try {
-      let request: StructuralEditRequest;
-      let createdNodeKind: GraphNodeKind | undefined;
-      let nextFocus: { targetId: string; level: GraphAbstractionLevel } | undefined;
-
-      if (payload.kind === "repo") {
-        request = {
-          kind: "create_module",
-          relativePath: payload.relativePath,
-          content: payload.content,
-        };
-        createdNodeKind = "module";
-      } else if (payload.kind === "symbol" && createComposer.kind === "symbol") {
-        request = {
-          kind: "create_symbol",
-          relativePath: createComposer.targetModulePath,
-          newName: payload.newName,
-          symbolKind: payload.symbolKind,
-          body: payload.body,
-        };
-        createdNodeKind = payload.symbolKind;
-        if (activeLevel === "symbol" && graphTargetId?.startsWith("symbol:")) {
-          const moduleTarget = moduleIdFromSymbolId(graphTargetId);
-          if (moduleTarget) {
-            nextFocus = { targetId: moduleTarget, level: "module" };
-          }
-        }
-      } else if (
-        (payload.kind === "flow" || payload.kind === "flow_param")
-        && createComposer.kind === "flow"
-        && graphTargetId?.startsWith("symbol:")
-      ) {
-        if (activeFlowDraft?.symbolId !== graphTargetId) {
-          throw new Error("Editable flow draft state is no longer available for this symbol.");
-        }
-
-        if (payload.kind === "flow_param") {
-          let createdParamNodeId: string | undefined;
-          const seededNodes: Array<{
-            nodeId: string;
-            kind: GraphNodeKind;
-            position: { x: number; y: number };
-          }> = [];
-          await applyFlowDraftMutation({
-            transform: (document) => {
-              const previousInputIds = new Set((document.functionInputs ?? []).map((input) => input.id));
-              const nextDocument = addFlowFunctionInput(document, {
-                name: payload.name,
-                defaultExpression: payload.defaultExpression,
-              });
-              const createdInput = (nextDocument.functionInputs ?? []).find((input) => !previousInputIds.has(input.id));
-              if (createdInput) {
-                createdParamNodeId = functionInputParamNodeId(nextDocument.symbolId, createdInput);
-                seededNodes.push({
-                  nodeId: createdParamNodeId,
-                  kind: "param",
-                  position: createComposer.flowPosition,
-                });
-              }
-              return nextDocument;
-            },
-            seededNodes,
-          });
-
-          if (createdParamNodeId) {
-            setFlowInputDisplayMode("param_nodes");
-            selectNode(createdParamNodeId);
-            setPendingCreatedNodeId(createdParamNodeId);
-          }
-          setCreateComposer(undefined);
-          setCreateModeState("active");
-          return;
-        }
-
-        if (createComposer.mode === "edit" && createComposer.editingNodeId) {
-          const nextPayload = payload.payload ?? flowNodePayloadFromContent(payload.flowNodeKind, payload.content);
-          await applyFlowDraftMutation({
-            transform: (document) => updateFlowNodePayload(
-              document,
-              createComposer.editingNodeId as string,
-              nextPayload,
-            ),
-            selectedNodeId: createComposer.editingNodeId,
-          });
-          setCreateComposer(undefined);
-          setCreateModeState(resumeCreateMode ? "active" : "inactive");
-          return;
-        }
-
-        createdNodeKind = payload.flowNodeKind;
-        const nextNode = {
-          ...createFlowNode(graphTargetId, payload.flowNodeKind),
-          payload: payload.payload ?? flowNodePayloadFromContent(payload.flowNodeKind, payload.content),
-        };
-        const seededNodes: Array<{
-          nodeId: string;
-          kind: GraphNodeKind;
-          position: { x: number; y: number };
-        }> = [{
-          nodeId: nextNode.id,
-          kind: nextNode.kind,
-          position: createComposer.flowPosition,
-        }];
-        await applyFlowDraftMutation({
-          transform: (document) => {
-            let nextDocument = addDisconnectedFlowNode(document, nextNode);
-            if (createComposer.seedFlowConnection) {
-              const existingEdge = document.edges.find((edge) => (
-                edge.sourceId === createComposer.seedFlowConnection?.sourceNodeId
-                && edge.sourceHandle === createComposer.seedFlowConnection?.sourceHandle
-              ));
-              nextDocument = existingEdge
-                ? insertFlowNodeOnEdge(document, nextNode, existingEdge.id)
-                : upsertFlowConnection(nextDocument, {
-                    sourceId: createComposer.seedFlowConnection.sourceNodeId,
-                    sourceHandle: createComposer.seedFlowConnection.sourceHandle,
-                    targetId: nextNode.id,
-                    targetHandle: "in",
-                  });
-            }
-
-            (payload.starterSteps ?? []).forEach((starterStep, index) => {
-              const starterNode = {
-                ...createFlowNode(graphTargetId, starterStep.flowNodeKind),
-                payload: starterStep.payload,
-              };
-              const starterPosition = {
-                x: createComposer.flowPosition.x + 280,
-                y: createComposer.flowPosition.y + (starterStep.sourceHandle === "body" ? -150 : 150) + index * 32,
-              };
-              seededNodes.push({
-                nodeId: starterNode.id,
-                kind: starterNode.kind,
-                position: starterPosition,
-              });
-              nextDocument = upsertFlowConnection(
-                addDisconnectedFlowNode(nextDocument, starterNode),
-                {
-                  sourceId: nextNode.id,
-                  sourceHandle: starterStep.sourceHandle,
-                  targetId: starterNode.id,
-                  targetHandle: "in",
-                },
-              );
-            });
-            return nextDocument;
-          },
-          seededNodes,
-          selectedNodeId: nextNode.id,
-        });
-        setPendingCreatedNodeId(undefined);
-        setCreateComposer(undefined);
-        setCreateModeState("active");
+  const seedCreatedNodeLayout = useCallback(
+    async (
+      nodeId: string,
+      nodeKind: GraphNodeKind | undefined,
+      composerState: GraphCreateComposerState,
+      override: { targetId: string; level: GraphAbstractionLevel } | undefined = undefined,
+    ) => {
+      if (!repoSession?.path) {
         return;
-      } else {
-        throw new Error("Create-mode context no longer matches the requested action.");
       }
 
-      const result = await handleApplyEdit(request, { preserveView: true });
-      const changedNodeId = result.changedNodeIds[0];
-      if (changedNodeId) {
-        await seedCreatedNodeLayout(changedNodeId, createdNodeKind, createComposer, nextFocus);
-        selectNode(changedNodeId);
-        setPendingCreatedNodeId(changedNodeId);
+      const targetId = override?.targetId ?? graphTargetId;
+      const level = override?.level ?? activeLevel;
+      if (!targetId) {
+        return;
       }
 
-      if (nextFocus) {
-        focusGraph(nextFocus.targetId, nextFocus.level);
+      const viewKey = level === "repo" ? "repo|repo-root" : `${level}|${targetId}`;
+      const nextLayout =
+        peekStoredGraphLayout(repoSession.path, viewKey) ??
+        (await readStoredGraphLayout(repoSession.path, viewKey));
+      nextLayout.nodes[graphLayoutNodeKey(nodeId, nodeKind)] = {
+        x: composerState.flowPosition.x,
+        y: composerState.flowPosition.y,
+      };
+      void writeStoredGraphLayout(repoSession.path, viewKey, nextLayout);
+    },
+    [activeLevel, graphTargetId, repoSession?.path],
+  );
+
+  const syncFlowDraftLayout = useCallback(
+    async (
+      currentDocument: FlowGraphDocument,
+      nextDocument: FlowGraphDocument,
+      seededNodes: Array<{
+        nodeId: string;
+        kind: GraphNodeKind;
+        position: { x: number; y: number };
+      }> = [],
+    ) => {
+      if (!repoSession?.path || !graphTargetId?.startsWith("symbol:")) {
+        return;
       }
-      setCreateComposer(undefined);
-      setCreateModeState(resumeCreateMode ? "active" : "inactive");
-    } catch (reason) {
-      const message =
-        reason instanceof Error ? reason.message : "Unable to create from the current graph context.";
-      setCreateModeError(message);
-      if ((payload.kind === "flow" || payload.kind === "flow_param") && graphTargetId?.startsWith("symbol:")) {
+
+      const viewKey = flowLayoutViewKey(graphTargetId);
+      const layout =
+        peekStoredGraphLayout(repoSession.path, viewKey) ??
+        (await readStoredGraphLayout(repoSession.path, viewKey)) ??
+        emptyStoredGraphLayout();
+      const nextLayout = synchronizeFlowLayoutWithDocumentMutation({
+        currentDocument,
+        nextDocument,
+        layout,
+        seededNodes,
+      });
+      await writeStoredGraphLayout(repoSession.path, viewKey, nextLayout);
+    },
+    [graphTargetId, repoSession?.path],
+  );
+
+  const applyFlowDraftMutation = useCallback(
+    async ({
+      transform,
+      seededNodes,
+      selectedNodeId,
+    }: {
+      transform: (document: FlowGraphDocument) => FlowGraphDocument;
+      seededNodes?: Array<{
+        nodeId: string;
+        kind: GraphNodeKind;
+        position: { x: number; y: number };
+      }>;
+      selectedNodeId?: string;
+    }) => {
+      if (!graphTargetId?.startsWith("symbol:") || activeFlowDraft?.symbolId !== graphTargetId) {
+        throw new Error("Editable flow draft state is no longer available for this symbol.");
+      }
+
+      const flowTargetId = graphTargetId;
+      const currentDocument = activeFlowDraft.document;
+      const nextDocument = transform(currentDocument);
+      if (flowDocumentsEqual(currentDocument, nextDocument)) {
+        return {
+          document: currentDocument,
+          result: undefined,
+        };
+      }
+      const optimisticDocument: FlowGraphDocument = {
+        ...nextDocument,
+        syncState: currentDocument.syncState,
+        diagnostics: [...currentDocument.diagnostics],
+        sourceHash: nextDocument.sourceHash ?? currentDocument.sourceHash ?? null,
+        editable: currentDocument.editable,
+      };
+
+      await syncFlowDraftLayout(currentDocument, optimisticDocument, seededNodes);
+      setFlowDraftState({
+        symbolId: flowTargetId,
+        baseDocument: activeFlowDraft.baseDocument,
+        document: optimisticDocument,
+        status: "saving",
+        error: null,
+      });
+      if (selectedNodeId) {
+        selectNode(selectedNodeId);
+      }
+
+      try {
+        const result = await handleApplyEdit(
+          {
+            kind: "replace_flow_graph",
+            targetId: flowTargetId,
+            flowGraph: optimisticDocument,
+          },
+          { preserveView: true },
+        );
+
+        if (
+          result.flowSyncState === "clean" &&
+          inspectorSourceTarget?.fetchMode === "editable" &&
+          inspectorSourceTarget.targetId === flowTargetId
+        ) {
+          try {
+            const refreshedSource = await queryClient.fetchQuery({
+              queryKey: ["editable-node-source", repoSession?.id, "editable", flowTargetId],
+              queryFn: () => adapter.getEditableNodeSource(flowTargetId),
+            });
+            setInspectorEditableSourceOverride(refreshedSource);
+            setInspectorSourceVersion((current) => current + 1);
+            setInspectorActionError(null);
+          } catch (reason) {
+            setInspectorActionError(
+              reason instanceof Error
+                ? `Graph updated, but source refresh failed: ${reason.message}`
+                : "Graph updated, but source refresh failed.",
+            );
+          }
+        }
+
         setFlowDraftState((current) => {
-          if (!current || current.symbolId !== graphTargetId) {
+          if (!current || current.symbolId !== flowTargetId) {
+            return current;
+          }
+
+          return {
+            symbolId: current.symbolId,
+            baseDocument: current.baseDocument,
+            document: {
+              ...optimisticDocument,
+              syncState: result.flowSyncState ?? optimisticDocument.syncState,
+              diagnostics: [...result.diagnostics],
+            },
+            status: "reconcile-pending",
+            error: null,
+            reconcileAfterUpdatedAt: graphQuery.dataUpdatedAt,
+          };
+        });
+
+        return {
+          document: optimisticDocument,
+          result,
+        };
+      } catch (reason) {
+        const message =
+          reason instanceof Error ? reason.message : "Unable to update the current visual flow.";
+        setFlowDraftState((current) => {
+          if (!current || current.symbolId !== flowTargetId) {
             return current;
           }
 
           return {
             ...current,
+            document: optimisticDocument,
             status: "dirty",
             error: message,
           };
         });
+        throw reason;
       }
-    } finally {
-      setIsSubmittingCreate(false);
-    }
-  }, [
-    activeLevel,
-    activeFlowDraft,
-    applyFlowDraftMutation,
-    createComposer,
-    createModeState,
-    focusGraph,
-    graphTargetId,
-    handleApplyEdit,
-    seedCreatedNodeLayout,
-    selectNode,
-    setFlowInputDisplayMode,
-  ]);
+    },
+    [
+      activeFlowDraft,
+      adapter,
+      graphQuery.dataUpdatedAt,
+      graphTargetId,
+      handleApplyEdit,
+      inspectorSourceTarget?.fetchMode,
+      inspectorSourceTarget?.targetId,
+      queryClient,
+      repoSession?.id,
+      selectNode,
+      syncFlowDraftLayout,
+    ],
+  );
 
-  const resolveFlowDocumentConnection = useCallback((connection: GraphFlowConnectionIntent) => {
-    if (!activeFlowDraft) {
-      return undefined;
-    }
+  const selectedFlowEntryNodeId = activeFlowDraft?.document.nodes.find(
+    (node) => node.kind === "entry",
+  )?.id;
 
-    const sourceHandle = flowDocumentHandleFromBlueprintHandle(connection.sourceHandle, "source");
-    const targetHandle = flowDocumentHandleFromBlueprintHandle(connection.targetHandle, "target");
-    if (!sourceHandle || !targetHandle) {
-      return undefined;
-    }
+  const handleAddFlowFunctionInput = useCallback(
+    (draft: { name?: string; defaultExpression?: string | null }) => {
+      void applyFlowDraftMutation({
+        transform: (document) => addFlowFunctionInput(document, draft),
+        selectedNodeId: selectedFlowEntryNodeId,
+      }).catch((reason) => {
+        const message = reason instanceof Error ? reason.message : "Unable to add the flow input.";
+        setCreateModeError(message);
+      });
+    },
+    [applyFlowDraftMutation, selectedFlowEntryNodeId],
+  );
 
-    const liveNodeIds = new Set(activeFlowDraft.document.nodes.map((node) => node.id));
-    if (!liveNodeIds.has(connection.sourceId) || !liveNodeIds.has(connection.targetId)) {
-      return undefined;
-    }
-
-    return {
-      sourceId: connection.sourceId,
-      sourceHandle,
-      targetId: connection.targetId,
-      targetHandle,
-    };
-  }, [activeFlowDraft]);
-
-  const resolveFlowInputBindingConnection = useCallback((connection: GraphFlowConnectionIntent): ResolvedFlowInputBindingConnection | undefined => {
-    if (!activeFlowDraft) {
-      return undefined;
-    }
-
-    const sourceId =
-      parseFunctionInputSourceHandle(connection.sourceHandle)
-      ?? parseValueSourceHandle(connection.sourceHandle)
-      ?? (() => {
-        const sourceNode = effectiveGraph?.nodes.find((node) => node.id === connection.sourceId);
-        const value =
-          sourceNode?.metadata.source_id
-          ?? sourceNode?.metadata.sourceId
-          ?? sourceNode?.metadata.value_source_id
-          ?? sourceNode?.metadata.valueSourceId
-          ?? sourceNode?.metadata.function_input_id
-          ?? sourceNode?.metadata.functionInputId;
-        return typeof value === "string" ? value : undefined;
-      })();
-    const slotId = parseInputSlotTargetHandle(connection.targetHandle);
-    if (!sourceId) {
-      return undefined;
-    }
-    if (slotId) {
-      return {
-        kind: "slot",
-        sourceId,
-        slotId,
-      };
-    }
-    const targetNodeId = parseReturnInputTargetHandle(connection.targetHandle);
-    if (
-      targetNodeId
-      && activeFlowDraft.document.nodes.some((node) => node.id === targetNodeId && node.kind === "return")
-    ) {
-      return {
-        kind: "return-input",
-        sourceId,
-        targetNodeId,
-      };
-    }
-    return undefined;
-  }, [activeFlowDraft, effectiveGraph?.nodes]);
-
-  const handleOpenFlowEditComposer = useCallback((intent: GraphFlowEditIntent) => {
-    if (
-      activeLevel !== "flow"
-      || !graphTargetId?.startsWith("symbol:")
-      || activeFlowDraft?.symbolId !== graphTargetId
-      || !activeFlowDraft.document.editable
-    ) {
-      return;
-    }
-
-    const targetNode = activeFlowDraft.document.nodes.find((node) => node.id === intent.nodeId);
-    if (!targetNode || !isFlowNodeAuthorableKind(targetNode.kind)) {
-      return;
-    }
-
-    setCreateModeError(null);
-    setReturnExpressionGraphView(undefined);
-    setCreateComposer({
-      id: `${Date.now()}:flow:edit:${targetNode.id}`,
-      kind: "flow",
-      mode: "edit",
-      anchor: {
-        x: intent.panelPosition.x,
-        y: intent.panelPosition.y,
+  const handleUpdateFlowFunctionInput = useCallback(
+    (
+      inputId: string,
+      patch: {
+        name?: string;
+        defaultExpression?: string | null;
       },
-      flowPosition: intent.flowPosition,
-      ownerLabel: flowOwnerSymbolQuery.data?.qualname ?? effectiveGraph?.focus?.label ?? "Flow",
-      editingNodeId: targetNode.id,
-      initialFlowNodeKind: targetNode.kind,
-      initialPayload: targetNode.payload,
-      initialLoopType: intent.initialLoopType,
-    });
-    if (createModeState === "active") {
-      setCreateModeState("composing");
-    }
-  }, [
-    activeFlowDraft,
-    activeLevel,
-    createModeState,
-    effectiveGraph?.focus?.label,
-    flowDraftBackedCreateEnabled,
-    flowOwnerSymbolQuery.data?.qualname,
-    graphTargetId,
-  ]);
+    ) => {
+      void applyFlowDraftMutation({
+        transform: (document) => updateFlowFunctionInput(document, inputId, patch),
+        selectedNodeId: selectedFlowEntryNodeId,
+      }).catch((reason) => {
+        const message =
+          reason instanceof Error ? reason.message : "Unable to update the flow input.";
+        setCreateModeError(message);
+      });
+    },
+    [applyFlowDraftMutation, selectedFlowEntryNodeId],
+  );
 
-  const handleOpenExpressionGraphEditor = useCallback((intent: GraphExpressionGraphIntent) => {
-    const draftDocument =
-      activeFlowDraft && activeFlowDraft.symbolId === graphTargetId
-        ? activeFlowDraft.document
-        : flowDraftSeedDocument?.symbolId === graphTargetId
-          ? flowDraftSeedDocument
-          : undefined;
+  const handleMoveFlowFunctionInput = useCallback(
+    (inputId: string, direction: -1 | 1) => {
+      void applyFlowDraftMutation({
+        transform: (document) => moveFlowFunctionInput(document, inputId, direction),
+        selectedNodeId: selectedFlowEntryNodeId,
+      }).catch((reason) => {
+        const message =
+          reason instanceof Error ? reason.message : "Unable to reorder the flow input.";
+        setCreateModeError(message);
+      });
+    },
+    [applyFlowDraftMutation, selectedFlowEntryNodeId],
+  );
 
-    if (
-      activeLevel !== "flow"
-      || !graphTargetId?.startsWith("symbol:")
-      || !draftDocument?.editable
-    ) {
-      return;
-    }
+  const confirmFlowFunctionInputRemoval = useCallback(
+    (
+      inputIds: string[],
+      subjectLabel: "input" | "param node" = "input",
+    ): Promise<string[] | undefined> => {
+      if (!activeFlowDraft) {
+        return Promise.resolve(undefined);
+      }
+      return (async () => {
+        const uniqueInputIds = [...new Set(inputIds)];
+        for (const inputId of uniqueInputIds) {
+          const summary = flowFunctionInputRemovalSummary(activeFlowDraft.document, inputId);
+          if (!summary.input) {
+            continue;
+          }
+          const downstreamUseCount = summary.downstreamUseCount;
+          const connectionCount = summary.connectionCount;
+          const shouldDelete = await confirmFlowRemoval(
+            `Are you sure you would like to delete ${subjectLabel} "${summary.input.name}"? It has ${downstreamUseCount} downstream use${downstreamUseCount === 1 ? "" : "s"} and ${connectionCount} connection${connectionCount === 1 ? "" : "s"}.`,
+            {
+              okLabel: subjectLabel === "param node" ? "Delete param" : "Delete input",
+              title: subjectLabel === "param node" ? "Delete param node" : "Delete input",
+            },
+          );
+          if (!shouldDelete) {
+            return undefined;
+          }
+          if (!downstreamUseCount && !connectionCount) {
+            continue;
+          }
+          const shouldRemoveDownstream = await confirmFlowRemoval(
+            `Would you like to remove downstream uses and connections for "${summary.input.name}"?`,
+            {
+              okLabel: "Remove downstream",
+              title: "Remove downstream uses",
+            },
+          );
+          if (!shouldRemoveDownstream) {
+            return undefined;
+          }
+        }
+        return uniqueInputIds.filter((inputId) =>
+          Boolean(flowFunctionInputRemovalSummary(activeFlowDraft.document, inputId).input),
+        );
+      })();
+    },
+    [activeFlowDraft],
+  );
 
-    const targetNode = draftDocument.nodes.find((node) => (
-      node.id === intent.nodeId
-      && node.kind === "return"
-    ));
-    if (!targetNode) {
-      return;
-    }
+  const removeFlowFunctionInputWithConfirmation = useCallback(
+    async (inputId: string) => {
+      if (!activeFlowDraft) {
+        return;
+      }
+      const inputIdsToRemove = await confirmFlowFunctionInputRemoval([inputId], "input");
+      if (!inputIdsToRemove?.length) {
+        return;
+      }
+      await applyFlowDraftMutation({
+        transform: (document) =>
+          inputIdsToRemove.reduce(
+            (nextDocument, nextInputId) =>
+              removeFlowFunctionInputAndDownstreamUses(nextDocument, nextInputId),
+            document,
+          ),
+        selectedNodeId: selectedFlowEntryNodeId,
+      }).catch((reason) => {
+        const message =
+          reason instanceof Error ? reason.message : "Unable to remove the flow input.";
+        setCreateModeError(message);
+      });
+    },
+    [
+      activeFlowDraft,
+      applyFlowDraftMutation,
+      confirmFlowFunctionInputRemoval,
+      selectedFlowEntryNodeId,
+    ],
+  );
 
-    if (activeFlowDraft?.symbolId !== graphTargetId) {
-      setFlowDraftState({
+  saveInspectorDraftRef.current = async (targetId: string, draftContent: string) => {
+    await handleSaveNodeSource(targetId, draftContent);
+  };
+
+  const handleCreateSubmit = useCallback(
+    async (payload: GraphCreateComposerSubmit) => {
+      if (!createComposer) {
+        return;
+      }
+
+      const resumeCreateMode = createModeState === "composing";
+      setCreateModeError(null);
+      setIsSubmittingCreate(true);
+      try {
+        let request: StructuralEditRequest;
+        let createdNodeKind: GraphNodeKind | undefined;
+        let nextFocus: { targetId: string; level: GraphAbstractionLevel } | undefined;
+
+        if (payload.kind === "repo") {
+          request = {
+            kind: "create_module",
+            relativePath: payload.relativePath,
+            content: payload.content,
+          };
+          createdNodeKind = "module";
+        } else if (payload.kind === "symbol" && createComposer.kind === "symbol") {
+          request = {
+            kind: "create_symbol",
+            relativePath: createComposer.targetModulePath,
+            newName: payload.newName,
+            symbolKind: payload.symbolKind,
+            body: payload.body,
+          };
+          createdNodeKind = payload.symbolKind;
+          if (activeLevel === "symbol" && graphTargetId?.startsWith("symbol:")) {
+            const moduleTarget = moduleIdFromSymbolId(graphTargetId);
+            if (moduleTarget) {
+              nextFocus = { targetId: moduleTarget, level: "module" };
+            }
+          }
+        } else if (
+          (payload.kind === "flow" || payload.kind === "flow_param") &&
+          createComposer.kind === "flow" &&
+          graphTargetId?.startsWith("symbol:")
+        ) {
+          if (activeFlowDraft?.symbolId !== graphTargetId) {
+            throw new Error("Editable flow draft state is no longer available for this symbol.");
+          }
+
+          if (payload.kind === "flow_param") {
+            let createdParamNodeId: string | undefined;
+            const seededNodes: Array<{
+              nodeId: string;
+              kind: GraphNodeKind;
+              position: { x: number; y: number };
+            }> = [];
+            await applyFlowDraftMutation({
+              transform: (document) => {
+                const previousInputIds = new Set(
+                  (document.functionInputs ?? []).map((input) => input.id),
+                );
+                const nextDocument = addFlowFunctionInput(document, {
+                  name: payload.name,
+                  defaultExpression: payload.defaultExpression,
+                });
+                const createdInput = (nextDocument.functionInputs ?? []).find(
+                  (input) => !previousInputIds.has(input.id),
+                );
+                if (createdInput) {
+                  createdParamNodeId = functionInputParamNodeId(
+                    nextDocument.symbolId,
+                    createdInput,
+                  );
+                  seededNodes.push({
+                    nodeId: createdParamNodeId,
+                    kind: "param",
+                    position: createComposer.flowPosition,
+                  });
+                }
+                return nextDocument;
+              },
+              seededNodes,
+            });
+
+            if (createdParamNodeId) {
+              setFlowInputDisplayMode("param_nodes");
+              selectNode(createdParamNodeId);
+              setPendingCreatedNodeId(createdParamNodeId);
+            }
+            setCreateComposer(undefined);
+            setCreateModeState("active");
+            return;
+          }
+
+          if (createComposer.mode === "edit" && createComposer.editingNodeId) {
+            const nextPayload =
+              payload.payload ?? flowNodePayloadFromContent(payload.flowNodeKind, payload.content);
+            await applyFlowDraftMutation({
+              transform: (document) =>
+                updateFlowNodePayload(
+                  document,
+                  createComposer.editingNodeId as string,
+                  nextPayload,
+                ),
+              selectedNodeId: createComposer.editingNodeId,
+            });
+            setCreateComposer(undefined);
+            setCreateModeState(resumeCreateMode ? "active" : "inactive");
+            return;
+          }
+
+          createdNodeKind = payload.flowNodeKind;
+          const nextNode = {
+            ...createFlowNode(graphTargetId, payload.flowNodeKind),
+            payload:
+              payload.payload ?? flowNodePayloadFromContent(payload.flowNodeKind, payload.content),
+          };
+          const seededNodes: Array<{
+            nodeId: string;
+            kind: GraphNodeKind;
+            position: { x: number; y: number };
+          }> = [
+            {
+              nodeId: nextNode.id,
+              kind: nextNode.kind,
+              position: createComposer.flowPosition,
+            },
+          ];
+          await applyFlowDraftMutation({
+            transform: (document) => {
+              let nextDocument = addDisconnectedFlowNode(document, nextNode);
+              if (createComposer.seedFlowConnection) {
+                const existingEdge = document.edges.find(
+                  (edge) =>
+                    edge.sourceId === createComposer.seedFlowConnection?.sourceNodeId &&
+                    edge.sourceHandle === createComposer.seedFlowConnection?.sourceHandle,
+                );
+                nextDocument = existingEdge
+                  ? insertFlowNodeOnEdge(document, nextNode, existingEdge.id)
+                  : upsertFlowConnection(nextDocument, {
+                      sourceId: createComposer.seedFlowConnection.sourceNodeId,
+                      sourceHandle: createComposer.seedFlowConnection.sourceHandle,
+                      targetId: nextNode.id,
+                      targetHandle: "in",
+                    });
+              }
+
+              (payload.starterSteps ?? []).forEach((starterStep, index) => {
+                const starterNode = {
+                  ...createFlowNode(graphTargetId, starterStep.flowNodeKind),
+                  payload: starterStep.payload,
+                };
+                const starterPosition = {
+                  x: createComposer.flowPosition.x + 280,
+                  y:
+                    createComposer.flowPosition.y +
+                    (starterStep.sourceHandle === "body" ? -150 : 150) +
+                    index * 32,
+                };
+                seededNodes.push({
+                  nodeId: starterNode.id,
+                  kind: starterNode.kind,
+                  position: starterPosition,
+                });
+                nextDocument = upsertFlowConnection(
+                  addDisconnectedFlowNode(nextDocument, starterNode),
+                  {
+                    sourceId: nextNode.id,
+                    sourceHandle: starterStep.sourceHandle,
+                    targetId: starterNode.id,
+                    targetHandle: "in",
+                  },
+                );
+              });
+              return nextDocument;
+            },
+            seededNodes,
+            selectedNodeId: nextNode.id,
+          });
+          setPendingCreatedNodeId(undefined);
+          setCreateComposer(undefined);
+          setCreateModeState("active");
+          return;
+        } else {
+          throw new Error("Create-mode context no longer matches the requested action.");
+        }
+
+        const result = await handleApplyEdit(request, { preserveView: true });
+        const changedNodeId = result.changedNodeIds[0];
+        if (changedNodeId) {
+          await seedCreatedNodeLayout(changedNodeId, createdNodeKind, createComposer, nextFocus);
+          selectNode(changedNodeId);
+          setPendingCreatedNodeId(changedNodeId);
+        }
+
+        if (nextFocus) {
+          focusGraph(nextFocus.targetId, nextFocus.level);
+        }
+        setCreateComposer(undefined);
+        setCreateModeState(resumeCreateMode ? "active" : "inactive");
+      } catch (reason) {
+        const message =
+          reason instanceof Error
+            ? reason.message
+            : "Unable to create from the current graph context.";
+        setCreateModeError(message);
+        if (
+          (payload.kind === "flow" || payload.kind === "flow_param") &&
+          graphTargetId?.startsWith("symbol:")
+        ) {
+          setFlowDraftState((current) => {
+            if (!current || current.symbolId !== graphTargetId) {
+              return current;
+            }
+
+            return {
+              ...current,
+              status: "dirty",
+              error: message,
+            };
+          });
+        }
+      } finally {
+        setIsSubmittingCreate(false);
+      }
+    },
+    [
+      activeLevel,
+      activeFlowDraft,
+      applyFlowDraftMutation,
+      createComposer,
+      createModeState,
+      focusGraph,
+      graphTargetId,
+      handleApplyEdit,
+      seedCreatedNodeLayout,
+      selectNode,
+      setFlowInputDisplayMode,
+    ],
+  );
+
+  const resolveFlowDocumentConnection = useCallback(
+    (connection: GraphFlowConnectionIntent) => {
+      if (!activeFlowDraft) {
+        return undefined;
+      }
+
+      const sourceHandle = flowDocumentHandleFromBlueprintHandle(connection.sourceHandle, "source");
+      const targetHandle = flowDocumentHandleFromBlueprintHandle(connection.targetHandle, "target");
+      if (!sourceHandle || !targetHandle) {
+        return undefined;
+      }
+
+      const liveNodeIds = new Set(activeFlowDraft.document.nodes.map((node) => node.id));
+      if (!liveNodeIds.has(connection.sourceId) || !liveNodeIds.has(connection.targetId)) {
+        return undefined;
+      }
+
+      return {
+        sourceId: connection.sourceId,
+        sourceHandle,
+        targetId: connection.targetId,
+        targetHandle,
+      };
+    },
+    [activeFlowDraft],
+  );
+
+  const resolveFlowInputBindingConnection = useCallback(
+    (connection: GraphFlowConnectionIntent): ResolvedFlowInputBindingConnection | undefined => {
+      if (!activeFlowDraft) {
+        return undefined;
+      }
+
+      const sourceId =
+        parseFunctionInputSourceHandle(connection.sourceHandle) ??
+        parseValueSourceHandle(connection.sourceHandle) ??
+        (() => {
+          const sourceNode = effectiveGraph?.nodes.find((node) => node.id === connection.sourceId);
+          const value =
+            sourceNode?.metadata.source_id ??
+            sourceNode?.metadata.sourceId ??
+            sourceNode?.metadata.value_source_id ??
+            sourceNode?.metadata.valueSourceId ??
+            sourceNode?.metadata.function_input_id ??
+            sourceNode?.metadata.functionInputId;
+          return typeof value === "string" ? value : undefined;
+        })();
+      const slotId = parseInputSlotTargetHandle(connection.targetHandle);
+      if (!sourceId) {
+        return undefined;
+      }
+      if (slotId) {
+        return {
+          kind: "slot",
+          sourceId,
+          slotId,
+        };
+      }
+      const targetNodeId = parseReturnInputTargetHandle(connection.targetHandle);
+      if (
+        targetNodeId &&
+        activeFlowDraft.document.nodes.some(
+          (node) => node.id === targetNodeId && node.kind === "return",
+        )
+      ) {
+        return {
+          kind: "return-input",
+          sourceId,
+          targetNodeId,
+        };
+      }
+      return undefined;
+    },
+    [activeFlowDraft, effectiveGraph?.nodes],
+  );
+
+  const handleOpenFlowEditComposer = useCallback(
+    (intent: GraphFlowEditIntent) => {
+      if (
+        activeLevel !== "flow" ||
+        !graphTargetId?.startsWith("symbol:") ||
+        activeFlowDraft?.symbolId !== graphTargetId ||
+        !activeFlowDraft.document.editable
+      ) {
+        return;
+      }
+
+      const targetNode = activeFlowDraft.document.nodes.find((node) => node.id === intent.nodeId);
+      if (!targetNode || !isFlowNodeAuthorableKind(targetNode.kind)) {
+        return;
+      }
+
+      setCreateModeError(null);
+      setReturnExpressionGraphView(undefined);
+      setCreateComposer({
+        id: `${Date.now()}:flow:edit:${targetNode.id}`,
+        kind: "flow",
+        mode: "edit",
+        anchor: {
+          x: intent.panelPosition.x,
+          y: intent.panelPosition.y,
+        },
+        flowPosition: intent.flowPosition,
+        ownerLabel: flowOwnerSymbolQuery.data?.qualname ?? effectiveGraph?.focus?.label ?? "Flow",
+        editingNodeId: targetNode.id,
+        initialFlowNodeKind: targetNode.kind,
+        initialPayload: targetNode.payload,
+        initialLoopType: intent.initialLoopType,
+      });
+      if (createModeState === "active") {
+        setCreateModeState("composing");
+      }
+    },
+    [
+      activeFlowDraft,
+      activeLevel,
+      createModeState,
+      effectiveGraph?.focus?.label,
+      flowDraftBackedCreateEnabled,
+      flowOwnerSymbolQuery.data?.qualname,
+      graphTargetId,
+    ],
+  );
+
+  const handleOpenExpressionGraphEditor = useCallback(
+    (intent: GraphExpressionGraphIntent) => {
+      const draftDocument =
+        activeFlowDraft && activeFlowDraft.symbolId === graphTargetId
+          ? activeFlowDraft.document
+          : flowDraftSeedDocument?.symbolId === graphTargetId
+            ? flowDraftSeedDocument
+            : undefined;
+
+      if (
+        activeLevel !== "flow" ||
+        !graphTargetId?.startsWith("symbol:") ||
+        !draftDocument?.editable
+      ) {
+        return;
+      }
+
+      const targetNode = draftDocument.nodes.find(
+        (node) => node.id === intent.nodeId && node.kind === "return",
+      );
+      if (!targetNode) {
+        return;
+      }
+
+      if (activeFlowDraft?.symbolId !== graphTargetId) {
+        setFlowDraftState({
+          symbolId: graphTargetId,
+          baseDocument: draftDocument,
+          document: draftDocument,
+          status: "idle",
+          error: null,
+        });
+      }
+      setCreateComposer(undefined);
+      setCreateModeError(null);
+      selectNode(targetNode.id);
+      const expressionGraph = normalizeExpressionGraphOrEmpty(
+        targetNode.payload.expression_graph as FlowExpressionGraph | undefined,
+      );
+      setReturnExpressionGraphView({
         symbolId: graphTargetId,
-        baseDocument: draftDocument,
-        document: draftDocument,
-        status: "idle",
+        returnNodeId: targetNode.id,
+        selectedExpressionNodeId:
+          intent.expressionNodeId ?? expressionGraph.rootId ?? expressionGraph.nodes[0]?.id,
+        diagnostics: [],
+        isDraftOnly: false,
         error: null,
       });
-    }
-    setCreateComposer(undefined);
-    setCreateModeError(null);
-    selectNode(targetNode.id);
-    const expressionGraph = normalizeExpressionGraphOrEmpty(
-      targetNode.payload.expression_graph as FlowExpressionGraph | undefined,
-    );
-    setReturnExpressionGraphView({
-      symbolId: graphTargetId,
-      returnNodeId: targetNode.id,
-      selectedExpressionNodeId: intent.expressionNodeId ?? expressionGraph.rootId ?? expressionGraph.nodes[0]?.id,
-      diagnostics: [],
-      isDraftOnly: false,
-      error: null,
-    });
-    if (createModeState !== "inactive") {
-      setCreateModeState("inactive");
-    }
-  }, [
-    activeFlowDraft,
-    activeLevel,
-    createModeState,
-    flowDraftSeedDocument,
-    graphTargetId,
-    selectNode,
-  ]);
+      if (createModeState !== "inactive") {
+        setCreateModeState("inactive");
+      }
+    },
+    [
+      activeFlowDraft,
+      activeLevel,
+      createModeState,
+      flowDraftSeedDocument,
+      graphTargetId,
+      selectNode,
+    ],
+  );
 
   const handleExitReturnExpressionGraph = useCallback(() => {
     setReturnExpressionGraphView(undefined);
   }, []);
 
   const handleSelectReturnExpressionNode = useCallback((nodeId?: string) => {
-    setReturnExpressionGraphView((current) => (
-      current
-        ? { ...current, selectedExpressionNodeId: nodeId }
-        : current
-    ));
+    setReturnExpressionGraphView((current) =>
+      current ? { ...current, selectedExpressionNodeId: nodeId } : current,
+    );
   }, []);
 
-  const handleReturnExpressionGraphChange = useCallback((
-    nextGraph: FlowExpressionGraph,
-    options?: { selectedExpressionNodeId?: string },
-  ) => {
-    const view = returnExpressionGraphView;
-    if (!view) {
-      return;
-    }
+  const handleReturnExpressionGraphChange = useCallback(
+    (nextGraph: FlowExpressionGraph, options?: { selectedExpressionNodeId?: string }) => {
+      const view = returnExpressionGraphView;
+      if (!view) {
+        return;
+      }
 
-    const normalizedGraph = normalizeFlowExpressionGraph(nextGraph) ?? EMPTY_EXPRESSION_GRAPH;
-    const sourceResult = expressionFromFlowExpressionGraph(normalizedGraph);
-    const selectedExpressionNodeId = options?.selectedExpressionNodeId;
+      const normalizedGraph = normalizeFlowExpressionGraph(nextGraph) ?? EMPTY_EXPRESSION_GRAPH;
+      const sourceResult = expressionFromFlowExpressionGraph(normalizedGraph);
+      const selectedExpressionNodeId = options?.selectedExpressionNodeId;
 
-    if (sourceResult.diagnostics.length || !sourceResult.expression.trim()) {
+      if (sourceResult.diagnostics.length || !sourceResult.expression.trim()) {
+        setReturnExpressionGraphView({
+          ...view,
+          selectedExpressionNodeId,
+          draftGraph: normalizedGraph,
+          draftExpression: sourceResult.expression,
+          diagnostics: sourceResult.diagnostics,
+          isDraftOnly: true,
+          error: null,
+        });
+        return;
+      }
+
       setReturnExpressionGraphView({
         ...view,
         selectedExpressionNodeId,
         draftGraph: normalizedGraph,
         draftExpression: sourceResult.expression,
-        diagnostics: sourceResult.diagnostics,
-        isDraftOnly: true,
+        diagnostics: [],
+        isDraftOnly: false,
         error: null,
       });
-      return;
-    }
-
-    setReturnExpressionGraphView({
-      ...view,
-      selectedExpressionNodeId,
-      draftGraph: normalizedGraph,
-      draftExpression: sourceResult.expression,
-      diagnostics: [],
-      isDraftOnly: false,
-      error: null,
-    });
-    setIsSubmittingExpressionGraph(true);
-    void (async () => {
-      try {
-        await applyFlowDraftMutation({
-          transform: (document) => {
-            const targetNode = document.nodes.find((node) => (
-              node.id === view.returnNodeId
-              && node.kind === "return"
-            ));
-            if (!targetNode) {
-              throw new Error("Return node is no longer available in this flow draft.");
-            }
-            return updateFlowNodePayload(
-              document,
-              view.returnNodeId,
-              {
+      setIsSubmittingExpressionGraph(true);
+      void (async () => {
+        try {
+          await applyFlowDraftMutation({
+            transform: (document) => {
+              const targetNode = document.nodes.find(
+                (node) => node.id === view.returnNodeId && node.kind === "return",
+              );
+              if (!targetNode) {
+                throw new Error("Return node is no longer available in this flow draft.");
+              }
+              return updateFlowNodePayload(document, view.returnNodeId, {
                 ...targetNode.payload,
                 expression: sourceResult.expression,
                 expression_graph: normalizedGraph,
-              },
-            );
-          },
-          selectedNodeId: view.returnNodeId,
-        });
-        setReturnExpressionGraphView((current) => (
-          current && current.returnNodeId === view.returnNodeId
-            ? {
-                ...current,
-                diagnostics: [],
-                isDraftOnly: false,
-                error: null,
-              }
-            : current
-        ));
-      } catch (reason) {
-        const message =
-          reason instanceof Error ? reason.message : "Unable to save the return expression graph.";
-        setReturnExpressionGraphView((current) => (
-          current && current.returnNodeId === view.returnNodeId
-            ? {
-                ...current,
-                draftGraph: normalizedGraph,
-                draftExpression: sourceResult.expression,
-                diagnostics: [],
-                isDraftOnly: true,
-                error: message,
-              }
-            : current
-        ));
-      } finally {
-        setIsSubmittingExpressionGraph(false);
-      }
-    })();
-  }, [applyFlowDraftMutation, returnExpressionGraphView]);
+              });
+            },
+            selectedNodeId: view.returnNodeId,
+          });
+          setReturnExpressionGraphView((current) =>
+            current && current.returnNodeId === view.returnNodeId
+              ? {
+                  ...current,
+                  diagnostics: [],
+                  isDraftOnly: false,
+                  error: null,
+                }
+              : current,
+          );
+        } catch (reason) {
+          const message =
+            reason instanceof Error
+              ? reason.message
+              : "Unable to save the return expression graph.";
+          setReturnExpressionGraphView((current) =>
+            current && current.returnNodeId === view.returnNodeId
+              ? {
+                  ...current,
+                  draftGraph: normalizedGraph,
+                  draftExpression: sourceResult.expression,
+                  diagnostics: [],
+                  isDraftOnly: true,
+                  error: message,
+                }
+              : current,
+          );
+        } finally {
+          setIsSubmittingExpressionGraph(false);
+        }
+      })();
+    },
+    [applyFlowDraftMutation, returnExpressionGraphView],
+  );
 
-  const handleConnectFlowEdge = useCallback((connectionIntent: GraphFlowConnectionIntent) => {
-    if (!activeFlowDraft) {
-      return;
-    }
-    const inputBindingConnection = resolveFlowInputBindingConnection(connectionIntent);
-    if (inputBindingConnection) {
-      const validation = inputBindingConnection.kind === "return-input"
-        ? validateFlowReturnInputBindingConnection(activeFlowDraft.document, inputBindingConnection)
-        : validateFlowInputBindingConnection(activeFlowDraft.document, inputBindingConnection);
-      if (!validation.ok) {
-        setCreateModeError(validation.message);
+  const handleConnectFlowEdge = useCallback(
+    (connectionIntent: GraphFlowConnectionIntent) => {
+      if (!activeFlowDraft) {
         return;
       }
-      void applyFlowDraftMutation({
-        transform: (document) => (
+      const inputBindingConnection = resolveFlowInputBindingConnection(connectionIntent);
+      if (inputBindingConnection) {
+        const validation =
           inputBindingConnection.kind === "return-input"
-            ? upsertFlowReturnInputBinding(document, inputBindingConnection)
-            : upsertFlowInputBinding(document, inputBindingConnection)
-        ),
-      }).catch((reason) => {
-        const message =
-          reason instanceof Error ? reason.message : "Unable to bind the selected value source.";
-        setCreateModeError(message);
-      });
-      return;
-    }
-    const connection = resolveFlowDocumentConnection(connectionIntent);
-    if (!connection) {
-      return;
-    }
-
-    const validation = validateFlowConnection(activeFlowDraft.document, connection);
-    if (!validation.ok) {
-      setCreateModeError(validation.message);
-      return;
-    }
-
-    void applyFlowDraftMutation({
-      transform: (document) => upsertFlowConnection(document, connection),
-    }).catch((reason) => {
-      const message =
-        reason instanceof Error ? reason.message : "Unable to connect the selected flow nodes.";
-      setCreateModeError(message);
-    });
-  }, [
-    activeFlowDraft,
-    applyFlowDraftMutation,
-    resolveFlowDocumentConnection,
-    resolveFlowInputBindingConnection,
-  ]);
-
-  const handleReconnectFlowEdge = useCallback((
-    edgeId: string,
-    connectionIntent: GraphFlowConnectionIntent,
-  ) => {
-    if (!activeFlowDraft) {
-      return;
-    }
-    const inputBindingConnection = resolveFlowInputBindingConnection(connectionIntent);
-    if (inputBindingConnection) {
-      const validation = inputBindingConnection.kind === "return-input"
-        ? validateFlowReturnInputBindingConnection(activeFlowDraft.document, inputBindingConnection)
-        : validateFlowInputBindingConnection(activeFlowDraft.document, inputBindingConnection);
-      if (!validation.ok) {
-        setCreateModeError(validation.message);
-        return;
-      }
-      const previousBindingId = edgeId.startsWith("data:")
-        ? edgeId.slice("data:".length)
-        : undefined;
-      void applyFlowDraftMutation({
-        transform: (document) => (
-          inputBindingConnection.kind === "return-input"
-            ? upsertFlowReturnInputBinding(document, inputBindingConnection, previousBindingId)
-            : upsertFlowInputBinding(document, inputBindingConnection, previousBindingId)
-        ),
-      }).catch((reason) => {
-        const message =
-          reason instanceof Error ? reason.message : "Unable to reconnect the selected value source.";
-        setCreateModeError(message);
-      });
-      return;
-    }
-    const connection = resolveFlowDocumentConnection(connectionIntent);
-    if (!connection) {
-      return;
-    }
-
-    const validation = validateFlowConnection(activeFlowDraft.document, connection, edgeId);
-    if (!validation.ok) {
-      setCreateModeError(validation.message);
-      return;
-    }
-
-    void applyFlowDraftMutation({
-      transform: (document) => upsertFlowConnection(document, connection, edgeId),
-    }).catch((reason) => {
-      const message =
-        reason instanceof Error ? reason.message : "Unable to reconnect the selected flow edge.";
-      setCreateModeError(message);
-    });
-  }, [
-    activeFlowDraft,
-    applyFlowDraftMutation,
-    resolveFlowDocumentConnection,
-    resolveFlowInputBindingConnection,
-  ]);
-
-  const handleDisconnectFlowEdge = useCallback((edgeId: string) => {
-    const functionInputId = parseParameterEntryEdgeInputId(edgeId);
-    if (functionInputId) {
-      void removeFlowFunctionInputWithConfirmation(functionInputId);
-      return;
-    }
-    if (edgeId.startsWith("data:")) {
-      const bindingId = edgeId.slice("data:".length);
-      void applyFlowDraftMutation({
-        transform: (document) => removeFlowInputBindings(document, [bindingId]),
-      }).catch((reason) => {
-        const message =
-          reason instanceof Error ? reason.message : "Unable to disconnect the selected value binding.";
-        setCreateModeError(message);
-      });
-      return;
-    }
-    void applyFlowDraftMutation({
-      transform: (document) => removeFlowEdges(document, [edgeId]),
-    }).catch((reason) => {
-      const message =
-        reason instanceof Error ? reason.message : "Unable to disconnect the selected flow edge.";
-      setCreateModeError(message);
-    });
-  }, [applyFlowDraftMutation, removeFlowFunctionInputWithConfirmation]);
-
-  const handleDeleteFlowSelection = useCallback((selection: GraphFlowDeleteIntent) => {
-    if (!selection.nodeIds.length && !selection.edgeIds.length) {
-      return;
-    }
-
-    void (async () => {
-      const selectedNodeById = new Map((effectiveGraph?.nodes ?? []).map((node) => [node.id, node] as const));
-      const functionInputIdsFromParamNodes = activeFlowDraft
-        ? selection.nodeIds.flatMap((nodeId) => {
-            const functionInputId = flowFunctionInputIdForParamNode(
-              selectedNodeById.get(nodeId),
-              activeFlowDraft.document,
-            );
-            return functionInputId ? [functionInputId] : [];
-          })
-        : [];
-      const functionInputIdsFromEdges = selection.edgeIds.flatMap((edgeId) => {
-        const functionInputId = parseParameterEntryEdgeInputId(edgeId);
-        return functionInputId ? [functionInputId] : [];
-      });
-      const functionInputIdsToRemove = [
-        ...new Set([...functionInputIdsFromParamNodes, ...functionInputIdsFromEdges]),
-      ];
-      let confirmedFunctionInputIdsToRemove = functionInputIdsToRemove;
-      if (functionInputIdsToRemove.length) {
-        const confirmedInputIds = await confirmFlowFunctionInputRemoval(
-          functionInputIdsToRemove,
-          functionInputIdsFromParamNodes.length ? "param node" : "input",
-        );
-        if (!confirmedInputIds?.length) {
+            ? validateFlowReturnInputBindingConnection(
+                activeFlowDraft.document,
+                inputBindingConnection,
+              )
+            : validateFlowInputBindingConnection(activeFlowDraft.document, inputBindingConnection);
+        if (!validation.ok) {
+          setCreateModeError(validation.message);
           return;
         }
-        confirmedFunctionInputIdsToRemove = confirmedInputIds;
+        void applyFlowDraftMutation({
+          transform: (document) =>
+            inputBindingConnection.kind === "return-input"
+              ? upsertFlowReturnInputBinding(document, inputBindingConnection)
+              : upsertFlowInputBinding(document, inputBindingConnection),
+        }).catch((reason) => {
+          const message =
+            reason instanceof Error ? reason.message : "Unable to bind the selected value source.";
+          setCreateModeError(message);
+        });
+        return;
       }
-
-      const cleared = await requestClearSelectionState();
-      if (!cleared) {
+      const connection = resolveFlowDocumentConnection(connectionIntent);
+      if (!connection) {
         return;
       }
 
-      try {
-        await applyFlowDraftMutation({
-          transform: (document) => {
-            let nextDocument = document;
-            if (selection.nodeIds.length) {
-              nextDocument = removeFlowNodes(nextDocument, selection.nodeIds);
-            }
-            if (selection.edgeIds.length) {
-              const dataBindingIds = selection.edgeIds
-                .filter((edgeId) => edgeId.startsWith("data:") && !parseParameterEntryEdgeInputId(edgeId))
-                .map((edgeId) => edgeId.slice("data:".length));
-              const controlEdgeIds = selection.edgeIds.filter((edgeId) => !edgeId.startsWith("data:"));
-              nextDocument = removeFlowInputBindings(nextDocument, dataBindingIds);
-              nextDocument = removeFlowEdges(nextDocument, controlEdgeIds);
-            }
-            confirmedFunctionInputIdsToRemove.forEach((functionInputId) => {
-              nextDocument = removeFlowFunctionInputAndDownstreamUses(nextDocument, functionInputId);
-            });
-            return nextDocument;
-          },
-        });
-      } catch (reason) {
-        const message =
-          reason instanceof Error ? reason.message : "Unable to delete the selected flow items.";
-        setCreateModeError(message);
+      const validation = validateFlowConnection(activeFlowDraft.document, connection);
+      if (!validation.ok) {
+        setCreateModeError(validation.message);
+        return;
       }
-    })();
-  }, [
-    activeFlowDraft,
-    applyFlowDraftMutation,
-    confirmFlowFunctionInputRemoval,
-    effectiveGraph,
-    requestClearSelectionState,
-  ]);
+
+      void applyFlowDraftMutation({
+        transform: (document) => upsertFlowConnection(document, connection),
+      }).catch((reason) => {
+        const message =
+          reason instanceof Error ? reason.message : "Unable to connect the selected flow nodes.";
+        setCreateModeError(message);
+      });
+    },
+    [
+      activeFlowDraft,
+      applyFlowDraftMutation,
+      resolveFlowDocumentConnection,
+      resolveFlowInputBindingConnection,
+    ],
+  );
+
+  const handleReconnectFlowEdge = useCallback(
+    (edgeId: string, connectionIntent: GraphFlowConnectionIntent) => {
+      if (!activeFlowDraft) {
+        return;
+      }
+      const inputBindingConnection = resolveFlowInputBindingConnection(connectionIntent);
+      if (inputBindingConnection) {
+        const validation =
+          inputBindingConnection.kind === "return-input"
+            ? validateFlowReturnInputBindingConnection(
+                activeFlowDraft.document,
+                inputBindingConnection,
+              )
+            : validateFlowInputBindingConnection(activeFlowDraft.document, inputBindingConnection);
+        if (!validation.ok) {
+          setCreateModeError(validation.message);
+          return;
+        }
+        const previousBindingId = edgeId.startsWith("data:")
+          ? edgeId.slice("data:".length)
+          : undefined;
+        void applyFlowDraftMutation({
+          transform: (document) =>
+            inputBindingConnection.kind === "return-input"
+              ? upsertFlowReturnInputBinding(document, inputBindingConnection, previousBindingId)
+              : upsertFlowInputBinding(document, inputBindingConnection, previousBindingId),
+        }).catch((reason) => {
+          const message =
+            reason instanceof Error
+              ? reason.message
+              : "Unable to reconnect the selected value source.";
+          setCreateModeError(message);
+        });
+        return;
+      }
+      const connection = resolveFlowDocumentConnection(connectionIntent);
+      if (!connection) {
+        return;
+      }
+
+      const validation = validateFlowConnection(activeFlowDraft.document, connection, edgeId);
+      if (!validation.ok) {
+        setCreateModeError(validation.message);
+        return;
+      }
+
+      void applyFlowDraftMutation({
+        transform: (document) => upsertFlowConnection(document, connection, edgeId),
+      }).catch((reason) => {
+        const message =
+          reason instanceof Error ? reason.message : "Unable to reconnect the selected flow edge.";
+        setCreateModeError(message);
+      });
+    },
+    [
+      activeFlowDraft,
+      applyFlowDraftMutation,
+      resolveFlowDocumentConnection,
+      resolveFlowInputBindingConnection,
+    ],
+  );
+
+  const handleDisconnectFlowEdge = useCallback(
+    (edgeId: string) => {
+      const functionInputId = parseParameterEntryEdgeInputId(edgeId);
+      if (functionInputId) {
+        void removeFlowFunctionInputWithConfirmation(functionInputId);
+        return;
+      }
+      if (edgeId.startsWith("data:")) {
+        const bindingId = edgeId.slice("data:".length);
+        void applyFlowDraftMutation({
+          transform: (document) => removeFlowInputBindings(document, [bindingId]),
+        }).catch((reason) => {
+          const message =
+            reason instanceof Error
+              ? reason.message
+              : "Unable to disconnect the selected value binding.";
+          setCreateModeError(message);
+        });
+        return;
+      }
+      void applyFlowDraftMutation({
+        transform: (document) => removeFlowEdges(document, [edgeId]),
+      }).catch((reason) => {
+        const message =
+          reason instanceof Error ? reason.message : "Unable to disconnect the selected flow edge.";
+        setCreateModeError(message);
+      });
+    },
+    [applyFlowDraftMutation, removeFlowFunctionInputWithConfirmation],
+  );
+
+  const handleDeleteFlowSelection = useCallback(
+    (selection: GraphFlowDeleteIntent) => {
+      if (!selection.nodeIds.length && !selection.edgeIds.length) {
+        return;
+      }
+
+      void (async () => {
+        const selectedNodeById = new Map(
+          (effectiveGraph?.nodes ?? []).map((node) => [node.id, node] as const),
+        );
+        const functionInputIdsFromParamNodes = activeFlowDraft
+          ? selection.nodeIds.flatMap((nodeId) => {
+              const functionInputId = flowFunctionInputIdForParamNode(
+                selectedNodeById.get(nodeId),
+                activeFlowDraft.document,
+              );
+              return functionInputId ? [functionInputId] : [];
+            })
+          : [];
+        const functionInputIdsFromEdges = selection.edgeIds.flatMap((edgeId) => {
+          const functionInputId = parseParameterEntryEdgeInputId(edgeId);
+          return functionInputId ? [functionInputId] : [];
+        });
+        const functionInputIdsToRemove = [
+          ...new Set([...functionInputIdsFromParamNodes, ...functionInputIdsFromEdges]),
+        ];
+        let confirmedFunctionInputIdsToRemove = functionInputIdsToRemove;
+        if (functionInputIdsToRemove.length) {
+          const confirmedInputIds = await confirmFlowFunctionInputRemoval(
+            functionInputIdsToRemove,
+            functionInputIdsFromParamNodes.length ? "param node" : "input",
+          );
+          if (!confirmedInputIds?.length) {
+            return;
+          }
+          confirmedFunctionInputIdsToRemove = confirmedInputIds;
+        }
+
+        const cleared = await requestClearSelectionState();
+        if (!cleared) {
+          return;
+        }
+
+        try {
+          await applyFlowDraftMutation({
+            transform: (document) => {
+              let nextDocument = document;
+              if (selection.nodeIds.length) {
+                nextDocument = removeFlowNodes(nextDocument, selection.nodeIds);
+              }
+              if (selection.edgeIds.length) {
+                const dataBindingIds = selection.edgeIds
+                  .filter(
+                    (edgeId) =>
+                      edgeId.startsWith("data:") && !parseParameterEntryEdgeInputId(edgeId),
+                  )
+                  .map((edgeId) => edgeId.slice("data:".length));
+                const controlEdgeIds = selection.edgeIds.filter(
+                  (edgeId) => !edgeId.startsWith("data:"),
+                );
+                nextDocument = removeFlowInputBindings(nextDocument, dataBindingIds);
+                nextDocument = removeFlowEdges(nextDocument, controlEdgeIds);
+              }
+              confirmedFunctionInputIdsToRemove.forEach((functionInputId) => {
+                nextDocument = removeFlowFunctionInputAndDownstreamUses(
+                  nextDocument,
+                  functionInputId,
+                );
+              });
+              return nextDocument;
+            },
+          });
+        } catch (reason) {
+          const message =
+            reason instanceof Error ? reason.message : "Unable to delete the selected flow items.";
+          setCreateModeError(message);
+        }
+      })();
+    },
+    [
+      activeFlowDraft,
+      applyFlowDraftMutation,
+      confirmFlowFunctionInputRemoval,
+      effectiveGraph,
+      requestClearSelectionState,
+    ],
+  );
 
   const requestInspectorClose = useCallback(async () => {
     const draftContent = inspectorDraftContentRef.current;
@@ -3724,87 +3850,90 @@ export function WorkspaceScreen() {
     await requestClearSelectionState();
   }, [requestClearSelectionState]);
 
-  const handleExplorerSidebarResize = useCallback((nextWidth: number) => {
-    setExplorerSidebarWidth(clampExplorerSidebarWidth(nextWidth, workspaceLayoutWidth));
-  }, [workspaceLayoutWidth]);
+  const handleExplorerSidebarResize = useCallback(
+    (nextWidth: number) => {
+      setExplorerSidebarWidth(clampExplorerSidebarWidth(nextWidth, workspaceLayoutWidth));
+    },
+    [workspaceLayoutWidth],
+  );
 
-  const handleExplorerResizePointerDown = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (narrowWorkspaceLayout) {
-      return;
-    }
-
-    const layoutLeft = workspaceLayoutRef.current?.getBoundingClientRect().left ?? 0;
-
-    event.preventDefault();
-
-    const resizeFromClientX = (clientX: number) => {
-      if (!Number.isFinite(clientX)) {
+  const handleExplorerResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (narrowWorkspaceLayout) {
         return;
       }
 
-      handleExplorerSidebarResize(clientX - layoutLeft);
-    };
+      const layoutLeft = workspaceLayoutRef.current?.getBoundingClientRect().left ?? 0;
 
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      resizeFromClientX(moveEvent.clientX);
-    };
-
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      resizeFromClientX(moveEvent.clientX);
-    };
-
-    const stopResize = () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", stopResize);
-      window.removeEventListener("pointercancel", stopResize);
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", stopResize);
-    };
-
-    resizeFromClientX(event.clientX);
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", stopResize);
-    window.addEventListener("pointercancel", stopResize);
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", stopResize);
-  }, [
-    handleExplorerSidebarResize,
-    narrowWorkspaceLayout,
-  ]);
-
-  const handleExplorerResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    if (narrowWorkspaceLayout) {
-      return;
-    }
-
-    if (event.key === "ArrowLeft") {
       event.preventDefault();
-      handleExplorerSidebarResize(clampedExplorerSidebarWidth - 24);
-      return;
-    }
 
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      handleExplorerSidebarResize(clampedExplorerSidebarWidth + 24);
-      return;
-    }
+      const resizeFromClientX = (clientX: number) => {
+        if (!Number.isFinite(clientX)) {
+          return;
+        }
 
-    if (event.key === "Home") {
-      event.preventDefault();
-      handleExplorerSidebarResize(DEFAULT_EXPLORER_SIDEBAR_WIDTH);
-    }
-  }, [
-    clampedExplorerSidebarWidth,
-    handleExplorerSidebarResize,
-    narrowWorkspaceLayout,
-  ]);
+        handleExplorerSidebarResize(clientX - layoutLeft);
+      };
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        resizeFromClientX(moveEvent.clientX);
+      };
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        resizeFromClientX(moveEvent.clientX);
+      };
+
+      const stopResize = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", stopResize);
+        window.removeEventListener("pointercancel", stopResize);
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("mouseup", stopResize);
+      };
+
+      resizeFromClientX(event.clientX);
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", stopResize);
+      window.addEventListener("pointercancel", stopResize);
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", stopResize);
+    },
+    [handleExplorerSidebarResize, narrowWorkspaceLayout],
+  );
+
+  const handleExplorerResizeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+      if (narrowWorkspaceLayout) {
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        handleExplorerSidebarResize(clampedExplorerSidebarWidth - 24);
+        return;
+      }
+
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        handleExplorerSidebarResize(clampedExplorerSidebarWidth + 24);
+        return;
+      }
+
+      if (event.key === "Home") {
+        event.preventDefault();
+        handleExplorerSidebarResize(DEFAULT_EXPLORER_SIDEBAR_WIDTH);
+      }
+    },
+    [clampedExplorerSidebarWidth, handleExplorerSidebarResize, narrowWorkspaceLayout],
+  );
 
   const workspaceLayoutStyle = useMemo(
-    () => (narrowWorkspaceLayout
-      ? undefined
-      : {
-          gridTemplateColumns: `${Math.round(clampedExplorerSidebarWidth)}px 12px minmax(0, 1fr)`,
-        }),
+    () =>
+      narrowWorkspaceLayout
+        ? undefined
+        : {
+            gridTemplateColumns: `${Math.round(clampedExplorerSidebarWidth)}px 12px minmax(0, 1fr)`,
+          },
     [clampedExplorerSidebarWidth, narrowWorkspaceLayout],
   );
 
@@ -3827,17 +3956,17 @@ export function WorkspaceScreen() {
     const baseItems = effectiveGraph
       ? buildGraphPathItems(effectiveGraph, repoSession?.path)
       : buildFallbackGraphPathItems(
-      repoSession
-        ? {
-            id: repoSession.id,
-            name: repoSession.name,
-            path: repoSession.path,
-          }
-        : undefined,
-      graphTargetId,
-      activeLevel,
-      overviewQuery.data?.modules ?? [],
-    );
+          repoSession
+            ? {
+                id: repoSession.id,
+                name: repoSession.name,
+                path: repoSession.path,
+              }
+            : undefined,
+          graphTargetId,
+          activeLevel,
+          overviewQuery.data?.modules ?? [],
+        );
     if (!returnExpressionGraphView) {
       return baseItems;
     }
@@ -3872,11 +4001,11 @@ export function WorkspaceScreen() {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
-        event.key !== "Escape"
-        || event.altKey
-        || event.ctrlKey
-        || event.metaKey
-        || event.shiftKey
+        event.key !== "Escape" ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey
       ) {
         return;
       }
@@ -3896,7 +4025,10 @@ export function WorkspaceScreen() {
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [createModeState, handleExitCreateMode]);
   useEffect(() => {
-    if (!pendingCreatedNodeId || !effectiveGraph?.nodes.some((node) => node.id === pendingCreatedNodeId)) {
+    if (
+      !pendingCreatedNodeId ||
+      !effectiveGraph?.nodes.some((node) => node.id === pendingCreatedNodeId)
+    ) {
       return;
     }
 
@@ -3912,13 +4044,11 @@ export function WorkspaceScreen() {
         : { label: effectiveInspectorNode?.kind ?? activeLevel, tone: "default" as const };
   const graphContextPath = graphPathItems.map((item) => item.label).join(" / ");
   const graphContextTitle =
-    effectiveGraph?.focus?.label
-    ?? graphPathItems[graphPathItems.length - 1]?.label
-    ?? repoSession?.name
-    ?? "Inspector";
-  const graphContextSubtitle =
-    effectiveGraph?.focus?.subtitle
-    ?? (graphContextPath || titleCopy);
+    effectiveGraph?.focus?.label ??
+    graphPathItems[graphPathItems.length - 1]?.label ??
+    repoSession?.name ??
+    "Inspector";
+  const graphContextSubtitle = effectiveGraph?.focus?.subtitle ?? (graphContextPath || titleCopy);
   const inspectorSummaryText = selectionSummary(effectiveInspectorNode);
   const drawerTitle = effectiveInspectorNode?.label ?? graphContextTitle;
   const drawerSubtitle = effectiveInspectorNode
@@ -3927,14 +4057,15 @@ export function WorkspaceScreen() {
       : graphContextSubtitle
     : graphContextSubtitle;
   const drawerActionNode =
-    activeLevel === "flow"
-    && selectedGraphNode
-    && (isEnterableGraphNodeKind(selectedGraphNode.kind) || isInspectableGraphNodeKind(selectedGraphNode.kind))
+    activeLevel === "flow" &&
+    selectedGraphNode &&
+    (isEnterableGraphNodeKind(selectedGraphNode.kind) ||
+      isInspectableGraphNodeKind(selectedGraphNode.kind))
       ? selectedGraphNode
       : effectiveInspectorNode;
   const drawerNodePath =
-    relativePathForNode(drawerActionNode)
-    ?? (drawerActionNode?.subtitle?.endsWith(".py") ? drawerActionNode.subtitle : undefined);
+    relativePathForNode(drawerActionNode) ??
+    (drawerActionNode?.subtitle?.endsWith(".py") ? drawerActionNode.subtitle : undefined);
   const effectiveDrawerNodePath = drawerNodePath ?? currentModulePath;
   const drawerActions: BlueprintInspectorDrawerAction[] = [];
   if (drawerActionNode) {
@@ -3975,7 +4106,8 @@ export function WorkspaceScreen() {
     if (revealActionEnabled(drawerActionNode)) {
       drawerActions.push({
         id: "reveal-source",
-        label: revealedSource?.targetId === drawerActionNode.id ? "Refresh source" : "Reveal source",
+        label:
+          revealedSource?.targetId === drawerActionNode.id ? "Refresh source" : "Reveal source",
         helpId: "inspector.reveal-source",
         onClick: () => {
           void handleRevealSource(drawerActionNode.id);
@@ -4033,18 +4165,21 @@ export function WorkspaceScreen() {
     }
   };
 
-  const handleRevealGraphPath = useCallback(async (filePath: string) => {
-    setGraphPathRevealError(null);
-    try {
-      await adapter.revealPathInFileExplorer(filePath);
-    } catch (reason) {
-      setGraphPathRevealError(
-        reason instanceof Error
-          ? reason.message
-          : "Unable to reveal the current path in the system file explorer.",
-      );
-    }
-  }, [adapter]);
+  const handleRevealGraphPath = useCallback(
+    async (filePath: string) => {
+      setGraphPathRevealError(null);
+      try {
+        await adapter.revealPathInFileExplorer(filePath);
+      } catch (reason) {
+        setGraphPathRevealError(
+          reason instanceof Error
+            ? reason.message
+            : "Unable to reveal the current path in the system file explorer.",
+        );
+      }
+    },
+    [adapter],
+  );
 
   const handleRevealExplorerPath = useCallback(
     (filePath: string) => adapter.revealPathInFileExplorer(filePath),
@@ -4089,9 +4224,7 @@ export function WorkspaceScreen() {
 
   const handleCloseWorkspaceFileEditor = useCallback(() => {
     if (workspaceFileDirty || workspaceFileStale) {
-      const shouldClose = window.confirm(
-        "Close this file editor and discard the current draft?",
-      );
+      const shouldClose = window.confirm("Close this file editor and discard the current draft?");
       if (!shouldClose) {
         return;
       }
@@ -4138,10 +4271,10 @@ export function WorkspaceScreen() {
               searchResults={sidebarSearchQuery.data ?? []}
               isSearching={sidebarSearchQuery.isFetching}
               selectedFilePath={
-                activeWorkspaceFilePath
-                ?? selectedFilePath
-                ?? inspectorSourcePath
-                ?? graphNodeRelativePath(inspectorNode?.metadata, inspectorNode?.subtitle)
+                activeWorkspaceFilePath ??
+                selectedFilePath ??
+                inspectorSourcePath ??
+                graphNodeRelativePath(inspectorNode?.metadata, inspectorNode?.subtitle)
               }
               selectedNodeId={activeNodeId}
               onSidebarQueryChange={setSidebarQuery}
@@ -4179,259 +4312,270 @@ export function WorkspaceScreen() {
             ) : null}
 
             <section className="pane pane--main blueprint-main">
-            {repoOpenError ? <p className="error-copy graph-stage__error">{repoOpenError}</p> : null}
-            <div className="blueprint-stage__header">
-              <div className="blueprint-stage__header-copy">
-                <span className="window-bar__eyebrow">Workspace</span>
-                <h2>{titleCopy}</h2>
+              {repoOpenError ? (
+                <p className="error-copy graph-stage__error">{repoOpenError}</p>
+              ) : null}
+              <div className="blueprint-stage__header">
+                <div className="blueprint-stage__header-copy">
+                  <span className="window-bar__eyebrow">Workspace</span>
+                  <h2>{titleCopy}</h2>
+                </div>
+
+                {graphPathItems.length ? (
+                  <div className="graph-location">
+                    <span className="graph-location__label">Graph path</span>
+                    <nav aria-label="Graph path" className="graph-location__trail">
+                      {graphPathItems.map((item, index) => {
+                        const isCurrent = index === graphPathItems.length - 1;
+                        const itemHelpId =
+                          item.key.startsWith("module:") || item.key.startsWith("fallback-module:")
+                            ? "graph.path.file"
+                            : item.breadcrumb?.level === "repo"
+                              ? "graph.path.repo"
+                              : item.breadcrumb?.level === "symbol"
+                                ? "graph.path.symbol"
+                                : item.breadcrumb?.level === "flow"
+                                  ? "graph.path.flow"
+                                  : undefined;
+                        const itemClassName = `graph-location__button${
+                          item.revealPath ? " graph-location__button--revealable" : ""
+                        }${isCurrent ? " is-current" : ""}`;
+
+                        return (
+                          <div key={item.key} className="graph-location__item">
+                            {index > 0 ? (
+                              <span aria-hidden="true" className="graph-location__separator">
+                                /
+                              </span>
+                            ) : null}
+
+                            {item.breadcrumb ? (
+                              <button
+                                {...helpTargetProps(itemHelpId ?? "graph.path.symbol", {
+                                  label: item.label,
+                                })}
+                                aria-current={isCurrent ? "page" : undefined}
+                                className={itemClassName}
+                                type="button"
+                                title={
+                                  item.revealPath
+                                    ? "Click to navigate. Cmd/Ctrl-click to reveal in Finder/Explorer."
+                                    : "Click to navigate."
+                                }
+                                onClick={(event) => handleGraphPathItemClick(event, item)}
+                              >
+                                {item.label}
+                              </button>
+                            ) : (
+                              <span
+                                {...helpTargetProps(
+                                  itemHelpId ??
+                                    (isCurrent && activeLevel === "flow"
+                                      ? "graph.path.flow"
+                                      : "graph.path.symbol"),
+                                  { label: item.label },
+                                )}
+                                aria-current={isCurrent ? "page" : undefined}
+                                className={`graph-location__segment${isCurrent ? " is-current" : ""}`}
+                              >
+                                {item.label}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </nav>
+                    {graphPathRevealError ? (
+                      <p className="error-copy">{graphPathRevealError}</p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
 
-              {graphPathItems.length ? (
-                <div className="graph-location">
-                  <span className="graph-location__label">Graph path</span>
-                  <nav aria-label="Graph path" className="graph-location__trail">
-                    {graphPathItems.map((item, index) => {
-                      const isCurrent = index === graphPathItems.length - 1;
-                      const itemHelpId =
-                        item.key.startsWith("module:") || item.key.startsWith("fallback-module:")
-                          ? "graph.path.file"
-                          : item.breadcrumb?.level === "repo"
-                            ? "graph.path.repo"
-                            : item.breadcrumb?.level === "symbol"
-                              ? "graph.path.symbol"
-                              : item.breadcrumb?.level === "flow"
-                                ? "graph.path.flow"
-                                : undefined;
-                      const itemClassName = `graph-location__button${
-                        item.revealPath ? " graph-location__button--revealable" : ""
-                      }${isCurrent ? " is-current" : ""}`;
-
-                      return (
-                        <div key={item.key} className="graph-location__item">
-                          {index > 0 ? (
-                            <span aria-hidden="true" className="graph-location__separator">
-                              /
-                            </span>
-                          ) : null}
-
-                          {item.breadcrumb ? (
-                            <button
-                              {...helpTargetProps(
-                                itemHelpId ?? "graph.path.symbol",
-                                { label: item.label },
-                              )}
-                              aria-current={isCurrent ? "page" : undefined}
-                              className={itemClassName}
-                              type="button"
-                              title={
-                                item.revealPath
-                                  ? "Click to navigate. Cmd/Ctrl-click to reveal in Finder/Explorer."
-                                  : "Click to navigate."
-                              }
-                              onClick={(event) => handleGraphPathItemClick(event, item)}
-                            >
-                              {item.label}
-                            </button>
-                          ) : (
-                            <span
-                              {...helpTargetProps(
-                                itemHelpId
-                                ?? (isCurrent && activeLevel === "flow"
-                                  ? "graph.path.flow"
-                                  : "graph.path.symbol"),
-                                { label: item.label },
-                              )}
-                              aria-current={isCurrent ? "page" : undefined}
-                              className={`graph-location__segment${isCurrent ? " is-current" : ""}`}
-                            >
-                              {item.label}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </nav>
-                  {graphPathRevealError ? <p className="error-copy">{graphPathRevealError}</p> : null}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="blueprint-main__body">
-              <div
-                className={`blueprint-graph-shell blueprint-graph-shell--${effectiveInspectorDrawerMode}`}
-                data-inspector-mode={effectiveInspectorDrawerMode}
-              >
-                <div className="blueprint-graph-shell__canvas">
-                  {returnExpressionGraphView && returnExpressionGraphViewNode ? (
-                    <FlowExpressionGraphCanvas
-                      diagnostics={returnExpressionGraphView.diagnostics}
-                      error={returnExpressionGraphView.error}
-                      expression={returnExpressionGraphViewExpression}
-                      graph={returnExpressionGraphViewGraph}
-                      inputSlots={returnExpressionGraphViewInputSlots}
-                      isDraftOnly={returnExpressionGraphView.isDraftOnly}
-                      isSaving={isSubmittingExpressionGraph}
-                      ownerLabel={flowOwnerSymbolQuery.data?.qualname ?? effectiveGraph?.focus?.label ?? "Return"}
-                      selectedExpressionNodeId={returnExpressionGraphView.selectedExpressionNodeId}
-                      onGraphChange={handleReturnExpressionGraphChange}
-                      onNavigateOut={handleExitReturnExpressionGraph}
-                      onSelectExpressionNode={handleSelectReturnExpressionNode}
-                    />
-                  ) : (
-                    <GraphCanvas
-                      repoPath={repoSession?.path}
-                      graph={effectiveGraph}
-                      isLoading={!effectiveGraph && graphQuery.isFetching}
-                      errorMessage={
-                        !effectiveGraph
-                          ? graphQuery.error instanceof Error
-                            ? graphQuery.error.message
-                            : graphQuery.error
-                              ? "Unable to load the current graph."
-                              : null
-                          : null
-                      }
-                      activeNodeId={activeNodeId}
-                      graphFilters={graphFilters}
-                      graphSettings={graphSettings}
-                      flowInputDisplayMode={flowInputDisplayMode}
-                      highlightGraphPath={highlightGraphPath}
-                      showEdgeLabels={showEdgeLabels}
-                      onSelectNode={handleGraphSelectNode}
-                      onActivateNode={handleGraphActivateNode}
-                      onInspectNode={handleGraphInspectNode}
-                      onOpenNodeInDefaultEditor={handleOpenNodeInDefaultEditor}
-                      onRevealNodeInFileExplorer={handleRevealNodeInFileExplorer}
-                      onSelectBreadcrumb={handleSelectBreadcrumb}
-                      onSelectLevel={handleSelectLevel}
-                      onToggleGraphFilter={toggleGraphFilter}
-                      onToggleGraphSetting={toggleGraphSetting}
-                      onSetFlowInputDisplayMode={setFlowInputDisplayMode}
-                      onToggleGraphPathHighlight={toggleGraphPathHighlight}
-                      onToggleEdgeLabels={toggleEdgeLabels}
-                      onNavigateOut={handleNavigateGraphOut}
-                      onClearSelection={() => void handleClearGraphSelection()}
-                      createModeState={createModeState}
-                      createModeCanvasEnabled={createModeCanvasEnabled}
-                      createModeHint={createModeHint}
-                      onToggleCreateMode={() => {
-                        void handleToggleCreateMode();
-                      }}
-                      onCreateIntent={handleOpenCreateComposer}
-                      onEditFlowNodeIntent={handleOpenFlowEditComposer}
-                      onOpenExpressionGraphIntent={handleOpenExpressionGraphEditor}
-                      onConnectFlowEdge={handleConnectFlowEdge}
-                      onReconnectFlowEdge={handleReconnectFlowEdge}
-                      onDisconnectFlowEdge={handleDisconnectFlowEdge}
-                      onDeleteFlowSelection={handleDeleteFlowSelection}
-                      onDeleteSymbolNode={handleDeleteSymbolNode}
-                    />
-                  )}
-                  {createComposer && !returnExpressionGraphView ? (
-                    <GraphCreateComposer
-                      key={createComposer.id}
-                      composer={createComposer}
-                      error={createModeError}
-                      isSubmitting={isSubmittingCreate}
-                      onCancel={() => {
-                        setCreateComposer(undefined);
-                        setCreateModeError(null);
-                        setCreateModeState((current) => (current === "composing" ? "active" : current));
-                      }}
-                      onSubmit={handleCreateSubmit}
-                    />
-                  ) : null}
-                </div>
-
-                {activeWorkspaceFilePath ? (
-                  <WorkspaceFileEditorPanel
-                    file={activeWorkspaceFile}
-                    draft={workspaceFileDraft}
-                    dirty={workspaceFileDirty}
-                    stale={workspaceFileStale}
-                    error={workspaceFileError}
-                    isLoading={workspaceFileQuery.isFetching && !activeWorkspaceFile}
-                    isSaving={isSavingWorkspaceFile}
-                    saveError={workspaceFileSaveError}
-                    onCancel={handleCancelWorkspaceFileEdit}
-                    onChange={(content) => {
-                      setWorkspaceFileDraft(content);
-                      setWorkspaceFileSaveError(null);
-                    }}
-                    onClose={handleCloseWorkspaceFileEditor}
-                    onSave={() => {
-                      void saveWorkspaceFile();
-                    }}
-                  />
-                ) : null}
-
-                {effectiveInspectorDrawerMode !== "hidden" ? (
-                  <BlueprintInspectorDrawer
-                    actionError={inspectorActionError}
-                    actions={drawerActions}
-                    drawerHeight={inspectorDrawerHeight}
-                    mode={effectiveInspectorDrawerMode}
-                    showDismiss={Boolean(effectiveInspectorNode)}
-                    statusLabel={inspectorDrawerStatus.label}
-                    statusTone={inspectorDrawerStatus.tone}
-                    subtitle={drawerSubtitle}
-                    title={drawerTitle}
-                    onClose={() => {
-                      if (inspectorPanelMode === "hidden" && effectiveInspectorNode) {
-                        setDismissedPeekNodeId(effectiveInspectorNode.id);
-                        return;
-                      }
-                      if (inspectorPanelMode !== "hidden") {
-                        void requestInspectorClose();
-                      }
-                    }}
-                    onCollapse={handleCollapseInspector}
-                    onExpand={handleExpandInspector}
-                    onHeightChange={setInspectorDrawerHeight}
-                  >
-                    {inspectorPanelMode !== "hidden" ? (
-                      <BlueprintInspector
-                        key={`inspector:${inspectorSelectionNode?.id ?? "none"}:${inspectorSourceTarget?.targetId ?? "no-source"}:${inspectorSourceVersion}`}
-                        selectedNode={inspectorSelectionNode}
-                        sourceContextNode={inspectorSourceTarget?.node}
-                        symbol={symbolQuery.data}
-                        editableSource={effectiveEditableSource}
-                        editableSourceLoading={editableSourceQuery.isFetching}
-                        editableSourceError={
-                          editableSourceQuery.error instanceof Error
-                            ? editableSourceQuery.error.message
-                            : editableSourceQuery.error
-                              ? "Unable to load editable source."
-                              : null
+              <div className="blueprint-main__body">
+                <div
+                  className={`blueprint-graph-shell blueprint-graph-shell--${effectiveInspectorDrawerMode}`}
+                  data-inspector-mode={effectiveInspectorDrawerMode}
+                >
+                  <div className="blueprint-graph-shell__canvas">
+                    {returnExpressionGraphView && returnExpressionGraphViewNode ? (
+                      <FlowExpressionGraphCanvas
+                        diagnostics={returnExpressionGraphView.diagnostics}
+                        error={returnExpressionGraphView.error}
+                        expression={returnExpressionGraphViewExpression}
+                        graph={returnExpressionGraphViewGraph}
+                        inputSlots={returnExpressionGraphViewInputSlots}
+                        isDraftOnly={returnExpressionGraphView.isDraftOnly}
+                        isSaving={isSubmittingExpressionGraph}
+                        ownerLabel={
+                          flowOwnerSymbolQuery.data?.qualname ??
+                          effectiveGraph?.focus?.label ??
+                          "Return"
                         }
-                        draftStale={inspectorDraftStale}
-                        revealedSource={revealedSource}
-                        lastActivity={lastActivity}
-                        isSavingSource={isSavingSource}
-                        moduleActionNode={currentModuleNode}
-                        destinationModulePaths={structuralDestinationModulePaths}
-                        highlightRange={inspectorHighlightRange}
-                        flowFunctionInputs={activeFlowDraft?.document.functionInputs ?? []}
+                        selectedExpressionNodeId={
+                          returnExpressionGraphView.selectedExpressionNodeId
+                        }
+                        onGraphChange={handleReturnExpressionGraphChange}
+                        onNavigateOut={handleExitReturnExpressionGraph}
+                        onSelectExpressionNode={handleSelectReturnExpressionNode}
+                      />
+                    ) : (
+                      <GraphCanvas
+                        repoPath={repoSession?.path}
+                        graph={effectiveGraph}
+                        isLoading={!effectiveGraph && graphQuery.isFetching}
+                        errorMessage={
+                          !effectiveGraph
+                            ? graphQuery.error instanceof Error
+                              ? graphQuery.error.message
+                              : graphQuery.error
+                                ? "Unable to load the current graph."
+                                : null
+                            : null
+                        }
+                        activeNodeId={activeNodeId}
+                        graphFilters={graphFilters}
+                        graphSettings={graphSettings}
                         flowInputDisplayMode={flowInputDisplayMode}
-                        flowInputsEditable={Boolean(activeFlowDraft?.document.editable)}
-                        onApplyStructuralEdit={handleApplyEdit}
-                        onAddFlowFunctionInput={handleAddFlowFunctionInput}
-                        onUpdateFlowFunctionInput={handleUpdateFlowFunctionInput}
-                        onMoveFlowFunctionInput={handleMoveFlowFunctionInput}
-                        onRemoveFlowFunctionInput={removeFlowFunctionInputWithConfirmation}
+                        highlightGraphPath={highlightGraphPath}
+                        showEdgeLabels={showEdgeLabels}
+                        onSelectNode={handleGraphSelectNode}
+                        onActivateNode={handleGraphActivateNode}
+                        onInspectNode={handleGraphInspectNode}
                         onOpenNodeInDefaultEditor={handleOpenNodeInDefaultEditor}
                         onRevealNodeInFileExplorer={handleRevealNodeInFileExplorer}
-                        onSaveSource={handleSaveNodeSource}
-                        onEditorStateChange={handleInspectorEditorStateChange}
-                        onDismissSource={() => setRevealedSource(undefined)}
-                        onClose={handleCollapseInspector}
+                        onSelectBreadcrumb={handleSelectBreadcrumb}
+                        onSelectLevel={handleSelectLevel}
+                        onToggleGraphFilter={toggleGraphFilter}
+                        onToggleGraphSetting={toggleGraphSetting}
+                        onSetFlowInputDisplayMode={setFlowInputDisplayMode}
+                        onToggleGraphPathHighlight={toggleGraphPathHighlight}
+                        onToggleEdgeLabels={toggleEdgeLabels}
+                        onNavigateOut={handleNavigateGraphOut}
+                        onClearSelection={() => void handleClearGraphSelection()}
+                        createModeState={createModeState}
+                        createModeCanvasEnabled={createModeCanvasEnabled}
+                        createModeHint={createModeHint}
+                        onToggleCreateMode={() => {
+                          void handleToggleCreateMode();
+                        }}
+                        onCreateIntent={handleOpenCreateComposer}
+                        onEditFlowNodeIntent={handleOpenFlowEditComposer}
+                        onOpenExpressionGraphIntent={handleOpenExpressionGraphEditor}
+                        onConnectFlowEdge={handleConnectFlowEdge}
+                        onReconnectFlowEdge={handleReconnectFlowEdge}
+                        onDisconnectFlowEdge={handleDisconnectFlowEdge}
+                        onDeleteFlowSelection={handleDeleteFlowSelection}
+                        onDeleteSymbolNode={handleDeleteSymbolNode}
+                      />
+                    )}
+                    {createComposer && !returnExpressionGraphView ? (
+                      <GraphCreateComposer
+                        key={createComposer.id}
+                        composer={createComposer}
+                        error={createModeError}
+                        isSubmitting={isSubmittingCreate}
+                        onCancel={() => {
+                          setCreateComposer(undefined);
+                          setCreateModeError(null);
+                          setCreateModeState((current) =>
+                            current === "composing" ? "active" : current,
+                          );
+                        }}
+                        onSubmit={handleCreateSubmit}
                       />
                     ) : null}
-                  </BlueprintInspectorDrawer>
-                ) : null}
+                  </div>
+
+                  {activeWorkspaceFilePath ? (
+                    <WorkspaceFileEditorPanel
+                      file={activeWorkspaceFile}
+                      draft={workspaceFileDraft}
+                      dirty={workspaceFileDirty}
+                      stale={workspaceFileStale}
+                      error={workspaceFileError}
+                      isLoading={workspaceFileQuery.isFetching && !activeWorkspaceFile}
+                      isSaving={isSavingWorkspaceFile}
+                      saveError={workspaceFileSaveError}
+                      onCancel={handleCancelWorkspaceFileEdit}
+                      onChange={(content) => {
+                        setWorkspaceFileDraft(content);
+                        setWorkspaceFileSaveError(null);
+                      }}
+                      onClose={handleCloseWorkspaceFileEditor}
+                      onSave={() => {
+                        void saveWorkspaceFile();
+                      }}
+                    />
+                  ) : null}
+
+                  {effectiveInspectorDrawerMode !== "hidden" ? (
+                    <BlueprintInspectorDrawer
+                      actionError={inspectorActionError}
+                      actions={drawerActions}
+                      drawerHeight={inspectorDrawerHeight}
+                      mode={effectiveInspectorDrawerMode}
+                      showDismiss={Boolean(effectiveInspectorNode)}
+                      statusLabel={inspectorDrawerStatus.label}
+                      statusTone={inspectorDrawerStatus.tone}
+                      subtitle={drawerSubtitle}
+                      title={drawerTitle}
+                      onClose={() => {
+                        if (inspectorPanelMode === "hidden" && effectiveInspectorNode) {
+                          setDismissedPeekNodeId(effectiveInspectorNode.id);
+                          return;
+                        }
+                        if (inspectorPanelMode !== "hidden") {
+                          void requestInspectorClose();
+                        }
+                      }}
+                      onCollapse={handleCollapseInspector}
+                      onExpand={handleExpandInspector}
+                      onHeightChange={setInspectorDrawerHeight}
+                    >
+                      {inspectorPanelMode !== "hidden" ? (
+                        <BlueprintInspector
+                          key={`inspector:${inspectorSelectionNode?.id ?? "none"}:${inspectorSourceTarget?.targetId ?? "no-source"}:${inspectorSourceVersion}`}
+                          selectedNode={inspectorSelectionNode}
+                          sourceContextNode={inspectorSourceTarget?.node}
+                          symbol={symbolQuery.data}
+                          editableSource={effectiveEditableSource}
+                          editableSourceLoading={editableSourceQuery.isFetching}
+                          editableSourceError={
+                            editableSourceQuery.error instanceof Error
+                              ? editableSourceQuery.error.message
+                              : editableSourceQuery.error
+                                ? "Unable to load editable source."
+                                : null
+                          }
+                          draftStale={inspectorDraftStale}
+                          revealedSource={revealedSource}
+                          lastActivity={lastActivity}
+                          isSavingSource={isSavingSource}
+                          moduleActionNode={currentModuleNode}
+                          destinationModulePaths={structuralDestinationModulePaths}
+                          highlightRange={inspectorHighlightRange}
+                          flowFunctionInputs={activeFlowDraft?.document.functionInputs ?? []}
+                          flowInputDisplayMode={flowInputDisplayMode}
+                          flowInputsEditable={Boolean(activeFlowDraft?.document.editable)}
+                          onApplyStructuralEdit={handleApplyEdit}
+                          onAddFlowFunctionInput={handleAddFlowFunctionInput}
+                          onUpdateFlowFunctionInput={handleUpdateFlowFunctionInput}
+                          onMoveFlowFunctionInput={handleMoveFlowFunctionInput}
+                          onRemoveFlowFunctionInput={removeFlowFunctionInputWithConfirmation}
+                          onOpenNodeInDefaultEditor={handleOpenNodeInDefaultEditor}
+                          onRevealNodeInFileExplorer={handleRevealNodeInFileExplorer}
+                          onSaveSource={handleSaveNodeSource}
+                          onEditorStateChange={handleInspectorEditorStateChange}
+                          onDismissSource={() => setRevealedSource(undefined)}
+                          onClose={handleCollapseInspector}
+                        />
+                      ) : null}
+                    </BlueprintInspectorDrawer>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
           </div>
         </WorkspaceHelpScope>
       </WorkspaceHelpProvider>

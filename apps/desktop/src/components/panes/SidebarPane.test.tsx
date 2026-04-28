@@ -10,10 +10,12 @@ import {
 import type { OverviewData, WorkspaceFileTree } from "../../lib/adapter";
 import { SidebarPane } from "./SidebarPane";
 
-function renderSidebarPane(options: {
-  overview?: OverviewData;
-  workspaceFiles?: WorkspaceFileTree;
-} = {}) {
+function renderSidebarPane(
+  options: {
+    overview?: OverviewData;
+    workspaceFiles?: WorkspaceFileTree;
+  } = {},
+) {
   const state = createMockWorkspaceState();
   const overview = options.overview ?? buildOverview(buildRepoSession(), state);
   const onSelectModule = vi.fn();
@@ -230,11 +232,7 @@ describe("SidebarPane", () => {
     };
 
     const { rerender } = render(
-      <SidebarPane
-        {...sharedProps}
-        selectedFilePath={undefined}
-        selectedNodeId={undefined}
-      />,
+      <SidebarPane {...sharedProps} selectedFilePath={undefined} selectedNodeId={undefined} />,
     );
 
     rerender(

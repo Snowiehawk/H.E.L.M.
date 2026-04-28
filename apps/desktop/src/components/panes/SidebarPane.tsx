@@ -74,10 +74,7 @@ const CONTEXT_MENU_WIDTH = 248;
 const CONTEXT_MENU_MAX_HEIGHT = 336;
 const CONTEXT_MENU_MARGIN = 8;
 
-function compareExplorerNodes(
-  left: ExplorerTreeNode,
-  right: ExplorerTreeNode,
-): number {
+function compareExplorerNodes(left: ExplorerTreeNode, right: ExplorerTreeNode): number {
   if (left.kind !== right.kind) {
     if (left.kind === "directory") {
       return -1;
@@ -120,9 +117,9 @@ function buildExplorerTree(
       const directoryId = `dir:${path}`;
 
       if (!nodesById.has(directoryId)) {
-        const entry = workspaceFiles?.entries.find((candidate) => (
-          candidate.kind === "directory" && candidate.relativePath === path
-        ));
+        const entry = workspaceFiles?.entries.find(
+          (candidate) => candidate.kind === "directory" && candidate.relativePath === path,
+        );
         nodesById.set(directoryId, {
           id: directoryId,
           label: part,
@@ -262,11 +259,8 @@ function isSelectedRow(
   }
 
   return (
-    row.kind === "file"
-    && (
-      selectedFilePath === row.path
-      || Boolean(row.module && selectedNodeId === row.module.moduleId)
-    )
+    row.kind === "file" &&
+    (selectedFilePath === row.path || Boolean(row.module && selectedNodeId === row.module.moduleId))
   );
 }
 
@@ -300,10 +294,7 @@ function findSelectedRowId(
   return null;
 }
 
-function collectAncestorExpandedIds(
-  tree: ExplorerTreeData,
-  rowId: string | null,
-): string[] {
+function collectAncestorExpandedIds(tree: ExplorerTreeData, rowId: string | null): string[] {
   const ancestorIds: string[] = [];
   let currentId = rowId ? tree.nodesById.get(rowId)?.parentId : undefined;
 
@@ -408,10 +399,7 @@ function contextActionError(reason: unknown, fallback: string) {
   return reason instanceof Error ? reason.message : fallback;
 }
 
-function defaultCreatePath(
-  kind: WorkspaceFileMutationRequest["kind"],
-  parentPath?: string,
-) {
+function defaultCreatePath(kind: WorkspaceFileMutationRequest["kind"], parentPath?: string) {
   const prefix = parentPath ? `${parentPath.replace(/\/+$/, "")}/` : "";
   return kind === "file" ? `${prefix}untitled.txt` : `${prefix}new-folder`;
 }
@@ -495,8 +483,7 @@ export function SidebarPane({
     [selectedRowId, tree],
   );
   const rootDirectoryIds = useMemo(
-    () =>
-      tree.rootIds.filter((nodeId) => tree.nodesById.get(nodeId)?.kind === "directory"),
+    () => tree.rootIds.filter((nodeId) => tree.nodesById.get(nodeId)?.kind === "directory"),
     [tree],
   );
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -617,11 +604,7 @@ export function SidebarPane({
     });
   };
 
-  const openContextMenuAt = (
-    row: ExplorerTreeNode,
-    x: number,
-    y: number,
-  ) => {
+  const openContextMenuAt = (row: ExplorerTreeNode, x: number, y: number) => {
     const position = clampContextMenuPosition(x, y);
     setActiveRowId(row.id);
     setContextActionErrorMessage(null);
@@ -741,7 +724,9 @@ export function SidebarPane({
         isSubmitting: false,
         error: contextActionError(
           reason,
-          createDraft.kind === "file" ? "Unable to create the file." : "Unable to create the folder.",
+          createDraft.kind === "file"
+            ? "Unable to create the file."
+            : "Unable to create the folder.",
         ),
       });
     }
@@ -794,7 +779,9 @@ export function SidebarPane({
       });
       setContextActionErrorMessage(null);
     } catch (reason) {
-      setContextActionErrorMessage(contextActionError(reason, "Unable to move the workspace entry."));
+      setContextActionErrorMessage(
+        contextActionError(reason, "Unable to move the workspace entry."),
+      );
     } finally {
       setDragState(null);
     }
@@ -1115,7 +1102,7 @@ export function SidebarPane({
             <span>
               {workspaceFiles
                 ? `${workspaceFiles.entries.filter((entry) => entry.kind === "file").length}${workspaceFiles.truncated ? "+" : ""}`
-                : overview?.modules.length ?? 0}
+                : (overview?.modules.length ?? 0)}
             </span>
           </div>
           <div className="explorer-create-actions">
@@ -1255,8 +1242,8 @@ export function SidebarPane({
                     }}
                     onDragLeave={(event) => {
                       if (
-                        dropTargetRowId === row.id
-                        && !event.currentTarget.contains(event.relatedTarget as Node | null)
+                        dropTargetRowId === row.id &&
+                        !event.currentTarget.contains(event.relatedTarget as Node | null)
                       ) {
                         setDropTargetRowId(null);
                       }
@@ -1354,14 +1341,19 @@ export function SidebarPane({
                     {kindBadge ? (
                       <span
                         className={`explorer-row__kind explorer-row__kind--${row.kind}`}
-                        title={row.kind === "outline"
-                          ? row.outlineItem?.kind.replaceAll("_", " ")
-                          : row.kind}
+                        title={
+                          row.kind === "outline"
+                            ? row.outlineItem?.kind.replaceAll("_", " ")
+                            : row.kind
+                        }
                       >
                         {kindBadge}
                       </span>
                     ) : (
-                      <span aria-hidden="true" className="explorer-row__kind explorer-row__kind--empty" />
+                      <span
+                        aria-hidden="true"
+                        className="explorer-row__kind explorer-row__kind--empty"
+                      />
                     )}
 
                     <span className="explorer-row__label">{row.label}</span>
@@ -1405,7 +1397,9 @@ export function SidebarPane({
           >
             {contextMenuItems.map((item) => (
               <div key={item.id} role="none">
-                {item.separatorBefore ? <div className="context-menu__separator" role="separator" /> : null}
+                {item.separatorBefore ? (
+                  <div className="context-menu__separator" role="separator" />
+                ) : null}
                 <button
                   className="context-menu__item"
                   role="menuitem"

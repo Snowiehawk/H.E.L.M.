@@ -61,5 +61,5 @@ class WindowsWrapperTests(unittest.TestCase):
     def test_windows_launcher_can_request_elevation_for_visual_studio_changes(self) -> None:
         launcher = (self.repo_root / "scripts" / "helm-launch.ps1").read_text(encoding="utf-8")
 
-        self.assertIn('RequireElevation', launcher)
+        self.assertIn("RequireElevation", launcher)
         self.assertIn('Verb"] = "RunAs"', launcher)

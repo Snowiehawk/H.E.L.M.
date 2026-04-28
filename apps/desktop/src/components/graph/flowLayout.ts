@@ -75,29 +75,29 @@ const DEFAULT_NODE_SIZES: Record<GraphNodeKind, { width: number; height: number 
 
 function metadataNumber(node: FlowLayoutNode, key: string): number | undefined {
   const value =
-    node.metadata?.[key]
-    ?? node.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+    node.metadata?.[key] ??
+    node.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
   return typeof value === "number" ? value : undefined;
 }
 
 function metadataString(node: FlowLayoutNode, key: string): string | undefined {
   const value =
-    node.metadata?.[key]
-    ?? node.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+    node.metadata?.[key] ??
+    node.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function edgeMetadataNumber(edge: GraphEdgeDto, key: string): number | undefined {
   const value =
-    edge.metadata?.[key]
-    ?? edge.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+    edge.metadata?.[key] ??
+    edge.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
   return typeof value === "number" ? value : undefined;
 }
 
 function edgeMetadataString(edge: GraphEdgeDto, key: string): string | undefined {
   const value =
-    edge.metadata?.[key]
-    ?? edge.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+    edge.metadata?.[key] ??
+    edge.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
@@ -135,9 +135,7 @@ function flowEdgeOrder(edge: GraphEdgeDto): [number, string, string] {
   ];
 }
 
-function buildPathChoicesByEdge(
-  edges: GraphEdgeDto[],
-): Map<string, PathChoice> {
+function buildPathChoicesByEdge(edges: GraphEdgeDto[]): Map<string, PathChoice> {
   const choices = new Map<string, PathChoice>();
   const bySource = new Map<string, GraphEdgeDto[]>();
 
@@ -149,20 +147,22 @@ function buildPathChoicesByEdge(
     const ordered = group.slice().sort((left, right) => {
       const leftKey = flowEdgeOrder(left);
       const rightKey = flowEdgeOrder(right);
-      return leftKey[0] - rightKey[0]
-        || leftKey[1].localeCompare(rightKey[1])
-        || leftKey[2].localeCompare(rightKey[2]);
+      return (
+        leftKey[0] - rightKey[0] ||
+        leftKey[1].localeCompare(rightKey[1]) ||
+        leftKey[2].localeCompare(rightKey[2])
+      );
     });
 
     ordered.forEach((edge, index) => {
       const label =
-        edgeMetadataString(edge, "path_label")
-        ?? edge.label?.trim()
-        ?? (ordered.length > 1 ? `path ${index + 1}` : "exec");
+        edgeMetadataString(edge, "path_label") ??
+        edge.label?.trim() ??
+        (ordered.length > 1 ? `path ${index + 1}` : "exec");
       const key =
-        edgeMetadataString(edge, "path_key")
-        ?? edgeMetadataString(edge, "path_label")
-        ?? `path-${index + 1}`;
+        edgeMetadataString(edge, "path_key") ??
+        edgeMetadataString(edge, "path_label") ??
+        `path-${index + 1}`;
       choices.set(edge.id, {
         edgeId: edge.id,
         key,
@@ -197,16 +197,18 @@ function commonSignaturePrefix(
 }
 
 function signatureOffset(signature: SignatureSegment[]) {
-  return signature.reduce(
-    (sum, segment, index) => sum + segment.rank * Math.pow(0.58, index),
-    0,
-  );
+  return signature.reduce((sum, segment, index) => sum + segment.rank * Math.pow(0.58, index), 0);
 }
 
 function sortNodesForFlow(nodes: ResolvedFlowNode[]) {
   return nodes
     .slice()
-    .sort((left, right) => left.flowOrder - right.flowOrder || left.baseIndex - right.baseIndex || left.id.localeCompare(right.id));
+    .sort(
+      (left, right) =>
+        left.flowOrder - right.flowOrder ||
+        left.baseIndex - right.baseIndex ||
+        left.id.localeCompare(right.id),
+    );
 }
 
 function buildFallbackPositions(nodes: ResolvedFlowNode[]) {
@@ -225,9 +227,14 @@ function buildFallbackPositions(nodes: ResolvedFlowNode[]) {
 }
 
 function controlColumnOrder(nodes: ResolvedFlowNode[]) {
-  return nodes.slice().sort((left, right) =>
-    left.flowOrder - right.flowOrder || left.baseIndex - right.baseIndex || left.id.localeCompare(right.id),
-  );
+  return nodes
+    .slice()
+    .sort(
+      (left, right) =>
+        left.flowOrder - right.flowOrder ||
+        left.baseIndex - right.baseIndex ||
+        left.id.localeCompare(right.id),
+    );
 }
 
 function buildColumnMetrics(
@@ -269,10 +276,7 @@ function buildColumnMetrics(
   };
 }
 
-function resolveColumnLeft(
-  column: number,
-  columnMetrics: ColumnMetrics,
-) {
+function resolveColumnLeft(column: number, columnMetrics: ColumnMetrics) {
   const exact = columnMetrics.leftByColumn.get(column);
   if (exact !== undefined) {
     return exact;
@@ -312,10 +316,7 @@ function resolveColumnLeft(
   return lowerLeft + (upperLeft - lowerLeft) * ratio;
 }
 
-function resolveColumnCenter(
-  column: number,
-  columnMetrics: ColumnMetrics,
-) {
+function resolveColumnCenter(column: number, columnMetrics: ColumnMetrics) {
   const exact = columnMetrics.centerByColumn.get(column);
   if (exact !== undefined) {
     return exact;
@@ -340,16 +341,16 @@ function placeControlNodes(
   [...byColumn.entries()]
     .sort((left, right) => left[0] - right[0])
     .forEach(([column, group]) => {
-      const sorted = group
-        .slice()
-        .sort((left, right) => {
-          const leftOffset = signatureOffset(signatures.get(left.id) ?? []);
-          const rightOffset = signatureOffset(signatures.get(right.id) ?? []);
-          return leftOffset - rightOffset
-            || left.flowOrder - right.flowOrder
-            || left.baseIndex - right.baseIndex
-            || left.id.localeCompare(right.id);
-        });
+      const sorted = group.slice().sort((left, right) => {
+        const leftOffset = signatureOffset(signatures.get(left.id) ?? []);
+        const rightOffset = signatureOffset(signatures.get(right.id) ?? []);
+        return (
+          leftOffset - rightOffset ||
+          left.flowOrder - right.flowOrder ||
+          left.baseIndex - right.baseIndex ||
+          left.id.localeCompare(right.id)
+        );
+      });
 
       const columnLeft = resolveColumnLeft(column, columnMetrics);
       const columnWidth = columnMetrics.widthByColumn.get(column) ?? columnMetrics.averageWidth;
@@ -367,9 +368,10 @@ function placeControlNodes(
 
       const verticalShift = sorted.length
         ? desiredCenters.reduce(
-          (sum, desiredCenter, index) => sum + (desiredCenter - (tops[index] + sorted[index]!.height / 2)),
-          0,
-        ) / sorted.length
+            (sum, desiredCenter, index) =>
+              sum + (desiredCenter - (tops[index] + sorted[index]!.height / 2)),
+            0,
+          ) / sorted.length
         : 0;
 
       sorted.forEach((node, index) => {
@@ -434,15 +436,19 @@ function placeSupportNodes(
     if (!owner || !ownerPosition) {
       return;
     }
-    const sorted = ownedNodes.slice().sort((left, right) =>
-      (metadataNumber(left, "signature_order") ?? left.flowOrder)
-      - (metadataNumber(right, "signature_order") ?? right.flowOrder)
-      || left.baseIndex - right.baseIndex
-      || left.id.localeCompare(right.id),
+    const sorted = ownedNodes
+      .slice()
+      .sort(
+        (left, right) =>
+          (metadataNumber(left, "signature_order") ?? left.flowOrder) -
+            (metadataNumber(right, "signature_order") ?? right.flowOrder) ||
+          left.baseIndex - right.baseIndex ||
+          left.id.localeCompare(right.id),
+      );
+    const totalWidth = sorted.reduce(
+      (sum, node, index) => sum + node.width + (index > 0 ? SIGNATURE_RAIL_GAP_X : 0),
+      0,
     );
-    const totalWidth = sorted.reduce((sum, node, index) =>
-      sum + node.width + (index > 0 ? SIGNATURE_RAIL_GAP_X : 0),
-    0);
     const ownerCenterX = ownerPosition.x + owner.width / 2;
     let cursorX = ownerCenterX - totalWidth / 2;
     sorted.forEach((node) => {
@@ -482,37 +488,36 @@ function placeSupportNodes(
     }
     const fallbackColumn = columnMetrics.sortedColumns.length
       ? Math.max(
-        columnMetrics.sortedColumns[0] as number,
-        Math.min(
-          columnMetrics.sortedColumns[columnMetrics.sortedColumns.length - 1] as number,
-          node.flowOrder > 0 ? node.flowOrder : node.baseIndex,
-        ),
-      )
+          columnMetrics.sortedColumns[0] as number,
+          Math.min(
+            columnMetrics.sortedColumns[columnMetrics.sortedColumns.length - 1] as number,
+            node.flowOrder > 0 ? node.flowOrder : node.baseIndex,
+          ),
+        )
       : 0;
     columnsBySupport.set(node.id, fallbackColumn);
   });
 
   const above = bandSupportNodes
     .filter((node) => classifySupportNode(node, edges, controlNodeIds) === "above")
-    .sort((left, right) =>
-      (columnsBySupport.get(left.id) ?? 0) - (columnsBySupport.get(right.id) ?? 0)
-      || left.flowOrder - right.flowOrder
-      || left.baseIndex - right.baseIndex
-      || left.id.localeCompare(right.id),
+    .sort(
+      (left, right) =>
+        (columnsBySupport.get(left.id) ?? 0) - (columnsBySupport.get(right.id) ?? 0) ||
+        left.flowOrder - right.flowOrder ||
+        left.baseIndex - right.baseIndex ||
+        left.id.localeCompare(right.id),
     );
   const below = bandSupportNodes
     .filter((node) => classifySupportNode(node, edges, controlNodeIds) === "below")
-    .sort((left, right) =>
-      (columnsBySupport.get(left.id) ?? 0) - (columnsBySupport.get(right.id) ?? 0)
-      || left.flowOrder - right.flowOrder
-      || left.baseIndex - right.baseIndex
-      || left.id.localeCompare(right.id),
+    .sort(
+      (left, right) =>
+        (columnsBySupport.get(left.id) ?? 0) - (columnsBySupport.get(right.id) ?? 0) ||
+        left.flowOrder - right.flowOrder ||
+        left.baseIndex - right.baseIndex ||
+        left.id.localeCompare(right.id),
     );
 
-  const placeBand = (
-    bandNodes: ResolvedFlowNode[],
-    direction: "above" | "below",
-  ) => {
+  const placeBand = (bandNodes: ResolvedFlowNode[], direction: "above" | "below") => {
     const nextOffsetByColumn = new Map<number, number>();
     bandNodes.forEach((node) => {
       const column = columnsBySupport.get(node.id) ?? 0;
@@ -525,9 +530,9 @@ function placeSupportNodes(
       nextOffsetByColumn.set(column, currentOffset + node.height + SUPPORT_ROW_GAP);
       supportPositions.set(node.id, {
         x:
-          columnCenter
-          - node.width / 2
-          + (direction === "above" ? -SUPPORT_COLUMN_OFFSET : SUPPORT_COLUMN_OFFSET),
+          columnCenter -
+          node.width / 2 +
+          (direction === "above" ? -SUPPORT_COLUMN_OFFSET : SUPPORT_COLUMN_OFFSET),
         y: nextY,
       });
     });
@@ -552,11 +557,13 @@ function applyPinnedAnchors(
     .flatMap((node) => {
       const canonicalPosition = canonical.get(node.id);
       return canonicalPosition
-        ? [{
-            node,
-            canonical: canonicalPosition,
-            current: { x: node.x, y: node.y },
-          }]
+        ? [
+            {
+              node,
+              canonical: canonicalPosition,
+              current: { x: node.x, y: node.y },
+            },
+          ]
         : [];
     });
 
@@ -576,8 +583,8 @@ function applyPinnedAnchors(
       let deltaY = 0;
       pinned.forEach((pin) => {
         const normalizedDistance =
-          Math.abs(canonicalPosition.x - pin.canonical.x) / PIN_DISTANCE_X
-          + Math.abs(canonicalPosition.y - pin.canonical.y) / PIN_DISTANCE_Y;
+          Math.abs(canonicalPosition.x - pin.canonical.x) / PIN_DISTANCE_X +
+          Math.abs(canonicalPosition.y - pin.canonical.y) / PIN_DISTANCE_Y;
         const weight = 1 / Math.pow(Math.max(0.6, normalizedDistance + 0.6), 2);
         weightSum += weight;
         deltaX += weight * (pin.current.x - pin.canonical.x);
@@ -644,16 +651,20 @@ export function layoutFlowGraph(
       const outgoingForwardBySource = new Map<string, GraphEdgeDto[]>();
       const incomingForwardByTarget = new Map<string, GraphEdgeDto[]>();
       forwardControlEdges.forEach((edge) => {
-        outgoingForwardBySource.set(edge.source, [...(outgoingForwardBySource.get(edge.source) ?? []), edge]);
-        incomingForwardByTarget.set(edge.target, [...(incomingForwardByTarget.get(edge.target) ?? []), edge]);
+        outgoingForwardBySource.set(edge.source, [
+          ...(outgoingForwardBySource.get(edge.source) ?? []),
+          edge,
+        ]);
+        incomingForwardByTarget.set(edge.target, [
+          ...(incomingForwardByTarget.get(edge.target) ?? []),
+          edge,
+        ]);
       });
 
       const columns = new Map<string, number>();
-      const controlNodes = controlColumnOrder(
-        nodes.filter((node) => controlNodeIds.has(node.id)),
-      );
+      const controlNodes = controlColumnOrder(nodes.filter((node) => controlNodeIds.has(node.id)));
       controlNodes.forEach((node) => {
-        if (node.kind === "entry" || !(incomingForwardByTarget.get(node.id)?.length)) {
+        if (node.kind === "entry" || !incomingForwardByTarget.get(node.id)?.length) {
           columns.set(node.id, 0);
         }
       });
@@ -677,20 +688,19 @@ export function layoutFlowGraph(
         const split = outgoing.length > 1;
         outgoing.forEach((edge) => {
           const choice = choiceByEdgeId.get(edge.id);
-          const candidate = split && choice
-            ? [...sourceSignature, { key: `${node.id}:${choice.key}`, rank: choice.rank }]
-            : sourceSignature;
-          signatures.set(edge.target, commonSignaturePrefix(signatures.get(edge.target), candidate));
+          const candidate =
+            split && choice
+              ? [...sourceSignature, { key: `${node.id}:${choice.key}`, rank: choice.rank }]
+              : sourceSignature;
+          signatures.set(
+            edge.target,
+            commonSignaturePrefix(signatures.get(edge.target), candidate),
+          );
         });
       });
 
       const columnMetrics = buildColumnMetrics(controlNodes, columns);
-      const controlPositions = placeControlNodes(
-        controlNodes,
-        columns,
-        signatures,
-        columnMetrics,
-      );
+      const controlPositions = placeControlNodes(controlNodes, columns, signatures, columnMetrics);
       const supportPositions = placeSupportNodes(
         nodes.filter((node) => !controlNodeIds.has(node.id)),
         controlNodes,

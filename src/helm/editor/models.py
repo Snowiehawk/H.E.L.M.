@@ -80,9 +80,7 @@ class BackendUndoResult:
             "warnings": list(self.warnings),
             "focus_target": self.focus_target.to_dict() if self.focus_target else None,
             "redo_transaction": (
-                self.redo_transaction.to_dict()
-                if self.redo_transaction is not None
-                else None
+                self.redo_transaction.to_dict() if self.redo_transaction is not None else None
             ),
         }
 
@@ -144,8 +142,6 @@ class StructuralEditResult:
             "flow_sync_state": self.flow_sync_state,
             "diagnostics": list(self.diagnostics),
             "undo_transaction": (
-                self.undo_transaction.to_dict()
-                if self.undo_transaction is not None
-                else None
+                self.undo_transaction.to_dict() if self.undo_transaction is not None else None
             ),
         }

@@ -51,8 +51,8 @@ function compareNodeIds(left: string, right: string) {
 
 function metadataNumber(node: GroupOrganizeNode, key: string): number | undefined {
   const value =
-    node.metadata?.[key]
-    ?? node.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
+    node.metadata?.[key] ??
+    node.metadata?.[key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())];
   return typeof value === "number" ? value : undefined;
 }
 
@@ -120,10 +120,10 @@ function buildBounds(
   });
 
   if (
-    !Number.isFinite(minX)
-    || !Number.isFinite(minY)
-    || !Number.isFinite(maxX)
-    || !Number.isFinite(maxY)
+    !Number.isFinite(minX) ||
+    !Number.isFinite(minY) ||
+    !Number.isFinite(maxX) ||
+    !Number.isFinite(maxY)
   ) {
     return {
       centerX: 0,
@@ -156,13 +156,16 @@ function centerPositions(
   };
 
   return Object.fromEntries(
-    nodes.map((node) => [
-      node.id,
-      roundPosition({
-        x: (positions[node.id]?.x ?? node.x) + delta.x,
-        y: (positions[node.id]?.y ?? node.y) + delta.y,
-      }),
-    ] as const),
+    nodes.map(
+      (node) =>
+        [
+          node.id,
+          roundPosition({
+            x: (positions[node.id]?.x ?? node.x) + delta.x,
+            y: (positions[node.id]?.y ?? node.y) + delta.y,
+          }),
+        ] as const,
+    ),
   );
 }
 
@@ -237,17 +240,13 @@ function buildGridPositions(nodes: GroupOrganizeNode[]) {
     rowHeights[row] = Math.max(rowHeights[row] ?? 0, node.height);
   });
 
-  const columnOffsets = columnWidths.map((_, index) =>
-    columnWidths
-      .slice(0, index)
-      .reduce((sum, width) => sum + width, 0)
-      + ROW_GAP * index,
+  const columnOffsets = columnWidths.map(
+    (_, index) =>
+      columnWidths.slice(0, index).reduce((sum, width) => sum + width, 0) + ROW_GAP * index,
   );
-  const rowOffsets = rowHeights.map((_, index) =>
-    rowHeights
-      .slice(0, index)
-      .reduce((sum, height) => sum + height, 0)
-      + COLUMN_GAP * index,
+  const rowOffsets = rowHeights.map(
+    (_, index) =>
+      rowHeights.slice(0, index).reduce((sum, height) => sum + height, 0) + COLUMN_GAP * index,
   );
 
   return Object.fromEntries(
@@ -287,13 +286,15 @@ function buildKindPositions(nodes: GroupOrganizeNode[]) {
       }),
     );
 
-    return [{
-      kind,
-      laneNodes,
-      laneWidth,
-      laneHeight: cursorY,
-      lanePositions,
-    }];
+    return [
+      {
+        kind,
+        laneNodes,
+        laneWidth,
+        laneHeight: cursorY,
+        lanePositions,
+      },
+    ];
   });
 
   const maxLaneHeight = Math.max(...lanes.map((lane) => lane.laneHeight), 0);
@@ -302,23 +303,23 @@ function buildKindPositions(nodes: GroupOrganizeNode[]) {
   return Object.fromEntries(
     lanes.flatMap((lane, laneIndex) => {
       const laneYOffset = (maxLaneHeight - lane.laneHeight) / 2;
-      const positionedNodes = lane.laneNodes.map((node) => [
-        node.id,
-        {
-          x: cursorX + (lane.lanePositions[node.id]?.x ?? 0),
-          y: laneYOffset + (lane.lanePositions[node.id]?.y ?? 0),
-        },
-      ] as const);
+      const positionedNodes = lane.laneNodes.map(
+        (node) =>
+          [
+            node.id,
+            {
+              x: cursorX + (lane.lanePositions[node.id]?.x ?? 0),
+              y: laneYOffset + (lane.lanePositions[node.id]?.y ?? 0),
+            },
+          ] as const,
+      );
       cursorX += lane.laneWidth + (laneIndex < lanes.length - 1 ? ROW_GAP : 0);
       return positionedNodes;
     }),
   );
 }
 
-function buildTidyPositions(
-  nodes: GroupOrganizeNode[],
-  edges: GraphEdgeDto[],
-) {
+function buildTidyPositions(nodes: GroupOrganizeNode[], edges: GraphEdgeDto[]) {
   const nodeIds = new Set(nodes.map((node) => node.id));
   const internalEdges = edges.filter(
     (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target),
@@ -336,10 +337,7 @@ function buildTidyPositions(
   );
 
   return Object.fromEntries(
-    nodes.map((node) => [
-      node.id,
-      result.positions[node.id] ?? { x: node.x, y: node.y },
-    ] as const),
+    nodes.map((node) => [node.id, result.positions[node.id] ?? { x: node.x, y: node.y }] as const),
   );
 }
 
@@ -381,10 +379,7 @@ export function organizeGroupedNodes({
     };
   }
 
-  const nextPositions = centerPositions(
-    nodes,
-    buildOrganizedPositions(mode, nodes, edges),
-  );
+  const nextPositions = centerPositions(nodes, buildOrganizedPositions(mode, nodes, edges));
   const movedNodeIds = nodes
     .filter((node) => {
       const nextPosition = nextPositions[node.id];
