@@ -1,19 +1,4 @@
 {
   "version": 1,
-  "ignored": [
-    {
-      "ecosystem": "python",
-      "advisory": "CVE-2026-3219",
-      "package": "pip",
-      "reason": "pip-audit currently reports this against the bootstrap packaging tool installed in the CI/local Python environment rather than HELM runtime code. The audit remains blocking for all other Python findings.",
-      "removal_condition": "Remove once the CI bootstrap can install a pip release that pip-audit no longer flags for CVE-2026-3219."
-    },
-    {
-      "ecosystem": "python",
-      "advisory": "GHSA-58qw-9mgm-455v",
-      "package": "pip",
-      "reason": "pip-audit currently reports this against the bootstrap packaging tool installed in the CI/local Python environment rather than HELM runtime code. The audit remains blocking for all other Python findings.",
-      "removal_condition": "Remove once the CI bootstrap can install a pip release that pip-audit no longer flags for GHSA-58qw-9mgm-455v."
-    }
-  ]
+  "ignored": []
 }

@@ -55,6 +55,10 @@ python -m pytest
 python scripts/audit.py python
 ```
 
+The Python audit is scoped to the local project path, so it resolves HELM's declared
+Python dependencies from `pyproject.toml` instead of scanning unrelated packages that
+happen to be installed in the active CI or developer environment.
+
 Desktop gates:
 
 ```bash

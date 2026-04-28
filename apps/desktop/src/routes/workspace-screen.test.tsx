@@ -415,15 +415,32 @@ async function openFunctionFlow(user: ReturnType<typeof userEvent.setup>, symbol
   fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
   await user.click(await screen.findByRole("button", { name: /Open flow/i }));
 
-  const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
+  const flowGraphPanel = await waitForFunctionFlowReady(symbolName);
   return {
     graphPanel: graphPanel as HTMLElement,
-    flowGraphPanel: flowGraphPanel as HTMLElement,
+    flowGraphPanel,
   };
 }
 
 async function openBuildGraphSummaryFlow(user: ReturnType<typeof userEvent.setup>) {
   return openFunctionFlow(user, "build_graph_summary");
+}
+
+async function waitForFunctionFlowReady(symbolName: string) {
+  const escapedSymbolName = symbolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await screen.findByRole("button", {
+    name: new RegExp(`${escapedSymbolName} flow view`, "i"),
+  });
+  const flowGraphPanel = (await screen.findByRole("region", {
+    name: /Graph canvas/i,
+  })) as HTMLElement;
+  await waitFor(() =>
+    expect(
+      (screen.getByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement)
+        .value,
+    ).not.toBe(""),
+  );
+  return flowGraphPanel;
 }
 
 async function ensureFlowCreateMode(flowGraphPanel: HTMLElement) {
@@ -432,6 +449,12 @@ async function ensureFlowCreateMode(flowGraphPanel: HTMLElement) {
     fireEvent.keyDown(flowGraphPanel, { key: "c" });
   }
 
+  await screen.findByTestId("graph-create-mode-badge");
+  await waitFor(() =>
+    expect(screen.getByTestId("graph-create-mode-hint")).toHaveTextContent(
+      "Click empty canvas to create a flow node in this draft.",
+    ),
+  );
   await waitFor(() =>
     expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
   );
@@ -1941,14 +1964,13 @@ describe("WorkspaceScreen", () => {
       expect(functionNode).not.toBeNull();
       fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
       await user.click(await screen.findByRole("button", { name: /Open flow/i }));
-      const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
+      const flowGraphPanel = await waitForFunctionFlowReady("build_graph_summary");
       const flowGraph = within(flowGraphPanel);
       expect(await screen.findByRole("heading", { name: /Internal flow/i })).toBeInTheDocument();
       expect((await flowGraph.findAllByText(/module_summaries/i)).length).toBeGreaterThan(0);
 
-      (flowGraphPanel as HTMLElement).focus();
-      fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
-      expect(await screen.findByTestId("graph-create-mode-badge")).toBeInTheDocument();
+      const graphPane = await ensureFlowCreateMode(flowGraphPanel);
+      expect(screen.getByTestId("graph-create-mode-badge")).toBeInTheDocument();
       expect(screen.getByTestId("graph-create-mode-hint")).toHaveTextContent(
         "Click empty canvas to create a flow node in this draft.",
       );
@@ -1957,15 +1979,10 @@ describe("WorkspaceScreen", () => {
           "graph-edge:controls:flow:symbol:helm.ui.api:build_graph_summary:entry:start->flow:symbol:helm.ui.api:build_graph_summary:assign:modules:in",
         ),
       ).not.toBeInTheDocument();
-      await waitFor(() =>
-        expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
-      );
-      const graphPane = (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane");
-      expect(graphPane).not.toBeNull();
       const initialLayoutWriteCount = writeStoredGraphLayoutMock.mock.calls.length;
       const firstClick = { clientX: 180, clientY: 140 };
 
-      fireEvent.click(graphPane as HTMLElement, firstClick);
+      fireEvent.click(graphPane, firstClick);
 
       const composer = await screen.findByTestId("graph-create-composer");
       expect(await screen.findByRole("heading", { name: /Create flow node/i })).toBeInTheDocument();
@@ -2020,7 +2037,7 @@ describe("WorkspaceScreen", () => {
       );
       expect((await screen.findAllByText(/rank_modules/i)).length).toBeGreaterThan(0);
 
-      fireEvent.click(graphPane as HTMLElement, { clientX: 260, clientY: 200 });
+      fireEvent.click(graphPane, { clientX: 260, clientY: 200 });
       expect(await screen.findByRole("heading", { name: /Create flow node/i })).toBeInTheDocument();
       fireEvent.keyDown(window, { key: "Escape" });
       await waitFor(() => {
@@ -2071,18 +2088,12 @@ describe("WorkspaceScreen", () => {
       expect(functionNode).not.toBeNull();
       fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
       await user.click(await screen.findByRole("button", { name: /Open flow/i }));
-      const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
+      const flowGraphPanel = await waitForFunctionFlowReady("build_graph_summary");
       const flowGraph = within(flowGraphPanel);
 
-      (flowGraphPanel as HTMLElement).focus();
-      fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
-      await waitFor(() =>
-        expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
-      );
-      const graphPane = (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane");
-      expect(graphPane).not.toBeNull();
+      const graphPane = await ensureFlowCreateMode(flowGraphPanel);
 
-      fireEvent.click(graphPane as HTMLElement, { clientX: 160, clientY: 120 });
+      fireEvent.click(graphPane, { clientX: 160, clientY: 120 });
       await user.type(
         screen.getByRole("textbox", { name: /Flow statement/i }),
         "helper = rank_modules(graph)",
@@ -2099,7 +2110,7 @@ describe("WorkspaceScreen", () => {
         ).not.toBeInTheDocument();
       });
 
-      fireEvent.click(graphPane as HTMLElement, { clientX: 320, clientY: 220 });
+      fireEvent.click(graphPane, { clientX: 320, clientY: 220 });
       expect(await screen.findByRole("heading", { name: /Create flow node/i })).toBeInTheDocument();
       await user.selectOptions(screen.getByRole("combobox", { name: /Flow node kind/i }), "call");
       await user.type(
@@ -2249,17 +2260,11 @@ describe("WorkspaceScreen", () => {
       expect(functionNode).not.toBeNull();
       fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
       await user.click(await screen.findByRole("button", { name: /Open flow/i }));
-      const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
+      const flowGraphPanel = await waitForFunctionFlowReady("build_graph_summary");
 
-      (flowGraphPanel as HTMLElement).focus();
-      fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
-      await waitFor(() =>
-        expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
-      );
-      const graphPane = (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane");
-      expect(graphPane).not.toBeNull();
+      const graphPane = await ensureFlowCreateMode(flowGraphPanel);
 
-      fireEvent.click(graphPane as HTMLElement, { clientX: 260, clientY: 180 });
+      fireEvent.click(graphPane, { clientX: 260, clientY: 180 });
       const kindSelect = screen.getByRole("combobox", { name: /Flow node kind/i });
       expect(
         within(kindSelect)
@@ -2359,17 +2364,11 @@ describe("WorkspaceScreen", () => {
       expect(functionNode).not.toBeNull();
       fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
       await user.click(await screen.findByRole("button", { name: /Open flow/i }));
-      const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
+      const flowGraphPanel = await waitForFunctionFlowReady("build_graph_summary");
 
-      (flowGraphPanel as HTMLElement).focus();
-      fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
-      await waitFor(() =>
-        expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
-      );
-      const graphPane = (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane");
-      expect(graphPane).not.toBeNull();
+      const graphPane = await ensureFlowCreateMode(flowGraphPanel);
 
-      fireEvent.click(graphPane as HTMLElement, { clientX: 300, clientY: 220 });
+      fireEvent.click(graphPane, { clientX: 300, clientY: 220 });
       await user.selectOptions(screen.getByRole("combobox", { name: /Flow node kind/i }), "loop");
       expect(screen.getByRole("combobox", { name: /Loop type/i })).toBeInTheDocument();
       expect(screen.getByRole("textbox", { name: /Continue while/i })).toBeInTheDocument();
@@ -2596,21 +2595,10 @@ describe("WorkspaceScreen", () => {
       await user.click(await screen.findByRole("button", { name: /Open flow/i }));
       await waitFor(() => expect(flowViewSpy).toHaveBeenCalled());
 
-      const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
-      (flowGraphPanel as HTMLElement).focus();
-      fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
-      await waitFor(() =>
-        expect(screen.getByTestId("graph-create-mode-hint")).toHaveTextContent(
-          "Click empty canvas to create a flow node in this draft.",
-        ),
-      );
-      await waitFor(() =>
-        expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
-      );
-      const graphPane = (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane");
-      expect(graphPane).not.toBeNull();
+      const flowGraphPanel = await waitForFunctionFlowReady("build_graph_summary");
+      const graphPane = await ensureFlowCreateMode(flowGraphPanel);
       const spawnClick = { clientX: 240, clientY: 180 };
-      fireEvent.click(graphPane as HTMLElement, spawnClick);
+      fireEvent.click(graphPane, spawnClick);
       await user.type(
         screen.getByRole("textbox", { name: /Flow statement/i }),
         "helper = rank_modules(graph)",
@@ -3616,20 +3604,9 @@ describe("WorkspaceScreen", () => {
       fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
       await user.click(await screen.findByRole("button", { name: /Open flow/i }));
 
-      const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
-      (flowGraphPanel as HTMLElement).focus();
-      fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
-      await waitFor(() =>
-        expect(screen.getByTestId("graph-create-mode-hint")).toHaveTextContent(
-          "Click empty canvas to create a flow node in this draft.",
-        ),
-      );
-      await waitFor(() =>
-        expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
-      );
-      const graphPane = (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane");
-      expect(graphPane).not.toBeNull();
-      await user.click(graphPane as HTMLElement);
+      const flowGraphPanel = await waitForFunctionFlowReady("build_graph_summary");
+      const graphPane = await ensureFlowCreateMode(flowGraphPanel);
+      await user.click(graphPane);
 
       await user.type(
         screen.getByRole("textbox", { name: /Flow statement/i }),
@@ -3750,16 +3727,9 @@ describe("WorkspaceScreen", () => {
       fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
       await user.click(await screen.findByRole("button", { name: /Open flow/i }));
 
-      const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
-      (flowGraphPanel as HTMLElement).focus();
-      fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
-      await waitFor(() =>
-        expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
-      );
-
-      const graphPane = (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane");
-      expect(graphPane).not.toBeNull();
-      fireEvent.click(graphPane as HTMLElement, { clientX: 180, clientY: 140 });
+      const flowGraphPanel = await waitForFunctionFlowReady("build_graph_summary");
+      const graphPane = await ensureFlowCreateMode(flowGraphPanel);
+      fireEvent.click(graphPane, { clientX: 180, clientY: 140 });
       await user.type(
         screen.getByRole("textbox", { name: /Flow statement/i }),
         "helper = rank_modules(graph)",
@@ -4042,8 +4012,8 @@ describe("WorkspaceScreen", () => {
       fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
       await user.click(await screen.findByRole("button", { name: /Open flow/i }));
 
-      const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
-      (flowGraphPanel as HTMLElement).focus();
+      const flowGraphPanel = await waitForFunctionFlowReady("build_graph_summary");
+      flowGraphPanel.focus();
       const sourceBeforeDelete = (
         (await screen.findByRole("textbox", {
           name: /Function source editor/i,
@@ -4052,7 +4022,7 @@ describe("WorkspaceScreen", () => {
       const sourceBackedNodeId = "flow:symbol:helm.ui.api:build_graph_summary:assign:modules";
       fireEvent.click(await screen.findByTestId(`rf__node-${sourceBackedNodeId}`));
       const replaceCallsBeforeDelete = editSpy.mock.calls.length;
-      fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "Backspace" });
+      fireEvent.keyDown(flowGraphPanel, { key: "Backspace" });
 
       await waitFor(() =>
         expect(editSpy.mock.calls.length).toBeGreaterThan(replaceCallsBeforeDelete),
@@ -4173,15 +4143,9 @@ describe("WorkspaceScreen", () => {
       fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
       await user.click(await screen.findByRole("button", { name: /Open flow/i }));
 
-      const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
-      (flowGraphPanel as HTMLElement).focus();
-      fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
-      await waitFor(() =>
-        expect((flowGraphPanel as HTMLElement).querySelector(".react-flow__pane")).not.toBeNull(),
-      );
-      const graphPane = (flowGraphPanel as HTMLElement).querySelector(".react-flow__pane");
-      expect(graphPane).not.toBeNull();
-      fireEvent.click(graphPane as HTMLElement, { clientX: 180, clientY: 140 });
+      const flowGraphPanel = await waitForFunctionFlowReady("build_graph_summary");
+      const graphPane = await ensureFlowCreateMode(flowGraphPanel);
+      fireEvent.click(graphPane, { clientX: 180, clientY: 140 });
       await user.type(
         screen.getByRole("textbox", { name: /Flow statement/i }),
         "helper = rank_modules(graph)",
@@ -4285,9 +4249,9 @@ describe("WorkspaceScreen", () => {
       fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
       await user.click(await screen.findByRole("button", { name: /Open flow/i }));
 
-      const flowGraphPanel = await screen.findByRole("region", { name: /Graph canvas/i });
-      (flowGraphPanel as HTMLElement).focus();
-      fireEvent.keyDown(flowGraphPanel as HTMLElement, { key: "c" });
+      const flowGraphPanel = await waitForFunctionFlowReady("build_graph_summary");
+      flowGraphPanel.focus();
+      fireEvent.keyDown(flowGraphPanel, { key: "c" });
       await waitFor(() =>
         expect(screen.queryByTestId("graph-create-mode-badge")).not.toBeInTheDocument(),
       );

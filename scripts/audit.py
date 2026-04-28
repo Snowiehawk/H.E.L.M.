@@ -189,7 +189,7 @@ def npm_findings() -> list[Finding]:
 
 def python_findings() -> list[Finding]:
     pip_audit = resolve_command("pip-audit")
-    command = [pip_audit, "--format", "json", "--progress-spinner", "off"]
+    command = [pip_audit, str(REPO_ROOT), "--format", "json", "--progress-spinner", "off"]
     returncode, payload, stderr = run_json_command(command, cwd=REPO_ROOT)
 
     if payload is None:
