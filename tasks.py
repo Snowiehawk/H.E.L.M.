@@ -45,18 +45,25 @@ def _same_python_tool(name: str) -> str:
     if os.name == "nt":
         candidates = [f"{name}.exe", f"{name}.cmd", name]
 
-    scripts_dir = Path(sys.executable).resolve().parent
+    python_dir = Path(sys.executable).resolve().parent
+    scripts_dirs = [python_dir]
+    if os.name == "nt":
+        scripts_dirs.append(python_dir / "Scripts")
     for candidate in candidates:
-        local = scripts_dir / candidate
-        if local.exists():
-            return str(local)
+        for scripts_dir in scripts_dirs:
+            local = scripts_dir / candidate
+            if local.exists():
+                return str(local)
 
     for candidate in candidates:
         resolved = shutil.which(candidate)
         if resolved:
             return resolved
 
-    raise Exit(f"Required Python tool `{name}` was not found. Run `pip install '.[dev]'`.")
+    raise Exit(
+        f"Required Python tool `{name}` was not found. "
+        "Run `python -m pip install -r requirements/python-dev.txt`."
+    )
 
 
 def _command(name: str) -> str:
@@ -128,6 +135,15 @@ def _pip_compile_command(
     return command
 
 
+def _pip_tools_env(cache_root: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    env["PIP_TOOLS_CACHE_DIR"] = str(cache_root / "pip-tools")
+    env["XDG_CACHE_HOME"] = str(cache_root / "xdg")
+    if os.name == "nt":
+        env["LOCALAPPDATA"] = str(cache_root / "localappdata")
+    return env
+
+
 def _compile_python_lock(
     input_path: Path,
     output_path: Path,
@@ -135,7 +151,12 @@ def _compile_python_lock(
     cwd: Path = REPO_ROOT,
     upgrade: bool = False,
 ) -> None:
-    _run(_pip_compile_command(input_path, output_path, upgrade=upgrade), cwd=cwd)
+    with tempfile.TemporaryDirectory(prefix="helm-pip-tools-cache-") as cache_dir:
+        _run(
+            _pip_compile_command(input_path, output_path, upgrade=upgrade),
+            cwd=cwd,
+            env=_pip_tools_env(Path(cache_dir)),
+        )
 
 
 def _run_bootstrap(ctx, *, force: bool = False, ui_only: bool = False) -> None:

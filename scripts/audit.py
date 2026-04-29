@@ -213,12 +213,13 @@ def python_findings_from_payload(payload: Any) -> list[Finding]:
 
 
 def python_findings() -> list[Finding]:
-    pip_audit = resolve_command("pip-audit")
     findings: list[Finding] = []
 
     for requirements_path in PYTHON_AUDIT_REQUIREMENTS:
         command = [
-            pip_audit,
+            sys.executable,
+            "-m",
+            "pip_audit",
             "-r",
             str(requirements_path),
             "--format",
