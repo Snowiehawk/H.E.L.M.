@@ -12,6 +12,10 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ALLOWLIST_PATH = REPO_ROOT / "security" / "audit-allowlist.json"
+PYTHON_AUDIT_REQUIREMENTS = (
+    REPO_ROOT / "requirements" / "python-runtime.txt",
+    REPO_ROOT / "requirements" / "python-dev.txt",
+)
 ECOSYSTEMS = {"python", "npm", "cargo"}
 BLOCKING_NPM_SEVERITIES = {"high", "critical"}
 
@@ -187,16 +191,7 @@ def npm_findings() -> list[Finding]:
     return findings
 
 
-def python_findings() -> list[Finding]:
-    pip_audit = resolve_command("pip-audit")
-    command = [pip_audit, str(REPO_ROOT), "--format", "json", "--progress-spinner", "off"]
-    returncode, payload, stderr = run_json_command(command, cwd=REPO_ROOT)
-
-    if payload is None:
-        if returncode == 0:
-            return []
-        raise SystemExit(stderr or "pip-audit failed without JSON output.")
-
+def python_findings_from_payload(payload: Any) -> list[Finding]:
     dependencies = payload.get("dependencies", [])
     if not isinstance(dependencies, list):
         raise SystemExit("Unexpected pip-audit JSON: missing dependencies list.")
@@ -211,10 +206,34 @@ def python_findings() -> list[Finding]:
             if not isinstance(vuln, dict):
                 continue
 
-            ids = [str(vuln.get("id", "unknown"))]
-            ids.extend(str(alias) for alias in vuln.get("aliases", []) if alias)
-            for advisory in ids:
-                findings.append(Finding("python", advisory, package))
+            advisory = str(vuln.get("id") or "unknown")
+            findings.append(Finding("python", advisory, package))
+
+    return findings
+
+
+def python_findings() -> list[Finding]:
+    pip_audit = resolve_command("pip-audit")
+    findings: list[Finding] = []
+
+    for requirements_path in PYTHON_AUDIT_REQUIREMENTS:
+        command = [
+            pip_audit,
+            "-r",
+            str(requirements_path),
+            "--format",
+            "json",
+            "--progress-spinner",
+            "off",
+        ]
+        returncode, payload, stderr = run_json_command(command, cwd=REPO_ROOT)
+
+        if payload is None:
+            if returncode == 0:
+                continue
+            raise SystemExit(stderr or "pip-audit failed without JSON output.")
+
+        findings.extend(python_findings_from_payload(payload))
 
     return findings
 

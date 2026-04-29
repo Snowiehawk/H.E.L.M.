@@ -1,0 +1,15 @@
+# Development and CI dependencies for HELM.
+-r python-runtime.in
+
+colorama>=0.4.6
+invoke>=2.2
+pip-audit>=2.7
+pip-tools>=7.5
+pytest>=7.0
+ruff>=0.8
+
+# Keep Python-version-specific transitive requirements explicit so the lockfiles
+# remain usable on supported local Python versions while being generated on 3.9.
+exceptiongroup>=1.3.1; python_version < "3.11"
+importlib-metadata>=8.7.1; python_full_version < "3.10.2"
+typing-extensions>=4.15.0; python_version < "3.13"

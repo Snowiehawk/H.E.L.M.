@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from invoke import Exit, task
@@ -14,6 +15,12 @@ TAURI_DIR = DESKTOP_DIR / "src-tauri"
 BOOTSTRAP_SCRIPT = REPO_ROOT / "scripts" / "bootstrap.py"
 AUDIT_SCRIPT = REPO_ROOT / "scripts" / "audit.py"
 PYTHON_CHECK_PATHS = ["src", "tests", "scripts", "tasks.py"]
+REQUIREMENTS_DIR = REPO_ROOT / "requirements"
+PYTHON_LOCK_VERSION = (3, 9)
+PYTHON_LOCK_FILES = (
+    (REQUIREMENTS_DIR / "python-runtime.in", REQUIREMENTS_DIR / "python-runtime.txt"),
+    (REQUIREMENTS_DIR / "python-dev.in", REQUIREMENTS_DIR / "python-dev.txt"),
+)
 
 
 def _pty_supported() -> bool:
@@ -78,6 +85,57 @@ def _run(command: list[str], *, cwd: Path = REPO_ROOT, env: dict[str, str] | Non
     completed = subprocess.run(command, cwd=str(cwd), env=env, check=False)
     if completed.returncode:
         raise Exit(code=completed.returncode)
+
+
+def _repo_relative_posix(path: Path) -> str:
+    return path.relative_to(REPO_ROOT).as_posix()
+
+
+def _ensure_python_lock_version() -> None:
+    current = sys.version_info[:2]
+    if current != PYTHON_LOCK_VERSION:
+        expected = ".".join(str(part) for part in PYTHON_LOCK_VERSION)
+        actual = ".".join(str(part) for part in current)
+        raise Exit(
+            "Python lockfiles must be generated and checked with the CI baseline "
+            f"Python {expected}; current interpreter is Python {actual}."
+        )
+
+
+def _pip_compile_command(
+    input_path: Path, output_path: Path, *, upgrade: bool = False
+) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "piptools",
+        "compile",
+        "--resolver=backtracking",
+        "--output-file",
+        _repo_relative_posix(output_path),
+        _repo_relative_posix(input_path),
+        "--newline=lf",
+        "--allow-unsafe",
+        "--strip-extras",
+        "--no-annotate",
+        "--no-emit-index-url",
+        "--no-emit-trusted-host",
+        "--no-emit-options",
+        "--no-config",
+    ]
+    if upgrade:
+        command.append("--upgrade")
+    return command
+
+
+def _compile_python_lock(
+    input_path: Path,
+    output_path: Path,
+    *,
+    cwd: Path = REPO_ROOT,
+    upgrade: bool = False,
+) -> None:
+    _run(_pip_compile_command(input_path, output_path, upgrade=upgrade), cwd=cwd)
 
 
 def _run_bootstrap(ctx, *, force: bool = False, ui_only: bool = False) -> None:
@@ -194,9 +252,42 @@ def format_python(ctx) -> None:
     _run([ruff, "format", *PYTHON_CHECK_PATHS])
 
 
+@task(name="lock-python", help={"upgrade": "Ask pip-compile to upgrade all resolved pins."})
+def lock_python(ctx, upgrade: bool = False) -> None:
+    """Regenerate Python dependency lockfiles with the CI Python baseline."""
+    _ensure_python_lock_version()
+    for input_path, output_path in PYTHON_LOCK_FILES:
+        _compile_python_lock(input_path, output_path, upgrade=upgrade)
+
+
+@task(name="check-python-locks")
+def check_python_locks(ctx) -> None:
+    """Fail when committed Python lockfiles are stale."""
+    _ensure_python_lock_version()
+    with tempfile.TemporaryDirectory(prefix="helm-python-locks-") as tmp_dir:
+        temp_root = Path(tmp_dir)
+        for input_path, output_path in PYTHON_LOCK_FILES:
+            temp_input = temp_root / _repo_relative_posix(input_path)
+            temp_output = temp_root / _repo_relative_posix(output_path)
+            temp_input.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(input_path, temp_input)
+            if output_path.exists():
+                shutil.copy2(output_path, temp_output)
+            _compile_python_lock(input_path, output_path, cwd=temp_root)
+
+            expected = output_path.read_bytes()
+            actual = temp_output.read_bytes()
+            if actual != expected:
+                raise Exit(
+                    f"{_repo_relative_posix(output_path)} is stale. "
+                    "Run `python -m invoke lock-python` with Python 3.9."
+                )
+
+
 @task(name="check-python")
 def check_python(ctx) -> None:
     """Run Python lint, format, and test gates."""
+    check_python_locks(ctx)
     ruff = _same_python_tool("ruff")
     _run([ruff, "check", *PYTHON_CHECK_PATHS])
     _run([ruff, "format", "--check", *PYTHON_CHECK_PATHS])

@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 VENV_DIR = REPO_ROOT / ".venv-helm-dev"
 DESKTOP_DIR = REPO_ROOT / "apps" / "desktop"
 TAURI_DIR = DESKTOP_DIR / "src-tauri"
+PYTHON_DEV_REQUIREMENTS = REPO_ROOT / "requirements" / "python-dev.txt"
 
 
 class BootstrapError(RuntimeError):
@@ -185,11 +186,20 @@ def ensure_venv(profile: PlatformProfile) -> Path:
 def ensure_python_dependencies(profile: PlatformProfile, *, force: bool) -> Path:
     venv_python = ensure_venv(profile)
     stamp_path = bootstrap_cache_dir(profile) / "python.stamp"
-    inputs = [REPO_ROOT / "pyproject.toml"]
+    inputs = [
+        REPO_ROOT / "pyproject.toml",
+        REPO_ROOT / "requirements" / "python-runtime.in",
+        REPO_ROOT / "requirements" / "python-runtime.txt",
+        REPO_ROOT / "requirements" / "python-dev.in",
+        PYTHON_DEV_REQUIREMENTS,
+    ]
 
     if not force and not needs_refresh(stamp_path, inputs):
         print_step("Python dependencies are already up to date.")
         return venv_python
+
+    if not PYTHON_DEV_REQUIREMENTS.exists():
+        raise BootstrapError(f"Missing Python dev lockfile at {PYTHON_DEV_REQUIREMENTS}.")
 
     run_command(
         [str(venv_python), "-m", "pip", "install", "--upgrade", "pip"],
@@ -197,9 +207,14 @@ def ensure_python_dependencies(profile: PlatformProfile, *, force: bool) -> Path
         description="Upgrade pip in the repo virtual environment",
     )
     run_command(
-        [str(venv_python), "-m", "pip", "install", ".[dev]"],
+        [str(venv_python), "-m", "pip", "install", "-r", str(PYTHON_DEV_REQUIREMENTS)],
         cwd=REPO_ROOT,
-        description="Install Python project dependencies",
+        description="Install locked Python development dependencies",
+    )
+    run_command(
+        [str(venv_python), "-m", "pip", "install", "--no-deps", "-e", "."],
+        cwd=REPO_ROOT,
+        description="Install HELM without resolving unlocked Python dependencies",
     )
     touch(stamp_path)
     return venv_python

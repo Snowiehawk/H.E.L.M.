@@ -15,6 +15,7 @@ dependencies = ["libcst>=1.8.6"]
 dev = [
     "invoke>=2.2",
     "pip-audit>=2.7",
+    "pip-tools>=7.5",
     "pytest>=7.0",
     "ruff>=0.8",
 ]
@@ -40,7 +41,6 @@ extend-exclude = [
     ".pytest_cache",
     ".ruff_cache",
     ".tmp-test-bootstrap",
-    ".vendor",
     ".venv",
     ".venv-helm-dev",
     "apps/desktop/dist",

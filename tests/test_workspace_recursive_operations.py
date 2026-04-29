@@ -140,6 +140,65 @@ class WorkspaceRecursiveOperationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "protected workspace metadata"):
                 delete_workspace_entry(root, relative_path=".helm")
 
+    def test_recursive_previews_reject_nested_vcs_control_directories(self) -> None:
+        for control_dir in (".git", ".hg", ".svn"):
+            for operation in ("delete", "move"):
+                with self.subTest(control_dir=control_dir, operation=operation):
+                    with tempfile.TemporaryDirectory() as tmp_dir:
+                        root = Path(tmp_dir)
+                        write_repo_files(
+                            root,
+                            {
+                                f"pkg/nested/{control_dir}/config": "",
+                                "pkg/app.py": "def run():\n    return 1\n",
+                                "dest/.keep": "",
+                            },
+                        )
+
+                        with self.assertRaisesRegex(ValueError, "VCS control directory"):
+                            if operation == "delete":
+                                preview_workspace_file_operation(
+                                    root,
+                                    operation="delete",
+                                    relative_path="pkg",
+                                )
+                            else:
+                                preview_workspace_file_operation(
+                                    root,
+                                    operation="move",
+                                    source_relative_path="pkg",
+                                    target_directory_relative_path="dest",
+                                )
+
+    def test_recursive_previews_reject_nested_helm_recovery_storage(self) -> None:
+        for operation in ("delete", "move"):
+            with self.subTest(operation=operation):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    root = Path(tmp_dir)
+                    write_repo_files(
+                        root,
+                        {
+                            "pkg/.helm/recovery/pending.json": "{}",
+                            "pkg/app.py": "def run():\n    return 1\n",
+                            "dest/.keep": "",
+                        },
+                    )
+
+                    with self.assertRaisesRegex(ValueError, "HELM recovery storage"):
+                        if operation == "delete":
+                            preview_workspace_file_operation(
+                                root,
+                                operation="delete",
+                                relative_path="pkg",
+                            )
+                        else:
+                            preview_workspace_file_operation(
+                                root,
+                                operation="move",
+                                source_relative_path="pkg",
+                                target_directory_relative_path="dest",
+                            )
+
 
 if __name__ == "__main__":
     unittest.main()

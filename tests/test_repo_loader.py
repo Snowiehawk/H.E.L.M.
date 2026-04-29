@@ -19,7 +19,7 @@ class RepoLoaderTests(unittest.TestCase):
                     "pkg/service.py": "",
                     "tools/run.py": "",
                     ".git/ignored.py": "",
-                    ".vendor/libcst/runtime.py": "",
+                    "vendor/libcst/runtime.py": "",
                     ".venv/site.py": "",
                     "pkg/__pycache__/skip.py": "",
                     "README.md": "not python",

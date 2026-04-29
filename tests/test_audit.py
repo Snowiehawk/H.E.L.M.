@@ -6,7 +6,7 @@ from typing import Any
 from scripts import audit
 
 
-def test_python_audit_uses_project_path(monkeypatch) -> None:
+def test_python_audit_uses_committed_lockfiles(monkeypatch) -> None:
     commands: list[tuple[list[str], Path]] = []
 
     def fake_resolve_command(name: str) -> str:
@@ -25,12 +25,25 @@ def test_python_audit_uses_project_path(monkeypatch) -> None:
         (
             [
                 "pip-audit",
-                str(audit.REPO_ROOT),
+                "-r",
+                str(audit.REPO_ROOT / "requirements" / "python-runtime.txt"),
                 "--format",
                 "json",
                 "--progress-spinner",
                 "off",
             ],
             audit.REPO_ROOT,
-        )
+        ),
+        (
+            [
+                "pip-audit",
+                "-r",
+                str(audit.REPO_ROOT / "requirements" / "python-dev.txt"),
+                "--format",
+                "json",
+                "--progress-spinner",
+                "off",
+            ],
+            audit.REPO_ROOT,
+        ),
     ]

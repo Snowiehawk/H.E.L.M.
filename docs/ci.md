@@ -4,10 +4,13 @@ HELM currently runs GitHub Actions on Ubuntu for pull requests, pushes to `main`
 
 ## CI-equivalent local checks
 
-Install Python dev dependencies from the repo root:
+Install Python dev dependencies from the committed lockfile, then install HELM
+without resolving dependencies again:
 
 ```bash
-python -m pip install '.[dev]'
+python -m pip install -r requirements/python-dev.txt
+python -m pip install --no-deps -e .
+python -m pip check
 ```
 
 Install desktop dependencies with CI behavior:
@@ -42,22 +45,35 @@ The bootstrap wrappers remain convenience entrypoints for local setup and app la
 .\helm.cmd bootstrap
 ```
 
-Those bootstrap commands may use `npm install` so first-run local setup is forgiving. They are not the CI-equivalent dependency install. Use `npm ci` when validating lockfile-accurate CI behavior.
+Those bootstrap commands install Python from `requirements/python-dev.txt` but may
+use `npm install` so first-run frontend setup is forgiving. They are not the
+CI-equivalent frontend dependency install. Use `npm ci` when validating
+lockfile-accurate CI behavior.
+
+Python lockfiles must be generated with the CI baseline Python version, currently
+Python 3.9:
+
+```bash
+python -m invoke lock-python
+python -m invoke check-python-locks
+```
 
 ## Gates
 
 Python gates:
 
 ```bash
+python -m invoke check-python-locks
 ruff check src tests scripts tasks.py
 ruff format --check src tests scripts tasks.py
 python -m pytest
 python scripts/audit.py python
 ```
 
-The Python audit is scoped to the local project path, so it resolves HELM's declared
-Python dependencies from `pyproject.toml` instead of scanning unrelated packages that
-happen to be installed in the active CI or developer environment.
+The Python audit is scoped to `requirements/python-runtime.txt` and
+`requirements/python-dev.txt`, so it checks HELM's committed dependency set
+instead of scanning unrelated packages that happen to be installed in the active
+CI or developer environment.
 
 Desktop gates:
 
@@ -108,4 +124,7 @@ If an audit tool cannot filter by severity, any unallowlisted vulnerability fail
 
 `python -m invoke format` applies Ruff, ESLint fixes, Prettier, and Rust formatting. If Ruff or Prettier creates a broad mechanical cleanup, keep that formatting separate from functional edits in the implementation summary or commit history.
 
-Generated, vendored, dependency, and build output directories are excluded from format and lint gates.
+Generated dependency and build output directories are excluded from format and lint gates.
+
+See `docs/dependencies.md` for dependency pinning, lockfile update, audit, and
+vendoring policy.

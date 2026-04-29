@@ -1,40 +1,5 @@
 {
   "views": {
-    "flow|symbol:src.helm._vendor:ensure_vendor_packages": {
-      "nodes": {
-        "flow:symbol:src.helm._vendor:ensure_vendor_packages:entry": {
-          "x": 0.0,
-          "y": -50.0
-        },
-        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:0": {
-          "x": 570.0,
-          "y": -50.0
-        },
-        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:1": {
-          "x": 1159.0,
-          "y": -50.0
-        },
-        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:2": {
-          "x": 1748.0,
-          "y": -50.0
-        },
-        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:3": {
-          "x": 2337.0,
-          "y": -50.0
-        },
-        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:4": {
-          "x": 2926.0,
-          "y": -50.0
-        },
-        "flow:symbol:src.helm._vendor:ensure_vendor_packages:statement:5": {
-          "x": 3515.0,
-          "y": -50.0
-        }
-      },
-      "reroutes": [],
-      "pinned_node_ids": [],
-      "groups": []
-    },
     "flow|symbol:src.helm.editor.patcher:_add_import": {
       "nodes": {
         "flow:symbol:src.helm.editor.patcher:_add_import:entry": {
@@ -1454,10 +1419,6 @@
           "x": -815.7060323384071,
           "y": -802.0695757211472
         },
-        "module:src.helm._vendor": {
-          "x": 566.3375150445252,
-          "y": 432.3491443075442
-        },
         "module:src.helm.cli": {
           "x": 121.33751504452516,
           "y": 572.3491443075442
@@ -1662,7 +1623,6 @@
           "id": "group-8b10e80b-3db5-468f-9efd-c440d9f0f4e0",
           "title": "Group",
           "memberNodeIds": [
-            "module:src.helm._vendor",
             "module:src.helm.cli",
             "module:src.helm.config",
             "module:src.helm.editor.models",
@@ -1688,10 +1648,6 @@
         "module:src.helm": {
           "x": 1646.3159985568332,
           "y": -252.03894417297568
-        },
-        "module:src.helm._vendor": {
-          "x": 140.81420936178438,
-          "y": -334.18583795184543
         },
         "module:src.helm.cli": {
           "x": 585.8142093617844,
@@ -1872,7 +1828,6 @@
           "id": "group-3b4a5281-f0dc-4d4b-8c9b-0db6445c086b",
           "title": "Group",
           "memberNodeIds": [
-            "module:src.helm._vendor",
             "module:src.helm.cli",
             "module:src.helm.config",
             "module:src.helm.editor.models",

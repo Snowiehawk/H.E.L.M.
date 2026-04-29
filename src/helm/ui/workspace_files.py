@@ -34,7 +34,6 @@ IGNORED_DIRECTORY_NAMES = {
     ".ruff_cache",
     ".svn",
     ".turbo",
-    ".vendor",
     ".tox",
     ".venv",
     "__pycache__",
@@ -647,6 +646,7 @@ def _recursive_operation_manifest(
             )
             for child in sorted(source_path.rglob("*"))
         ]
+    _reject_protected_recursive_manifest_paths([root_entry, *child_entries], operation)
 
     counts = _manifest_counts(source_relative, entry_kind, child_entries)
     return {
@@ -825,6 +825,30 @@ def _reject_protected_workspace_mutation_path(relative_path: str, operation: str
         for index in range(len(parts))
     ):
         raise ValueError("Cannot mutate HELM recovery storage from workspace operations.")
+
+
+def _reject_protected_recursive_manifest_paths(
+    manifest_entries: list[dict[str, Any]], operation: str
+) -> None:
+    for entry in manifest_entries:
+        relative_path = str(entry.get("relative_path") or "")
+        if not relative_path:
+            continue
+        parts = PurePosixPath(relative_path).parts
+        for protected_name in VCS_CONTROL_DIRECTORY_NAMES:
+            if protected_name in parts:
+                raise ValueError(
+                    f"Cannot {operation} recursive workspace trees containing "
+                    f"VCS control directory '{protected_name}': {relative_path}"
+                )
+        if any(
+            parts[index] == ".helm" and index + 1 < len(parts) and parts[index + 1] == "recovery"
+            for index in range(len(parts))
+        ):
+            raise ValueError(
+                "Cannot mutate HELM recovery storage from recursive workspace operations: "
+                f"{relative_path}"
+            )
 
 
 def _resolve_repo_relative_path(root_path: Path, relative_path: str) -> Path:

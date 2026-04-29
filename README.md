@@ -75,7 +75,9 @@ For desktop work, the root `invoke` tasks automatically run inside `apps/desktop
 
 The bootstrap script prints fully qualified follow-up commands that use the repo-local venv directly, so you do not have to activate the venv just to use HELM.
 
-If you use zsh, keep the extras spec quoted as `'.[dev]'` so the shell does not treat `[]` as a glob. This non-editable install is intentional for compatibility with the older `pip` that ships with macOS Command Line Tools Python.
+Python CI and release validation install from committed lockfiles under
+`requirements/`. Regenerate those lockfiles only with the CI baseline Python
+version, currently Python 3.9, by running `python -m invoke lock-python`.
 
 ## CI / Quality Gates
 
@@ -90,3 +92,7 @@ python -m invoke ci
 Use `npm ci` in `apps/desktop/` when you want the same dependency install behavior as CI. The HELM bootstrap commands use `npm install` for local convenience and first-run setup. See `docs/ci.md` for the exact commands, audit allowlist rules, and platform notes.
 
 HELM repo mutations are journaled under `.helm/recovery/` so interrupted edits can be rolled back on the next open or before the next mutation. See `docs/recovery.md` for the lifecycle, ignore rules, and platform durability notes.
+
+Dependency pinning, audit, upgrade, and vendoring policy lives in
+`docs/dependencies.md`. HELM currently has no vendored runtime dependencies;
+LibCST is supplied by the normal Python dependency lockfiles.

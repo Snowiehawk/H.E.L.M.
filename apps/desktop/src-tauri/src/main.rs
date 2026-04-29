@@ -48,7 +48,6 @@ const IGNORED_WATCH_DIRS: &[&str] = &[
     ".ruff_cache",
     ".svn",
     ".turbo",
-    ".vendor",
     ".tox",
     ".venv",
     "__pycache__",
@@ -2131,8 +2130,7 @@ fn sync_graph_view_menu_state(
 
 fn python_path(workspace_root: &Path) -> Result<String, String> {
     let src_root = workspace_root.join("src");
-    let vendor_root = workspace_root.join(".vendor").join("libcst");
-    let joined = env::join_paths([src_root, vendor_root])
+    let joined = env::join_paths([src_root])
         .map_err(|err| format!("Unable to build PYTHONPATH: {}", err))?;
     joined
         .into_string()

@@ -18,7 +18,6 @@ DEFAULT_EXCLUDE_DIRS = (
     ".ruff_cache",
     ".svn",
     ".turbo",
-    ".vendor",
     ".tox",
     ".venv",
     "__pycache__",

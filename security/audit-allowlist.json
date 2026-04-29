@@ -1,4 +1,33 @@
 {
   "version": 1,
-  "ignored": []
+  "ignored": [
+    {
+      "ecosystem": "python",
+      "advisory": "GHSA-w853-jp5j-5j7f",
+      "package": "filelock",
+      "reason": "The fixed filelock release starts at 3.20.1, but the Python 3.9 resolver only offers filelock up to 3.19.1. This is a dev-tool transitive dependency through pip-audit/cachecontrol, not HELM runtime code.",
+      "removal_condition": "Remove when HELM's CI baseline moves beyond Python 3.9 or filelock publishes a Python 3.9-compatible fixed release."
+    },
+    {
+      "ecosystem": "python",
+      "advisory": "GHSA-qmgc-5h2g-mvrw",
+      "package": "filelock",
+      "reason": "The fixed filelock release starts at 3.20.3, but the Python 3.9 resolver only offers filelock up to 3.19.1. This is a dev-tool transitive dependency through pip-audit/cachecontrol, not HELM runtime code.",
+      "removal_condition": "Remove when HELM's CI baseline moves beyond Python 3.9 or filelock publishes a Python 3.9-compatible fixed release."
+    },
+    {
+      "ecosystem": "python",
+      "advisory": "GHSA-6w46-j5rx-g56g",
+      "package": "pytest",
+      "reason": "The fixed pytest release is 9.0.3, which requires Python 3.10 or newer. HELM's CI dependency baseline is currently Python 3.9 and pytest is dev/test tooling only.",
+      "removal_condition": "Remove when HELM's CI baseline moves to Python 3.10 or newer and the dev lock can upgrade pytest to 9.0.3 or later."
+    },
+    {
+      "ecosystem": "python",
+      "advisory": "GHSA-gc5v-m9x4-r6x2",
+      "package": "requests",
+      "reason": "The fixed requests release is 2.33.0, which is not available to the Python 3.9 resolver. This is a dev-tool transitive dependency through pip-audit, and HELM does not call requests.utils.extract_zipped_paths.",
+      "removal_condition": "Remove when HELM's CI baseline moves beyond Python 3.9 or requests publishes a Python 3.9-compatible fixed release."
+    }
+  ]
 }

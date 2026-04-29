@@ -1,0 +1,4 @@
+# Runtime dependencies for HELM.
+# Keep this input in sync with [project].dependencies in pyproject.toml.
+libcst>=1.8.6
+typing-extensions>=4.15.0; python_version < "3.10"

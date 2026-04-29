@@ -8,7 +8,6 @@ from dataclasses import dataclass, replace as dataclass_replace
 from pathlib import Path, PurePosixPath
 from typing import Callable, Iterable
 
-from helm._vendor import ensure_vendor_packages
 from helm.editor.declaration_support import require_editable_declaration_support
 from helm.editor.flow_model import (
     FLOW_MODEL_RELATIVE_PATH,
@@ -54,9 +53,7 @@ from helm.workspace_undo import (
     restore_workspace_undo_snapshot,
 )
 
-ensure_vendor_packages()
-
-import libcst as cst  # noqa: E402
+import libcst as cst
 
 
 @dataclass(frozen=True)
