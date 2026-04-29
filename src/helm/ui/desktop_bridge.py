@@ -114,6 +114,23 @@ def read_workspace_file_payload(repo: str | Path, relative_path: str) -> dict[st
     return session.read_workspace_file(relative_path)
 
 
+def preview_workspace_file_operation_payload(
+    repo: str | Path,
+    *,
+    operation: str,
+    relative_path: str | None = None,
+    source_relative_path: str | None = None,
+    target_directory_relative_path: str | None = None,
+) -> dict[str, Any]:
+    session = WorkspaceSession.open(repo)
+    return session.preview_workspace_file_operation(
+        operation=operation,
+        relative_path=relative_path,
+        source_relative_path=source_relative_path,
+        target_directory_relative_path=target_directory_relative_path,
+    )
+
+
 def create_workspace_entry_payload(
     repo: str | Path,
     *,
@@ -149,11 +166,13 @@ def move_workspace_entry_payload(
     *,
     source_relative_path: str,
     target_directory_relative_path: str,
+    expected_impact_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     session = WorkspaceSession.open(repo)
     return session.move_workspace_entry(
         source_relative_path=source_relative_path,
         target_directory_relative_path=target_directory_relative_path,
+        expected_impact_fingerprint=expected_impact_fingerprint,
     )
 
 
@@ -161,9 +180,13 @@ def delete_workspace_entry_payload(
     repo: str | Path,
     *,
     relative_path: str,
+    expected_impact_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     session = WorkspaceSession.open(repo)
-    return session.delete_workspace_entry(relative_path=relative_path)
+    return session.delete_workspace_entry(
+        relative_path=relative_path,
+        expected_impact_fingerprint=expected_impact_fingerprint,
+    )
 
 
 def apply_undo_to_payload(
@@ -275,6 +298,31 @@ def _handle_worker_command(
             raise ValueError("read-workspace-file requires a 'relative_path' string parameter.")
         return session.read_workspace_file(relative_path)
 
+    if command == "preview-workspace-file-operation":
+        operation = params.get("operation")
+        if not isinstance(operation, str):
+            raise ValueError(
+                "preview-workspace-file-operation requires an 'operation' string parameter."
+            )
+        relative_path = params.get("relative_path")
+        source_relative_path = params.get("source_relative_path")
+        target_directory_relative_path = params.get("target_directory_relative_path")
+        for key, value in (
+            ("relative_path", relative_path),
+            ("source_relative_path", source_relative_path),
+            ("target_directory_relative_path", target_directory_relative_path),
+        ):
+            if value is not None and not isinstance(value, str):
+                raise ValueError(
+                    f"preview-workspace-file-operation '{key}' must be a string when provided."
+                )
+        return session.preview_workspace_file_operation(
+            operation=operation,
+            relative_path=relative_path,
+            source_relative_path=source_relative_path,
+            target_directory_relative_path=target_directory_relative_path,
+        )
+
     if command == "create-workspace-entry":
         kind = params.get("kind")
         relative_path = params.get("relative_path")
@@ -316,6 +364,7 @@ def _handle_worker_command(
     if command == "move-workspace-entry":
         source_relative_path = params.get("source_relative_path")
         target_directory_relative_path = params.get("target_directory_relative_path")
+        expected_impact_fingerprint = params.get("expected_impact_fingerprint")
         if not isinstance(source_relative_path, str) or not isinstance(
             target_directory_relative_path, str
         ):
@@ -323,19 +372,34 @@ def _handle_worker_command(
                 "move-workspace-entry requires 'source_relative_path' and "
                 "'target_directory_relative_path' string parameters."
             )
+        if expected_impact_fingerprint is not None and not isinstance(
+            expected_impact_fingerprint, str
+        ):
+            raise ValueError(
+                "move-workspace-entry 'expected_impact_fingerprint' must be a string when provided."
+            )
         return session.move_workspace_entry(
             source_relative_path=source_relative_path,
             target_directory_relative_path=target_directory_relative_path,
+            expected_impact_fingerprint=expected_impact_fingerprint,
             top_n=top_n,
             progress=progress.emit if progress else None,
         )
 
     if command == "delete-workspace-entry":
         relative_path = params.get("relative_path")
+        expected_impact_fingerprint = params.get("expected_impact_fingerprint")
         if not isinstance(relative_path, str):
             raise ValueError("delete-workspace-entry requires a 'relative_path' string parameter.")
+        if expected_impact_fingerprint is not None and not isinstance(
+            expected_impact_fingerprint, str
+        ):
+            raise ValueError(
+                "delete-workspace-entry 'expected_impact_fingerprint' must be a string when provided."
+            )
         return session.delete_workspace_entry(
             relative_path=relative_path,
+            expected_impact_fingerprint=expected_impact_fingerprint,
             top_n=top_n,
             progress=progress.emit if progress else None,
         )

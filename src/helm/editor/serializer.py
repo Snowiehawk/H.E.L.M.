@@ -53,8 +53,15 @@ def serialize_undo_transaction(payload: str | dict[str, Any]) -> BackendUndoTran
     summary = _required_string(raw, "summary")
     request_kind = _required_string(raw, "request_kind")
     file_snapshots_raw = raw.get("file_snapshots")
-    if not isinstance(file_snapshots_raw, list) or not file_snapshots_raw:
-        raise ValueError("Undo transaction requires a non-empty 'file_snapshots' list.")
+    snapshot_token = raw.get("snapshot_token")
+    if snapshot_token is not None and not isinstance(snapshot_token, str):
+        raise ValueError("Undo transaction field 'snapshot_token' must be a string when provided.")
+    if not isinstance(file_snapshots_raw, list):
+        raise ValueError("Undo transaction requires a 'file_snapshots' list.")
+    if not file_snapshots_raw and not snapshot_token:
+        raise ValueError(
+            "Undo transaction requires file snapshots or an opaque workspace snapshot token."
+        )
 
     file_snapshots: list[UndoFileSnapshot] = []
     for index, item in enumerate(file_snapshots_raw):
@@ -89,6 +96,14 @@ def serialize_undo_transaction(payload: str | dict[str, Any]) -> BackendUndoTran
     ):
         raise ValueError("Undo transaction field 'changed_node_ids' must be a list of strings.")
 
+    touched_relative_paths = raw.get("touched_relative_paths") or []
+    if not isinstance(touched_relative_paths, list) or any(
+        not isinstance(path, str) for path in touched_relative_paths
+    ):
+        raise ValueError(
+            "Undo transaction field 'touched_relative_paths' must be a list of strings."
+        )
+
     focus_target_raw = raw.get("focus_target")
     focus_target: UndoFocusTarget | None = None
     if focus_target_raw is not None:
@@ -107,6 +122,8 @@ def serialize_undo_transaction(payload: str | dict[str, Any]) -> BackendUndoTran
         file_snapshots=tuple(file_snapshots),
         changed_node_ids=tuple(changed_node_ids),
         focus_target=focus_target,
+        snapshot_token=snapshot_token,
+        touched_relative_paths=tuple(touched_relative_paths),
     )
 
 

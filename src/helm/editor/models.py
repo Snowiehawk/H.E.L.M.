@@ -54,6 +54,8 @@ class BackendUndoTransaction:
     file_snapshots: tuple[UndoFileSnapshot, ...] = field(default_factory=tuple)
     changed_node_ids: tuple[str, ...] = field(default_factory=tuple)
     focus_target: UndoFocusTarget | None = None
+    snapshot_token: str | None = None
+    touched_relative_paths: tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -62,6 +64,8 @@ class BackendUndoTransaction:
             "file_snapshots": [snapshot.to_dict() for snapshot in self.file_snapshots],
             "changed_node_ids": list(self.changed_node_ids),
             "focus_target": self.focus_target.to_dict() if self.focus_target else None,
+            "snapshot_token": self.snapshot_token,
+            "touched_relative_paths": list(self.touched_relative_paths),
         }
 
 

@@ -170,7 +170,16 @@ class RecoveryTests(unittest.TestCase):
 
             with mock.patch.object(workspace_files, "_delete_workspace_entry", fail_after_delete):
                 with self.assertRaisesRegex(OSError, "delete follow-up failed"):
-                    workspace_files.delete_workspace_entry(root, relative_path="pkg")
+                    preview = workspace_files.preview_workspace_file_operation(
+                        root,
+                        operation="delete",
+                        relative_path="pkg",
+                    )
+                    workspace_files.delete_workspace_entry(
+                        root,
+                        relative_path="pkg",
+                        expected_impact_fingerprint=preview["impact_fingerprint"],
+                    )
 
             self.assertEqual(
                 (root / "pkg" / "nested" / "data.txt").read_text(encoding="utf-8"), "data\n"
@@ -188,7 +197,11 @@ class RecoveryTests(unittest.TestCase):
             (root / "linked").symlink_to(root / "real", target_is_directory=True)
 
             with self.assertRaisesRegex(ValueError, "symlinked workspace folders"):
-                workspace_files.delete_workspace_entry(root, relative_path="linked")
+                workspace_files.preview_workspace_file_operation(
+                    root,
+                    operation="delete",
+                    relative_path="linked",
+                )
 
     def test_structural_edit_rolls_back_source_when_flow_metadata_write_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

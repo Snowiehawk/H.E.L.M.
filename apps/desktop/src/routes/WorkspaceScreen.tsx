@@ -117,8 +117,10 @@ import type {
   StructuralEditRequest,
   WorkspaceFileContents,
   WorkspaceFileDeleteRequest,
+  WorkspaceFileEntryKind,
   WorkspaceFileMoveRequest,
   WorkspaceFileMutationRequest,
+  WorkspaceFileOperationPreview,
   WorkspaceRecoveryEvent,
 } from "../lib/adapter";
 import {
@@ -220,6 +222,35 @@ async function confirmFlowRemoval(
   } catch {
     return window.confirm(message);
   }
+}
+
+function formatWorkspacePreviewSize(sizeBytes: number) {
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} bytes`;
+  }
+  const units = ["KiB", "MiB", "GiB"];
+  let value = sizeBytes / 1024;
+  for (const unit of units) {
+    if (value < 1024 || unit === units[units.length - 1]) {
+      return `${value.toFixed(1)} ${unit}`;
+    }
+    value /= 1024;
+  }
+  return `${sizeBytes} bytes`;
+}
+
+function workspaceRecursivePreviewMessage(preview: WorkspaceFileOperationPreview) {
+  const counts = preview.counts;
+  const lines = [
+    `${preview.operationKind === "move" ? "Move" : "Delete"} ${preview.sourceRelativePath}?`,
+    preview.targetRelativePath ? `Target: ${preview.targetRelativePath}` : undefined,
+    `Entries: ${counts.entryCount} (${counts.fileCount} files, ${counts.directoryCount} folders)`,
+    `Total staged size: ${formatWorkspacePreviewSize(counts.totalSizeBytes)}`,
+    `Python files: ${counts.pythonFileCount}`,
+    ...preview.warnings,
+    "Undo available after success.",
+  ].filter((line): line is string => Boolean(line));
+  return lines.join("\n");
 }
 
 type InspectorSourceFetchMode = "editable" | "revealed";
@@ -1002,6 +1033,26 @@ export function WorkspaceScreen() {
     },
     [setLastActivity],
   );
+  const recordBackendUndoTransaction = useCallback(
+    (transaction: BackendUndoTransaction | null | undefined, summary?: string) => {
+      if (!transaction) {
+        return;
+      }
+      setBackendUndoStack((current) => [
+        ...current,
+        {
+          transaction,
+          entry: {
+            domain: "backend",
+            summary: summary ?? transaction.summary,
+            createdAt: Date.now(),
+          },
+        },
+      ]);
+      setBackendRedoStack([]);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!repoSession) {
@@ -1156,6 +1207,11 @@ export function WorkspaceScreen() {
   const activeWorkspaceFile = workspaceFileQuery.data;
   const workspaceFileDirty = Boolean(
     activeWorkspaceFile?.editable && workspaceFileDraft !== activeWorkspaceFile.content,
+  );
+  const workspaceEntryKindForPath = useCallback(
+    (relativePath: string): WorkspaceFileEntryKind | undefined =>
+      workspaceFilesQuery.data?.entries.find((entry) => entry.relativePath === relativePath)?.kind,
+    [workspaceFilesQuery.data],
   );
 
   useEffect(() => {
@@ -1720,6 +1776,7 @@ export function WorkspaceScreen() {
 
       const result = await adapter.createWorkspaceEntry(repoSession.path, request);
       surfaceRecoveryEvents(result.recoveryEvents);
+      recordBackendUndoTransaction(result.undoTransaction);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
         queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
@@ -1737,7 +1794,15 @@ export function WorkspaceScreen() {
         }
       }
     },
-    [adapter, focusGraph, queryClient, repoSession, selectWorkspaceFile, surfaceRecoveryEvents],
+    [
+      adapter,
+      focusGraph,
+      queryClient,
+      recordBackendUndoTransaction,
+      repoSession,
+      selectWorkspaceFile,
+      surfaceRecoveryEvents,
+    ],
   );
 
   const moveWorkspaceEntry = useCallback(
@@ -1758,8 +1823,32 @@ export function WorkspaceScreen() {
         throw new Error("Save or cancel the open file before moving it.");
       }
 
-      const result = await adapter.moveWorkspaceEntry(repoSession.path, request);
+      let requestToApply = request;
+      const sourceKind = workspaceEntryKindForPath(request.sourceRelativePath);
+      if (sourceKind !== "file") {
+        const preview = await adapter.previewWorkspaceFileOperation(repoSession.path, {
+          operation: "move",
+          sourceRelativePath: request.sourceRelativePath,
+          targetDirectoryRelativePath: request.targetDirectoryRelativePath,
+        });
+        if (preview.entryKind === "directory") {
+          const confirmed = await confirmFlowRemoval(workspaceRecursivePreviewMessage(preview), {
+            okLabel: "Move Folder",
+            title: "Move Workspace Folder",
+          });
+          if (!confirmed) {
+            return;
+          }
+          requestToApply = {
+            ...request,
+            expectedImpactFingerprint: preview.impactFingerprint,
+          };
+        }
+      }
+
+      const result = await adapter.moveWorkspaceEntry(repoSession.path, requestToApply);
       surfaceRecoveryEvents(result.recoveryEvents);
+      recordBackendUndoTransaction(result.undoTransaction);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
         queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
@@ -1787,9 +1876,11 @@ export function WorkspaceScreen() {
       adapter,
       focusGraph,
       queryClient,
+      recordBackendUndoTransaction,
       repoSession,
       selectWorkspaceFile,
       surfaceRecoveryEvents,
+      workspaceEntryKindForPath,
       workspaceFileDirty,
     ],
   );
@@ -1808,13 +1899,26 @@ export function WorkspaceScreen() {
         throw new Error("Save or cancel the open file before deleting it.");
       }
 
-      const confirmed = await confirmFlowRemoval(
-        `Delete ${request.relativePath}? This cannot be undone from H.E.L.M.`,
-        {
-          okLabel: "Delete",
-          title: "Delete Workspace Entry",
-        },
-      );
+      let requestToApply = request;
+      const entryKind = workspaceEntryKindForPath(request.relativePath);
+      let confirmationMessage = `Delete ${request.relativePath}? Undo will be available after success.`;
+      if (entryKind !== "file") {
+        const preview = await adapter.previewWorkspaceFileOperation(repoSession.path, {
+          operation: "delete",
+          relativePath: request.relativePath,
+        });
+        if (preview.entryKind === "directory") {
+          confirmationMessage = workspaceRecursivePreviewMessage(preview);
+          requestToApply = {
+            ...request,
+            expectedImpactFingerprint: preview.impactFingerprint,
+          };
+        }
+      }
+      const confirmed = await confirmFlowRemoval(confirmationMessage, {
+        okLabel: "Delete",
+        title: "Delete Workspace Entry",
+      });
       if (!confirmed) {
         return;
       }
@@ -1825,8 +1929,9 @@ export function WorkspaceScreen() {
         isWorkspacePathAtOrBelow(inspectorSourcePath, request.relativePath);
 
       const deletedOpenFilePath = deletingOpenFile ? activeWorkspaceFilePath : undefined;
-      const result = await adapter.deleteWorkspaceEntry(repoSession.path, request);
+      const result = await adapter.deleteWorkspaceEntry(repoSession.path, requestToApply);
       surfaceRecoveryEvents(result.recoveryEvents);
+      recordBackendUndoTransaction(result.undoTransaction);
       if (deletingOpenFile) {
         setActiveWorkspaceFilePath(undefined);
         setWorkspaceFileDraft("");
@@ -1867,9 +1972,11 @@ export function WorkspaceScreen() {
       focusGraph,
       inspectorSourcePath,
       queryClient,
+      recordBackendUndoTransaction,
       repoSession,
       selectedFilePath,
       surfaceRecoveryEvents,
+      workspaceEntryKindForPath,
       workspaceFileDirty,
     ],
   );
@@ -1893,6 +2000,7 @@ export function WorkspaceScreen() {
         activeWorkspaceFile.version,
       );
       surfaceRecoveryEvents(result.recoveryEvents);
+      recordBackendUndoTransaction(result.undoTransaction);
       if (result.file) {
         queryClient.setQueryData(
           ["workspace-file", repoSession.id, result.file.relativePath],
@@ -1920,6 +2028,7 @@ export function WorkspaceScreen() {
     activeWorkspaceFile,
     adapter,
     queryClient,
+    recordBackendUndoTransaction,
     repoSession,
     surfaceRecoveryEvents,
     workspaceFileDraft,

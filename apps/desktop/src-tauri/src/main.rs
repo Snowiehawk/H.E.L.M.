@@ -1448,6 +1448,46 @@ fn read_workspace_file(
 }
 
 #[tauri::command]
+fn preview_workspace_file_operation(
+    service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
+    repo_path: String,
+    operation: String,
+    relative_path: Option<String>,
+    source_relative_path: Option<String>,
+    target_directory_relative_path: Option<String>,
+) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
+    let relative_path = relative_path
+        .map(|path| active_repo.resolve_existing_target(&repo_path, &path))
+        .transpose()?
+        .map(|target| target.relative_path);
+    let source_relative_path = source_relative_path
+        .map(|path| active_repo.resolve_existing_target(&repo_path, &path))
+        .transpose()?
+        .map(|target| target.relative_path);
+    let target_directory_relative_path = match target_directory_relative_path {
+        Some(path) if path.trim().is_empty() => Some(String::new()),
+        Some(path) => Some(
+            active_repo
+                .resolve_existing_target(&repo_path, &path)?
+                .relative_path,
+        ),
+        None => None,
+    };
+    service.request(
+        "preview-workspace-file-operation",
+        json!({
+            "repo": repo_path,
+            "operation": operation,
+            "relative_path": relative_path,
+            "source_relative_path": source_relative_path,
+            "target_directory_relative_path": target_directory_relative_path,
+        }),
+    )
+}
+
+#[tauri::command]
 fn create_workspace_entry(
     service: State<'_, BackendService>,
     active_repo: State<'_, ActiveRepoBoundary>,
@@ -1500,6 +1540,7 @@ fn move_workspace_entry(
     repo_path: String,
     source_relative_path: String,
     target_directory_relative_path: String,
+    expected_impact_fingerprint: Option<String>,
 ) -> Result<Value, String> {
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     let source = active_repo.resolve_existing_target(&repo_path, &source_relative_path)?;
@@ -1526,6 +1567,7 @@ fn move_workspace_entry(
             "repo": repo_path,
             "source_relative_path": source.relative_path,
             "target_directory_relative_path": target_directory_relative_path,
+            "expected_impact_fingerprint": expected_impact_fingerprint,
             "top_n": WORKSPACE_SYNC_TOP_N,
         }),
     )
@@ -1537,6 +1579,7 @@ fn delete_workspace_entry(
     active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     relative_path: String,
+    expected_impact_fingerprint: Option<String>,
 ) -> Result<Value, String> {
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     let target = active_repo.resolve_existing_target(&repo_path, &relative_path)?;
@@ -1545,6 +1588,7 @@ fn delete_workspace_entry(
         json!({
             "repo": repo_path,
             "relative_path": target.relative_path,
+            "expected_impact_fingerprint": expected_impact_fingerprint,
             "top_n": WORKSPACE_SYNC_TOP_N,
         }),
     )
@@ -2953,6 +2997,7 @@ fn main() {
             read_repo_file,
             list_workspace_files,
             read_workspace_file,
+            preview_workspace_file_operation,
             create_workspace_entry,
             save_workspace_file,
             move_workspace_entry,

@@ -72,6 +72,11 @@ def recover_pending(root: str | Path) -> tuple[RecoveryEvent, ...]:
         return RepoMutationJournal(root).recover_pending()
 
 
+def ensure_recovery_storage(root: str | Path) -> None:
+    with repo_mutation_lock(root):
+        RepoMutationJournal(root)._ensure_recovery_dirs()
+
+
 def run_journaled_mutation(
     root: str | Path,
     *,

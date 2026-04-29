@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
+from uuid import uuid4
 
 from helm.editor import serialize_edit_request, serialize_undo_transaction
 from helm.graph import build_repo_graph
@@ -21,6 +22,7 @@ from helm.ui.workspace_files import (
     delete_workspace_entry,
     list_workspace_files,
     move_workspace_entry,
+    preview_workspace_file_operation,
     read_workspace_file,
     save_workspace_file,
 )
@@ -59,6 +61,7 @@ def _diagnostic_messages(payload: dict[str, Any]) -> list[str]:
 @dataclass
 class WorkspaceSession:
     adapter: PythonRepoAdapter
+    session_id: str = field(default_factory=lambda: f"workspace:{uuid4().hex}")
     session_version: int = 1
     recovery_events: list[dict[str, Any]] = field(default_factory=list)
 
@@ -147,6 +150,22 @@ class WorkspaceSession:
     def read_workspace_file(self, relative_path: str) -> dict[str, Any]:
         return read_workspace_file(self.root_path, relative_path)
 
+    def preview_workspace_file_operation(
+        self,
+        *,
+        operation: str,
+        relative_path: str | None = None,
+        source_relative_path: str | None = None,
+        target_directory_relative_path: str | None = None,
+    ) -> dict[str, Any]:
+        return preview_workspace_file_operation(
+            self.root_path,
+            operation=operation,
+            relative_path=relative_path,
+            source_relative_path=source_relative_path,
+            target_directory_relative_path=target_directory_relative_path,
+        )
+
     def create_workspace_entry(
         self,
         *,
@@ -161,6 +180,7 @@ class WorkspaceSession:
             kind=kind,
             relative_path=relative_path,
             content=content,
+            session_id=self.session_id,
         )
         if kind == "file" and result["relative_path"].endswith(".py"):
             refresh = self.refresh_paths(
@@ -185,6 +205,7 @@ class WorkspaceSession:
             relative_path=relative_path,
             content=content,
             expected_version=expected_version,
+            session_id=self.session_id,
         )
         if result["relative_path"].endswith(".py"):
             refresh = self.refresh_paths(
@@ -200,6 +221,7 @@ class WorkspaceSession:
         *,
         source_relative_path: str,
         target_directory_relative_path: str,
+        expected_impact_fingerprint: str | None = None,
         top_n: int = 24,
         progress: ProgressReporter | None = None,
     ) -> dict[str, Any]:
@@ -207,6 +229,8 @@ class WorkspaceSession:
             self.root_path,
             source_relative_path=source_relative_path,
             target_directory_relative_path=target_directory_relative_path,
+            expected_impact_fingerprint=expected_impact_fingerprint,
+            session_id=self.session_id,
         )
         python_paths = [path for path in result["changed_relative_paths"] if path.endswith(".py")]
         if python_paths:
@@ -222,12 +246,15 @@ class WorkspaceSession:
         self,
         *,
         relative_path: str,
+        expected_impact_fingerprint: str | None = None,
         top_n: int = 24,
         progress: ProgressReporter | None = None,
     ) -> dict[str, Any]:
         result = delete_workspace_entry(
             self.root_path,
             relative_path=relative_path,
+            expected_impact_fingerprint=expected_impact_fingerprint,
+            session_id=self.session_id,
         )
         python_paths = [path for path in result["changed_relative_paths"] if path.endswith(".py")]
         if python_paths:

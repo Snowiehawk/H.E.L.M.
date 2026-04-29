@@ -39,6 +39,8 @@ import type {
   WorkspaceFileDeleteRequest,
   WorkspaceFileEntry,
   WorkspaceFileMoveRequest,
+  WorkspaceFileOperationPreview,
+  WorkspaceFileOperationPreviewRequest,
   WorkspaceFileMutationRequest,
   WorkspaceFileMutationResult,
   WorkspaceRecoveryEvent,
@@ -334,7 +336,7 @@ interface RawEditResult {
   diagnostics?: string[];
   undo_transaction?: {
     summary: string;
-    request_kind: StructuralEditRequest["kind"];
+    request_kind: BackendUndoTransaction["requestKind"];
     file_snapshots: Array<{
       relative_path: string;
       existed: boolean;
@@ -345,6 +347,8 @@ interface RawEditResult {
       target_id: string;
       level: GraphAbstractionLevel;
     } | null;
+    snapshot_token?: string | null;
+    touched_relative_paths?: string[];
   } | null;
   recovery_events?: RawRecoveryEvent[];
 }
@@ -429,6 +433,26 @@ interface RawWorkspaceFileMutationResult {
   file?: RawWorkspaceFileContents | null;
   payload?: RawScanPayload | null;
   recovery_events?: RawRecoveryEvent[];
+  undo_transaction?: RawBackendUndoTransaction | null;
+}
+
+interface RawWorkspaceFileOperationPreview {
+  operation_kind: "delete" | "move";
+  source_relative_path: string;
+  target_relative_path?: string | null;
+  entry_kind: WorkspaceFileOperationPreview["entryKind"];
+  counts: {
+    entry_count: number;
+    file_count: number;
+    directory_count: number;
+    symlink_count: number;
+    total_size_bytes: number;
+    python_file_count: number;
+  };
+  warnings: string[];
+  affected_paths: string[];
+  affected_paths_truncated: boolean;
+  impact_fingerprint: string;
 }
 
 interface RawEditableNodeSource {
@@ -722,6 +746,21 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     return toWorkspaceFileContents(raw);
   }
 
+  async previewWorkspaceFileOperation(
+    repoPath: string,
+    request: WorkspaceFileOperationPreviewRequest,
+  ): Promise<WorkspaceFileOperationPreview> {
+    const raw = await invoke<RawWorkspaceFileOperationPreview>("preview_workspace_file_operation", {
+      repoPath: normalizePath(repoPath),
+      operation: request.operation,
+      relativePath: request.operation === "delete" ? request.relativePath : null,
+      sourceRelativePath: request.operation === "move" ? request.sourceRelativePath : null,
+      targetDirectoryRelativePath:
+        request.operation === "move" ? request.targetDirectoryRelativePath : null,
+    });
+    return toWorkspaceFileOperationPreview(raw);
+  }
+
   async createWorkspaceEntry(
     repoPath: string,
     request: WorkspaceFileMutationRequest,
@@ -760,6 +799,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       repoPath: normalizePath(repoPath),
       sourceRelativePath: request.sourceRelativePath,
       targetDirectoryRelativePath: request.targetDirectoryRelativePath,
+      expectedImpactFingerprint: request.expectedImpactFingerprint ?? null,
     });
     this.applyWorkspaceMutationPayload(repoPath, raw.payload);
     return toWorkspaceFileMutationResult(raw);
@@ -772,6 +812,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     const raw = await invoke<RawWorkspaceFileMutationResult>("delete_workspace_entry", {
       repoPath: normalizePath(repoPath),
       relativePath: request.relativePath,
+      expectedImpactFingerprint: request.expectedImpactFingerprint ?? null,
     });
     this.applyWorkspaceMutationPayload(repoPath, raw.payload);
     return toWorkspaceFileMutationResult(raw);
@@ -1201,6 +1242,32 @@ function toWorkspaceFileMutationResult(
     changedRelativePaths: raw.changed_relative_paths,
     file: raw.file ? toWorkspaceFileContents(raw.file) : (raw.file ?? null),
     recoveryEvents: toRecoveryEvents(raw.recovery_events),
+    undoTransaction: raw.undo_transaction
+      ? fromRawUndoTransaction(raw.undo_transaction)
+      : undefined,
+  };
+}
+
+function toWorkspaceFileOperationPreview(
+  raw: RawWorkspaceFileOperationPreview,
+): WorkspaceFileOperationPreview {
+  return {
+    operationKind: raw.operation_kind,
+    sourceRelativePath: raw.source_relative_path,
+    targetRelativePath: raw.target_relative_path ?? null,
+    entryKind: raw.entry_kind,
+    counts: {
+      entryCount: raw.counts.entry_count,
+      fileCount: raw.counts.file_count,
+      directoryCount: raw.counts.directory_count,
+      symlinkCount: raw.counts.symlink_count,
+      totalSizeBytes: raw.counts.total_size_bytes,
+      pythonFileCount: raw.counts.python_file_count,
+    },
+    warnings: raw.warnings,
+    affectedPaths: raw.affected_paths,
+    affectedPathsTruncated: raw.affected_paths_truncated,
+    impactFingerprint: raw.impact_fingerprint,
   };
 }
 
@@ -1672,6 +1739,8 @@ function toRawUndoTransaction(transaction: BackendUndoTransaction) {
           level: transaction.focusTarget.level,
         }
       : null,
+    snapshot_token: transaction.snapshotToken ?? null,
+    touched_relative_paths: transaction.touchedRelativePaths ?? [],
   };
 }
 
@@ -1691,6 +1760,8 @@ function fromRawUndoTransaction(raw: RawBackendUndoTransaction): BackendUndoTran
           level: raw.focus_target.level,
         }
       : undefined,
+    snapshotToken: raw.snapshot_token ?? undefined,
+    touchedRelativePaths: raw.touched_relative_paths ?? [],
   };
 }
 

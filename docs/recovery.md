@@ -39,6 +39,20 @@ Recovery is idempotent. If rollback is interrupted, the next recovery pass conti
 
 Backend responses may include `recovery_events`. The desktop UI surfaces those events as concise activity warnings so the user knows HELM rolled back an interrupted mutation. There is no recovery dashboard in this issue.
 
+## Recursive operation previews
+
+Recursive workspace move and delete operations require a backend preview before apply. The backend builds a sorted canonical impact manifest with the operation kind, source path, target path when present, entry kind, child paths and kinds, sizes, mtimes, supported symlink metadata, and aggregate counts. HELM hashes that manifest into an opaque `impactFingerprint`.
+
+When the user applies the operation, the backend recomputes the preview under the per-repo mutation lock. If the fingerprint differs, HELM rejects the operation before staging or mutating files. This catches stale confirmations when the tree changed between preview and apply.
+
+The backend enforces recursive guardrails even if commands are invoked directly. It rejects repo root operations, absolute or traversal paths, VCS control directories, `.helm`, `.helm/recovery`, paths that would include recovery storage, directory moves into themselves or descendants, and destructive symlinked directory operations. Large operations may show warnings, but they are allowed after confirmation if staging succeeds.
+
+## Workspace undo tokens
+
+Workspace create, save, move, and delete operations return backend-owned undo transactions where practical. Recursive snapshots stay in ignored repo-local storage under `.helm/recovery/undo/`; the desktop state only stores an opaque token plus display metadata. Tokens are session-scoped and expire after 24 hours.
+
+Applying undo consumes the old token and returns a fresh redo token when redo is available. If apply fails, HELM uses the normal journal rollback path to restore the current repo state and leaves the operation recoverable.
+
 ## Storage and ignore rules
 
 Transient records live under:

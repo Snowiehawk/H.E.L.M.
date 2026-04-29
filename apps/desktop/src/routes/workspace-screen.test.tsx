@@ -1218,14 +1218,24 @@ describe("WorkspaceScreen", () => {
       );
       await user.click(screen.getByRole("button", { name: /Expand inspector for test/i }));
 
-      const editor = await screen.findByRole("textbox", { name: /Module source editor/i });
-      fireEvent.change(editor, {
-        target: { value: "VALUE = 1" },
-      });
-      expect(editor).toHaveValue("VALUE = 1");
-
       const inspectorDrawer = await screen.findByTestId("blueprint-inspector-drawer");
-      await user.click(within(inspectorDrawer).getByRole("button", { name: /Save/i }));
+      await waitFor(() => expect(within(inspectorDrawer).getByText("Synced")).toBeInTheDocument());
+
+      const editor = within(inspectorDrawer).getByRole("textbox", {
+        name: /Module source editor/i,
+      });
+      act(() => {
+        editor.focus();
+      });
+      await user.keyboard("VALUE = 1");
+      await waitFor(() => expect(editor).toHaveValue("VALUE = 1"));
+
+      const saveButton = within(inspectorDrawer).getByRole("button", { name: /Save/i });
+      await waitFor(() =>
+        expect(within(inspectorDrawer).getAllByText("Unsaved").length).toBeGreaterThan(0),
+      );
+      await waitFor(() => expect(saveButton).toBeEnabled());
+      await user.click(saveButton);
 
       await waitFor(() => expect(saveSourceSpy).toHaveBeenCalledTimes(1));
       expect(saveSourceSpy).toHaveBeenCalledWith("module:test", "VALUE = 1");

@@ -599,6 +599,7 @@ describe("LiveDesktopAdapter", () => {
       repoPath: "/workspace/calculator",
       sourceRelativePath: "README.md",
       targetDirectoryRelativePath: "docs",
+      expectedImpactFingerprint: null,
     });
     expect(moved.relativePath).toBe("docs/README.md");
     expect(moved.changedRelativePaths).toEqual(["README.md", "docs/README.md"]);
@@ -616,9 +617,47 @@ describe("LiveDesktopAdapter", () => {
     expect(invokeMock).toHaveBeenCalledWith("delete_workspace_entry", {
       repoPath: "/workspace/calculator",
       relativePath: "docs/README.md",
+      expectedImpactFingerprint: null,
     });
     expect(deleted.file).toBeNull();
     expect(deleted.changedRelativePaths).toEqual(["docs/README.md"]);
+  });
+
+  it("previews recursive workspace file operations with opaque fingerprints", async () => {
+    const adapter = new LiveDesktopAdapter();
+    invokeMock.mockResolvedValueOnce({
+      operation_kind: "delete",
+      source_relative_path: "pkg",
+      target_relative_path: null,
+      entry_kind: "directory",
+      counts: {
+        entry_count: 3,
+        file_count: 2,
+        directory_count: 1,
+        symlink_count: 0,
+        total_size_bytes: 128,
+        python_file_count: 1,
+      },
+      warnings: ["This touches 3 filesystem entries."],
+      affected_paths: ["pkg", "pkg/app.py"],
+      affected_paths_truncated: false,
+      impact_fingerprint: "sha256:abc",
+    });
+
+    const preview = await adapter.previewWorkspaceFileOperation("/workspace/calculator", {
+      operation: "delete",
+      relativePath: "pkg",
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("preview_workspace_file_operation", {
+      repoPath: "/workspace/calculator",
+      operation: "delete",
+      relativePath: "pkg",
+      sourceRelativePath: null,
+      targetDirectoryRelativePath: null,
+    });
+    expect(preview.impactFingerprint).toBe("sha256:abc");
+    expect(preview.counts.pythonFileCount).toBe(1);
   });
 
   it("updates cached workspace state from live sync events", async () => {

@@ -25,6 +25,8 @@ import type {
   WorkspaceFileDeleteRequest,
   WorkspaceFileEntry,
   WorkspaceFileMoveRequest,
+  WorkspaceFileOperationPreview,
+  WorkspaceFileOperationPreviewRequest,
   WorkspaceFileMutationRequest,
   WorkspaceFileMutationResult,
   WorkspaceFileTree,
@@ -204,23 +206,76 @@ export class MockDesktopAdapter implements DesktopAdapter {
     return readMockWorkspaceFile(this.workspace, relativePath);
   }
 
+  async previewWorkspaceFileOperation(
+    _repoPath: string,
+    request: WorkspaceFileOperationPreviewRequest,
+  ): Promise<WorkspaceFileOperationPreview> {
+    await delay(60);
+    const sourceRelativePath =
+      request.operation === "delete"
+        ? normalizeMockWorkspacePath(request.relativePath)
+        : normalizeMockWorkspacePath(request.sourceRelativePath);
+    const targetRelativePath =
+      request.operation === "move"
+        ? joinMockWorkspacePath(
+            normalizeMockDirectoryPath(request.targetDirectoryRelativePath),
+            sourceRelativePath.split("/").pop() ?? sourceRelativePath,
+          )
+        : null;
+    const affectedPaths = mockWorkspaceAffectedPaths(this.workspace, sourceRelativePath);
+    const directoryCount = affectedPaths.filter((path) =>
+      mockWorkspaceDirectoryExists(this.workspace, path),
+    ).length;
+    const fileCount = affectedPaths.length - directoryCount;
+    return {
+      operationKind: request.operation,
+      sourceRelativePath,
+      targetRelativePath,
+      entryKind: mockWorkspaceDirectoryExists(this.workspace, sourceRelativePath)
+        ? "directory"
+        : "file",
+      counts: {
+        entryCount: affectedPaths.length,
+        fileCount,
+        directoryCount,
+        symlinkCount: 0,
+        totalSizeBytes: affectedPaths.reduce((sum, path) => {
+          const file = readMockWorkspaceFileIfAvailable(this.workspace, path);
+          return sum + (file?.sizeBytes ?? 0);
+        }, 0),
+        pythonFileCount: affectedPaths.filter((path) => path.endsWith(".py")).length,
+      },
+      warnings: [],
+      affectedPaths: affectedPaths.slice(0, 40),
+      affectedPathsTruncated: affectedPaths.length > 40,
+      impactFingerprint: `mock:${request.operation}:${sourceRelativePath}:${targetRelativePath ?? ""}:${affectedPaths.length}`,
+    };
+  }
+
   async createWorkspaceEntry(
     _repoPath: string,
     request: WorkspaceFileMutationRequest,
   ): Promise<WorkspaceFileMutationResult> {
     await delay(100);
+    const snapshot = cloneWorkspaceState(this.workspace);
     const relativePath = normalizeMockWorkspacePath(request.relativePath);
     if (request.kind === "directory") {
       if (mockWorkspacePathExists(this.workspace, relativePath)) {
         throw new Error(`Workspace path already exists: ${relativePath}`);
       }
       this.workspace.workspaceFiles[relativePath] = { kind: "directory" };
-      return {
+      const result: WorkspaceFileMutationResult = {
         relativePath,
         kind: "directory",
         changedRelativePaths: [relativePath],
         file: null,
       };
+      return this.recordMockWorkspaceUndo(
+        snapshot,
+        result,
+        `Created folder ${relativePath}.`,
+        "workspace.create",
+      );
     }
 
     if (mockWorkspacePathExists(this.workspace, relativePath)) {
@@ -240,12 +295,18 @@ export class MockDesktopAdapter implements DesktopAdapter {
       };
     }
 
-    return {
+    const result: WorkspaceFileMutationResult = {
       relativePath,
       kind: "file",
       changedRelativePaths: [relativePath],
       file: readMockWorkspaceFile(this.workspace, relativePath),
     };
+    return this.recordMockWorkspaceUndo(
+      snapshot,
+      result,
+      `Created file ${relativePath}.`,
+      "workspace.create",
+    );
   }
 
   async saveWorkspaceFile(
@@ -255,6 +316,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
     expectedVersion: string,
   ): Promise<WorkspaceFileMutationResult> {
     await delay(100);
+    const snapshot = cloneWorkspaceState(this.workspace);
     const normalized = normalizeMockWorkspacePath(relativePath);
     const current = readMockWorkspaceFile(this.workspace, normalized);
     if (!current.editable) {
@@ -276,12 +338,13 @@ export class MockDesktopAdapter implements DesktopAdapter {
       };
     }
 
-    return {
+    const result: WorkspaceFileMutationResult = {
       relativePath: normalized,
       kind: "file",
       changedRelativePaths: [normalized],
       file: readMockWorkspaceFile(this.workspace, normalized),
     };
+    return this.recordMockWorkspaceUndo(snapshot, result, `Saved ${normalized}.`, "workspace.save");
   }
 
   async moveWorkspaceEntry(
@@ -289,6 +352,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
     request: WorkspaceFileMoveRequest,
   ): Promise<WorkspaceFileMutationResult> {
     await delay(100);
+    const snapshot = cloneWorkspaceState(this.workspace);
     const sourceRelativePath = normalizeMockWorkspacePath(request.sourceRelativePath);
     const targetDirectoryRelativePath = normalizeMockDirectoryPath(
       request.targetDirectoryRelativePath,
@@ -321,7 +385,13 @@ export class MockDesktopAdapter implements DesktopAdapter {
     }
 
     moveMockWorkspacePath(this.workspace, sourceRelativePath, targetRelativePath);
-    return mockWorkspaceMoveResult(this.workspace, sourceRelativePath, targetRelativePath);
+    const result = mockWorkspaceMoveResult(this.workspace, sourceRelativePath, targetRelativePath);
+    return this.recordMockWorkspaceUndo(
+      snapshot,
+      result,
+      `Moved ${sourceRelativePath} to ${targetRelativePath}.`,
+      "workspace.move",
+    );
   }
 
   async deleteWorkspaceEntry(
@@ -329,6 +399,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
     request: WorkspaceFileDeleteRequest,
   ): Promise<WorkspaceFileMutationResult> {
     await delay(100);
+    const snapshot = cloneWorkspaceState(this.workspace);
     const relativePath = normalizeMockWorkspacePath(request.relativePath);
     if (!mockWorkspacePathExists(this.workspace, relativePath)) {
       throw new Error(`Workspace path does not exist: ${relativePath}`);
@@ -336,11 +407,36 @@ export class MockDesktopAdapter implements DesktopAdapter {
 
     const kind = mockWorkspaceDirectoryExists(this.workspace, relativePath) ? "directory" : "file";
     const changedRelativePaths = deleteMockWorkspacePath(this.workspace, relativePath);
-    return {
+    const result: WorkspaceFileMutationResult = {
       relativePath,
       kind,
       changedRelativePaths,
       file: null,
+    };
+    return this.recordMockWorkspaceUndo(
+      snapshot,
+      result,
+      `Deleted ${relativePath}.`,
+      "workspace.delete",
+    );
+  }
+
+  private recordMockWorkspaceUndo(
+    snapshot: MockWorkspaceState,
+    result: WorkspaceFileMutationResult,
+    summary: string,
+    requestKind: BackendUndoTransaction["requestKind"],
+  ): WorkspaceFileMutationResult {
+    const transaction = buildMockWorkspaceUndoTransaction(
+      summary,
+      requestKind,
+      result.changedRelativePaths,
+    );
+    this.backendUndoHistory.push({ snapshot, transaction });
+    this.backendRedoHistory = [];
+    return {
+      ...result,
+      undoTransaction: transaction,
     };
   }
 
@@ -708,6 +804,32 @@ function readMockWorkspaceFile(
   };
 }
 
+function readMockWorkspaceFileIfAvailable(
+  state: MockWorkspaceState,
+  relativePath: string,
+): WorkspaceFileContents | undefined {
+  try {
+    return readMockWorkspaceFile(state, relativePath);
+  } catch {
+    return undefined;
+  }
+}
+
+function mockWorkspaceAffectedPaths(state: MockWorkspaceState, relativePath: string): string[] {
+  const paths = new Set<string>([relativePath]);
+  Object.keys(state.workspaceFiles).forEach((candidate) => {
+    if (candidate === relativePath || candidate.startsWith(`${relativePath}/`)) {
+      paths.add(candidate);
+    }
+  });
+  Object.keys(buildFiles(state)).forEach((candidate) => {
+    if (candidate === relativePath || candidate.startsWith(`${relativePath}/`)) {
+      paths.add(candidate);
+    }
+  });
+  return [...paths].sort();
+}
+
 function buildMockWorkspaceFileTree(
   repoPath: string,
   state: MockWorkspaceState,
@@ -788,6 +910,24 @@ function buildMockUndoTransaction(result: StructuralEditResult): BackendUndoTran
     })),
     changedNodeIds: result.changedNodeIds,
     focusTarget: inferMockUndoFocusTarget(result),
+  };
+}
+
+function buildMockWorkspaceUndoTransaction(
+  summary: string,
+  requestKind: BackendUndoTransaction["requestKind"],
+  touchedRelativePaths: string[],
+): BackendUndoTransaction {
+  return {
+    summary,
+    requestKind,
+    fileSnapshots: touchedRelativePaths.map((relativePath) => ({
+      relativePath,
+      existed: true,
+      content: "",
+    })),
+    changedNodeIds: [],
+    touchedRelativePaths,
   };
 }
 

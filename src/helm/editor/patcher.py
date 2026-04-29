@@ -40,7 +40,19 @@ from helm.editor.models import (
 )
 from helm.io_atomic import atomic_write_text
 from helm.parser.symbols import ParsedModule, SymbolDef, SymbolKind, make_module_id, make_symbol_id
-from helm.recovery import JournalPreimage, run_journaled_mutation
+from helm.recovery import (
+    JournalPreimage,
+    RepoMutationJournal,
+    recover_pending,
+    repo_mutation_lock,
+    run_journaled_mutation,
+)
+from helm.workspace_undo import (
+    create_workspace_undo_snapshot,
+    discard_workspace_undo_snapshot,
+    load_workspace_undo_snapshot,
+    restore_workspace_undo_snapshot,
+)
 
 ensure_vendor_packages()
 
@@ -170,6 +182,9 @@ def apply_backend_undo(
     """Restore repo files from a serialized undo transaction."""
 
     root_path = Path(root).resolve()
+    if transaction.snapshot_token:
+        return _apply_workspace_backend_undo(root_path, transaction)
+
     current_snapshots = _capture_undo_file_snapshots(
         root_path,
         tuple(snapshot.relative_path for snapshot in transaction.file_snapshots),
@@ -196,6 +211,61 @@ def apply_backend_undo(
         focus_target=result.focus_target,
         redo_transaction=result.redo_transaction,
         recovery_events=tuple(event.to_dict() for event in mutation_result.recovery_events),
+    )
+
+
+def _apply_workspace_backend_undo(
+    root_path: Path,
+    transaction: BackendUndoTransaction,
+) -> BackendUndoResult:
+    snapshot_token = transaction.snapshot_token
+    if not snapshot_token:
+        raise ValueError("Workspace undo requires an opaque snapshot token.")
+
+    with repo_mutation_lock(root_path):
+        recovery_events = recover_pending(root_path)
+        snapshot = load_workspace_undo_snapshot(root_path, snapshot_token)
+        redo_snapshot = create_workspace_undo_snapshot(
+            root_path,
+            session_id=snapshot.session_id,
+            kind=snapshot.kind,
+            summary=snapshot.summary,
+            touched_relative_paths=snapshot.touched_relative_paths,
+            snapshot_relative_paths=snapshot.snapshot_relative_paths,
+        )
+        try:
+            operation = RepoMutationJournal(root_path).prepare(
+                kind=f"undo.{transaction.request_kind}",
+                preimages=tuple(
+                    JournalPreimage(relative_path, role="undo-current")
+                    for relative_path in snapshot.snapshot_relative_paths
+                ),
+            )
+            operation.apply(lambda: restore_workspace_undo_snapshot(root_path, snapshot))
+        except Exception:
+            discard_workspace_undo_snapshot(root_path, redo_snapshot.token)
+            raise
+
+        warnings: tuple[str, ...] = ()
+        try:
+            discard_workspace_undo_snapshot(root_path, snapshot.token)
+        except OSError as exc:
+            warnings = (
+                f"Workspace undo applied, but the consumed token could not be removed: {exc}",
+            )
+
+    return BackendUndoResult(
+        summary=f"Undid: {transaction.summary}",
+        restored_relative_paths=snapshot.touched_relative_paths,
+        warnings=warnings,
+        focus_target=transaction.focus_target,
+        redo_transaction=BackendUndoTransaction(
+            summary=transaction.summary,
+            request_kind=transaction.request_kind,
+            snapshot_token=redo_snapshot.token,
+            touched_relative_paths=redo_snapshot.touched_relative_paths,
+        ),
+        recovery_events=tuple(event.to_dict() for event in recovery_events),
     )
 
 

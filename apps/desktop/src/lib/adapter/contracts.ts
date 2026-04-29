@@ -304,10 +304,42 @@ export interface WorkspaceFileMutationRequest {
 export interface WorkspaceFileMoveRequest {
   sourceRelativePath: string;
   targetDirectoryRelativePath: string;
+  expectedImpactFingerprint?: string;
 }
 
 export interface WorkspaceFileDeleteRequest {
   relativePath: string;
+  expectedImpactFingerprint?: string;
+}
+
+export type WorkspaceFileOperationPreviewRequest =
+  | {
+      operation: "delete";
+      relativePath: string;
+    }
+  | {
+      operation: "move";
+      sourceRelativePath: string;
+      targetDirectoryRelativePath: string;
+    };
+
+export interface WorkspaceFileOperationPreview {
+  operationKind: "delete" | "move";
+  sourceRelativePath: string;
+  targetRelativePath?: string | null;
+  entryKind: WorkspaceFileEntryKind | "symlink" | "symlink_directory" | "other";
+  counts: {
+    entryCount: number;
+    fileCount: number;
+    directoryCount: number;
+    symlinkCount: number;
+    totalSizeBytes: number;
+    pythonFileCount: number;
+  };
+  warnings: string[];
+  affectedPaths: string[];
+  affectedPathsTruncated: boolean;
+  impactFingerprint: string;
 }
 
 export interface WorkspaceFileMutationResult {
@@ -316,6 +348,7 @@ export interface WorkspaceFileMutationResult {
   changedRelativePaths: string[];
   file?: WorkspaceFileContents | null;
   recoveryEvents?: WorkspaceRecoveryEvent[];
+  undoTransaction?: BackendUndoTransaction | null;
 }
 
 export interface RelationshipItem {
@@ -490,10 +523,12 @@ export interface BackendUndoFileSnapshot {
 
 export interface BackendUndoTransaction {
   summary: string;
-  requestKind: StructuralEditKind;
+  requestKind: StructuralEditKind | `workspace.${string}`;
   fileSnapshots: BackendUndoFileSnapshot[];
   changedNodeIds: string[];
   focusTarget?: UndoFocusTarget;
+  snapshotToken?: string | null;
+  touchedRelativePaths?: string[];
 }
 
 export interface BackendUndoResult {
@@ -599,6 +634,10 @@ export interface DesktopAdapter {
   getFile(path: string): Promise<FileContents>;
   listWorkspaceFiles(repoPath: string): Promise<WorkspaceFileTree>;
   readWorkspaceFile(repoPath: string, relativePath: string): Promise<WorkspaceFileContents>;
+  previewWorkspaceFileOperation(
+    repoPath: string,
+    request: WorkspaceFileOperationPreviewRequest,
+  ): Promise<WorkspaceFileOperationPreview>;
   createWorkspaceEntry(
     repoPath: string,
     request: WorkspaceFileMutationRequest,
