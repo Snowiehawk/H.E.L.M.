@@ -1568,7 +1568,7 @@ fn open_path_in_default_editor(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut command = {
         let mut command = Command::new("open");
-        command.arg(&path);
+        command.arg(path);
         command
     };
 
@@ -1583,7 +1583,7 @@ fn open_path_in_default_editor(path: &Path) -> Result<(), String> {
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     let mut command = {
         let mut command = Command::new("xdg-open");
-        command.arg(&path);
+        command.arg(path);
         command
     };
 
@@ -1620,7 +1620,7 @@ fn reveal_path_in_file_explorer(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut command = {
         let mut command = Command::new("open");
-        command.args(["-R"]).arg(&path);
+        command.args(["-R"]).arg(path);
         command
     };
 
