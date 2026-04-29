@@ -620,6 +620,7 @@ class PythonRepoAdapter:
             flow_sync_state=result.flow_sync_state,
             diagnostics=result.diagnostics,
             undo_transaction=result.undo_transaction,
+            recovery_events=result.recovery_events,
         )
         return {"edit": enriched.to_dict(), "payload": self.build_payload()}
 
@@ -632,6 +633,7 @@ class PythonRepoAdapter:
             warnings=result.warnings,
             focus_target=result.focus_target,
             redo_transaction=result.redo_transaction,
+            recovery_events=result.recovery_events,
         )
         return {"undo": enriched.to_dict(), "payload": self.build_payload()}
 

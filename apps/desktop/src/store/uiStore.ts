@@ -82,7 +82,7 @@ function persistFlowInputDisplayMode(mode: FlowInputDisplayMode) {
 }
 
 export type WorkspaceActivityDomain = "backend" | "layout" | "editor";
-export type WorkspaceActivityKind = "mutation" | "undo" | "redo" | "error";
+export type WorkspaceActivityKind = "mutation" | "undo" | "redo" | "error" | "recovery";
 
 export interface WorkspaceActivity {
   domain: WorkspaceActivityDomain;

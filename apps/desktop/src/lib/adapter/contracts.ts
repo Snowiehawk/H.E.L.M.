@@ -200,6 +200,15 @@ export interface IndexingJobState {
   message: string;
   progressPercent?: number;
   error?: string;
+  recoveryEvents?: WorkspaceRecoveryEvent[];
+}
+
+export interface WorkspaceRecoveryEvent {
+  operationId: string;
+  kind: string;
+  outcome: string;
+  touchedRelativePaths: string[];
+  warnings: string[];
 }
 
 export interface BackendStatus {
@@ -306,6 +315,7 @@ export interface WorkspaceFileMutationResult {
   kind: WorkspaceFileEntryKind;
   changedRelativePaths: string[];
   file?: WorkspaceFileContents | null;
+  recoveryEvents?: WorkspaceRecoveryEvent[];
 }
 
 export interface RelationshipItem {
@@ -492,6 +502,7 @@ export interface BackendUndoResult {
   warnings: string[];
   focusTarget?: UndoFocusTarget | null;
   redoTransaction?: BackendUndoTransaction | null;
+  recoveryEvents?: WorkspaceRecoveryEvent[];
 }
 
 export interface StructuralEditResult {
@@ -518,6 +529,7 @@ export interface StructuralEditResult {
   flowSyncState?: FlowSyncState | null;
   diagnostics: string[];
   undoTransaction?: BackendUndoTransaction | null;
+  recoveryEvents?: WorkspaceRecoveryEvent[];
 }
 
 export interface OverviewMetric {

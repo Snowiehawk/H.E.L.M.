@@ -38,7 +38,9 @@ from helm.editor.models import (
     UndoFileSnapshot,
     UndoFocusTarget,
 )
+from helm.io_atomic import atomic_write_text
 from helm.parser.symbols import ParsedModule, SymbolDef, SymbolKind, make_module_id, make_symbol_id
+from helm.recovery import JournalPreimage, run_journaled_mutation
 
 ensure_vendor_packages()
 
@@ -101,30 +103,16 @@ def apply_structural_edit(
     undo_snapshot_paths = _undo_snapshot_paths_for_request(context, request)
     pre_edit_snapshots = _capture_undo_file_snapshots(root_path, undo_snapshot_paths)
 
-    if request.kind == StructuralEditKind.CREATE_MODULE:
-        result = _create_module(context, request)
-    elif request.kind == StructuralEditKind.RENAME_SYMBOL:
-        result = _rename_symbol(context, request)
-    elif request.kind == StructuralEditKind.CREATE_SYMBOL:
-        result = _create_symbol(context, request)
-    elif request.kind == StructuralEditKind.DELETE_SYMBOL:
-        result = _delete_symbol(context, request)
-    elif request.kind == StructuralEditKind.MOVE_SYMBOL:
-        result = _move_symbol(context, request)
-    elif request.kind == StructuralEditKind.ADD_IMPORT:
-        result = _add_import(context, request)
-    elif request.kind == StructuralEditKind.REMOVE_IMPORT:
-        result = _remove_import(context, request)
-    elif request.kind == StructuralEditKind.REPLACE_MODULE_SOURCE:
-        result = _replace_module_source(context, request)
-    elif request.kind == StructuralEditKind.REPLACE_SYMBOL_SOURCE:
-        result = _replace_symbol_source(context, request)
-    elif request.kind == StructuralEditKind.INSERT_FLOW_STATEMENT:
-        result = _insert_flow_statement(context, request)
-    elif request.kind == StructuralEditKind.REPLACE_FLOW_GRAPH:
-        result = _replace_flow_graph(context, request)
-    else:
-        raise ValueError(f"Unsupported edit kind: {request.kind.value}")
+    mutation_result = run_journaled_mutation(
+        root_path,
+        kind=f"structural.{request.kind.value}",
+        preimages=tuple(
+            JournalPreimage(relative_path, role="structural-edit")
+            for relative_path in undo_snapshot_paths
+        ),
+        mutation=lambda: _apply_structural_edit(context, request),
+    )
+    result = mutation_result.value
 
     return StructuralEditResult(
         request=result.request,
@@ -135,6 +123,7 @@ def apply_structural_edit(
         warnings=result.warnings,
         flow_sync_state=result.flow_sync_state,
         diagnostics=result.diagnostics,
+        recovery_events=tuple(event.to_dict() for event in mutation_result.recovery_events),
         undo_transaction=BackendUndoTransaction(
             summary=result.summary,
             request_kind=request.kind.value,
@@ -143,6 +132,35 @@ def apply_structural_edit(
             focus_target=_undo_focus_target_for_request(context, request),
         ),
     )
+
+
+def _apply_structural_edit(
+    context: EditContext,
+    request: StructuralEditRequest,
+) -> StructuralEditResult:
+    if request.kind == StructuralEditKind.CREATE_MODULE:
+        return _create_module(context, request)
+    if request.kind == StructuralEditKind.RENAME_SYMBOL:
+        return _rename_symbol(context, request)
+    if request.kind == StructuralEditKind.CREATE_SYMBOL:
+        return _create_symbol(context, request)
+    if request.kind == StructuralEditKind.DELETE_SYMBOL:
+        return _delete_symbol(context, request)
+    if request.kind == StructuralEditKind.MOVE_SYMBOL:
+        return _move_symbol(context, request)
+    if request.kind == StructuralEditKind.ADD_IMPORT:
+        return _add_import(context, request)
+    if request.kind == StructuralEditKind.REMOVE_IMPORT:
+        return _remove_import(context, request)
+    if request.kind == StructuralEditKind.REPLACE_MODULE_SOURCE:
+        return _replace_module_source(context, request)
+    if request.kind == StructuralEditKind.REPLACE_SYMBOL_SOURCE:
+        return _replace_symbol_source(context, request)
+    if request.kind == StructuralEditKind.INSERT_FLOW_STATEMENT:
+        return _insert_flow_statement(context, request)
+    if request.kind == StructuralEditKind.REPLACE_FLOW_GRAPH:
+        return _replace_flow_graph(context, request)
+    raise ValueError(f"Unsupported edit kind: {request.kind.value}")
 
 
 def apply_backend_undo(
@@ -157,6 +175,35 @@ def apply_backend_undo(
         tuple(snapshot.relative_path for snapshot in transaction.file_snapshots),
     )
 
+    mutation_result = run_journaled_mutation(
+        root_path,
+        kind=f"undo.{transaction.request_kind}",
+        preimages=tuple(
+            JournalPreimage(snapshot.relative_path, role="undo-current")
+            for snapshot in current_snapshots
+        ),
+        mutation=lambda: _apply_backend_undo_without_journal(
+            root_path,
+            transaction,
+            current_snapshots,
+        ),
+    )
+    result = mutation_result.value
+    return BackendUndoResult(
+        summary=result.summary,
+        restored_relative_paths=result.restored_relative_paths,
+        warnings=result.warnings,
+        focus_target=result.focus_target,
+        redo_transaction=result.redo_transaction,
+        recovery_events=tuple(event.to_dict() for event in mutation_result.recovery_events),
+    )
+
+
+def _apply_backend_undo_without_journal(
+    root_path: Path,
+    transaction: BackendUndoTransaction,
+    current_snapshots: tuple[UndoFileSnapshot, ...],
+) -> BackendUndoResult:
     try:
         for snapshot in transaction.file_snapshots:
             _restore_undo_snapshot(root_path, snapshot)
@@ -221,8 +268,11 @@ def _undo_snapshot_paths_for_request(
         return (parsed.module.relative_path,)
 
     if request.kind == StructuralEditKind.INSERT_FLOW_STATEMENT:
-        parsed, _ = _require_symbol(context, request.target_id or "")
-        return (parsed.module.relative_path,)
+        parsed, symbol = _require_symbol(context, request.target_id or "")
+        paths = [parsed.module.relative_path]
+        if _tracks_flow_document(symbol.kind) and FLOW_MODEL_RELATIVE_PATH not in paths:
+            paths.append(FLOW_MODEL_RELATIVE_PATH)
+        return tuple(paths)
 
     if request.kind == StructuralEditKind.REPLACE_FLOW_GRAPH:
         parsed, _ = _require_symbol(context, request.target_id or "")
@@ -270,7 +320,7 @@ def _restore_undo_snapshot(root_path: Path, snapshot: UndoFileSnapshot) -> None:
                 f"Undo snapshot for '{snapshot.relative_path}' is missing file content."
             )
         source_path.parent.mkdir(parents=True, exist_ok=True)
-        source_path.write_text(snapshot.content, encoding="utf-8")
+        atomic_write_text(source_path, snapshot.content)
         return
 
     if source_path.exists():
@@ -380,7 +430,7 @@ def _create_module(context: EditContext, request: StructuralEditRequest) -> Stru
         raise ValueError(f"Module path '{relative_path}' already exists.")
 
     destination_path.parent.mkdir(parents=True, exist_ok=True)
-    destination_path.write_text(_normalized_module_content(request.content), encoding="utf-8")
+    atomic_write_text(destination_path, _normalized_module_content(request.content))
     module_name = _module_name_from_relative_path(PurePosixPath(relative_path))
     return StructuralEditResult(
         request=request,
@@ -406,7 +456,7 @@ def _rename_symbol(context: EditContext, request: StructuralEditRequest) -> Stru
             for statement in module.body
         ]
     )
-    source_path.write_text(updated.code, encoding="utf-8")
+    atomic_write_text(source_path, updated.code)
     return StructuralEditResult(
         request=request,
         summary=f"Renamed {symbol.qualname} to {request.new_name}.",
@@ -428,7 +478,7 @@ def _create_symbol(context: EditContext, request: StructuralEditRequest) -> Stru
     )
     statement = cst.parse_module(snippet).body[0]
     updated = module.with_changes(body=[*module.body, _append_spacing(statement)])
-    source_path.write_text(updated.code, encoding="utf-8")
+    atomic_write_text(source_path, updated.code)
     return StructuralEditResult(
         request=request,
         summary=f"Created {request.symbol_kind} {new_name} in {parsed.module.relative_path}.",
@@ -454,7 +504,7 @@ def _delete_symbol(context: EditContext, request: StructuralEditRequest) -> Stru
     ]
     if len(updated_body) == len(module.body):
         raise ValueError(f"Unable to find top-level symbol {symbol.qualname} in source.")
-    source_path.write_text(module.with_changes(body=updated_body).code, encoding="utf-8")
+    atomic_write_text(source_path, module.with_changes(body=updated_body).code)
     return StructuralEditResult(
         request=request,
         summary=f"Deleted {symbol.qualname}.",
@@ -489,8 +539,8 @@ def _move_symbol(context: EditContext, request: StructuralEditRequest) -> Struct
     updated_destination = destination_module.with_changes(
         body=[*destination_module.body, _append_spacing(moved_statement)]
     )
-    source_path.write_text(updated_source.code, encoding="utf-8")
-    destination_path.write_text(updated_destination.code, encoding="utf-8")
+    atomic_write_text(source_path, updated_source.code)
+    atomic_write_text(destination_path, updated_destination.code)
     return StructuralEditResult(
         request=request,
         summary=(
@@ -517,7 +567,7 @@ def _add_import(context: EditContext, request: StructuralEditRequest) -> Structu
         _append_spacing(new_statement),
         *module.body[insertion_index:],
     ]
-    source_path.write_text(module.with_changes(body=updated_body).code, encoding="utf-8")
+    atomic_write_text(source_path, module.with_changes(body=updated_body).code)
     return StructuralEditResult(
         request=request,
         summary=f"Added import to {parsed.module.relative_path}.",
@@ -541,7 +591,7 @@ def _remove_import(context: EditContext, request: StructuralEditRequest) -> Stru
     ]
     if len(updated_body) == len(module.body):
         raise ValueError("No matching import statement was found to remove.")
-    source_path.write_text(module.with_changes(body=updated_body).code, encoding="utf-8")
+    atomic_write_text(source_path, module.with_changes(body=updated_body).code)
     return StructuralEditResult(
         request=request,
         summary=f"Removed import from {parsed.module.relative_path}.",
@@ -584,7 +634,7 @@ def _replace_symbol_source(
             lambda declaration: replacement,
         )
 
-    source_path.write_text(updated_module.code, encoding="utf-8")
+    atomic_write_text(source_path, updated_module.code)
     flow_sync_state: str | None = None
     diagnostics: tuple[str, ...] = tuple()
     if _tracks_flow_document(symbol.kind):
@@ -612,7 +662,7 @@ def _replace_module_source(
 ) -> StructuralEditResult:
     parsed = _require_module_by_id(context, request.target_id or "")
     source_path = Path(parsed.module.file_path)
-    source_path.write_text(request.content or "", encoding="utf-8")
+    atomic_write_text(source_path, request.content or "")
     return StructuralEditResult(
         request=request,
         summary=f"Updated {parsed.module.relative_path} source.",
@@ -650,7 +700,7 @@ def _insert_flow_statement(
             declaration, insert_target, statement
         ),
     )
-    source_path.write_text(updated.code, encoding="utf-8")
+    atomic_write_text(source_path, updated.code)
     updated_tree = ast.parse(updated.code, filename=parsed.module.file_path)
     updated_function = find_ast_symbol(updated_tree, symbol.qualname)
     changed_node_ids: tuple[str, ...] = tuple()
@@ -736,7 +786,7 @@ def _replace_flow_graph(
                 compiled.document.function_inputs if rewrite_signature else None,
             ),
         )
-        source_path.write_text(updated.code, encoding="utf-8")
+        atomic_write_text(source_path, updated.code)
         updated_source = source_path.read_text(encoding="utf-8")
         updated_function_source = function_source_for_qualname(updated_source, symbol.qualname)
         imported_document = import_flow_document_from_function_source(

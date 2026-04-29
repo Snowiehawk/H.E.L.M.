@@ -72,6 +72,7 @@ class BackendUndoResult:
     warnings: tuple[str, ...] = field(default_factory=tuple)
     focus_target: UndoFocusTarget | None = None
     redo_transaction: BackendUndoTransaction | None = None
+    recovery_events: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +83,7 @@ class BackendUndoResult:
             "redo_transaction": (
                 self.redo_transaction.to_dict() if self.redo_transaction is not None else None
             ),
+            "recovery_events": list(self.recovery_events),
         }
 
 
@@ -130,6 +132,7 @@ class StructuralEditResult:
     flow_sync_state: str | None = None
     diagnostics: tuple[str, ...] = field(default_factory=tuple)
     undo_transaction: BackendUndoTransaction | None = None
+    recovery_events: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -144,4 +147,5 @@ class StructuralEditResult:
             "undo_transaction": (
                 self.undo_transaction.to_dict() if self.undo_transaction is not None else None
             ),
+            "recovery_events": list(self.recovery_events),
         }

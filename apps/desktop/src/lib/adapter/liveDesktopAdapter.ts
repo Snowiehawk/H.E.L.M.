@@ -41,6 +41,7 @@ import type {
   WorkspaceFileMoveRequest,
   WorkspaceFileMutationRequest,
   WorkspaceFileMutationResult,
+  WorkspaceRecoveryEvent,
   WorkspaceFileTree,
 } from "./contracts";
 
@@ -131,6 +132,15 @@ interface RawScanPayload {
     supported_edit_kinds: string[];
     session_version?: number;
   };
+  recovery_events?: RawRecoveryEvent[];
+}
+
+interface RawRecoveryEvent {
+  operation_id: string;
+  kind: string;
+  outcome: string;
+  touched_relative_paths?: string[];
+  warnings?: string[];
 }
 
 interface RawGraphAction {
@@ -336,6 +346,7 @@ interface RawEditResult {
       level: GraphAbstractionLevel;
     } | null;
   } | null;
+  recovery_events?: RawRecoveryEvent[];
 }
 
 type RawBackendUndoTransaction = NonNullable<RawEditResult["undo_transaction"]>;
@@ -381,6 +392,7 @@ interface RawUndoResult {
     level: GraphAbstractionLevel;
   } | null;
   redo_transaction?: RawBackendUndoTransaction | null;
+  recovery_events?: RawRecoveryEvent[];
 }
 
 interface RawApplyUndoResponse {
@@ -416,6 +428,7 @@ interface RawWorkspaceFileMutationResult {
   changed_relative_paths: string[];
   file?: RawWorkspaceFileContents | null;
   payload?: RawScanPayload | null;
+  recovery_events?: RawRecoveryEvent[];
 }
 
 interface RawEditableNodeSource {
@@ -1089,6 +1102,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
                 : "Workspace ready",
           progressPercent: 100,
           error: undefined,
+          recoveryEvents: toRecoveryEvents(payload.recovery_events),
         });
       }
     } catch (reason) {
@@ -1186,7 +1200,18 @@ function toWorkspaceFileMutationResult(
     kind: raw.kind,
     changedRelativePaths: raw.changed_relative_paths,
     file: raw.file ? toWorkspaceFileContents(raw.file) : (raw.file ?? null),
+    recoveryEvents: toRecoveryEvents(raw.recovery_events),
   };
+}
+
+function toRecoveryEvents(raw?: RawRecoveryEvent[] | null): WorkspaceRecoveryEvent[] {
+  return (raw ?? []).map((event) => ({
+    operationId: event.operation_id,
+    kind: event.kind,
+    outcome: event.outcome,
+    touchedRelativePaths: event.touched_relative_paths ?? [],
+    warnings: event.warnings ?? [],
+  }));
 }
 
 function loadRecentRepos(): RecentRepo[] {
@@ -1682,6 +1707,7 @@ function toStructuralEditResult(raw: RawEditResult): StructuralEditResult {
     undoTransaction: raw.undo_transaction
       ? fromRawUndoTransaction(raw.undo_transaction)
       : undefined,
+    recoveryEvents: toRecoveryEvents(raw.recovery_events),
   };
 }
 
@@ -1699,6 +1725,7 @@ function toBackendUndoResult(raw: RawUndoResult) {
     redoTransaction: raw.redo_transaction
       ? fromRawUndoTransaction(raw.redo_transaction)
       : undefined,
+    recoveryEvents: toRecoveryEvents(raw.recovery_events),
   };
 }
 

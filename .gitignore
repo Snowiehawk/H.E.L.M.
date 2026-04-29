@@ -13,6 +13,7 @@ venv/
 .tmp-test-bootstrap/
 __pycache__/
 *.pyc
+.helm/recovery/
 
 # macOS
 .DS_Store

@@ -119,6 +119,7 @@ import type {
   WorkspaceFileDeleteRequest,
   WorkspaceFileMoveRequest,
   WorkspaceFileMutationRequest,
+  WorkspaceRecoveryEvent,
 } from "../lib/adapter";
 import {
   isEnterableGraphNodeKind,
@@ -126,6 +127,7 @@ import {
   isInspectableGraphNodeKind,
 } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
+import type { WorkspaceActivity } from "../store/uiStore";
 import { useUndoStore, type UndoEntry } from "../store/undoStore";
 
 function graphNodeRelativePath(
@@ -140,6 +142,22 @@ function graphNodeRelativePath(
     return fallback;
   }
   return undefined;
+}
+
+function recoveryActivityFromEvents(
+  events?: WorkspaceRecoveryEvent[],
+): WorkspaceActivity | undefined {
+  if (!events?.length) {
+    return undefined;
+  }
+  const event = events[events.length - 1];
+  return {
+    domain: "backend",
+    kind: "recovery",
+    summary: `Recovered interrupted ${event.kind} operation.`,
+    touchedRelativePaths: event.touchedRelativePaths,
+    warnings: event.warnings.length ? event.warnings : [`Recovery outcome: ${event.outcome}.`],
+  };
 }
 
 function graphNodeMetadataNumber(metadata: Record<string, unknown> | undefined, key: string) {
@@ -975,6 +993,15 @@ export function WorkspaceScreen() {
   const setLastEdit = useUiStore((state) => state.setLastEdit);
   const setLastActivity = useUiStore((state) => state.setLastActivity);
   const resetWorkspace = useUiStore((state) => state.resetWorkspace);
+  const surfaceRecoveryEvents = useCallback(
+    (events?: WorkspaceRecoveryEvent[]) => {
+      const activity = recoveryActivityFromEvents(events);
+      if (activity) {
+        setLastActivity(activity);
+      }
+    },
+    [setLastActivity],
+  );
 
   useEffect(() => {
     if (!repoSession) {
@@ -1692,6 +1719,7 @@ export function WorkspaceScreen() {
       }
 
       const result = await adapter.createWorkspaceEntry(repoSession.path, request);
+      surfaceRecoveryEvents(result.recoveryEvents);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
         queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
@@ -1709,7 +1737,7 @@ export function WorkspaceScreen() {
         }
       }
     },
-    [adapter, focusGraph, queryClient, repoSession, selectWorkspaceFile],
+    [adapter, focusGraph, queryClient, repoSession, selectWorkspaceFile, surfaceRecoveryEvents],
   );
 
   const moveWorkspaceEntry = useCallback(
@@ -1731,6 +1759,7 @@ export function WorkspaceScreen() {
       }
 
       const result = await adapter.moveWorkspaceEntry(repoSession.path, request);
+      surfaceRecoveryEvents(result.recoveryEvents);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["workspace-files"] }),
         queryClient.invalidateQueries({ queryKey: ["workspace-file"] }),
@@ -1760,6 +1789,7 @@ export function WorkspaceScreen() {
       queryClient,
       repoSession,
       selectWorkspaceFile,
+      surfaceRecoveryEvents,
       workspaceFileDirty,
     ],
   );
@@ -1796,6 +1826,7 @@ export function WorkspaceScreen() {
 
       const deletedOpenFilePath = deletingOpenFile ? activeWorkspaceFilePath : undefined;
       const result = await adapter.deleteWorkspaceEntry(repoSession.path, request);
+      surfaceRecoveryEvents(result.recoveryEvents);
       if (deletingOpenFile) {
         setActiveWorkspaceFilePath(undefined);
         setWorkspaceFileDraft("");
@@ -1838,6 +1869,7 @@ export function WorkspaceScreen() {
       queryClient,
       repoSession,
       selectedFilePath,
+      surfaceRecoveryEvents,
       workspaceFileDirty,
     ],
   );
@@ -1860,6 +1892,7 @@ export function WorkspaceScreen() {
         workspaceFileDraft,
         activeWorkspaceFile.version,
       );
+      surfaceRecoveryEvents(result.recoveryEvents);
       if (result.file) {
         queryClient.setQueryData(
           ["workspace-file", repoSession.id, result.file.relativePath],
@@ -1888,6 +1921,7 @@ export function WorkspaceScreen() {
     adapter,
     queryClient,
     repoSession,
+    surfaceRecoveryEvents,
     workspaceFileDraft,
     workspaceFileStale,
   ]);
@@ -2093,6 +2127,7 @@ export function WorkspaceScreen() {
     options?: { preserveView?: boolean },
   ) => {
     const result = await adapter.applyStructuralEdit(request);
+    surfaceRecoveryEvents(result.recoveryEvents);
     const undoTransaction = result.undoTransaction;
     if (undoTransaction) {
       setBackendUndoStack((current) => [
@@ -2283,6 +2318,7 @@ export function WorkspaceScreen() {
     setIsSavingSource(true);
     try {
       const result = await adapter.saveNodeSource(targetId, content);
+      surfaceRecoveryEvents(result.recoveryEvents);
       const undoTransaction = result.undoTransaction;
       if (undoTransaction) {
         setBackendUndoStack((current) => [
@@ -2333,6 +2369,7 @@ export function WorkspaceScreen() {
 
           try {
             const result = await adapter.applyBackendUndo(undoEntry.transaction);
+            surfaceRecoveryEvents(result.recoveryEvents);
             setBackendUndoStack((current) => current.slice(0, -1));
             const redoTransaction = result.redoTransaction;
             if (redoTransaction) {
@@ -2401,6 +2438,7 @@ export function WorkspaceScreen() {
 
           try {
             const result = await adapter.applyBackendUndo(redoEntry.transaction);
+            surfaceRecoveryEvents(result.recoveryEvents);
             const summary = `Redid: ${redoEntry.entry.summary}`;
             setBackendRedoStack((current) => current.slice(0, -1));
             const undoTransaction = result.redoTransaction;
@@ -2472,6 +2510,7 @@ export function WorkspaceScreen() {
       setLastActivity,
       setLastEdit,
       setRevealedSource,
+      surfaceRecoveryEvents,
     ],
   );
 

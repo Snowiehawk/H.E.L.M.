@@ -11,7 +11,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::menu::CheckMenuItem;
 #[cfg(target_os = "macos")]
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -1737,18 +1737,29 @@ fn create_python_package_project(project_path: &Path) -> Result<NewProjectResult
     }
 
     let package_name = sanitize_python_package_name(project_name);
-    fs::create_dir(project_path).map_err(|err| {
+    let temp_project_path = unique_temp_sibling(parent)?;
+    fs::create_dir(&temp_project_path).map_err(|err| {
         format!(
-            "Unable to create project folder {}: {}",
-            project_path.display(),
+            "Unable to create temporary project folder {}: {}",
+            temp_project_path.display(),
             err
         )
     })?;
 
-    let scaffold_result = write_python_package_scaffold(project_path, project_name, &package_name);
+    let scaffold_result =
+        write_python_package_scaffold(&temp_project_path, project_name, &package_name);
     if let Err(err) = scaffold_result {
-        let _ = fs::remove_dir_all(project_path);
+        let _ = fs::remove_dir_all(&temp_project_path);
         return Err(err);
+    }
+
+    if let Err(err) = fs::rename(&temp_project_path, project_path) {
+        let _ = fs::remove_dir_all(&temp_project_path);
+        return Err(format!(
+            "Unable to finalize project folder {}: {}",
+            project_path.display(),
+            err
+        ));
     }
 
     Ok(NewProjectResult {
@@ -1793,7 +1804,7 @@ fn write_python_package_scaffold(
     )?;
     write_project_file(
         &project_path.join(".gitignore"),
-        ".venv/\n__pycache__/\n.pytest_cache/\n*.py[cod]\ndist/\nbuild/\n*.egg-info/\n".to_string(),
+        ".venv/\n__pycache__/\n.pytest_cache/\n*.py[cod]\ndist/\nbuild/\n*.egg-info/\n.helm/recovery/\n".to_string(),
     )?;
     write_project_file(
         &project_path.join("pyproject.toml"),
@@ -1847,7 +1858,142 @@ def test_greet_returns_name():\n\
 }
 
 fn write_project_file(path: &Path, content: String) -> Result<(), String> {
-    fs::write(path, content).map_err(|err| format!("Unable to write {}: {}", path.display(), err))
+    atomic_write_text(path, &content)
+}
+
+fn atomic_write_text(path: &Path, content: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("Path must include a parent folder: {}", path.display()))?;
+    fs::create_dir_all(parent)
+        .map_err(|err| format!("Unable to create {}: {}", parent.display(), err))?;
+
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("file");
+    let temp_path = unique_temp_file_path(parent, file_name)?;
+    let write_result = (|| -> Result<(), String> {
+        let mut temp_file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+            .map_err(|err| format!("Unable to create {}: {}", temp_path.display(), err))?;
+        temp_file
+            .write_all(content.as_bytes())
+            .map_err(|err| format!("Unable to write {}: {}", temp_path.display(), err))?;
+        temp_file
+            .sync_all()
+            .map_err(|err| format!("Unable to sync {}: {}", temp_path.display(), err))?;
+        drop(temp_file);
+        replace_file(&temp_path, path)?;
+        sync_parent_directory(parent);
+        Ok(())
+    })();
+
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+
+    write_result
+}
+
+fn replace_file(temp_path: &Path, target_path: &Path) -> Result<(), String> {
+    replace_file_platform(temp_path, target_path).map_err(|err| {
+        format!(
+            "Unable to replace {} with {}: {}",
+            target_path.display(),
+            temp_path.display(),
+            err
+        )
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn replace_file_platform(temp_path: &Path, target_path: &Path) -> std::io::Result<()> {
+    fs::rename(temp_path, target_path)
+}
+
+#[cfg(target_os = "windows")]
+fn replace_file_platform(temp_path: &Path, target_path: &Path) -> std::io::Result<()> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    fn wide_null(value: &OsStr) -> Vec<u16> {
+        value.encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    let from = wide_null(temp_path.as_os_str());
+    let to = wide_null(target_path.as_os_str());
+    let replaced = unsafe {
+        MoveFileExW(
+            from.as_ptr(),
+            to.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if replaced == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn unique_temp_file_path(parent: &Path, file_name: &str) -> Result<PathBuf, String> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| format!("Unable to read system time: {}", err))?
+        .as_nanos();
+    let process_id = std::process::id();
+    for attempt in 0..100 {
+        let candidate = parent.join(format!(
+            ".{}.helm-tmp-{}-{}-{}",
+            file_name, process_id, timestamp, attempt
+        ));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(format!(
+        "Unable to reserve a temporary file path in {}",
+        parent.display()
+    ))
+}
+
+fn unique_temp_sibling(parent: &Path) -> Result<PathBuf, String> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| format!("Unable to read system time: {}", err))?
+        .as_nanos();
+    let process_id = std::process::id();
+    for attempt in 0..100 {
+        let candidate = parent.join(format!(
+            ".helm-new-project-{}-{}-{}",
+            process_id, timestamp, attempt
+        ));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(format!(
+        "Unable to reserve a temporary project folder in {}",
+        parent.display()
+    ))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn sync_parent_directory(parent: &Path) {
+    if let Ok(directory) = fs::File::open(parent) {
+        let _ = directory.sync_all();
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn sync_parent_directory(_parent: &Path) {
+    // Rust stdlib does not expose a direct portable directory fsync on Windows.
 }
 
 fn sanitize_python_package_name(name: &str) -> String {
@@ -2039,8 +2185,7 @@ fn write_repo_graph_layouts(repo_root: &Path, layouts: &RepoGraphLayouts) -> Res
 
     let serialized = serde_json::to_string_pretty(layouts)
         .map_err(|err| format!("Unable to encode graph layout file: {}", err))?;
-    fs::write(&layout_path, serialized)
-        .map_err(|err| format!("Unable to write {}: {}", layout_path.display(), err))
+    atomic_write_text(&layout_path, &serialized)
 }
 
 fn normalize_repo_graph_layouts(value: Value) -> RepoGraphLayouts {
@@ -2520,6 +2665,69 @@ mod tests {
         fs::remove_dir_all(repo_root).expect("test repo should be removed");
     }
 
+    #[test]
+    fn atomic_write_text_replaces_existing_file_without_temp_leftovers() {
+        let repo_root = unique_test_project_parent("atomic-write");
+        fs::create_dir_all(&repo_root).expect("test repo should be created");
+        let target_path = repo_root.join("notes.txt");
+        fs::write(&target_path, "old\n").expect("test file should be written");
+
+        atomic_write_text(&target_path, "new\n").expect("atomic write should replace content");
+
+        assert_eq!(
+            fs::read_to_string(&target_path).expect("test file should be readable"),
+            "new\n"
+        );
+        let leftovers = fs::read_dir(&repo_root)
+            .expect("test repo should be readable")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().contains("helm-tmp"))
+            .count();
+        assert_eq!(leftovers, 0);
+        fs::remove_dir_all(repo_root).expect("test repo should be removed");
+    }
+
+    #[test]
+    fn write_repo_graph_layouts_persists_with_atomic_helper() {
+        let repo_root = unique_test_project_parent("layout-write");
+        fs::create_dir_all(&repo_root).expect("test repo should be created");
+        let canonical_repo = repo_root
+            .canonicalize()
+            .expect("test repo should canonicalize");
+        let mut layouts = RepoGraphLayouts::default();
+        let mut view = StoredGraphViewLayout::default();
+        view.nodes.insert(
+            "node:service".to_string(),
+            StoredGraphNodePosition { x: 1.0, y: 2.0 },
+        );
+        layouts.views.insert("repo".to_string(), view);
+
+        write_repo_graph_layouts(&canonical_repo, &layouts).expect("layout write should succeed");
+
+        let layout_path = canonical_repo.join(".helm").join("graph-layouts.v1.json");
+        assert!(layout_path.is_file());
+        let decoded = read_repo_graph_layouts(&canonical_repo).expect("layout file should decode");
+        assert_eq!(
+            decoded
+                .views
+                .get("repo")
+                .and_then(|view| view.nodes.get("node:service"))
+                .map(|position| (position.x, position.y)),
+            Some((1.0, 2.0))
+        );
+        let leftovers = fs::read_dir(
+            layout_path
+                .parent()
+                .expect("layout path should have parent"),
+        )
+        .expect("layout parent should be readable")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().contains("helm-tmp"))
+        .count();
+        assert_eq!(leftovers, 0);
+        fs::remove_dir_all(repo_root).expect("test repo should be removed");
+    }
+
     #[cfg(unix)]
     #[test]
     fn active_repo_boundary_rejects_symlink_escapes() {
@@ -2581,6 +2789,10 @@ mod tests {
         assert!(project_path.join("src/cool_app/__init__.py").is_file());
         assert!(project_path.join("src/cool_app/main.py").is_file());
         assert!(project_path.join("tests/test_smoke.py").is_file());
+        let gitignore = fs::read_to_string(project_path.join(".gitignore"))
+            .expect(".gitignore should be readable");
+        assert!(gitignore.contains(".helm/recovery/"));
+        assert_eq!(helm_new_project_temp_sibling_count(&parent), 0);
 
         let main_source = fs::read_to_string(project_path.join("src/cool_app/main.py"))
             .expect("main.py should be readable");
@@ -2588,6 +2800,19 @@ mod tests {
         assert!(main_source.contains("return f\"Hello, {name}!\""));
 
         fs::remove_dir_all(parent).expect("test project should be removed");
+    }
+
+    fn helm_new_project_temp_sibling_count(parent: &Path) -> usize {
+        fs::read_dir(parent)
+            .expect("test parent should be readable")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".helm-new-project-")
+            })
+            .count()
     }
 
     #[test]

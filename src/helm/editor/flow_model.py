@@ -9,6 +9,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from helm.io_atomic import atomic_write_text
+
 
 FLOW_MODEL_VERSION = 1
 FLOW_VALUE_MODEL_VERSION = 1
@@ -760,7 +762,7 @@ def write_flow_document(root_path: Path, document: FlowModelDocument) -> None:
             payload["version"] = FLOW_MODEL_VERSION
             payload["symbols"] = dict(existing.get("symbols") or {})
     payload["symbols"][document.symbol_id] = document.to_dict()
-    storage_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    atomic_write_text(storage_path, json.dumps(payload, indent=2, sort_keys=True))
 
 
 def flow_document_from_payload(payload: dict[str, Any]) -> FlowModelDocument:

@@ -10,6 +10,7 @@ from helm.editor import serialize_edit_request, serialize_undo_transaction
 from helm.graph import build_repo_graph
 from helm.graph.models import GraphAbstractionLevel
 from helm.parser import ParsedModule, PythonModuleParser, discover_python_modules
+from helm.recovery import recover_pending
 from helm.ui.python_adapter import (
     ProgressReporter,
     PythonRepoAdapter,
@@ -59,6 +60,7 @@ def _diagnostic_messages(payload: dict[str, Any]) -> list[str]:
 class WorkspaceSession:
     adapter: PythonRepoAdapter
     session_version: int = 1
+    recovery_events: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def open(
@@ -67,7 +69,12 @@ class WorkspaceSession:
         *,
         progress: ProgressReporter | None = None,
     ) -> WorkspaceSession:
-        return cls(adapter=PythonRepoAdapter.scan(repo, progress=progress), session_version=1)
+        recovery_events = [event.to_dict() for event in recover_pending(repo)]
+        return cls(
+            adapter=PythonRepoAdapter.scan(repo, progress=progress),
+            session_version=1,
+            recovery_events=recovery_events,
+        )
 
     @property
     def root_path(self) -> Path:
@@ -82,6 +89,9 @@ class WorkspaceSession:
         payload = self.adapter.build_payload(top_n=top_n, progress=progress)
         workspace = payload.setdefault("workspace", {})
         workspace["session_version"] = self.session_version
+        if self.recovery_events:
+            payload["recovery_events"] = self.recovery_events
+            self.recovery_events = []
         return payload
 
     def get_graph_view(

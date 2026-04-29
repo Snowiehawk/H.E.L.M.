@@ -7,6 +7,9 @@ import shutil
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from helm.io_atomic import atomic_write_bytes
+from helm.recovery import JournalPreimage, run_journaled_mutation
+
 MAX_INLINE_TEXT_BYTES = 2 * 1024 * 1024
 TEXT_PROBE_BYTES = 8192
 IGNORED_DIRECTORY_NAMES = {
@@ -133,19 +136,68 @@ def create_workspace_entry(
         raise ValueError(f"Workspace path already exists: {normalized_relative_path}")
 
     if kind == "directory":
-        target_path.mkdir(parents=True, exist_ok=False)
-        return {
-            "relative_path": normalized_relative_path,
-            "kind": "directory",
-            "changed_relative_paths": [normalized_relative_path],
-            "file": None,
-        }
+        mutation_result = run_journaled_mutation(
+            root_path,
+            kind="workspace.create.directory",
+            preimages=(
+                JournalPreimage(
+                    normalized_relative_path,
+                    role="create",
+                    metadata={"entry_kind": "directory"},
+                ),
+            ),
+            mutation=lambda: _create_workspace_directory(
+                target_path,
+                normalized_relative_path,
+            ),
+        )
+        result = mutation_result.value
+        result["recovery_events"] = [event.to_dict() for event in mutation_result.recovery_events]
+        return result
 
     if kind != "file":
         raise ValueError("Workspace entry kind must be 'file' or 'directory'.")
 
+    mutation_result = run_journaled_mutation(
+        root_path,
+        kind="workspace.create.file",
+        preimages=(
+            JournalPreimage(
+                normalized_relative_path,
+                role="create",
+                metadata={"entry_kind": "file"},
+            ),
+        ),
+        mutation=lambda: _create_workspace_file(
+            root_path,
+            target_path,
+            normalized_relative_path,
+            content or "",
+        ),
+    )
+    result = mutation_result.value
+    result["recovery_events"] = [event.to_dict() for event in mutation_result.recovery_events]
+    return result
+
+
+def _create_workspace_directory(target_path: Path, normalized_relative_path: str) -> dict[str, Any]:
+    target_path.mkdir(parents=True, exist_ok=False)
+    return {
+        "relative_path": normalized_relative_path,
+        "kind": "directory",
+        "changed_relative_paths": [normalized_relative_path],
+        "file": None,
+    }
+
+
+def _create_workspace_file(
+    root_path: Path,
+    target_path: Path,
+    normalized_relative_path: str,
+    content: str,
+) -> dict[str, Any]:
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_workspace_text(target_path, content or "")
+    _write_workspace_text(target_path, content)
     return {
         "relative_path": normalized_relative_path,
         "kind": "file",
@@ -177,6 +229,34 @@ def save_workspace_file(
     if current["version"] != expected_version:
         raise ValueError("Workspace file changed on disk. Reload it before saving again.")
 
+    mutation_result = run_journaled_mutation(
+        root_path,
+        kind="workspace.save.file",
+        preimages=(
+            JournalPreimage(
+                normalized_relative_path,
+                role="save",
+                metadata={"version": current["version"]},
+            ),
+        ),
+        mutation=lambda: _save_workspace_file(
+            root_path,
+            file_path,
+            normalized_relative_path,
+            content,
+        ),
+    )
+    result = mutation_result.value
+    result["recovery_events"] = [event.to_dict() for event in mutation_result.recovery_events]
+    return result
+
+
+def _save_workspace_file(
+    root_path: Path,
+    file_path: Path,
+    normalized_relative_path: str,
+    content: str,
+) -> dict[str, Any]:
     _write_workspace_text(file_path, content)
     return {
         "relative_path": normalized_relative_path,
@@ -187,7 +267,7 @@ def save_workspace_file(
 
 
 def _write_workspace_text(path: Path, content: str) -> None:
-    path.write_bytes(content.encode("utf-8"))
+    atomic_write_bytes(path, content.encode("utf-8"))
 
 
 def move_workspace_entry(
@@ -203,6 +283,11 @@ def move_workspace_entry(
     source_path = _resolve_repo_relative_path(root_path, normalized_source_relative_path)
     if not source_path.exists():
         raise ValueError(f"Workspace path does not exist: {normalized_source_relative_path}")
+    _reject_symlinked_directory_source(
+        root_path,
+        normalized_source_relative_path,
+        "move",
+    )
 
     normalized_target_directory = _validated_repo_directory_path(target_directory_relative_path)
     target_directory_path = (
@@ -242,6 +327,43 @@ def move_workspace_entry(
         normalized_source_relative_path,
         normalized_target_relative_path,
     )
+    mutation_result = run_journaled_mutation(
+        root_path,
+        kind="workspace.move.entry",
+        preimages=(
+            JournalPreimage(
+                normalized_source_relative_path,
+                role="move-source",
+                metadata={"entry_kind": kind},
+            ),
+            JournalPreimage(
+                normalized_target_relative_path,
+                role="move-destination",
+                metadata={"entry_kind": kind, "expected": "missing"},
+            ),
+        ),
+        mutation=lambda: _move_workspace_entry(
+            root_path,
+            source_path,
+            target_path,
+            normalized_target_relative_path,
+            kind,
+            changed_relative_paths,
+        ),
+    )
+    result = mutation_result.value
+    result["recovery_events"] = [event.to_dict() for event in mutation_result.recovery_events]
+    return result
+
+
+def _move_workspace_entry(
+    root_path: Path,
+    source_path: Path,
+    target_path: Path,
+    normalized_target_relative_path: str,
+    kind: str,
+    changed_relative_paths: list[str],
+) -> dict[str, Any]:
     source_path.rename(target_path)
     return {
         "relative_path": normalized_target_relative_path,
@@ -265,12 +387,41 @@ def delete_workspace_entry(
     target_path = _resolve_repo_relative_path(root_path, normalized_relative_path)
     if not target_path.exists():
         raise ValueError(f"Workspace path does not exist: {normalized_relative_path}")
+    _reject_symlinked_directory_source(root_path, normalized_relative_path, "delete")
 
     kind = "directory" if target_path.is_dir() else "file"
     changed_relative_paths = _delete_changed_relative_paths(
         target_path,
         normalized_relative_path,
     )
+    mutation_result = run_journaled_mutation(
+        root_path,
+        kind="workspace.delete.entry",
+        preimages=(
+            JournalPreimage(
+                normalized_relative_path,
+                role="delete-target",
+                metadata={"entry_kind": kind},
+            ),
+        ),
+        mutation=lambda: _delete_workspace_entry(
+            target_path,
+            normalized_relative_path,
+            kind,
+            changed_relative_paths,
+        ),
+    )
+    result = mutation_result.value
+    result["recovery_events"] = [event.to_dict() for event in mutation_result.recovery_events]
+    return result
+
+
+def _delete_workspace_entry(
+    target_path: Path,
+    normalized_relative_path: str,
+    kind: str,
+    changed_relative_paths: list[str],
+) -> dict[str, Any]:
     if target_path.is_dir():
         shutil.rmtree(target_path)
     elif target_path.is_file():
@@ -325,6 +476,18 @@ def _resolve_repo_relative_path(root_path: Path, relative_path: str) -> Path:
             f"Repo-relative path '{normalized_relative_path}' escapes the repo root."
         ) from exc
     return source_path
+
+
+def _reject_symlinked_directory_source(
+    root_path: Path,
+    relative_path: str,
+    operation: str,
+) -> None:
+    lexical_path = root_path / _validated_repo_relative_path(relative_path)
+    if lexical_path.is_symlink() and lexical_path.is_dir():
+        raise ValueError(
+            f"Cannot {operation} symlinked workspace folders until safe recovery is supported."
+        )
 
 
 def _directory_entry(path: Path, relative_path: str) -> dict[str, Any]:

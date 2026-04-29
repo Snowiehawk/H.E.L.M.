@@ -88,3 +88,5 @@ python -m invoke ci
 ```
 
 Use `npm ci` in `apps/desktop/` when you want the same dependency install behavior as CI. The HELM bootstrap commands use `npm install` for local convenience and first-run setup. See `docs/ci.md` for the exact commands, audit allowlist rules, and platform notes.
+
+HELM repo mutations are journaled under `.helm/recovery/` so interrupted edits can be rolled back on the next open or before the next mutation. See `docs/recovery.md` for the lifecycle, ignore rules, and platform durability notes.

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { DesktopWindow } from "../components/layout/DesktopWindow";
 import { AppWindowActions } from "../components/shared/AppWindowActions";
@@ -42,7 +42,28 @@ export function IndexingScreen() {
   const { jobId } = useParams();
   const navigate = useNavigate();
   const session = useUiStore((state) => state.repoSession);
+  const setLastActivity = useUiStore((state) => state.setLastActivity);
   const progress = useIndexingProgress(jobId);
+  const surfacedRecoveryOperationId = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    const events = progress?.recoveryEvents;
+    if (!events?.length) {
+      return;
+    }
+    const event = events[events.length - 1];
+    if (surfacedRecoveryOperationId.current === event.operationId) {
+      return;
+    }
+    surfacedRecoveryOperationId.current = event.operationId;
+    setLastActivity({
+      domain: "backend",
+      kind: "recovery",
+      summary: `Recovered interrupted ${event.kind} operation.`,
+      touchedRelativePaths: event.touchedRelativePaths,
+      warnings: event.warnings.length ? event.warnings : [`Recovery outcome: ${event.outcome}.`],
+    });
+  }, [progress?.recoveryEvents, setLastActivity]);
 
   useEffect(() => {
     if (progress?.status !== "done") {
