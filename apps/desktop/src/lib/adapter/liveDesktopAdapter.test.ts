@@ -31,6 +31,37 @@ import { LiveDesktopAdapter } from "./liveDesktopAdapter";
 import type { IndexingJobState } from "./contracts";
 
 describe("LiveDesktopAdapter", () => {
+  function setRepoPathScanCache(adapter: LiveDesktopAdapter) {
+    const repoPath = "/workspace/calculator";
+    const node = {
+      node_id: "module:calculator.app",
+      kind: "module",
+      name: "app",
+      display_name: "app.py",
+      module_name: "calculator.app",
+      file_path: `${repoPath}/src/app.py`,
+      metadata: {
+        relative_path: "src/app.py",
+      },
+      is_external: false,
+    };
+
+    Reflect.set(adapter, "scanCache", {
+      session: {
+        id: `repo:${repoPath}`,
+        name: "Calculator",
+        path: repoPath,
+        branch: "local",
+        primaryLanguage: "Python",
+        openedAt: "2026-04-09T00:00:00.000Z",
+      },
+      nodeById: new Map([[node.node_id, node]]),
+      absolutePathByRelative: new Map([["src/app.py", node.file_path]]),
+      relativePathByAbsolute: new Map([[node.file_path, "src/app.py"]]),
+      searchEntries: [],
+    });
+  }
+
   beforeEach(() => {
     invokeMock.mockReset();
     listenMock.mockReset();
@@ -41,6 +72,46 @@ describe("LiveDesktopAdapter", () => {
       eventState.callbacks.set(String(eventName), callback);
       return vi.fn();
     });
+  });
+
+  it("reads repo files through repo-scoped relative Tauri arguments", async () => {
+    const adapter = new LiveDesktopAdapter();
+    setRepoPathScanCache(adapter);
+    invokeMock.mockResolvedValueOnce("print('hello')\n");
+
+    const file = await adapter.getFile("src\\app.py");
+
+    expect(invokeMock).toHaveBeenCalledWith("read_repo_file", {
+      repoPath: "/workspace/calculator",
+      relativePath: "src/app.py",
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "read_repo_file",
+      expect.objectContaining({ filePath: expect.any(String) }),
+    );
+    expect(file.path).toBe("src/app.py");
+  });
+
+  it("opens and reveals repo paths without sending absolute file targets", async () => {
+    const adapter = new LiveDesktopAdapter();
+    setRepoPathScanCache(adapter);
+    invokeMock.mockResolvedValue(undefined);
+
+    await adapter.openNodeInDefaultEditor("module:calculator.app");
+    await adapter.revealPathInFileExplorer("src\\app.py");
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "open_repo_path_in_default_editor", {
+      repoPath: "/workspace/calculator",
+      relativePath: "src/app.py",
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "reveal_repo_path_in_file_explorer", {
+      repoPath: "/workspace/calculator",
+      relativePath: "src/app.py",
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      expect.stringMatching(/open_path_in_default_editor|reveal_path_in_file_explorer/u),
+      expect.anything(),
+    );
   });
 
   it("returns null when new project selection is cancelled", async () => {

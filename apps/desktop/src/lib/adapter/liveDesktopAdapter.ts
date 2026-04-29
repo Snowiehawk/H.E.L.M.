@@ -667,21 +667,22 @@ export class LiveDesktopAdapter implements DesktopAdapter {
 
   async getFile(path: string): Promise<FileContents> {
     const cache = this.requireScanCache();
-    const absolutePath = cache.absolutePathByRelative.get(path);
-    if (!absolutePath) {
-      throw new Error(`No indexed file matched ${path}.`);
+    const relativePath = normalizePath(path);
+    if (!cache.absolutePathByRelative.has(relativePath)) {
+      throw new Error(`No indexed file matched ${relativePath}.`);
     }
 
     const content = await invoke<string>("read_repo_file", {
-      filePath: absolutePath,
+      repoPath: cache.session.path,
+      relativePath,
     });
     const linkedSymbols = cache.searchEntries
-      .filter((entry) => entry.kind === "symbol" && entry.filePath === path)
+      .filter((entry) => entry.kind === "symbol" && entry.filePath === relativePath)
       .slice(0, 12);
 
     return {
-      path,
-      language: languageFromPath(path),
+      path: relativePath,
+      language: languageFromPath(relativePath),
       lineCount: content ? content.split("\n").length : 0,
       sizeBytes: new TextEncoder().encode(content).length,
       content,
@@ -966,12 +967,14 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     if (!node?.file_path) {
       throw new Error(`No source file is associated with ${targetId}.`);
     }
-    await this.openPathInDefaultEditor(node.file_path);
+    await this.openPathInDefaultEditor(relativePathForNode(node, cache));
   }
 
-  async openPathInDefaultEditor(filePath: string): Promise<void> {
-    await invoke("open_path_in_default_editor", {
-      filePath: normalizePath(filePath),
+  async openPathInDefaultEditor(relativePath: string): Promise<void> {
+    const cache = this.requireScanCache();
+    await invoke("open_repo_path_in_default_editor", {
+      repoPath: cache.session.path,
+      relativePath: normalizePath(relativePath),
     });
   }
 
@@ -981,12 +984,14 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     if (!node?.file_path) {
       throw new Error(`No source file is associated with ${targetId}.`);
     }
-    await this.revealPathInFileExplorer(node.file_path);
+    await this.revealPathInFileExplorer(relativePathForNode(node, cache));
   }
 
-  async revealPathInFileExplorer(filePath: string): Promise<void> {
-    await invoke("reveal_path_in_file_explorer", {
-      filePath: normalizePath(filePath),
+  async revealPathInFileExplorer(relativePath: string): Promise<void> {
+    const cache = this.requireScanCache();
+    await invoke("reveal_repo_path_in_file_explorer", {
+      repoPath: cache.session.path,
+      relativePath: normalizePath(relativePath),
     });
   }
 

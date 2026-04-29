@@ -628,8 +628,8 @@ export interface DesktopAdapter {
   getEditableNodeSource(targetId: string): Promise<EditableNodeSource>;
   saveNodeSource(targetId: string, content: string): Promise<StructuralEditResult>;
   openNodeInDefaultEditor(targetId: string): Promise<void>;
-  openPathInDefaultEditor(filePath: string): Promise<void>;
+  openPathInDefaultEditor(relativePath: string): Promise<void>;
   revealNodeInFileExplorer(targetId: string): Promise<void>;
-  revealPathInFileExplorer(filePath: string): Promise<void>;
+  revealPathInFileExplorer(relativePath: string): Promise<void>;
   getOverview(): Promise<OverviewData>;
 }

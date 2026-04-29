@@ -467,8 +467,8 @@ export function SidebarPane({
   onFocusRepoGraph: () => void;
   onReindexRepo: () => void;
   onOpenRepo: (path?: string) => void;
-  onOpenPathInDefaultEditor: (filePath: string) => void | Promise<void>;
-  onRevealPathInFileExplorer: (filePath: string) => void | Promise<void>;
+  onOpenPathInDefaultEditor: (relativePath: string) => void | Promise<void>;
+  onRevealPathInFileExplorer: (relativePath: string) => void | Promise<void>;
 }) {
   const tree = useMemo(
     () => buildExplorerTree(overview?.modules ?? [], workspaceFiles),
@@ -879,13 +879,13 @@ export function SidebarPane({
       {
         id: "reveal-path",
         label: revealLabel,
-        action: () => onRevealPathInFileExplorer(absolutePath),
+        action: () => onRevealPathInFileExplorer(row.path),
         separatorBefore: true,
       },
       {
         id: "open-default",
         label: row.kind === "directory" ? "Open Folder" : "Open in Default App",
-        action: () => onOpenPathInDefaultEditor(absolutePath),
+        action: () => onOpenPathInDefaultEditor(row.path),
       },
       {
         id: "copy-relative-path",

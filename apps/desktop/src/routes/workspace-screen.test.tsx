@@ -4533,9 +4533,7 @@ describe("WorkspaceScreen", () => {
 
     fireEvent.click(fileButton, { metaKey: true });
 
-    await waitFor(() =>
-      expect(revealSpy).toHaveBeenCalledWith(`${defaultRepoPath}/src/helm/ui/api.py`),
-    );
+    await waitFor(() => expect(revealSpy).toHaveBeenCalledWith("src/helm/ui/api.py"));
   });
 
   it("navigates from a graph path file segment back to the module graph", async () => {
@@ -4624,7 +4622,7 @@ describe("WorkspaceScreen", () => {
     const graphPath = await screen.findByRole("navigation", { name: /Graph path/i });
     fireEvent.click(within(graphPath).getByRole("button", { name: "src" }), { metaKey: true });
 
-    await waitFor(() => expect(revealSpy).toHaveBeenCalledWith(`${defaultRepoPath}/src`));
+    await waitFor(() => expect(revealSpy).toHaveBeenCalledWith("src"));
   });
 
   it("tracks inline edits, supports cancel, and saves through the existing callback", async () => {

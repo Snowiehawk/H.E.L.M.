@@ -127,6 +127,225 @@ struct GraphViewMenuState {
     show_edge_labels: Mutex<Option<CheckMenuItem<Wry>>>,
 }
 
+#[derive(Debug)]
+struct ResolvedRepoPath {
+    relative_path: String,
+    target_path: PathBuf,
+}
+
+#[derive(Default)]
+struct ActiveRepoBoundary {
+    repo_root: Mutex<Option<PathBuf>>,
+}
+
+impl ActiveRepoBoundary {
+    fn set_active_repo(&self, repo_root: PathBuf) -> Result<(), String> {
+        let mut active = self
+            .repo_root
+            .lock()
+            .map_err(|_| "Unable to lock the active repository state.".to_string())?;
+        *active = Some(repo_root);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn activate_repo_path(&self, repo_path: &str) -> Result<PathBuf, String> {
+        let repo_root = canonicalize_repo_root(repo_path)?;
+        self.set_active_repo(repo_root.clone())?;
+        Ok(repo_root)
+    }
+
+    fn command_repo_root(&self, repo_path: &str) -> Result<PathBuf, String> {
+        let renderer_repo_root = canonicalize_repo_root(repo_path)?;
+        let active_repo_root = self
+            .repo_root
+            .lock()
+            .map_err(|_| "Unable to lock the active repository state.".to_string())?
+            .clone()
+            .ok_or_else(|| {
+                "No active repository is available. Open or reindex a repository first.".to_string()
+            })?;
+
+        if renderer_repo_root != active_repo_root {
+            return Err(
+                "Repository path does not match the active repository. Reopen or reindex the repository."
+                    .to_string(),
+            );
+        }
+
+        Ok(active_repo_root)
+    }
+
+    fn command_repo_path(&self, repo_path: &str) -> Result<String, String> {
+        self.command_repo_root(repo_path)
+            .map(|repo_root| normalize_path(&repo_root))
+    }
+
+    fn resolve_existing_target(
+        &self,
+        repo_path: &str,
+        relative_path: &str,
+    ) -> Result<ResolvedRepoPath, String> {
+        let repo_root = self.command_repo_root(repo_path)?;
+        let relative_path = normalize_repo_relative_path(relative_path)?;
+        let candidate = repo_root.join(Path::new(&relative_path));
+        let target_path = candidate.canonicalize().map_err(|err| {
+            format!(
+                "Unable to resolve repo-relative path {}: {}",
+                relative_path, err
+            )
+        })?;
+        ensure_canonical_path_inside_repo(&target_path, &repo_root, "Repo-relative path")?;
+        Ok(ResolvedRepoPath {
+            relative_path,
+            target_path,
+        })
+    }
+
+    fn resolve_creatable_target(
+        &self,
+        repo_path: &str,
+        relative_path: &str,
+    ) -> Result<ResolvedRepoPath, String> {
+        let repo_root = self.command_repo_root(repo_path)?;
+        let relative_path = normalize_repo_relative_path(relative_path)?;
+        let target_path = repo_root.join(Path::new(&relative_path));
+        if target_path.exists() {
+            let canonical_target = target_path.canonicalize().map_err(|err| {
+                format!(
+                    "Unable to resolve repo-relative path {}: {}",
+                    relative_path, err
+                )
+            })?;
+            ensure_canonical_path_inside_repo(&canonical_target, &repo_root, "Repo-relative path")?;
+            return Ok(ResolvedRepoPath {
+                relative_path,
+                target_path,
+            });
+        }
+
+        let mut nearest_parent = target_path
+            .parent()
+            .ok_or_else(|| "Repo-relative path must include a parent folder.".to_string())?
+            .to_path_buf();
+
+        while !nearest_parent.exists() {
+            let parent = nearest_parent.parent().ok_or_else(|| {
+                format!(
+                    "Unable to resolve parent folder for repo-relative path {}.",
+                    relative_path
+                )
+            })?;
+            nearest_parent = parent.to_path_buf();
+        }
+
+        let canonical_parent = nearest_parent.canonicalize().map_err(|err| {
+            format!(
+                "Unable to resolve parent folder {}: {}",
+                nearest_parent.display(),
+                err
+            )
+        })?;
+        ensure_canonical_path_inside_repo(&canonical_parent, &repo_root, "Parent folder")?;
+
+        Ok(ResolvedRepoPath {
+            relative_path,
+            target_path,
+        })
+    }
+}
+
+fn canonicalize_repo_root(repo_path: &str) -> Result<PathBuf, String> {
+    let trimmed_path = repo_path.trim();
+    if trimmed_path.is_empty() {
+        return Err("Repository path cannot be empty.".to_string());
+    }
+    if trimmed_path.contains('\0') {
+        return Err("Repository path cannot contain null bytes.".to_string());
+    }
+
+    let path = PathBuf::from(trimmed_path);
+    if !path.is_absolute() {
+        return Err("Repository path must be absolute.".to_string());
+    }
+
+    let canonical = path.canonicalize().map_err(|err| {
+        format!(
+            "Unable to resolve repository path {}: {}",
+            path.display(),
+            err
+        )
+    })?;
+    if !canonical.is_dir() {
+        return Err(format!(
+            "Repository path is not a directory: {}",
+            canonical.display()
+        ));
+    }
+
+    Ok(canonical)
+}
+
+fn normalize_repo_relative_path(relative_path: &str) -> Result<String, String> {
+    let trimmed_path = relative_path.trim();
+    if trimmed_path.is_empty() {
+        return Err("Repo-relative path cannot be empty.".to_string());
+    }
+    if trimmed_path.contains('\0') {
+        return Err("Repo-relative path cannot contain null bytes.".to_string());
+    }
+
+    let normalized = trimmed_path.replace('\\', "/");
+    if normalized == "." || normalized == ".." {
+        return Err("Repo-relative path cannot be '.' or '..'.".to_string());
+    }
+    if normalized
+        .as_bytes()
+        .get(1)
+        .is_some_and(|value| *value == b':')
+        && normalized
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphabetic)
+    {
+        return Err("Repo-relative path cannot include a drive prefix.".to_string());
+    }
+    if normalized.split('/').any(|part| part.is_empty()) {
+        return Err("Repo-relative path has malformed separators.".to_string());
+    }
+
+    let path = Path::new(&normalized);
+    if path.is_absolute() {
+        return Err("Repo-relative path cannot be absolute.".to_string());
+    }
+
+    for component in path.components() {
+        match component {
+            Component::Normal(_) => {}
+            Component::CurDir | Component::ParentDir => {
+                return Err("Repo-relative path cannot contain '.' or '..'.".to_string());
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err("Repo-relative path cannot be rooted.".to_string());
+            }
+        }
+    }
+
+    Ok(normalized)
+}
+
+fn ensure_canonical_path_inside_repo(
+    path: &Path,
+    repo_root: &Path,
+    label: &str,
+) -> Result<(), String> {
+    if path == repo_root || path.strip_prefix(repo_root).is_ok() {
+        return Ok(());
+    }
+
+    Err(format!("{} must stay inside the active repository.", label))
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GraphViewMenuActionPayload {
@@ -929,9 +1148,12 @@ fn scan_repo_payload(
     app: AppHandle<Wry>,
     service: State<'_, BackendService>,
     watcher: State<'_, ActiveRepoWatcher>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     job_id: String,
 ) -> Result<Value, String> {
+    let canonical_repo_root = canonicalize_repo_root(&repo_path)?;
+    let repo_path = normalize_path(&canonical_repo_root);
     let progress_app = app.clone();
     let progress_job_id = job_id.clone();
     let progress_repo_path = repo_path.clone();
@@ -965,6 +1187,7 @@ fn scan_repo_payload(
         .and_then(|value| usize::try_from(value).ok())
         .unwrap_or(0);
 
+    active_repo.set_active_repo(canonical_repo_root)?;
     let watch_ready_message = match watcher.watch_repo(&app, service.inner().clone(), &repo_path) {
         Ok(()) => {
             service.mark_synced();
@@ -998,11 +1221,13 @@ fn scan_repo_payload(
 #[tauri::command]
 fn graph_view(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     target_id: String,
     level: String,
     filters_json: String,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
     let filters: Value = serde_json::from_str(&filters_json)
         .map_err(|err| format!("Unable to decode graph filters: {}", err))?;
     service.request(
@@ -1019,9 +1244,11 @@ fn graph_view(
 #[tauri::command]
 fn flow_view(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     symbol_id: String,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
     service.request(
         "flow-view",
         json!({
@@ -1034,9 +1261,11 @@ fn flow_view(
 #[tauri::command]
 fn apply_structural_edit(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     request_json: String,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
     service.request(
         "apply-edit",
         json!({
@@ -1049,9 +1278,11 @@ fn apply_structural_edit(
 #[tauri::command]
 fn reveal_source(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     target_id: String,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
     service.request(
         "reveal-source",
         json!({
@@ -1064,9 +1295,11 @@ fn reveal_source(
 #[tauri::command]
 fn editable_node_source(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     target_id: String,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
     service.request(
         "editable-source",
         json!({
@@ -1079,10 +1312,12 @@ fn editable_node_source(
 #[tauri::command]
 fn save_node_source(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     target_id: String,
     content_json: String,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
     let content: Value = serde_json::from_str(&content_json)
         .map_err(|err| format!("Unable to decode replacement source: {}", err))?;
     let content = content
@@ -1101,10 +1336,12 @@ fn save_node_source(
 #[tauri::command]
 fn parse_flow_expression(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     expression: String,
     input_slots_json: String,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
     let input_slot_by_name: Value = serde_json::from_str(&input_slots_json)
         .map_err(|err| format!("Unable to decode expression input slots: {}", err))?;
     service.request(
@@ -1120,9 +1357,11 @@ fn parse_flow_expression(
 #[tauri::command]
 fn apply_backend_undo(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     transaction_json: String,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
     service.request(
         "apply-undo",
         json!({
@@ -1134,51 +1373,54 @@ fn apply_backend_undo(
 
 #[tauri::command]
 fn read_repo_graph_layout(
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     view_key: String,
 ) -> Result<StoredGraphViewLayout, String> {
-    let layouts = read_repo_graph_layouts(&repo_path)?;
+    let repo_root = active_repo.command_repo_root(&repo_path)?;
+    let layouts = read_repo_graph_layouts(&repo_root)?;
     Ok(layouts.views.get(&view_key).cloned().unwrap_or_default())
 }
 
 #[tauri::command]
 fn write_repo_graph_layout(
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     view_key: String,
     layout_json: String,
 ) -> Result<(), String> {
+    let repo_root = active_repo.command_repo_root(&repo_path)?;
     let layout: StoredGraphViewLayout = serde_json::from_str(&layout_json)
         .map_err(|err| format!("Unable to decode graph layout payload: {}", err))?;
-    let mut layouts = read_repo_graph_layouts(&repo_path)?;
+    let mut layouts = read_repo_graph_layouts(&repo_root)?;
     layouts.views.insert(view_key, layout);
-    write_repo_graph_layouts(&repo_path, &layouts)
+    write_repo_graph_layouts(&repo_root, &layouts)
 }
 
 #[tauri::command]
-fn read_repo_file(file_path: String) -> Result<String, String> {
-    fs::read_to_string(&file_path).map_err(|err| format!("Unable to read {}: {}", file_path, err))
+fn read_repo_file(
+    active_repo: State<'_, ActiveRepoBoundary>,
+    repo_path: String,
+    relative_path: String,
+) -> Result<String, String> {
+    let target = active_repo.resolve_existing_target(&repo_path, &relative_path)?;
+    fs::read_to_string(&target.target_path)
+        .map_err(|err| format!("Unable to read {}: {}", target.relative_path, err))
 }
 
 #[tauri::command]
 fn create_new_project(project_path: String) -> Result<NewProjectResult, String> {
-    let trimmed_path = project_path.trim();
-    if trimmed_path.is_empty() {
-        return Err("Project path cannot be empty.".to_string());
-    }
-
-    let path = PathBuf::from(trimmed_path);
-    if !path.is_absolute() {
-        return Err("Project path must be absolute.".to_string());
-    }
-
+    let path = validate_new_project_path(&project_path)?;
     create_python_package_project(&path)
 }
 
 #[tauri::command]
 fn list_workspace_files(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
     service.request(
         "list-workspace-files",
         json!({
@@ -1190,14 +1432,17 @@ fn list_workspace_files(
 #[tauri::command]
 fn read_workspace_file(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     relative_path: String,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
+    let target = active_repo.resolve_existing_target(&repo_path, &relative_path)?;
     service.request(
         "read-workspace-file",
         json!({
             "repo": repo_path,
-            "relative_path": relative_path,
+            "relative_path": target.relative_path,
         }),
     )
 }
@@ -1205,17 +1450,20 @@ fn read_workspace_file(
 #[tauri::command]
 fn create_workspace_entry(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     kind: String,
     relative_path: String,
     content: Option<String>,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
+    let target = active_repo.resolve_creatable_target(&repo_path, &relative_path)?;
     service.request(
         "create-workspace-entry",
         json!({
             "repo": repo_path,
             "kind": kind,
-            "relative_path": relative_path,
+            "relative_path": target.relative_path,
             "content": content,
             "top_n": WORKSPACE_SYNC_TOP_N,
         }),
@@ -1225,16 +1473,19 @@ fn create_workspace_entry(
 #[tauri::command]
 fn save_workspace_file(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     relative_path: String,
     content: String,
     expected_version: String,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
+    let target = active_repo.resolve_creatable_target(&repo_path, &relative_path)?;
     service.request(
         "save-workspace-file",
         json!({
             "repo": repo_path,
-            "relative_path": relative_path,
+            "relative_path": target.relative_path,
             "content": content,
             "expected_version": expected_version,
             "top_n": WORKSPACE_SYNC_TOP_N,
@@ -1245,15 +1496,35 @@ fn save_workspace_file(
 #[tauri::command]
 fn move_workspace_entry(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     source_relative_path: String,
     target_directory_relative_path: String,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
+    let source = active_repo.resolve_existing_target(&repo_path, &source_relative_path)?;
+    let target_directory_relative_path = if target_directory_relative_path.trim().is_empty() {
+        String::new()
+    } else {
+        active_repo
+            .resolve_existing_target(&repo_path, &target_directory_relative_path)?
+            .relative_path
+    };
+    let moved_name = Path::new(&source.relative_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "Source path must include a file or folder name.".to_string())?;
+    let moved_relative_path = if target_directory_relative_path.is_empty() {
+        moved_name.to_string()
+    } else {
+        format!("{}/{}", target_directory_relative_path, moved_name)
+    };
+    active_repo.resolve_creatable_target(&repo_path, &moved_relative_path)?;
     service.request(
         "move-workspace-entry",
         json!({
             "repo": repo_path,
-            "source_relative_path": source_relative_path,
+            "source_relative_path": source.relative_path,
             "target_directory_relative_path": target_directory_relative_path,
             "top_n": WORKSPACE_SYNC_TOP_N,
         }),
@@ -1263,22 +1534,33 @@ fn move_workspace_entry(
 #[tauri::command]
 fn delete_workspace_entry(
     service: State<'_, BackendService>,
+    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     relative_path: String,
 ) -> Result<Value, String> {
+    let repo_path = active_repo.command_repo_path(&repo_path)?;
+    let target = active_repo.resolve_existing_target(&repo_path, &relative_path)?;
     service.request(
         "delete-workspace-entry",
         json!({
             "repo": repo_path,
-            "relative_path": relative_path,
+            "relative_path": target.relative_path,
             "top_n": WORKSPACE_SYNC_TOP_N,
         }),
     )
 }
 
 #[tauri::command]
-fn open_path_in_default_editor(file_path: String) -> Result<(), String> {
-    let path = PathBuf::from(&file_path);
+fn open_repo_path_in_default_editor(
+    active_repo: State<'_, ActiveRepoBoundary>,
+    repo_path: String,
+    relative_path: String,
+) -> Result<(), String> {
+    let target = active_repo.resolve_existing_target(&repo_path, &relative_path)?;
+    open_path_in_default_editor(&target.target_path)
+}
+
+fn open_path_in_default_editor(path: &Path) -> Result<(), String> {
     if !path.exists() {
         return Err(format!("File does not exist: {}", path.display()));
     }
@@ -1321,8 +1603,16 @@ fn open_path_in_default_editor(file_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn reveal_path_in_file_explorer(file_path: String) -> Result<(), String> {
-    let path = PathBuf::from(&file_path);
+fn reveal_repo_path_in_file_explorer(
+    active_repo: State<'_, ActiveRepoBoundary>,
+    repo_path: String,
+    relative_path: String,
+) -> Result<(), String> {
+    let target = active_repo.resolve_existing_target(&repo_path, &relative_path)?;
+    reveal_path_in_file_explorer(&target.target_path)
+}
+
+fn reveal_path_in_file_explorer(path: &Path) -> Result<(), String> {
     if !path.exists() {
         return Err(format!("File does not exist: {}", path.display()));
     }
@@ -1346,9 +1636,9 @@ fn reveal_path_in_file_explorer(file_path: String) -> Result<(), String> {
     let mut command = {
         let mut command = Command::new("xdg-open");
         let target = if path.is_dir() {
-            path.clone()
+            path.to_path_buf()
         } else {
-            path.parent().unwrap_or(path.as_path()).to_path_buf()
+            path.parent().unwrap_or(path).to_path_buf()
         };
         command.arg(target);
         command
@@ -1367,6 +1657,54 @@ fn reveal_path_in_file_explorer(file_path: String) -> Result<(), String> {
                 ))
             }
         })
+}
+
+fn validate_new_project_path(project_path: &str) -> Result<PathBuf, String> {
+    let trimmed_path = project_path.trim();
+    if trimmed_path.is_empty() {
+        return Err("Project path cannot be empty.".to_string());
+    }
+    if trimmed_path.contains('\0') {
+        return Err("Project path cannot contain null bytes.".to_string());
+    }
+
+    let path = PathBuf::from(trimmed_path);
+    if !path.is_absolute() {
+        return Err("Project path must be absolute.".to_string());
+    }
+    if path.exists() {
+        return Err(format!("Project folder already exists: {}", path.display()));
+    }
+
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| "Project path must include a folder name.".to_string())?;
+    let file_name_text = file_name
+        .to_str()
+        .ok_or_else(|| "Project folder name must be valid Unicode.".to_string())?
+        .trim();
+    if file_name_text.is_empty() || file_name_text == "." || file_name_text == ".." {
+        return Err("Project folder name is not safe.".to_string());
+    }
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Project path must include a parent folder.".to_string())?;
+    let canonical_parent = parent.canonicalize().map_err(|err| {
+        format!(
+            "Unable to resolve project parent folder {}: {}",
+            parent.display(),
+            err
+        )
+    })?;
+    if !canonical_parent.is_dir() {
+        return Err(format!(
+            "Parent path is not a folder: {}",
+            canonical_parent.display()
+        ));
+    }
+
+    Ok(canonical_parent.join(file_name))
 }
 
 fn create_python_package_project(project_path: &Path) -> Result<NewProjectResult, String> {
@@ -1644,25 +1982,44 @@ fn workspace_root() -> Result<PathBuf, String> {
     Ok(root)
 }
 
-fn repo_graph_layout_path(repo_path: &str) -> Result<PathBuf, String> {
-    let repo_root = PathBuf::from(repo_path);
-    if !repo_root.exists() {
-        return Err(format!(
-            "Repository path does not exist: {}",
-            repo_root.display()
-        ));
+fn repo_graph_layout_path(repo_root: &Path) -> Result<PathBuf, String> {
+    let layout_path = repo_root.join(".helm").join("graph-layouts.v1.json");
+    if layout_path.exists() {
+        let canonical_layout = layout_path.canonicalize().map_err(|err| {
+            format!(
+                "Unable to resolve graph layout file {}: {}",
+                layout_path.display(),
+                err
+            )
+        })?;
+        ensure_canonical_path_inside_repo(&canonical_layout, repo_root, "Graph layout file")?;
+        return Ok(layout_path);
     }
-    if !repo_root.is_dir() {
-        return Err(format!(
-            "Repository path is not a directory: {}",
-            repo_root.display()
-        ));
+
+    let mut nearest_parent = layout_path
+        .parent()
+        .ok_or_else(|| "Graph layout path must include a parent folder.".to_string())?
+        .to_path_buf();
+    while !nearest_parent.exists() {
+        let parent = nearest_parent
+            .parent()
+            .ok_or_else(|| "Unable to resolve graph layout parent folder.".to_string())?;
+        nearest_parent = parent.to_path_buf();
     }
-    Ok(repo_root.join(".helm").join("graph-layouts.v1.json"))
+
+    let canonical_parent = nearest_parent.canonicalize().map_err(|err| {
+        format!(
+            "Unable to resolve graph layout parent folder {}: {}",
+            nearest_parent.display(),
+            err
+        )
+    })?;
+    ensure_canonical_path_inside_repo(&canonical_parent, repo_root, "Graph layout parent folder")?;
+    Ok(layout_path)
 }
 
-fn read_repo_graph_layouts(repo_path: &str) -> Result<RepoGraphLayouts, String> {
-    let layout_path = repo_graph_layout_path(repo_path)?;
+fn read_repo_graph_layouts(repo_root: &Path) -> Result<RepoGraphLayouts, String> {
+    let layout_path = repo_graph_layout_path(repo_root)?;
     if !layout_path.exists() {
         return Ok(RepoGraphLayouts::default());
     }
@@ -1673,8 +2030,8 @@ fn read_repo_graph_layouts(repo_path: &str) -> Result<RepoGraphLayouts, String> 
     Ok(normalize_repo_graph_layouts(parsed))
 }
 
-fn write_repo_graph_layouts(repo_path: &str, layouts: &RepoGraphLayouts) -> Result<(), String> {
-    let layout_path = repo_graph_layout_path(repo_path)?;
+fn write_repo_graph_layouts(repo_root: &Path, layouts: &RepoGraphLayouts) -> Result<(), String> {
+    let layout_path = repo_graph_layout_path(repo_root)?;
     if let Some(parent) = layout_path.parent() {
         fs::create_dir_all(parent)
             .map_err(|err| format!("Unable to create {}: {}", parent.display(), err))?;
@@ -2046,6 +2403,157 @@ mod tests {
         ))
     }
 
+    fn active_boundary_for_repo(repo_root: &Path) -> ActiveRepoBoundary {
+        let boundary = ActiveRepoBoundary::default();
+        boundary
+            .activate_repo_path(repo_root.to_str().expect("test path should be unicode"))
+            .expect("test repo should activate");
+        boundary
+    }
+
+    #[test]
+    fn active_repo_boundary_accepts_existing_repo_relative_targets() {
+        let repo_root = unique_test_project_parent("boundary-existing");
+        let file_path = repo_root.join("src/app.py");
+        fs::create_dir_all(file_path.parent().expect("file should have parent"))
+            .expect("test directory should be created");
+        fs::write(&file_path, "print('hello')\n").expect("test file should be written");
+        let boundary = active_boundary_for_repo(&repo_root);
+
+        let resolved = boundary
+            .resolve_existing_target(
+                repo_root.to_str().expect("test path should be unicode"),
+                "src/app.py",
+            )
+            .expect("repo-relative file should resolve");
+
+        assert_eq!(resolved.relative_path, "src/app.py");
+        assert_eq!(
+            resolved.target_path,
+            file_path
+                .canonicalize()
+                .expect("test file should canonicalize")
+        );
+        fs::remove_dir_all(repo_root).expect("test repo should be removed");
+    }
+
+    #[test]
+    fn active_repo_boundary_rejects_unsafe_relative_targets_and_repo_mismatches() {
+        let repo_root = unique_test_project_parent("boundary-rejects");
+        let other_root = unique_test_project_parent("boundary-other");
+        fs::create_dir_all(repo_root.join("src")).expect("test repo should be created");
+        fs::create_dir_all(&other_root).expect("other repo should be created");
+        fs::write(repo_root.join("src/app.py"), "print('hello')\n")
+            .expect("test file should be written");
+        let boundary = active_boundary_for_repo(&repo_root);
+        let repo = repo_root.to_str().expect("test path should be unicode");
+
+        for relative_path in [
+            "",
+            ".",
+            "..",
+            "../secret.txt",
+            "/tmp/secret.txt",
+            "src//app.py",
+        ] {
+            assert!(
+                boundary
+                    .resolve_existing_target(repo, relative_path)
+                    .is_err(),
+                "{relative_path:?} should be rejected"
+            );
+        }
+
+        let mismatch = boundary
+            .resolve_existing_target(
+                other_root.to_str().expect("test path should be unicode"),
+                "src/app.py",
+            )
+            .expect_err("stale repo paths should be rejected");
+        assert!(mismatch.contains("active repository"));
+
+        fs::remove_dir_all(repo_root).expect("test repo should be removed");
+        fs::remove_dir_all(other_root).expect("other repo should be removed");
+    }
+
+    #[test]
+    fn active_repo_boundary_accepts_creatable_targets_under_existing_repo_parent() {
+        let repo_root = unique_test_project_parent("boundary-creatable");
+        fs::create_dir_all(repo_root.join("src")).expect("test repo should be created");
+        let boundary = active_boundary_for_repo(&repo_root);
+
+        let resolved = boundary
+            .resolve_creatable_target(
+                repo_root.to_str().expect("test path should be unicode"),
+                "src/new/module.py",
+            )
+            .expect("creatable target should resolve through nearest existing parent");
+
+        assert_eq!(resolved.relative_path, "src/new/module.py");
+        assert_eq!(
+            resolved.target_path,
+            repo_root
+                .canonicalize()
+                .expect("test repo should canonicalize")
+                .join("src")
+                .join("new")
+                .join("module.py")
+        );
+        fs::remove_dir_all(repo_root).expect("test repo should be removed");
+    }
+
+    #[test]
+    fn graph_layout_path_stays_under_helm_directory_in_active_repo() {
+        let repo_root = unique_test_project_parent("layout-path");
+        fs::create_dir_all(&repo_root).expect("test repo should be created");
+        let canonical_repo = repo_root
+            .canonicalize()
+            .expect("test repo should canonicalize");
+
+        let layout_path =
+            repo_graph_layout_path(&canonical_repo).expect("layout path should stay inside repo");
+
+        assert_eq!(
+            layout_path,
+            canonical_repo.join(".helm").join("graph-layouts.v1.json")
+        );
+        fs::remove_dir_all(repo_root).expect("test repo should be removed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn active_repo_boundary_rejects_symlink_escapes() {
+        use std::os::unix::fs::symlink;
+
+        let repo_root = unique_test_project_parent("boundary-symlink");
+        let outside_root = unique_test_project_parent("boundary-outside");
+        fs::create_dir_all(&repo_root).expect("test repo should be created");
+        fs::create_dir_all(&outside_root).expect("outside dir should be created");
+        fs::write(outside_root.join("secret.txt"), "secret\n").expect("outside file should exist");
+        symlink(&outside_root, repo_root.join("linked"))
+            .expect("test symlink should be created on unix");
+        symlink(
+            outside_root.join("secret.txt"),
+            repo_root.join("linked-file.txt"),
+        )
+        .expect("test file symlink should be created on unix");
+        let boundary = active_boundary_for_repo(&repo_root);
+        let repo = repo_root.to_str().expect("test path should be unicode");
+
+        assert!(boundary
+            .resolve_existing_target(repo, "linked/secret.txt")
+            .is_err());
+        assert!(boundary
+            .resolve_creatable_target(repo, "linked/new.txt")
+            .is_err());
+        assert!(boundary
+            .resolve_creatable_target(repo, "linked-file.txt")
+            .is_err());
+
+        fs::remove_dir_all(repo_root).expect("test repo should be removed");
+        fs::remove_dir_all(outside_root).expect("outside dir should be removed");
+    }
+
     #[test]
     fn sanitize_python_package_name_keeps_valid_identifiers() {
         assert_eq!(sanitize_python_package_name("Cool App"), "cool_app");
@@ -2172,6 +2680,7 @@ fn main() {
     let builder = tauri::Builder::default()
         .manage(GraphViewMenuState::default())
         .manage(BackendService::default())
+        .manage(ActiveRepoBoundary::default())
         .manage(ActiveRepoWatcher::default());
     #[cfg(target_os = "macos")]
     let builder = builder.menu(|app| {
@@ -2223,8 +2732,8 @@ fn main() {
             save_workspace_file,
             move_workspace_entry,
             delete_workspace_entry,
-            open_path_in_default_editor,
-            reveal_path_in_file_explorer,
+            open_repo_path_in_default_editor,
+            reveal_repo_path_in_file_explorer,
             sync_graph_view_menu_state
         ])
         .run(tauri::generate_context!())

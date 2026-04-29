@@ -270,9 +270,7 @@ describe("SidebarPane", () => {
 
     await user.click(within(menu).getByRole("menuitem", { name: /Show in/ }));
 
-    expect(onRevealPathInFileExplorer).toHaveBeenCalledWith(
-      "/Users/noahphillips/Documents/git-repos/H.E.L.M./src/helm/ui/api.py",
-    );
+    expect(onRevealPathInFileExplorer).toHaveBeenCalledWith("src/helm/ui/api.py");
     expect(onOpenPathInDefaultEditor).not.toHaveBeenCalled();
   });
 

@@ -497,7 +497,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
     await delay(40);
   }
 
-  async openPathInDefaultEditor(_filePath: string): Promise<void> {
+  async openPathInDefaultEditor(_relativePath: string): Promise<void> {
     await delay(40);
   }
 
@@ -505,7 +505,7 @@ export class MockDesktopAdapter implements DesktopAdapter {
     await delay(40);
   }
 
-  async revealPathInFileExplorer(_filePath: string): Promise<void> {
+  async revealPathInFileExplorer(_relativePath: string): Promise<void> {
     await delay(40);
   }
 

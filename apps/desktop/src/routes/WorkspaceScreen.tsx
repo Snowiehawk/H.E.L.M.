@@ -440,26 +440,16 @@ function breadcrumbRelativePath(breadcrumb: GraphBreadcrumbDto): string | undefi
   return undefined;
 }
 
-function joinRepoPath(repoPath: string | undefined, relativePath?: string): string | undefined {
-  if (!repoPath) {
-    return undefined;
-  }
-
-  const normalizedRoot = repoPath.replaceAll("\\", "/");
-  const root = normalizedRoot === "/" ? "/" : normalizedRoot.replace(/\/+$/u, "");
+function graphRevealPath(relativePath?: string): string | undefined {
   const normalizedRelative = (relativePath ?? "")
     .replaceAll("\\", "/")
     .replace(/^\/+/u, "")
     .replace(/\/+$/u, "");
 
-  if (!normalizedRelative) {
-    return root;
-  }
-
-  return root === "/" ? `/${normalizedRelative}` : `${root}/${normalizedRelative}`;
+  return normalizedRelative || undefined;
 }
 
-function buildGraphPathItems(graph?: GraphView, repoPath?: string): GraphPathItem[] {
+function buildGraphPathItems(graph?: GraphView): GraphPathItem[] {
   if (!graph) {
     return [];
   }
@@ -478,14 +468,13 @@ function buildGraphPathItems(graph?: GraphView, repoPath?: string): GraphPathIte
       key: `repo:${repoBreadcrumb.nodeId}`,
       label: repoBreadcrumb.label,
       breadcrumb: repoBreadcrumb,
-      revealPath: joinRepoPath(repoPath),
     });
   }
 
   let moduleRevealPath: string | undefined;
   if (moduleBreadcrumb) {
     const relativePath = breadcrumbRelativePath(moduleBreadcrumb);
-    moduleRevealPath = joinRepoPath(repoPath, relativePath);
+    moduleRevealPath = graphRevealPath(relativePath);
     if (relativePath) {
       const parts = relativePath.split("/").filter(Boolean);
       parts.forEach((segment, index) => {
@@ -493,7 +482,7 @@ function buildGraphPathItems(graph?: GraphView, repoPath?: string): GraphPathIte
           key: `module:${moduleBreadcrumb.nodeId}:${index}:${segment}`,
           label: segment,
           breadcrumb: moduleBreadcrumb,
-          revealPath: joinRepoPath(repoPath, parts.slice(0, index + 1).join("/")),
+          revealPath: graphRevealPath(parts.slice(0, index + 1).join("/")),
         });
       });
     } else {
@@ -699,7 +688,6 @@ function buildFallbackGraphPathItems(
         level: "repo",
         label: repoSession.name,
       },
-      revealPath: joinRepoPath(repoSession.path),
     },
   ];
 
@@ -709,7 +697,7 @@ function buildFallbackGraphPathItems(
       ? moduleIdFromSymbolId(targetId)
       : undefined;
   const modulePath = relativePathForModuleId(moduleId, modules);
-  const moduleRevealPath = joinRepoPath(repoSession.path, modulePath);
+  const moduleRevealPath = graphRevealPath(modulePath);
 
   if (moduleId && modulePath) {
     const parts = modulePath.split("/").filter(Boolean);
@@ -724,7 +712,7 @@ function buildFallbackGraphPathItems(
         key: `fallback-module:${moduleId}:${index}:${segment}`,
         label: segment,
         breadcrumb: moduleBreadcrumb,
-        revealPath: joinRepoPath(repoSession.path, parts.slice(0, index + 1).join("/")),
+        revealPath: graphRevealPath(parts.slice(0, index + 1).join("/")),
       });
     });
   }
@@ -3956,7 +3944,7 @@ export function WorkspaceScreen() {
   }, [activeLevel, returnExpressionGraphView]);
   const graphPathItems = useMemo(() => {
     const baseItems = effectiveGraph
-      ? buildGraphPathItems(effectiveGraph, repoSession?.path)
+      ? buildGraphPathItems(effectiveGraph)
       : buildFallbackGraphPathItems(
           repoSession
             ? {
@@ -4168,10 +4156,10 @@ export function WorkspaceScreen() {
   };
 
   const handleRevealGraphPath = useCallback(
-    async (filePath: string) => {
+    async (relativePath: string) => {
       setGraphPathRevealError(null);
       try {
-        await adapter.revealPathInFileExplorer(filePath);
+        await adapter.revealPathInFileExplorer(relativePath);
       } catch (reason) {
         setGraphPathRevealError(
           reason instanceof Error
@@ -4184,12 +4172,12 @@ export function WorkspaceScreen() {
   );
 
   const handleRevealExplorerPath = useCallback(
-    (filePath: string) => adapter.revealPathInFileExplorer(filePath),
+    (relativePath: string) => adapter.revealPathInFileExplorer(relativePath),
     [adapter],
   );
 
   const handleOpenExplorerPathInDefaultEditor = useCallback(
-    (filePath: string) => adapter.openPathInDefaultEditor(filePath),
+    (relativePath: string) => adapter.openPathInDefaultEditor(relativePath),
     [adapter],
   );
 
