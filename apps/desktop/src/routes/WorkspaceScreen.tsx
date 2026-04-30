@@ -8,48 +8,15 @@ import {
   type CreateModeState,
   type GraphCreateIntent,
   type GraphExpressionGraphIntent,
-  type GraphFlowConnectionIntent,
-  type GraphFlowDeleteIntent,
   type GraphFlowEditIntent,
 } from "../components/graph/GraphCanvas";
-import {
-  functionInputParamNodeId,
-  parseFunctionInputSourceHandle,
-  parseInputSlotTargetHandle,
-  parseParameterEntryEdgeInputId,
-  parseValueSourceHandle,
-} from "../components/graph/flowDraftGraph";
 import {
   graphLayoutNodeKey,
   peekStoredGraphLayout,
   readStoredGraphLayout,
   writeStoredGraphLayout,
 } from "../components/graph/graphLayoutPersistence";
-import {
-  addDisconnectedFlowNode,
-  addFlowFunctionInput,
-  createFlowNode,
-  flowDocumentHandleFromBlueprintHandle,
-  flowFunctionInputRemovalSummary,
-  flowDocumentsEqual,
-  flowNodePayloadFromContent,
-  insertFlowNodeOnEdge,
-  isFlowNodeAuthorableKind,
-  moveFlowFunctionInput,
-  parseReturnInputTargetHandle,
-  removeFlowEdges,
-  removeFlowFunctionInputAndDownstreamUses,
-  removeFlowInputBindings,
-  removeFlowNodes,
-  updateFlowFunctionInput,
-  updateFlowNodePayload,
-  upsertFlowConnection,
-  upsertFlowInputBinding,
-  upsertFlowReturnInputBinding,
-  validateFlowConnection,
-  validateFlowInputBindingConnection,
-  validateFlowReturnInputBindingConnection,
-} from "../components/graph/flowDocument";
+import { isFlowNodeAuthorableKind } from "../components/graph/flowDocument";
 import { DesktopWindow } from "../components/layout/DesktopWindow";
 import { SidebarPane } from "../components/panes/SidebarPane";
 import { AppWindowActions } from "../components/shared/AppWindowActions";
@@ -65,10 +32,7 @@ import {
   normalizeExpressionGraphOrEmpty,
   returnExpressionFromPayload,
 } from "../components/graph/flowExpressionGraphEditing";
-import {
-  expressionFromFlowExpressionGraph,
-  normalizeFlowExpressionGraph,
-} from "../components/graph/flowExpressionGraph";
+import { expressionFromFlowExpressionGraph } from "../components/graph/flowExpressionGraph";
 import {
   BlueprintInspectorDrawer,
   type BlueprintInspectorDrawerAction,
@@ -86,7 +50,6 @@ import {
 import { useDesktopAdapter } from "../lib/adapter";
 import type {
   FlowExpressionGraph,
-  FlowGraphDocument,
   FlowInputSlot,
   GraphAbstractionLevel,
   GraphNodeKind,
@@ -101,7 +64,10 @@ import {
 import { useUiStore } from "../store/uiStore";
 import { WorkspaceFileEditorPanel } from "./WorkspaceScreen/WorkspaceFileEditorPanel";
 import { useBackendUndoCoordinator } from "./WorkspaceScreen/useBackendUndoCoordinator";
-import { useFlowDraftMutations } from "./WorkspaceScreen/useFlowDraftMutations";
+import {
+  useFlowDraftMutationCallbacks,
+  useFlowDraftMutations,
+} from "./WorkspaceScreen/useFlowDraftMutations";
 import { useGraphNavigation } from "./WorkspaceScreen/useGraphNavigation";
 import { useInspectorSourceState } from "./WorkspaceScreen/useInspectorSourceState";
 import { useWorkspaceFileOperations } from "./WorkspaceScreen/useWorkspaceFileOperations";
@@ -111,16 +77,11 @@ import {
   invalidateWorkspaceDataQueries,
   workspaceQueryKeys,
 } from "./WorkspaceScreen/workspaceQueries";
-import type {
-  ResolvedFlowInputBindingConnection,
-  ReturnExpressionGraphViewState,
-} from "./WorkspaceScreen/types";
+import type { ReturnExpressionGraphViewState } from "./WorkspaceScreen/types";
 import {
   buildFallbackGraphPathItems,
   buildGraphPathItems,
-  confirmFlowRemoval,
   DEFAULT_EXPLORER_SIDEBAR_WIDTH,
-  flowFunctionInputIdForParamNode,
   graphNodeRelativePath,
   INSPECTOR_SPACE_TAP_THRESHOLD_MS,
   moduleIdFromRelativePath,
@@ -1036,275 +997,41 @@ export function WorkspaceScreen() {
     [activeLevel, graphTargetId, repoSession?.path],
   );
 
-  const applyFlowDraftMutation = useCallback(
-    async ({
-      transform,
-      seededNodes,
-      selectedNodeId,
-    }: {
-      transform: (document: FlowGraphDocument) => FlowGraphDocument;
-      seededNodes?: Array<{
-        nodeId: string;
-        kind: GraphNodeKind;
-        position: { x: number; y: number };
-      }>;
-      selectedNodeId?: string;
-    }) => {
-      if (!graphTargetId?.startsWith("symbol:") || activeFlowDraft?.symbolId !== graphTargetId) {
-        throw new Error("Editable flow draft state is no longer available for this symbol.");
-      }
-
-      const flowTargetId = graphTargetId;
-      const currentDocument = activeFlowDraft.document;
-      const nextDocument = transform(currentDocument);
-      if (flowDocumentsEqual(currentDocument, nextDocument)) {
-        return {
-          document: currentDocument,
-          result: undefined,
-        };
-      }
-      const optimisticDocument: FlowGraphDocument = {
-        ...nextDocument,
-        syncState: currentDocument.syncState,
-        diagnostics: [...currentDocument.diagnostics],
-        sourceHash: nextDocument.sourceHash ?? currentDocument.sourceHash ?? null,
-        editable: currentDocument.editable,
-      };
-
-      await syncFlowDraftLayout(currentDocument, optimisticDocument, seededNodes);
-      setFlowDraftState({
-        symbolId: flowTargetId,
-        baseDocument: activeFlowDraft.baseDocument,
-        document: optimisticDocument,
-        status: "saving",
-        error: null,
-      });
-      if (selectedNodeId) {
-        selectNode(selectedNodeId);
-      }
-
-      try {
-        const result = await handleApplyEdit(
-          {
-            kind: "replace_flow_graph",
-            targetId: flowTargetId,
-            flowGraph: optimisticDocument,
-          },
-          { preserveView: true },
-        );
-
-        if (
-          result.flowSyncState === "clean" &&
-          inspectorSourceTarget?.fetchMode === "editable" &&
-          inspectorSourceTarget.targetId === flowTargetId
-        ) {
-          try {
-            const refreshedSource = await queryClient.fetchQuery({
-              queryKey: workspaceQueryKeys.editableNodeSource(
-                repoSession?.id,
-                "editable",
-                flowTargetId,
-              ),
-              queryFn: () => adapter.getEditableNodeSource(flowTargetId),
-            });
-            setInspectorEditableSourceOverride(refreshedSource);
-            setInspectorSourceVersion((current) => current + 1);
-            setInspectorActionError(null);
-          } catch (reason) {
-            setInspectorActionError(
-              reason instanceof Error
-                ? `Graph updated, but source refresh failed: ${reason.message}`
-                : "Graph updated, but source refresh failed.",
-            );
-          }
-        }
-
-        setFlowDraftState((current) => {
-          if (!current || current.symbolId !== flowTargetId) {
-            return current;
-          }
-
-          return {
-            symbolId: current.symbolId,
-            baseDocument: current.baseDocument,
-            document: {
-              ...optimisticDocument,
-              syncState: result.flowSyncState ?? optimisticDocument.syncState,
-              diagnostics: [...result.diagnostics],
-            },
-            status: "reconcile-pending",
-            error: null,
-            reconcileAfterUpdatedAt: graphQuery.dataUpdatedAt,
-          };
-        });
-
-        return {
-          document: optimisticDocument,
-          result,
-        };
-      } catch (reason) {
-        const message =
-          reason instanceof Error ? reason.message : "Unable to update the current visual flow.";
-        setFlowDraftState((current) => {
-          if (!current || current.symbolId !== flowTargetId) {
-            return current;
-          }
-
-          return {
-            ...current,
-            document: optimisticDocument,
-            status: "dirty",
-            error: message,
-          };
-        });
-        throw reason;
-      }
-    },
-    [
-      activeFlowDraft,
-      adapter,
-      graphQuery.dataUpdatedAt,
-      graphTargetId,
-      handleApplyEdit,
-      inspectorSourceTarget?.fetchMode,
-      inspectorSourceTarget?.targetId,
-      queryClient,
-      repoSession?.id,
-      selectNode,
-      syncFlowDraftLayout,
-    ],
-  );
-
-  const selectedFlowEntryNodeId = activeFlowDraft?.document.nodes.find(
-    (node) => node.kind === "entry",
-  )?.id;
-
-  const handleAddFlowFunctionInput = useCallback(
-    (draft: { name?: string; defaultExpression?: string | null }) => {
-      void applyFlowDraftMutation({
-        transform: (document) => addFlowFunctionInput(document, draft),
-        selectedNodeId: selectedFlowEntryNodeId,
-      }).catch((reason) => {
-        const message = reason instanceof Error ? reason.message : "Unable to add the flow input.";
-        setCreateModeError(message);
-      });
-    },
-    [applyFlowDraftMutation, selectedFlowEntryNodeId],
-  );
-
-  const handleUpdateFlowFunctionInput = useCallback(
-    (
-      inputId: string,
-      patch: {
-        name?: string;
-        defaultExpression?: string | null;
-      },
-    ) => {
-      void applyFlowDraftMutation({
-        transform: (document) => updateFlowFunctionInput(document, inputId, patch),
-        selectedNodeId: selectedFlowEntryNodeId,
-      }).catch((reason) => {
-        const message =
-          reason instanceof Error ? reason.message : "Unable to update the flow input.";
-        setCreateModeError(message);
-      });
-    },
-    [applyFlowDraftMutation, selectedFlowEntryNodeId],
-  );
-
-  const handleMoveFlowFunctionInput = useCallback(
-    (inputId: string, direction: -1 | 1) => {
-      void applyFlowDraftMutation({
-        transform: (document) => moveFlowFunctionInput(document, inputId, direction),
-        selectedNodeId: selectedFlowEntryNodeId,
-      }).catch((reason) => {
-        const message =
-          reason instanceof Error ? reason.message : "Unable to reorder the flow input.";
-        setCreateModeError(message);
-      });
-    },
-    [applyFlowDraftMutation, selectedFlowEntryNodeId],
-  );
-
-  const confirmFlowFunctionInputRemoval = useCallback(
-    (
-      inputIds: string[],
-      subjectLabel: "input" | "param node" = "input",
-    ): Promise<string[] | undefined> => {
-      if (!activeFlowDraft) {
-        return Promise.resolve(undefined);
-      }
-      return (async () => {
-        const uniqueInputIds = [...new Set(inputIds)];
-        for (const inputId of uniqueInputIds) {
-          const summary = flowFunctionInputRemovalSummary(activeFlowDraft.document, inputId);
-          if (!summary.input) {
-            continue;
-          }
-          const downstreamUseCount = summary.downstreamUseCount;
-          const connectionCount = summary.connectionCount;
-          const shouldDelete = await confirmFlowRemoval(
-            `Are you sure you would like to delete ${subjectLabel} "${summary.input.name}"? It has ${downstreamUseCount} downstream use${downstreamUseCount === 1 ? "" : "s"} and ${connectionCount} connection${connectionCount === 1 ? "" : "s"}.`,
-            {
-              okLabel: subjectLabel === "param node" ? "Delete param" : "Delete input",
-              title: subjectLabel === "param node" ? "Delete param node" : "Delete input",
-            },
-          );
-          if (!shouldDelete) {
-            return undefined;
-          }
-          if (!downstreamUseCount && !connectionCount) {
-            continue;
-          }
-          const shouldRemoveDownstream = await confirmFlowRemoval(
-            `Would you like to remove downstream uses and connections for "${summary.input.name}"?`,
-            {
-              okLabel: "Remove downstream",
-              title: "Remove downstream uses",
-            },
-          );
-          if (!shouldRemoveDownstream) {
-            return undefined;
-          }
-        }
-        return uniqueInputIds.filter((inputId) =>
-          Boolean(flowFunctionInputRemovalSummary(activeFlowDraft.document, inputId).input),
-        );
-      })();
-    },
-    [activeFlowDraft],
-  );
-
-  const removeFlowFunctionInputWithConfirmation = useCallback(
-    async (inputId: string) => {
-      if (!activeFlowDraft) {
-        return;
-      }
-      const inputIdsToRemove = await confirmFlowFunctionInputRemoval([inputId], "input");
-      if (!inputIdsToRemove?.length) {
-        return;
-      }
-      await applyFlowDraftMutation({
-        transform: (document) =>
-          inputIdsToRemove.reduce(
-            (nextDocument, nextInputId) =>
-              removeFlowFunctionInputAndDownstreamUses(nextDocument, nextInputId),
-            document,
-          ),
-        selectedNodeId: selectedFlowEntryNodeId,
-      }).catch((reason) => {
-        const message =
-          reason instanceof Error ? reason.message : "Unable to remove the flow input.";
-        setCreateModeError(message);
-      });
-    },
-    [
-      activeFlowDraft,
-      applyFlowDraftMutation,
-      confirmFlowFunctionInputRemoval,
-      selectedFlowEntryNodeId,
-    ],
-  );
+  const {
+    ensureFlowDraftForDocument,
+    handleAddFlowFunctionInput,
+    handleConnectFlowEdge,
+    handleDeleteFlowSelection,
+    handleDisconnectFlowEdge,
+    handleMoveFlowFunctionInput,
+    handleReconnectFlowEdge,
+    handleReturnExpressionGraphChange,
+    handleUpdateFlowFunctionInput,
+    markActiveFlowDraftError,
+    removeFlowFunctionInputWithConfirmation,
+    submitFlowComposerMutation,
+  } = useFlowDraftMutationCallbacks({
+    activeFlowDraft,
+    adapter,
+    applyStructuralEdit: handleApplyEdit,
+    effectiveGraph,
+    graphDataUpdatedAt: graphQuery.dataUpdatedAt,
+    graphTargetId,
+    inspectorSourceTarget,
+    queryClient,
+    repoSessionId: repoSession?.id,
+    requestClearSelectionState,
+    returnExpressionGraphView,
+    selectNode,
+    setCreateModeError,
+    setFlowDraftState,
+    setInspectorActionError,
+    setInspectorEditableSourceOverride,
+    setInspectorSourceVersion,
+    setIsSubmittingExpressionGraph,
+    setReturnExpressionGraphView,
+    syncFlowDraftLayout,
+  });
 
   saveInspectorDraftRef.current = async (targetId: string, draftContent: string) => {
     await handleSaveNodeSource(targetId, draftContent);
@@ -1351,140 +1078,24 @@ export function WorkspaceScreen() {
           createComposer.kind === "flow" &&
           graphTargetId?.startsWith("symbol:")
         ) {
-          if (activeFlowDraft?.symbolId !== graphTargetId) {
-            throw new Error("Editable flow draft state is no longer available for this symbol.");
-          }
-
-          if (payload.kind === "flow_param") {
-            let createdParamNodeId: string | undefined;
-            const seededNodes: Array<{
-              nodeId: string;
-              kind: GraphNodeKind;
-              position: { x: number; y: number };
-            }> = [];
-            await applyFlowDraftMutation({
-              transform: (document) => {
-                const previousInputIds = new Set(
-                  (document.functionInputs ?? []).map((input) => input.id),
-                );
-                const nextDocument = addFlowFunctionInput(document, {
-                  name: payload.name,
-                  defaultExpression: payload.defaultExpression,
-                });
-                const createdInput = (nextDocument.functionInputs ?? []).find(
-                  (input) => !previousInputIds.has(input.id),
-                );
-                if (createdInput) {
-                  createdParamNodeId = functionInputParamNodeId(
-                    nextDocument.symbolId,
-                    createdInput,
-                  );
-                  seededNodes.push({
-                    nodeId: createdParamNodeId,
-                    kind: "param",
-                    position: createComposer.flowPosition,
-                  });
-                }
-                return nextDocument;
-              },
-              seededNodes,
-            });
-
-            if (createdParamNodeId) {
+          const flowResult = await submitFlowComposerMutation(payload, createComposer);
+          if (flowResult.kind === "flow_param") {
+            if (flowResult.createdParamNodeId) {
               setFlowInputDisplayMode("param_nodes");
-              selectNode(createdParamNodeId);
-              setPendingCreatedNodeId(createdParamNodeId);
+              selectNode(flowResult.createdParamNodeId);
+              setPendingCreatedNodeId(flowResult.createdParamNodeId);
             }
             setCreateComposer(undefined);
             setCreateModeState("active");
             return;
           }
 
-          if (createComposer.mode === "edit" && createComposer.editingNodeId) {
-            const nextPayload =
-              payload.payload ?? flowNodePayloadFromContent(payload.flowNodeKind, payload.content);
-            await applyFlowDraftMutation({
-              transform: (document) =>
-                updateFlowNodePayload(
-                  document,
-                  createComposer.editingNodeId as string,
-                  nextPayload,
-                ),
-              selectedNodeId: createComposer.editingNodeId,
-            });
+          if (flowResult.kind === "flow_edit") {
             setCreateComposer(undefined);
             setCreateModeState(resumeCreateMode ? "active" : "inactive");
             return;
           }
 
-          createdNodeKind = payload.flowNodeKind;
-          const nextNode = {
-            ...createFlowNode(graphTargetId, payload.flowNodeKind),
-            payload:
-              payload.payload ?? flowNodePayloadFromContent(payload.flowNodeKind, payload.content),
-          };
-          const seededNodes: Array<{
-            nodeId: string;
-            kind: GraphNodeKind;
-            position: { x: number; y: number };
-          }> = [
-            {
-              nodeId: nextNode.id,
-              kind: nextNode.kind,
-              position: createComposer.flowPosition,
-            },
-          ];
-          await applyFlowDraftMutation({
-            transform: (document) => {
-              let nextDocument = addDisconnectedFlowNode(document, nextNode);
-              if (createComposer.seedFlowConnection) {
-                const existingEdge = document.edges.find(
-                  (edge) =>
-                    edge.sourceId === createComposer.seedFlowConnection?.sourceNodeId &&
-                    edge.sourceHandle === createComposer.seedFlowConnection?.sourceHandle,
-                );
-                nextDocument = existingEdge
-                  ? insertFlowNodeOnEdge(document, nextNode, existingEdge.id)
-                  : upsertFlowConnection(nextDocument, {
-                      sourceId: createComposer.seedFlowConnection.sourceNodeId,
-                      sourceHandle: createComposer.seedFlowConnection.sourceHandle,
-                      targetId: nextNode.id,
-                      targetHandle: "in",
-                    });
-              }
-
-              (payload.starterSteps ?? []).forEach((starterStep, index) => {
-                const starterNode = {
-                  ...createFlowNode(graphTargetId, starterStep.flowNodeKind),
-                  payload: starterStep.payload,
-                };
-                const starterPosition = {
-                  x: createComposer.flowPosition.x + 280,
-                  y:
-                    createComposer.flowPosition.y +
-                    (starterStep.sourceHandle === "body" ? -150 : 150) +
-                    index * 32,
-                };
-                seededNodes.push({
-                  nodeId: starterNode.id,
-                  kind: starterNode.kind,
-                  position: starterPosition,
-                });
-                nextDocument = upsertFlowConnection(
-                  addDisconnectedFlowNode(nextDocument, starterNode),
-                  {
-                    sourceId: nextNode.id,
-                    sourceHandle: starterStep.sourceHandle,
-                    targetId: starterNode.id,
-                    targetHandle: "in",
-                  },
-                );
-              });
-              return nextDocument;
-            },
-            seededNodes,
-            selectedNodeId: nextNode.id,
-          });
           setPendingCreatedNodeId(undefined);
           setCreateComposer(undefined);
           setCreateModeState("active");
@@ -1516,17 +1127,7 @@ export function WorkspaceScreen() {
           (payload.kind === "flow" || payload.kind === "flow_param") &&
           graphTargetId?.startsWith("symbol:")
         ) {
-          setFlowDraftState((current) => {
-            if (!current || current.symbolId !== graphTargetId) {
-              return current;
-            }
-
-            return {
-              ...current,
-              status: "dirty",
-              error: message,
-            };
-          });
+          markActiveFlowDraftError(graphTargetId, message);
         }
       } finally {
         setIsSubmittingCreate(false);
@@ -1534,93 +1135,17 @@ export function WorkspaceScreen() {
     },
     [
       activeLevel,
-      activeFlowDraft,
-      applyFlowDraftMutation,
       createComposer,
       createModeState,
       focusGraph,
       graphTargetId,
       handleApplyEdit,
+      markActiveFlowDraftError,
       seedCreatedNodeLayout,
       selectNode,
       setFlowInputDisplayMode,
+      submitFlowComposerMutation,
     ],
-  );
-
-  const resolveFlowDocumentConnection = useCallback(
-    (connection: GraphFlowConnectionIntent) => {
-      if (!activeFlowDraft) {
-        return undefined;
-      }
-
-      const sourceHandle = flowDocumentHandleFromBlueprintHandle(connection.sourceHandle, "source");
-      const targetHandle = flowDocumentHandleFromBlueprintHandle(connection.targetHandle, "target");
-      if (!sourceHandle || !targetHandle) {
-        return undefined;
-      }
-
-      const liveNodeIds = new Set(activeFlowDraft.document.nodes.map((node) => node.id));
-      if (!liveNodeIds.has(connection.sourceId) || !liveNodeIds.has(connection.targetId)) {
-        return undefined;
-      }
-
-      return {
-        sourceId: connection.sourceId,
-        sourceHandle,
-        targetId: connection.targetId,
-        targetHandle,
-      };
-    },
-    [activeFlowDraft],
-  );
-
-  const resolveFlowInputBindingConnection = useCallback(
-    (connection: GraphFlowConnectionIntent): ResolvedFlowInputBindingConnection | undefined => {
-      if (!activeFlowDraft) {
-        return undefined;
-      }
-
-      const sourceId =
-        parseFunctionInputSourceHandle(connection.sourceHandle) ??
-        parseValueSourceHandle(connection.sourceHandle) ??
-        (() => {
-          const sourceNode = effectiveGraph?.nodes.find((node) => node.id === connection.sourceId);
-          const value =
-            sourceNode?.metadata.source_id ??
-            sourceNode?.metadata.sourceId ??
-            sourceNode?.metadata.value_source_id ??
-            sourceNode?.metadata.valueSourceId ??
-            sourceNode?.metadata.function_input_id ??
-            sourceNode?.metadata.functionInputId;
-          return typeof value === "string" ? value : undefined;
-        })();
-      const slotId = parseInputSlotTargetHandle(connection.targetHandle);
-      if (!sourceId) {
-        return undefined;
-      }
-      if (slotId) {
-        return {
-          kind: "slot",
-          sourceId,
-          slotId,
-        };
-      }
-      const targetNodeId = parseReturnInputTargetHandle(connection.targetHandle);
-      if (
-        targetNodeId &&
-        activeFlowDraft.document.nodes.some(
-          (node) => node.id === targetNodeId && node.kind === "return",
-        )
-      ) {
-        return {
-          kind: "return-input",
-          sourceId,
-          targetNodeId,
-        };
-      }
-      return undefined;
-    },
-    [activeFlowDraft, effectiveGraph?.nodes],
   );
 
   const handleOpenFlowEditComposer = useCallback(
@@ -1696,13 +1221,7 @@ export function WorkspaceScreen() {
       }
 
       if (activeFlowDraft?.symbolId !== graphTargetId) {
-        setFlowDraftState({
-          symbolId: graphTargetId,
-          baseDocument: draftDocument,
-          document: draftDocument,
-          status: "idle",
-          error: null,
-        });
+        ensureFlowDraftForDocument(graphTargetId, draftDocument);
       }
       setCreateComposer(undefined);
       setCreateModeError(null);
@@ -1727,6 +1246,7 @@ export function WorkspaceScreen() {
       activeFlowDraft,
       activeLevel,
       createModeState,
+      ensureFlowDraftForDocument,
       flowDraftSeedDocument,
       graphTargetId,
       selectNode,
@@ -1742,331 +1262,6 @@ export function WorkspaceScreen() {
       current ? { ...current, selectedExpressionNodeId: nodeId } : current,
     );
   }, []);
-
-  const handleReturnExpressionGraphChange = useCallback(
-    (nextGraph: FlowExpressionGraph, options?: { selectedExpressionNodeId?: string }) => {
-      const view = returnExpressionGraphView;
-      if (!view) {
-        return;
-      }
-
-      const normalizedGraph = normalizeFlowExpressionGraph(nextGraph) ?? EMPTY_EXPRESSION_GRAPH;
-      const sourceResult = expressionFromFlowExpressionGraph(normalizedGraph);
-      const selectedExpressionNodeId = options?.selectedExpressionNodeId;
-
-      if (sourceResult.diagnostics.length || !sourceResult.expression.trim()) {
-        setReturnExpressionGraphView({
-          ...view,
-          selectedExpressionNodeId,
-          draftGraph: normalizedGraph,
-          draftExpression: sourceResult.expression,
-          diagnostics: sourceResult.diagnostics,
-          isDraftOnly: true,
-          error: null,
-        });
-        return;
-      }
-
-      setReturnExpressionGraphView({
-        ...view,
-        selectedExpressionNodeId,
-        draftGraph: normalizedGraph,
-        draftExpression: sourceResult.expression,
-        diagnostics: [],
-        isDraftOnly: false,
-        error: null,
-      });
-      setIsSubmittingExpressionGraph(true);
-      void (async () => {
-        try {
-          await applyFlowDraftMutation({
-            transform: (document) => {
-              const targetNode = document.nodes.find(
-                (node) => node.id === view.returnNodeId && node.kind === "return",
-              );
-              if (!targetNode) {
-                throw new Error("Return node is no longer available in this flow draft.");
-              }
-              return updateFlowNodePayload(document, view.returnNodeId, {
-                ...targetNode.payload,
-                expression: sourceResult.expression,
-                expression_graph: normalizedGraph,
-              });
-            },
-            selectedNodeId: view.returnNodeId,
-          });
-          setReturnExpressionGraphView((current) =>
-            current && current.returnNodeId === view.returnNodeId
-              ? {
-                  ...current,
-                  diagnostics: [],
-                  isDraftOnly: false,
-                  error: null,
-                }
-              : current,
-          );
-        } catch (reason) {
-          const message =
-            reason instanceof Error
-              ? reason.message
-              : "Unable to save the return expression graph.";
-          setReturnExpressionGraphView((current) =>
-            current && current.returnNodeId === view.returnNodeId
-              ? {
-                  ...current,
-                  draftGraph: normalizedGraph,
-                  draftExpression: sourceResult.expression,
-                  diagnostics: [],
-                  isDraftOnly: true,
-                  error: message,
-                }
-              : current,
-          );
-        } finally {
-          setIsSubmittingExpressionGraph(false);
-        }
-      })();
-    },
-    [applyFlowDraftMutation, returnExpressionGraphView],
-  );
-
-  const handleConnectFlowEdge = useCallback(
-    (connectionIntent: GraphFlowConnectionIntent) => {
-      if (!activeFlowDraft) {
-        return;
-      }
-      const inputBindingConnection = resolveFlowInputBindingConnection(connectionIntent);
-      if (inputBindingConnection) {
-        const validation =
-          inputBindingConnection.kind === "return-input"
-            ? validateFlowReturnInputBindingConnection(
-                activeFlowDraft.document,
-                inputBindingConnection,
-              )
-            : validateFlowInputBindingConnection(activeFlowDraft.document, inputBindingConnection);
-        if (!validation.ok) {
-          setCreateModeError(validation.message);
-          return;
-        }
-        void applyFlowDraftMutation({
-          transform: (document) =>
-            inputBindingConnection.kind === "return-input"
-              ? upsertFlowReturnInputBinding(document, inputBindingConnection)
-              : upsertFlowInputBinding(document, inputBindingConnection),
-        }).catch((reason) => {
-          const message =
-            reason instanceof Error ? reason.message : "Unable to bind the selected value source.";
-          setCreateModeError(message);
-        });
-        return;
-      }
-      const connection = resolveFlowDocumentConnection(connectionIntent);
-      if (!connection) {
-        return;
-      }
-
-      const validation = validateFlowConnection(activeFlowDraft.document, connection);
-      if (!validation.ok) {
-        setCreateModeError(validation.message);
-        return;
-      }
-
-      void applyFlowDraftMutation({
-        transform: (document) => upsertFlowConnection(document, connection),
-      }).catch((reason) => {
-        const message =
-          reason instanceof Error ? reason.message : "Unable to connect the selected flow nodes.";
-        setCreateModeError(message);
-      });
-    },
-    [
-      activeFlowDraft,
-      applyFlowDraftMutation,
-      resolveFlowDocumentConnection,
-      resolveFlowInputBindingConnection,
-    ],
-  );
-
-  const handleReconnectFlowEdge = useCallback(
-    (edgeId: string, connectionIntent: GraphFlowConnectionIntent) => {
-      if (!activeFlowDraft) {
-        return;
-      }
-      const inputBindingConnection = resolveFlowInputBindingConnection(connectionIntent);
-      if (inputBindingConnection) {
-        const validation =
-          inputBindingConnection.kind === "return-input"
-            ? validateFlowReturnInputBindingConnection(
-                activeFlowDraft.document,
-                inputBindingConnection,
-              )
-            : validateFlowInputBindingConnection(activeFlowDraft.document, inputBindingConnection);
-        if (!validation.ok) {
-          setCreateModeError(validation.message);
-          return;
-        }
-        const previousBindingId = edgeId.startsWith("data:")
-          ? edgeId.slice("data:".length)
-          : undefined;
-        void applyFlowDraftMutation({
-          transform: (document) =>
-            inputBindingConnection.kind === "return-input"
-              ? upsertFlowReturnInputBinding(document, inputBindingConnection, previousBindingId)
-              : upsertFlowInputBinding(document, inputBindingConnection, previousBindingId),
-        }).catch((reason) => {
-          const message =
-            reason instanceof Error
-              ? reason.message
-              : "Unable to reconnect the selected value source.";
-          setCreateModeError(message);
-        });
-        return;
-      }
-      const connection = resolveFlowDocumentConnection(connectionIntent);
-      if (!connection) {
-        return;
-      }
-
-      const validation = validateFlowConnection(activeFlowDraft.document, connection, edgeId);
-      if (!validation.ok) {
-        setCreateModeError(validation.message);
-        return;
-      }
-
-      void applyFlowDraftMutation({
-        transform: (document) => upsertFlowConnection(document, connection, edgeId),
-      }).catch((reason) => {
-        const message =
-          reason instanceof Error ? reason.message : "Unable to reconnect the selected flow edge.";
-        setCreateModeError(message);
-      });
-    },
-    [
-      activeFlowDraft,
-      applyFlowDraftMutation,
-      resolveFlowDocumentConnection,
-      resolveFlowInputBindingConnection,
-    ],
-  );
-
-  const handleDisconnectFlowEdge = useCallback(
-    (edgeId: string) => {
-      const functionInputId = parseParameterEntryEdgeInputId(edgeId);
-      if (functionInputId) {
-        void removeFlowFunctionInputWithConfirmation(functionInputId);
-        return;
-      }
-      if (edgeId.startsWith("data:")) {
-        const bindingId = edgeId.slice("data:".length);
-        void applyFlowDraftMutation({
-          transform: (document) => removeFlowInputBindings(document, [bindingId]),
-        }).catch((reason) => {
-          const message =
-            reason instanceof Error
-              ? reason.message
-              : "Unable to disconnect the selected value binding.";
-          setCreateModeError(message);
-        });
-        return;
-      }
-      void applyFlowDraftMutation({
-        transform: (document) => removeFlowEdges(document, [edgeId]),
-      }).catch((reason) => {
-        const message =
-          reason instanceof Error ? reason.message : "Unable to disconnect the selected flow edge.";
-        setCreateModeError(message);
-      });
-    },
-    [applyFlowDraftMutation, removeFlowFunctionInputWithConfirmation],
-  );
-
-  const handleDeleteFlowSelection = useCallback(
-    (selection: GraphFlowDeleteIntent) => {
-      if (!selection.nodeIds.length && !selection.edgeIds.length) {
-        return;
-      }
-
-      void (async () => {
-        const selectedNodeById = new Map(
-          (effectiveGraph?.nodes ?? []).map((node) => [node.id, node] as const),
-        );
-        const functionInputIdsFromParamNodes = activeFlowDraft
-          ? selection.nodeIds.flatMap((nodeId) => {
-              const functionInputId = flowFunctionInputIdForParamNode(
-                selectedNodeById.get(nodeId),
-                activeFlowDraft.document,
-              );
-              return functionInputId ? [functionInputId] : [];
-            })
-          : [];
-        const functionInputIdsFromEdges = selection.edgeIds.flatMap((edgeId) => {
-          const functionInputId = parseParameterEntryEdgeInputId(edgeId);
-          return functionInputId ? [functionInputId] : [];
-        });
-        const functionInputIdsToRemove = [
-          ...new Set([...functionInputIdsFromParamNodes, ...functionInputIdsFromEdges]),
-        ];
-        let confirmedFunctionInputIdsToRemove = functionInputIdsToRemove;
-        if (functionInputIdsToRemove.length) {
-          const confirmedInputIds = await confirmFlowFunctionInputRemoval(
-            functionInputIdsToRemove,
-            functionInputIdsFromParamNodes.length ? "param node" : "input",
-          );
-          if (!confirmedInputIds?.length) {
-            return;
-          }
-          confirmedFunctionInputIdsToRemove = confirmedInputIds;
-        }
-
-        const cleared = await requestClearSelectionState();
-        if (!cleared) {
-          return;
-        }
-
-        try {
-          await applyFlowDraftMutation({
-            transform: (document) => {
-              let nextDocument = document;
-              if (selection.nodeIds.length) {
-                nextDocument = removeFlowNodes(nextDocument, selection.nodeIds);
-              }
-              if (selection.edgeIds.length) {
-                const dataBindingIds = selection.edgeIds
-                  .filter(
-                    (edgeId) =>
-                      edgeId.startsWith("data:") && !parseParameterEntryEdgeInputId(edgeId),
-                  )
-                  .map((edgeId) => edgeId.slice("data:".length));
-                const controlEdgeIds = selection.edgeIds.filter(
-                  (edgeId) => !edgeId.startsWith("data:"),
-                );
-                nextDocument = removeFlowInputBindings(nextDocument, dataBindingIds);
-                nextDocument = removeFlowEdges(nextDocument, controlEdgeIds);
-              }
-              confirmedFunctionInputIdsToRemove.forEach((functionInputId) => {
-                nextDocument = removeFlowFunctionInputAndDownstreamUses(
-                  nextDocument,
-                  functionInputId,
-                );
-              });
-              return nextDocument;
-            },
-          });
-        } catch (reason) {
-          const message =
-            reason instanceof Error ? reason.message : "Unable to delete the selected flow items.";
-          setCreateModeError(message);
-        }
-      })();
-    },
-    [
-      activeFlowDraft,
-      applyFlowDraftMutation,
-      confirmFlowFunctionInputRemoval,
-      effectiveGraph,
-      requestClearSelectionState,
-    ],
-  );
 
   const requestInspectorClose = useCallback(async () => {
     const draftContent = inspectorDraftContentRef.current;
