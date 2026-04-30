@@ -24,12 +24,12 @@ from helm.ui.projection_context import (
 
 
 def default_level(context: ProjectionContext) -> GraphAbstractionLevel:
-    internal_modules = context.internal_modules()
-    if not internal_modules:
+    report = context.graph.report
+    if report.module_count == 0 and report.symbol_count == 0:
         return GraphAbstractionLevel.REPO
-    if len(internal_modules) <= 8:
-        return GraphAbstractionLevel.SYMBOL
-    return GraphAbstractionLevel.MODULE
+    if report.module_count > 8 or report.symbol_count > 60:
+        return GraphAbstractionLevel.MODULE
+    return GraphAbstractionLevel.SYMBOL
 
 
 def default_focus_node_id(context: ProjectionContext) -> str:
@@ -37,11 +37,12 @@ def default_focus_node_id(context: ProjectionContext) -> str:
     if level == GraphAbstractionLevel.REPO:
         return context.graph.repo_id
     if level == GraphAbstractionLevel.MODULE:
-        internal_modules = context.internal_modules()
-        return internal_modules[0].node_id if internal_modules else context.graph.repo_id
+        return context.graph.repo_id
 
     symbol_scores: dict[str, int] = {}
     for edge in context.graph.edges:
+        if edge.kind != EdgeKind.CALLS:
+            continue
         symbol_scores[edge.source_id] = symbol_scores.get(edge.source_id, 0) + 1
         symbol_scores[edge.target_id] = symbol_scores.get(edge.target_id, 0) + 1
 

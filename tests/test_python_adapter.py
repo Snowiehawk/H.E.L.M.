@@ -74,9 +74,48 @@ class PythonRepoAdapterTests(unittest.TestCase):
             }
             write_repo_files(large_root, large_files)
 
+            dense_root = Path(tmp_dir) / "dense"
+            dense_source = "\n\n".join(
+                f"def run_{index}():\n    return {index}\n" for index in range(61)
+            )
+            write_repo_files(dense_root, {"service.py": dense_source})
+
+            large_adapter = PythonRepoAdapter.scan(large_root)
+            dense_adapter = PythonRepoAdapter.scan(dense_root)
+
             self.assertEqual(PythonRepoAdapter.scan(empty_root).default_level().value, "repo")
             self.assertEqual(PythonRepoAdapter.scan(small_root).default_level().value, "symbol")
-            self.assertEqual(PythonRepoAdapter.scan(large_root).default_level().value, "module")
+            self.assertEqual(large_adapter.default_level().value, "module")
+            self.assertEqual(dense_adapter.default_level().value, "module")
+            self.assertEqual(large_adapter.default_focus_node_id(), large_adapter.graph.repo_id)
+            self.assertEqual(dense_adapter.default_focus_node_id(), dense_adapter.graph.repo_id)
+
+    def test_default_symbol_focus_scores_only_call_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            write_repo_files(
+                root,
+                {
+                    "service.py": (
+                        "def import_heavy():\n"
+                        "    import json\n"
+                        "    import os\n"
+                        "    import pathlib\n"
+                        "    import sys\n"
+                        "    import tempfile\n"
+                        "    return 1\n\n"
+                        "def caller():\n"
+                        "    return called()\n\n"
+                        "def called():\n"
+                        "    return 2\n"
+                    ),
+                },
+            )
+
+            adapter = PythonRepoAdapter.scan(root)
+
+            self.assertEqual(adapter.default_level().value, "symbol")
+            self.assertEqual(adapter.default_focus_node_id(), "symbol:service:called")
 
     def test_repo_view_aggregates_module_relationships(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
