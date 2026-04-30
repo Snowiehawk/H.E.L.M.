@@ -67,6 +67,24 @@ describe("MockDesktopAdapter", () => {
     expect(expandedGraph.nodes.some((node) => node.label === "rich.console")).toBe(true);
   });
 
+  it("projects newly created modules into the repo graph", async () => {
+    const adapter = new MockDesktopAdapter();
+
+    const result = await adapter.applyStructuralEdit({
+      kind: "create_module",
+      relativePath: "pkg/new_module.py",
+      content: "VALUE = 1",
+    });
+    const results = await adapter.searchRepo("new_module", {
+      includeFiles: true,
+      includeModules: true,
+      includeSymbols: true,
+    });
+
+    expect(result.changedNodeIds).toEqual(["module:pkg.new_module"]);
+    expect(results.some((node) => node.nodeId === "module:pkg.new_module")).toBe(true);
+  });
+
   it("round-trips disconnected flow draft nodes through replace_flow_graph", async () => {
     const adapter = new MockDesktopAdapter();
     const original = await adapter.getFlowView("symbol:helm.ui.api:build_graph_summary");
