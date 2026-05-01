@@ -16,6 +16,7 @@ from helm.recovery import (
     recover_pending,
     run_journaled_mutation,
 )
+from helm.ui import workspace_file_mutations
 from helm.ui import workspace_files
 from helm.ui.workspace_files import read_workspace_file, save_workspace_file
 from helm.ui.workspace_session import WorkspaceSession
@@ -162,13 +163,17 @@ class RecoveryTests(unittest.TestCase):
                     "pkg/nested/data.txt": "data\n",
                 },
             )
-            original_delete = workspace_files._delete_workspace_entry
+            original_delete = workspace_file_mutations._delete_workspace_entry
 
             def fail_after_delete(*args, **kwargs):
                 original_delete(*args, **kwargs)
                 raise OSError("delete follow-up failed")
 
-            with mock.patch.object(workspace_files, "_delete_workspace_entry", fail_after_delete):
+            with mock.patch.object(
+                workspace_file_mutations,
+                "_delete_workspace_entry",
+                fail_after_delete,
+            ):
                 with self.assertRaisesRegex(OSError, "delete follow-up failed"):
                     preview = workspace_files.preview_workspace_file_operation(
                         root,
