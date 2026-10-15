@@ -43,19 +43,20 @@ parser, layout persistence and editing behavior are unchanged.
   exception messages. The endpoint is fixed, cookies omitted and redirects rejected.
 - GitHub pagination is not a transaction: a repository may change during loading.
 
-## Desktop network boundary: pending explicit approval
+## Desktop network boundary
 
-No Tauri security configuration or capability was changed. At baseline `49b8e51`,
-both production `csp.connect-src` and development `devCsp.connect-src` exclude
-GitHub. Consequently this local slice is fixture-tested; **live fetching inside
-the desktop WebView is blocked until a network-policy allowance is approved**.
+At baseline `49b8e51`, both production `csp.connect-src` and development
+`devCsp.connect-src` exclude GitHub, so the loader's direct fetch requires a narrow
+network allowance. Following explicit approval, both lists now include only the
+additional `https://api.github.com/graphql` source. Every other configuration value
+and all Tauri capabilities are unchanged.
 
-The exact proposed follow-up in `apps/desktop/src-tauri/tauri.conf.json` is to append
-`"https://api.github.com/graphql"` to each of those two `connect-src` arrays,
-preserving every existing entry. This permits HTTPS connections to the fixed
-GraphQL path, without wildcard domains, new Tauri HTTP plugins, Rust commands,
-shell permissions or relaxation of other CSP directives. It must then be verified
-in a desktop WebView. No browser-hosting work or proxy is included.
+This permits HTTPS connections to the fixed GraphQL path, without wildcard domains,
+new Tauri HTTP plugins, Rust commands, shell permissions or relaxation of other
+CSP directives. A configuration regression test locks this boundary. Live fetching
+in the desktop WebView remains **unverified**: tests use synthetic responses, and
+no real PAT or private repository data has been used. No browser-hosting work or
+proxy is included.
 
 ## Future repository-local layouts
 

@@ -63,7 +63,7 @@ The graph starts coarse and structural:
 
 The desktop welcome screen includes a bounded read-only GitHub issue import panel.
 See [GitHub issue import](docs/github-issues.md) for its memory-only PAT lifecycle,
-data limits, and the desktop network-policy approval still required for live fetching.
+data limits, and the approved narrow network allowance. Live desktop fetching remains unverified.
 
 The package is laid out under `src/helm/`:
 
