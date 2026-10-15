@@ -2528,6 +2528,31 @@ button:disabled:hover {
   overflow: auto;
 }
 
+.issue-import-panel {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.issue-import-form {
+  display: grid;
+  gap: 10px;
+}
+
+.issue-import-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-solid);
+  color: var(--text);
+}
+
+.issue-import-form .hero-card__actions {
+  flex-wrap: wrap;
+}
+
 .launch-card,
 .launch-secondary {
   width: min(560px, 100%);

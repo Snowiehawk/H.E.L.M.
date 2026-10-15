@@ -4,6 +4,7 @@ import { AppWindowActions } from "../components/shared/AppWindowActions";
 import { StatusPill } from "../components/shared/StatusPill";
 import { useDesktopAdapter } from "../lib/adapter";
 import { useWorkspaceLauncher } from "./useWorkspaceLauncher";
+import { IssueImportPanel } from "../issues/IssueImportPanel";
 
 export function WelcomeScreen() {
   const adapter = useDesktopAdapter();
@@ -76,6 +77,7 @@ export function WelcomeScreen() {
               </button>
             ))}
           </div>
+          <IssueImportPanel />
         </section>
       </main>
     </DesktopWindow>
