@@ -2528,6 +2528,146 @@ button:disabled:hover {
   overflow: auto;
 }
 
+.function-tabs-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.function-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px 8px 96px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-solid);
+}
+
+.function-tabs button {
+  padding: 6px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: transparent;
+}
+
+.function-tabs button[aria-selected="true"] {
+  background: var(--accent);
+  border-color: var(--accent-strong);
+}
+
+.function-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.function-panel .app-frame,
+.function-panel .window-shell {
+  height: 100%;
+}
+
+.issue-viewer-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(260px, 1fr) 260px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.issue-viewer-controls,
+.issue-viewer-details {
+  padding: 18px;
+  overflow: auto;
+  border-right: 1px solid var(--line);
+}
+
+.issue-viewer-details {
+  border-right: 0;
+  border-left: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.issue-viewer-details h2 {
+  font-size: 16px;
+}
+
+.issue-viewer-list {
+  display: grid;
+  gap: 8px;
+}
+
+.issue-viewer-list button[aria-pressed="true"] {
+  border-color: var(--accent-strong);
+  background: var(--accent);
+}
+
+.issue-graph-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.issue-graph-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.issue-graph-toolbar span {
+  flex: 1 1 200px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.issue-graph-surface {
+  flex: 1;
+  min-height: 280px;
+}
+
+.issue-graph-card {
+  display: grid;
+  gap: 8px;
+  width: 280px;
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  color: var(--text);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-card);
+}
+
+.issue-graph-card strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.issue-graph-card small {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.issue-graph-card.is-external {
+  border-style: dashed;
+}
+
+.issue-graph-surface .react-flow__node.selected .issue-graph-card {
+  border-color: var(--accent-strong);
+  outline: 2px solid var(--accent);
+}
+
+.issue-graph-surface .react-flow__edge-textbg {
+  fill: var(--surface-solid);
+}
+
+.issue-graph-surface .react-flow__edge-text {
+  fill: var(--text-muted);
+}
+
 .issue-import-panel {
   margin-top: 24px;
   padding-top: 20px;

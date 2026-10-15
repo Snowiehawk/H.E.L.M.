@@ -3,13 +3,14 @@ import { IndexingScreen } from "../routes/IndexingScreen";
 import { WelcomeScreen } from "../routes/WelcomeScreen";
 import { WorkspaceScreen } from "../routes/WorkspaceScreen";
 import { NewProjectMenuBridge } from "./NewProjectMenuBridge";
+import { FunctionTabsShell } from "./FunctionTabsShell";
 
 function RootRoute() {
   return (
-    <>
+    <FunctionTabsShell>
       <NewProjectMenuBridge />
       <Outlet />
-    </>
+    </FunctionTabsShell>
   );
 }
 

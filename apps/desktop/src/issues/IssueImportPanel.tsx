@@ -52,7 +52,7 @@ export function IssueImportPanel({
         />
         <p className="launch-note">
           Use a token with Issues read access. It stays in memory on this computer until you
-          disconnect or leave this screen.
+          disconnect or close the issue viewer.
         </p>
         <div className="hero-card__actions">
           <button className="primary-button" type="submit" disabled={loading}>
@@ -123,7 +123,7 @@ export function IssueImportPanel({
       ) : null}
       <p className="launch-note">
         At most 100 blocked-by and 100 blocking relationships are fetched per issue. Hierarchy is
-        not loaded. Imported issues are not yet displayed on the code graph.
+        not loaded.
       </p>
     </section>
   );

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { useIdeActive } from "../app/FunctionTabs";
 import { CommandPalette } from "../components/CommandPalette";
 import {
   GraphCanvas,
@@ -93,6 +94,7 @@ import {
 } from "./WorkspaceScreen/workspaceScreenModel";
 
 export function WorkspaceScreen() {
+  const ideActive = useIdeActive();
   const adapter = useDesktopAdapter();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -1380,7 +1382,7 @@ export function WorkspaceScreen() {
     }
   }, [createModeContextKey]);
   useEffect(() => {
-    if (createModeState === "inactive") {
+    if (createModeState === "inactive" || !ideActive) {
       return;
     }
 
@@ -1408,7 +1410,7 @@ export function WorkspaceScreen() {
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [createModeState, handleExitCreateMode]);
+  }, [createModeState, handleExitCreateMode, ideActive]);
   useEffect(() => {
     if (
       !pendingCreatedNodeId ||

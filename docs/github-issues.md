@@ -1,14 +1,16 @@
 # GitHub issue viewer: scope and implementation plan
 
-The GitHub issue/dependency viewer will be a **separate tab and piece of
-functionality inside the H.E.L.M. desktop app**. It will have its own issue graph,
+The GitHub issue/dependency viewer is a **separate tab and piece of
+functionality inside the local H.E.L.M. desktop app implementation**. It has its own issue graph,
 state and layout namespace. Issues and dependencies must never be overlaid on,
 inserted into, or combined with the existing IDE/code graph.
 
-The current local implementation is only an Atlas-derived read-only importer and
-a temporary welcome-screen panel showing counts. The separate viewer tab and its
-graph presentation have **not started**. This document is the design reference
-for that next phase; documenting it does not authorize starting that phase.
+The current local implementation includes the Atlas-derived read-only importer
+and a basic issue/blocker graph in its own GitHub issues tab. It provides selection,
+text details, native blocker navigation, Fit issues and Center selected. It does
+not yet provide search, transitive directional/depth focus, hierarchy or saved issue
+layouts. Native desktop network/visual acceptance with a real repository remains
+unverified; this is a bounded local slice, not a feature-complete viewer.
 
 Each desktop instance will accept a repository URL and personal access token,
 then fetch directly from GitHub on Load or Refresh. These are snapshots, not a
@@ -20,16 +22,19 @@ or automatic multi-computer synchronization.
 These commits exist only on the local `codex/atlas-issue-loader` branch based on
 `49b8e51`; they have not been pushed or merged:
 
-| Local commit | Implemented behavior |
+| Local commit / phase | Implemented behavior |
 | --- | --- |
 | `730b510` | Atlas-derived loader, schemas, trailing-dot parser fix, in-memory issue adapter, synthetic tests, MIT notices, and a welcome-screen import/count panel. |
 | `e7ffbca` | The explicitly approved GraphQL path added to production/development CSP connection lists, security regression test, and documentation update. |
+| Current local viewer phase | Separate desktop tab, issue-specific projection/canvas and details, memory-only layout, and synthetic state-isolation tests. No new dependencies or permissions. |
 
-The panel currently accepts `github.com` repository URLs or `owner/name`, loads
-native blockers, and shows issue/link counts, timestamps, progress and incomplete
-data warnings. It does not render issue nodes, connect issues to the code graph,
-create a viewer tab, or persist issue layouts. Opening a local code workspace
-unmounts this temporary panel and clears its issue session.
+The import controls now live in the GitHub issues tab, replacing the temporary
+welcome-screen panel. They accept `github.com` repository URLs or `owner/name` and
+show counts, timestamps, progress and incomplete-data warnings. The issue graph
+uses native IDs, deduplicated blocker arrows and external boundary references.
+It shares no code nodes or edges and writes no layout files. Initial placement
+uses simple directed columns, with a fallback for cycles; readability/performance
+on a real dense repository has not been established.
 
 Implementation references:
 
@@ -38,18 +43,21 @@ Implementation references:
 - [Issue domain types](../apps/desktop/src/issues/types.ts),
   [blocker normalization](../apps/desktop/src/issues/dependencies.ts), and
   [IssueRepositoryAdapter](../apps/desktop/src/issues/IssueRepositoryAdapter.ts).
-- [Temporary import panel](../apps/desktop/src/issues/IssueImportPanel.tsx) and
+- [Import controls](../apps/desktop/src/issues/IssueImportPanel.tsx),
+  [tab shell](../apps/desktop/src/app/FunctionTabsShell.tsx),
+  [issue projection](../apps/desktop/src/issues/issueGraph.ts),
+  [issue canvas](../apps/desktop/src/issues/IssueGraphCanvas.tsx), and
   [desktop CSP](../apps/desktop/src-tauri/tauri.conf.json).
 
 ## Separate viewer architecture
 
 The boundary applies to the presentation, domain and state, not just the name of
-a tab. A future issue renderer must consume issue-specific nodes and blocker edges
-through its own projection. It must not map them to code `symbol`, `calls` or
+a tab. The issue renderer consumes issue-specific nodes and blocker edges through
+its own projection. It must not map them to code `symbol`, `calls` or
 `defines` semantics, widen the code graph to mix both sources, or inherit code
 editing actions such as source mutation and flow authoring.
 
-| Concern | Existing IDE/code functionality | Planned GitHub issues functionality |
+| Concern | Existing IDE/code functionality | Local GitHub issues functionality |
 | --- | --- | --- |
 | Source | Local repository, Tauri/Python indexing and source operations. | Direct read-only GitHub GraphQL queries. |
 | Domain | Code modules, symbols, imports, calls and flow. | GitHub issues and native blocker relationships. |
@@ -58,23 +66,26 @@ editing actions such as source mutation and flow authoring.
 | Layout | Existing code view keys and repository layout file. | Separate `github-issues` namespace; initially memory only. |
 
 Shared styling, buttons, loading/error surfaces and genuinely domain-neutral
-React Flow primitives may be reused. Reuse must not share mutable graph state,
+React Flow primitives are reused. Reuse must not share mutable graph state,
 selection, undo history, code ports/actions, persistence keys or credentials.
 The existing `DesktopAdapter` mock/live switch remains for local code work; the
 issue adapter must not silently become a mock merely because that switch exists.
 Browser rendering can support development tests, but web hosting is not a product
-target for this feature.
+target for this feature. The shell keeps both open panels mounted when switching
+tabs, preserving IDE drafts and the issue session independently. IDE keyboard
+shortcuts and native graph-menu actions are scoped to the IDE tab so they cannot
+operate on its hidden graph from the issue viewer.
 
-Use GitHub's native repository and issue node IDs as future canvas/layout
-identities. Those IDs are already included in the imported snapshot and dependency
+The issue canvas uses GitHub's native repository and issue node IDs as its
+identities. Those IDs are included in the imported snapshot and dependency
 references. Current normalized `owner/name#number` keys and edge IDs are useful
 for display and adjacency; they are not the future persisted-layout identity.
-The next projection should derive blocker edge identities from relation kind and
-native endpoint IDs, independently of any local checkout's absolute path.
+The projection derives blocker edge identities from relation kind and native
+endpoint IDs, independently of any local checkout's absolute path.
 
 ## User flow and session lifecycle
 
-The intended separate-tab flow is:
+The local separate-tab flow is:
 
 1. Open the GitHub issues viewer inside H.E.L.M. The code workspace, if any,
    remains independent. Issue loading does not require indexing a local checkout.
@@ -83,7 +94,10 @@ The intended separate-tab flow is:
 3. Choose Load. Fetch accessible issue pages, validate responses, and show progress.
    Replace the displayed snapshot after the request finishes, with visible limits
    if its counts or dependency connections are incomplete.
-4. Inspect the separate issue graph once that presentation phase is implemented.
+4. Inspect the separate issue graph. Select a node or issue-list entry for its
+   state, repository and direct blocker relationships; relationship buttons select
+   the adjacent issue. Fit issues frames the graph, while Center selected frames
+   only the selected issue. Pan/zoom and node dragging change the memory-only view.
    Show the repository and last successful load time so stale snapshots are clear.
 5. Choose Refresh to fetch again. Repository or issue edits elsewhere do not
    appear until a successful refresh. A failed refresh retains the preceding
@@ -92,12 +106,11 @@ The intended separate-tab flow is:
    successful session. Disconnect clears the issue session and PAT. Changing
    repositories clears the preceding repository's issue data.
 
-The next tab implementation must make session lifetime explicit. The proposed
-behavior is to retain the in-memory issue session while its viewer tab remains
-open, including when another tab is selected, and clear it on Disconnect or when
-the issue tab/window closes. This is a planned lifecycle change from the current
-welcome panel's clear-on-unmount behavior; it is not implemented yet. Switching
-tabs must never transfer issue state into the IDE/code session.
+The in-memory issue session remains open when the IDE tab is selected. Disconnect
+clears credentials, data and issue selection; Close issue viewer removes its tab
+panel and layout state, then returns to the IDE. Closing the window also discards
+the session. Reopening starts blank. Switching tabs never transfers issue state
+into the IDE/code session, and retains the same mounted IDE workspace/drafts.
 
 ## Data and privacy boundary
 
@@ -109,7 +122,7 @@ successful snapshot and reports the error. A repository switch clears the prior
 repository's data. Cancelled or superseded responses cannot replace current data.
 
 Tokens are cleared from the input on submit and from the adapter on disconnect or
-when leaving the welcome screen. No token or imported issue data is written to
+when closing the issue viewer. No token or imported issue data is written to
 local storage, query caches, URLs, logs, exports, `.helm`, or Git. No issue body is
 requested, and avatar/Markdown assets are not rendered. JavaScript memory is not
 a secure-erasure mechanism; this is ephemeral session state, not a secret store.
@@ -227,31 +240,32 @@ explicit completeness, and an atomic in-memory load/refresh adapter. Atlas's UI,
 Cytoscape, Primer, React version and build tooling were not copied. Atlas remains
 intact until any replacement is verified.
 
-## Next implementation plan: not started
+## Local phase and remaining plan
 
-Work stops at this documented plan until it aligns with the requested separate-tab
-design. No presentation phase is implied by the completed importer commits.
+The separate-tab presentation phase was explicitly authorized after the initial
+plan. The bounded implementation covers the first item below; the later items
+have not been implemented or silently folded into it.
 
-1. **Separate tab and issue projection.** Introduce an issue-viewer tab/entry point
-   in the desktop shell, independent of the local code `RepoSession`. Move or reuse
-   the existing import controls there, with an issue-scoped session owner and
-   explicit close/disconnect lifecycle. Project snapshots into issue-specific
-   React Flow nodes and native blocker edges. Render a basic issue graph plus its
-   counts, last refresh and completeness warnings. Keep initial positions in memory.
-   Preserve external boundary nodes; do not recursively load other repositories.
-2. **Focused inspection, as its own bounded follow-up.** Add issue search, selected
-   issue details, Center selected versus Fit visible, upstream/downstream/both,
-   hop depth and hide-unrelated controls. Traverse blockers cycle-safely. Preserve
-   the selected issue and viewport deliberately during refresh, rather than
-   borrowing the code graph's selection or navigation state.
+1. **Implemented locally: separate tab and issue projection.** Independent of the
+   local code `RepoSession`, with its own controls, graph and selection, memory-only
+   positions, close/disconnect lifecycle, counts and visible partial-data limits.
+   Basic selected-issue details, adjacent-issue navigation, Fit issues and Center
+   selected are included. Surviving node IDs retain moved positions and selection
+   through refresh. Cycles and external boundary nodes remain visible. No recursive
+   repository loading or IDE overlays are introduced.
+2. **Not started: focused inspection follow-up.** Issue search,
+   upstream/downstream/both, hop depth and hide-unrelated controls. Traverse
+   blockers cycle-safely and define how partial results affect focus. These controls
+   must remain independent of code selection/navigation. Real-dataset visual and
+   desktop network acceptance are still needed for the existing basic viewer.
 3. **Optional later scope.** Address nested pagination, native parent/sub-issue
    hierarchy, and repository-local issue layout persistence separately. Each needs
    its own schema, interaction, completeness/privacy and migration decisions. A
    hierarchy relation must remain distinct from blockers if it is later introduced.
 
-The first item is the next actual graph-wiring boundary. It does not include code
-overlays, source editing, GitHub mutations, hierarchy, persisted issue layouts,
-hosting, OAuth/shared sessions or automatic synchronization. Keep Atlas available
+The implemented slice does not include code overlays, source editing, GitHub
+mutations, hierarchy, persisted issue layouts, hosting, OAuth/shared sessions or
+automatic synchronization. It adds no network allowance beyond `e7ffbca`. Keep Atlas available
 until any replacement has been checked against its intended use.
 
 ## Verification record and acceptance criteria
@@ -265,6 +279,16 @@ Ruff was unavailable for the Python test change. The dependency audit reported
 blocking advisories in 11 pre-existing packages with unchanged locked versions;
 the added Zod dependency was not reported. These results do not establish a fully
 working issue viewer or a clean overall security audit.
+
+The separate-tab phase passed 341 frontend tests across 43 files, TypeScript,
+lint and formatting checks. Its added tests cover the independent shell lifecycle,
+retained IDE draft/store state, shortcut isolation, native node/edge IDs and blocker
+direction, external references, cycles, fit/selection, moved-position retention,
+and a generated 235-node/1,130-blocker projection. That fixture is synthetic,
+contains no hierarchy, and is a data-retention check, not a rendering benchmark.
+The production build also passed. React Flow interaction tests use
+mocked canvas boundaries; native desktop/WebView and real-graph visual acceptance
+remain outstanding. The existing dependency-audit failures are unchanged.
 
 Existing synthetic importer tests cover trailing-dot repository names, pagination,
 dependency direction/deduplication, caps and partial counts, bounded errors,

@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useWorkspaceLauncher } from "../routes/useWorkspaceLauncher";
+import { useIdeActive } from "./FunctionTabs";
 
 const APP_MENU_EVENT = "helm://app-menu";
 
@@ -13,10 +14,13 @@ interface NewProjectMenuBridgeProps {
 }
 
 export function NewProjectMenuBridge({ enabled = isTauriApp() }: NewProjectMenuBridgeProps = {}) {
+  const ideActive = useIdeActive();
+  const ideActiveRef = useRef(ideActive);
+  ideActiveRef.current = ideActive;
   const { createAndIndexProject } = useWorkspaceLauncher();
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !ideActive) {
       return;
     }
 
@@ -25,7 +29,7 @@ export function NewProjectMenuBridge({ enabled = isTauriApp() }: NewProjectMenuB
 
     void (async () => {
       const detach = await listen<{ action?: string }>(APP_MENU_EVENT, (event) => {
-        if (event.payload?.action === "new-project") {
+        if (ideActiveRef.current && event.payload?.action === "new-project") {
           void createAndIndexProject();
         }
       });
@@ -42,7 +46,7 @@ export function NewProjectMenuBridge({ enabled = isTauriApp() }: NewProjectMenuB
       disposed = true;
       unlisten?.();
     };
-  }, [createAndIndexProject, enabled]);
+  }, [createAndIndexProject, enabled, ideActive]);
 
   return null;
 }

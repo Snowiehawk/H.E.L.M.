@@ -34,10 +34,10 @@ The graph layer owns:
 
 The graph model is custom and library-free so adapters like `networkx` can be added later without becoming the system of record.
 
-The planned desktop GitHub issue viewer is a separate tab, domain, state and graph;
+The local desktop GitHub issue viewer is a separate tab, domain, state and graph;
 its issues and dependencies must not overlay or mix with the IDE/code graph.
 See [GitHub issue viewer: status and implementation plan](github-issues.md) for the
-implemented importer boundary and the presentation work that has not started.
+implemented importer/presentation boundaries and the remaining work.
 
 ## Editing Boundary
 
