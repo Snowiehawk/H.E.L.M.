@@ -356,13 +356,41 @@ remained intercepted and never sent their fake token to GitHub.
 
 The native fixture observed no synthetic token in console messages, storage writes
 or stored local/session data. It also blocked two non-GitHub fetch attempts whose
-URLs were not recorded. Tauri's installed IPC implementation uses `fetch` with a
-postMessage fallback, which is consistent with this behavior, but these calls
-were not classified directly. Full native IPC/code-editing transport acceptance
-is therefore outside this result. The verified QA window was closed; temporary
+historical URLs were not recorded. An offline replay using the installed Tauri
+scripts and unchanged `LiveDesktopAdapter` constructor reproduced exactly two
+`ipc://localhost/plugin%3Aevent%7Clisten` calls: the existing index-progress and
+workspace-sync subscriptions. Their fixture-induced rejection activates Tauri's
+postMessage fallback; a subsequent backend-health call makes no further fetch.
+This classifies the observed pattern as expected existing local IPC affected by
+the test harness, not a new external request introduced by the issue viewer. It
+is a source-backed reconstruction, not retained historical URL telemetry. No
+product fix is indicated. Full native IPC/code-editing acceptance remains outside
+this result. The verified QA window was closed; temporary
 source/index changes were restored and a clean production-entry debug bundle was
 rebuilt locally. No app was installed in Applications, no permissions or CSP
 sources were changed, and no real PAT or private issue data was used.
+
+IDE regression coverage includes 74 `WorkspaceScreen` tests for navigation,
+source/flow drafts, save/cancel, stale sync, undo, structural edits, imports,
+workspace files and layout behavior. These use the mock desktop adapter. Ten
+`LiveDesktopAdapter` tests mock Tauri invoke/event/dialog boundaries; they verify
+argument/response and event handling, not a live Rust/Python transport. Three
+tab-shell tests cover draft/state retention, close lifecycle and shortcut isolation;
+their issue canvas boundary is mocked. The browser mock IDE also retained an
+actual unsaved editor draft across tab switches. None substitutes for native
+Python-backed editing acceptance.
+
+The checked system Python, Homebrew Python and original checkout virtualenv lack
+`libcst`. A read-only import of `helm.ui.desktop_bridge` fails on that dependency:
+the bridge imports workspace sessions, which import the editor/patcher eagerly.
+It can therefore block the Python desktop bridge before indexing, not only edits.
+This is an existing environment issue: `pyproject.toml` already declares the
+dependency and the bridge/adapter/dependency declaration are unchanged by this
+work. The existing native health check runs only `python --version`; its ready
+indicator does not establish that bridge imports succeed. The independent GitHub
+issue viewer does not require the Python backend. Native IDE acceptance needs an
+owner-supplied working interpreter via `HELM_PYTHON_BIN`, or separately authorized
+dependency setup; no installation was performed here.
 
 After removing the temporary fixture, all 342 frontend tests across 43 files
 passed. The earlier run concurrent with the build timed out in four existing IDE
