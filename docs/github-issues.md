@@ -9,8 +9,10 @@ The current local implementation includes the Atlas-derived read-only importer
 and a basic issue/blocker graph in its own GitHub issues tab. It provides selection,
 text details, native blocker navigation, Fit issues and Center selected. It does
 not yet provide search, transitive directional/depth focus, hierarchy or saved issue
-layouts. Native desktop network/visual acceptance with a real repository remains
-unverified; this is a bounded local slice, not a feature-complete viewer.
+layouts. Synthetic native WebView behavior and credential-free endpoint
+connectivity have been checked. Authenticated real-repository access and
+Python-backed IDE editing remain unverified; this is a bounded local slice,
+not a feature-complete viewer.
 
 Each desktop instance will accept a repository URL and personal access token,
 then fetch directly from GitHub on Load or Refresh. These are snapshots, not a
@@ -287,8 +289,8 @@ direction, external references, cycles, fit/selection, moved-position retention,
 and a generated 235-node/1,130-blocker projection. That fixture is synthetic,
 contains no hierarchy, and is a data-retention check, not a rendering benchmark.
 The production build also passed. React Flow interaction tests use
-mocked canvas boundaries; native desktop/WebView and real-graph visual acceptance
-remain outstanding. The existing dependency-audit failures are unchanged.
+mocked canvas boundaries; those tests alone did not establish native desktop or
+real-graph visual acceptance. The existing dependency-audit failures are unchanged.
 
 Independent follow-up QA used the installed Node/React Flow code without the shared
 GUI. The generated 235-node/1,130-blocker snapshot loaded through three synthetic
@@ -306,8 +308,8 @@ issue now scrolls its details pane to the top so adjacent-issue navigation canno
 leave the new heading above the visible area.
 
 The native Rust check and development build passed using cached dependencies.
-Native visual acceptance was not established: the UI connector selected an older
-installed app. An independent headless attempt using installed Playwright/Chrome
+The initial native UI attempt selected an older installed app. An independent
+headless attempt using installed Playwright/Chrome
 aborted under the execution sandbox. No broader permission or installation was
 requested for that attempt.
 
@@ -329,8 +331,38 @@ and concurrent build/test CPU contention. It is not a controlled performance
 baseline. The fitted dense overview was unreadable at title level, while the
 centered card and details were readable. The temporary fixture and browser tab
 were removed, the loopback server stopped and the viewport override reset. This
-is browser fixture validation, not Python-backed IDE editing or native network/
-WebView acceptance; those remain unverified.
+is browser fixture validation; the native checks below were performed separately.
+
+The missing selectable native app bundle was subsequently built with the installed
+toolchain using `CARGO_NET_OFFLINE=true npm run tauri -- build --debug --bundles app`.
+Supported app control accepted its exact `.app` path. The selected window showed
+the new tabs, a temporary `f41eed6` fixture marker, `tauri=true`, and a
+`tauri://localhost` WebView origin. This distinguished it from the older installed
+app. Under the packaged production CSP, the native canvas rendered all 235
+synthetic nodes and 1,130 edges, and Fit contained them. Center selected, adjacent
+navigation/details, tab-switch selection retention, refresh failure/recovery,
+Disconnect, and loaded-session close/reopen clearing passed. The centered card
+was readable; the fitted dense overview remains unsuitable for reading titles.
+One observed request-to-post-render-frame interval was 889 ms including 300 ms
+fixture latency; this is not a controlled performance benchmark.
+
+A separate probe used the original native `fetch`, with no Authorization header
+and `credentials: omit`, to POST only `query NativeQaProbe { __typename }` to the
+approved GraphQL endpoint. It returned a readable HTTP 403 response with zero
+observed `connect-src` violations. This establishes a credential-free HTTP round
+trip under the packaged policy, not successful authentication, issue retrieval
+or a conclusion about why the response was forbidden. Synthetic issue imports
+remained intercepted and never sent their fake token to GitHub.
+
+The native fixture observed no synthetic token in console messages, storage writes
+or stored local/session data. It also blocked two non-GitHub fetch attempts whose
+URLs were not recorded. Tauri's installed IPC implementation uses `fetch` with a
+postMessage fallback, which is consistent with this behavior, but these calls
+were not classified directly. Full native IPC/code-editing transport acceptance
+is therefore outside this result. The verified QA window was closed; temporary
+source/index changes were restored and a clean production-entry debug bundle was
+rebuilt locally. No app was installed in Applications, no permissions or CSP
+sources were changed, and no real PAT or private issue data was used.
 
 After removing the temporary fixture, all 342 frontend tests across 43 files
 passed. The earlier run concurrent with the build timed out in four existing IDE
@@ -365,7 +397,7 @@ Before accepting the separate viewer/tab phase, verify:
   and focus phase tests centering an off-screen result, direction/depth boundaries,
   cycle termination and hiding unrelated nodes on synthetic graphs.
 
-Use synthetic fixtures in normal CI. Live desktop verification, if later
-authorized, must use an explicitly supplied test credential and keep its value and
+Use synthetic fixtures in normal CI. Authenticated live GitHub verification, if
+later authorized, must use an explicitly supplied test credential and keep its value and
 private results out of this public repository, logs and recorded screenshots.
 Never retrieve an existing PAT implicitly to satisfy a test.
