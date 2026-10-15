@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DesktopWindow } from "../components/layout/DesktopWindow";
 import { AppWindowActions } from "../components/shared/AppWindowActions";
 import { EmptyState } from "../components/shared/EmptyState";
@@ -26,6 +26,10 @@ export function IssueViewer({
     if (!state.snapshot) setSelectedId(undefined);
   }, [state.snapshot]);
   const selected = graph?.nodes.find((node) => node.id === selectedId);
+  const detailsRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (detailsRef.current) detailsRef.current.scrollTop = 0;
+  }, [selected?.id]);
   const related = (direction: "source" | "target") => {
     if (!selected || !graph) return [];
     const ids = new Set(
@@ -90,7 +94,7 @@ export function IssueViewer({
             body="Enter its URL and a read-only personal access token. The issue graph stays separate from your code workspace."
           />
         )}
-        <aside className="issue-viewer-details" aria-label="Issue details">
+        <aside ref={detailsRef} className="issue-viewer-details" aria-label="Issue details">
           {selected ? (
             <>
               <h2>

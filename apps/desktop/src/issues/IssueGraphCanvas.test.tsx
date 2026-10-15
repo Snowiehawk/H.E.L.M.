@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { getViewportForBounds } from "@xyflow/react";
 import { IssueGraphCanvas } from "./IssueGraphCanvas";
 import type { IssueGraph } from "./issueGraph";
 
@@ -77,6 +78,30 @@ describe("issue canvas", () => {
     expect(flow.fitView).toHaveBeenLastCalledWith(
       expect.objectContaining({ nodes: [{ id: graph.nodes[0].id }] }),
     );
+  });
+
+  it("allows Fit to contain the full dense fixture even in a narrow canvas", async () => {
+    render(<IssueGraphCanvas graph={graph} onSelect={vi.fn()} />);
+    await screen.findByRole("button", { name: "Synthetic node" });
+    // Bounds from the 235-issue/1130-blocker synthetic projection, with 280x120 cards.
+    const bounds = { x: 0, y: 0, width: 41230, height: 17520 };
+    for (const [width, height] of [
+      [600, 500],
+      [260, 280],
+    ]) {
+      const view = getViewportForBounds(
+        bounds,
+        width,
+        height,
+        flow.latest.minZoom,
+        flow.latest.maxZoom,
+        0.15,
+      );
+      expect(view.x).toBeGreaterThanOrEqual(0);
+      expect(view.y).toBeGreaterThanOrEqual(0);
+      expect(view.x + bounds.width * view.zoom).toBeLessThanOrEqual(width);
+      expect(view.y + bounds.height * view.zoom).toBeLessThanOrEqual(height);
+    }
   });
 
   it("preserves moved issue positions on refresh and selection without calling code persistence", async () => {

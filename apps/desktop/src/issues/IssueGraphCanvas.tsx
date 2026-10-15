@@ -122,7 +122,7 @@ export function IssueGraphCanvas({
           panOnScroll
           panOnScrollMode={PanOnScrollMode.Free}
           zoomActivationKeyCode="Alt"
-          minZoom={0.05}
+          minZoom={0.001}
           maxZoom={1.5}
           proOptions={{ hideAttribution: true }}
         >

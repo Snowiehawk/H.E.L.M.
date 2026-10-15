@@ -290,6 +290,53 @@ The production build also passed. React Flow interaction tests use
 mocked canvas boundaries; native desktop/WebView and real-graph visual acceptance
 remain outstanding. The existing dependency-audit failures are unchanged.
 
+Independent follow-up QA used the installed Node/React Flow code without the shared
+GUI. The generated 235-node/1,130-blocker snapshot loaded through three synthetic
+pages; 100 warmed projection runs measured a median of 1.54 ms and p95 of 2.74 ms
+on this machine. These are data-model timings, not DOM/SVG rendering or frame-rate
+measurements. With representative 280×120 cards, the fixture spans 41,230×17,520
+layout units. React Flow's viewport math confirmed that the former 5% zoom floor
+clipped it in a 600×500 canvas. The floor is now 0.1%; regression checks contain
+those bounds in both 600×500 and 260×280 canvases. At the fitted overview scale,
+titles are necessarily too small to read; Center selected provides inspection,
+but this does not replace the planned focus/search controls or establish dense
+graph readability. Component tests also exercise direct-neighbor navigation and
+selected details surviving a sanitized refresh failure. Selecting a different
+issue now scrolls its details pane to the top so adjacent-issue navigation cannot
+leave the new heading above the visible area.
+
+The native Rust check and development build passed using cached dependencies.
+Native visual acceptance was not established: the UI connector selected an older
+installed app. An independent headless attempt using installed Playwright/Chrome
+aborted under the execution sandbox. No broader permission or installation was
+requested for that attempt.
+
+After shared GUI control was released, a dedicated Chrome fixture rendered all
+235 nodes and 1,130 blocker edges with the actual React Flow canvas. Fit contained
+them at the desktop minimum of 1180×760 without horizontal page overflow. Center
+selected rendered a 280-pixel card within one pixel of the canvas center; adjacent
+navigation and details scroll reset worked. Failed refresh retained the snapshot
+and selected details, and a subsequent refresh recovered. The browser's seeded
+mock IDE retained an unsaved synthetic draft, graph selection and viewport across
+tab switches, with no issue nodes in its code canvas. Disconnect and close/reopen
+cleared the issue graph and disabled Refresh. Fixture instrumentation observed no
+synthetic token in console messages, storage writes or stored local/session data,
+and no unexpected window fetches. No real GitHub request or PAT was used.
+
+One development-mode observation reached a post-render animation frame in 3.36 s
+from the first synthetic request, including 300 ms of artificial response latency
+and concurrent build/test CPU contention. It is not a controlled performance
+baseline. The fitted dense overview was unreadable at title level, while the
+centered card and details were readable. The temporary fixture and browser tab
+were removed, the loopback server stopped and the viewport override reset. This
+is browser fixture validation, not Python-backed IDE editing or native network/
+WebView acceptance; those remain unverified.
+
+After removing the temporary fixture, all 342 frontend tests across 43 files
+passed. The earlier run concurrent with the build timed out in four existing IDE
+tests; the rerun without that competing workload passed without changes to those
+tests or their timeouts.
+
 Existing synthetic importer tests cover trailing-dot repository names, pagination,
 dependency direction/deduplication, caps and partial counts, bounded errors,
 cancellation, stale responses, memory-only lifecycle, and temporary panel controls.

@@ -99,6 +99,17 @@ describe("separate desktop functionality tabs", () => {
         name: "#2: Synthetic issue 2",
       }),
     ).toBeInTheDocument();
+    await user.click(
+      within(screen.getByLabelText("Issue details")).getByRole("button", {
+        name: "#1: Synthetic issue 1",
+      }),
+    );
+    expect(screen.getByRole("heading", { name: "#1: Synthetic issue 1" })).toBeInTheDocument();
+    await user.click(
+      within(screen.getByLabelText("Issue details")).getByRole("button", {
+        name: "#2: Synthetic issue 2",
+      }),
+    );
     expect(screen.getByRole("region", { name: "GitHub issue graph" })).toHaveAttribute(
       "data-layout-namespace",
       `github-issues|synthetic-repository-${repositoryName}|overview`,
@@ -118,6 +129,13 @@ describe("separate desktop functionality tabs", () => {
     await user.click(screen.getByRole("button", { name: "Refresh issues" }));
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("heading", { name: "#2: Synthetic issue 2" })).toBeInTheDocument();
+    fetcher.mockResolvedValueOnce(response({ message: TEST_TOKEN }, 503));
+    await user.click(screen.getByRole("button", { name: "Refresh issues" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "GitHub returned HTTP 503. Showing the previous successful load.",
+    );
+    expect(screen.getByRole("heading", { name: "#2: Synthetic issue 2" })).toBeInTheDocument();
+    expect(screen.queryByText(TEST_TOKEN)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Disconnect" }));
     expect(adapter.getState().snapshot).toBeUndefined();
     expect(screen.queryByRole("region", { name: "GitHub issue graph" })).not.toBeInTheDocument();
