@@ -61,9 +61,10 @@ The graph starts coarse and structural:
 
 ## Development
 
-The desktop welcome screen includes a bounded read-only GitHub issue import panel.
-See [GitHub issue import](docs/github-issues.md) for its memory-only PAT lifecycle,
-data limits, and the approved narrow network allowance. Live desktop fetching remains unverified.
+The desktop welcome screen includes a bounded read-only GitHub issue import/count panel.
+The planned viewer is a **separate tab with its own issue graph**, independent of the IDE/code graph.
+See [GitHub issue viewer: status, boundaries and plan](docs/github-issues.md).
+The viewer/tab is not implemented yet; live desktop fetching remains unverified.
 
 The package is laid out under `src/helm/`:
 
