@@ -10,9 +10,10 @@ and a basic issue/blocker graph in its own GitHub issues tab. It provides select
 text details, native blocker navigation, Fit issues and Center selected. It does
 not yet provide search, transitive directional/depth focus, hierarchy or saved issue
 layouts. Synthetic native WebView behavior and credential-free endpoint
-connectivity have been checked. Authenticated real-repository access and
-Python-backed IDE editing remain unverified; this is a bounded local slice,
-not a feature-complete viewer.
+connectivity have been checked, followed by owner-authorized authenticated
+Load/Refresh acceptance in the native Mac app. A real Rust/Python scan/save/undo
+smoke test also passed. Full native editor-GUI regression and Windows acceptance
+remain unverified; this is a bounded local slice, not a feature-complete viewer.
 
 Each desktop instance will accept a repository URL and personal access token,
 then fetch directly from GitHub on Load or Refresh. These are snapshots, not a
@@ -390,12 +391,46 @@ work. The existing native health check runs only `python --version`; its ready
 indicator does not establish that bridge imports succeed. The independent GitHub
 issue viewer does not require the Python backend. Native IDE acceptance needs an
 owner-supplied working interpreter via `HELM_PYTHON_BIN`, or separately authorized
-dependency setup; no installation was performed here.
+dependency setup; no installation was performed here. Final review subsequently
+found an existing `.venv-helm-dev` with `libcst` and pytest. Using that interpreter,
+26 desktop bridge/workspace/CSP tests passed. An isolated offline harness imported
+the unchanged Rust `BackendService` and exercised its real persistent Python
+worker: scan, editable-source retrieval, source save, byte-exact undo, and rescan
+all passed on a synthetic temporary repository. It created no GUI, did not restart
+the owner's app, and did not access GitHub or the live issue session. This closes
+the minimum native backend-transport smoke check; full WebView editor interaction
+is still a separate acceptance boundary. The existing working interpreter can be
+selected at a future launch without installing another environment.
 
 After removing the temporary fixture, all 342 frontend tests across 43 files
 passed. The earlier run concurrent with the build timed out in four existing IDE
 tests; the rerun without that competing workload passed without changes to those
 tests or their timeouts.
+
+The owner subsequently entered a credential privately and completed native
+read-only acceptance against an authorized private repository. Load/Refresh,
+selection/details, adjacent navigation, centering, and switching to the separate
+IDE welcome view passed. No credential, private issue payload or real-repository
+fixture was added to the source tree. The active session was preserved. This
+does not claim full native IDE editing with an already-open code workspace.
+
+Final publication review confirmed byte-identical Atlas and Zod MIT notices in
+source/public assets, copied notices in frontend output, and both license asset
+keys in the built app. A changed-file scan found no credential patterns, private
+target references or temporary QA entries. Zod 4.4.3 is the only added lockfile
+package; every existing npm package record, Python/Cargo lockfile and audit
+allowlist is unchanged from `49b8e51`.
+
+Fresh lockfile-only npm audits of baseline and final returned identical
+vulnerability records: 21 packages total (1 low, 9 moderate, 9 high, 2 critical).
+No vulnerable package or advisory record was introduced, and Zod was not reported.
+The required npm gate nevertheless remains blocked by the 11 unallowlisted
+high/critical packages. Required Python and Cargo audits could not complete in
+the existing environment because `pip_audit` and `cargo-audit` are absent; their
+dependency sets are unchanged, but that is not an audit pass. No tools were
+installed, dependency upgrades made, or allowlist exceptions added. Publication
+still requires those security gates to be resolved through the project's normal
+process; successful feature acceptance does not waive them.
 
 Existing synthetic importer tests cover trailing-dot repository names, pagination,
 dependency direction/deduplication, caps and partial counts, bounded errors,
