@@ -1,5 +1,9 @@
 # Follow-up source audit, 2026-10-17
 
+Historical revision record. The later [validated candidate record](validated-candidate-20261018.md)
+supersedes the pending native gates below; earlier artifact hashes and test runs
+keep their original scope.
+
 This private source revision follows the preserved standalone candidate. The Mac
 app archive with SHA-256 `91545a625490d27b3a6c7cb6be0e836cfb9668ccc63502011d2c58cfef45b094`
 is preserved unchanged and does **not** include these later source repairs.

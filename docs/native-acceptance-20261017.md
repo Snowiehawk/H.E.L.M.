@@ -1,5 +1,8 @@
 # Native acceptance, 2026-10-17
 
+Historical revision record. See the later [validated candidate record](validated-candidate-20261018.md)
+for completed follow-up native checks and the newer logo verification limits.
+
 This record supersedes older verification gaps and dependency counts in the
 chronological issue-viewer notes. It describes private local QA, not a release,
 merge, or publication approval. No real credential or private issue payload is

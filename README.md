@@ -10,6 +10,17 @@ H.E.L.M. is a bidirectional repo-to-graph structural editor for source code. Thi
 - build a domain-owned structural graph
 - print a CLI summary or export JSON
 
+## Repository branches
+
+`dev` is the default branch and the normal pull-request target. Work on a
+focused `noah/<purpose>` branch, then request review into `dev`. Stable work is
+promoted from `dev` to `main` through a separate reviewed pull request. A push or
+QA build is not a release. See the [development workflow](docs/development-workflow.md).
+
+For a Windows source checkout, use a normal project folder such as
+`D:\Projects\HELM`; packaged applications and disposable QA fixtures are separate.
+Cloning does not install or rebuild the desktop application.
+
 ## Current Workflow
 
 The CLI scans repositories and exports structural graph data:
