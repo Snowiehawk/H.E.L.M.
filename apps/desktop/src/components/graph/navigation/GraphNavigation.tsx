@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Panel, useReactFlow } from "@xyflow/react";
+import { Panel, useReactFlow, useStoreApi } from "@xyflow/react";
 import {
   applyNavigation,
   BURST_GAP_MS,
@@ -27,6 +27,7 @@ export function GraphNavigation({
 }) {
   const marker = useRef<HTMLLabelElement>(null);
   const flow = useReactFlow();
+  const store = useStoreApi();
   const [mode, setMode] = useState<NavigationMode>("auto");
   useEffect(() => {
     const surface = marker.current?.closest<HTMLElement>(".react-flow");
@@ -58,6 +59,12 @@ export function GraphNavigation({
       if (!owns(event) || !event.cancelable) return;
       event.preventDefault();
       event.stopPropagation();
+      // React Flow temporarily disconnects d3's transform-to-store callback
+      // during marquee selection. setViewport here would mutate hidden d3 state.
+      if (store.getState().userSelectionActive) {
+        reset();
+        return;
+      }
       if (gestureActive || event.timeStamp - gestureEnd < BURST_GAP_MS) return;
       const rect = surface.getBoundingClientRect();
       const intent = controller.wheel(event, rect.height);
@@ -76,6 +83,10 @@ export function GraphNavigation({
       if (!owns(event)) return;
       event.preventDefault();
       event.stopPropagation();
+      if (store.getState().userSelectionActive) {
+        reset();
+        return;
+      }
       gestureActive = true;
       gestureScale = 1;
       controller.reset();
@@ -84,6 +95,10 @@ export function GraphNavigation({
       if (!gestureActive || !owns(event)) return;
       event.preventDefault();
       event.stopPropagation();
+      if (store.getState().userSelectionActive) {
+        reset();
+        return;
+      }
       const gesture = event as GestureEvent;
       if (Number.isFinite(gesture.scale) && gesture.scale > 0) {
         move(gesture, -Math.log(gesture.scale / gestureScale));
@@ -120,7 +135,7 @@ export function GraphNavigation({
       window.removeEventListener("blur", reset);
       document.removeEventListener("visibilitychange", reset);
     };
-  }, [active, flow, mode, minZoom, maxZoom]);
+  }, [active, flow, store, mode, minZoom, maxZoom]);
   return (
     <Panel position="top-right">
       <label ref={marker} className="graph-navigation-input">

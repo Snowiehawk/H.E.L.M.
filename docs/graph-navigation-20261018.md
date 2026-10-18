@@ -82,3 +82,15 @@ ESLint and Prettier passed. The locked React Flow version is 12.10.2; the local
 runner is Node 25.9.0 on macOS arm64. This adds no dependency, credential scope,
 security exception or network permission. Production build result is recorded in
 the draft PR after completion.
+
+## Independent-review correction: marquee selection
+
+Actual React Flow integration replay reproduced a hidden d3 viewport change on
+both canvases: marquee drag -> wheel 100 -> release -> Controls + yielded zoom
+0.98248 instead of 1.2. During selection React Flow detaches its transform-to-store
+callback, so a custom setViewport must not update d3 then. The shared router now
+reads the live per-canvas `userSelectionActive` state before wheel or WebKit-gesture
+viewport writes, consumes the event and resets the burst instead. Regression tests
+exercise real selection pointer events and the built-in Controls after release on
+both production consumers, without React Flow mocks. Native hardware proof remains
+pending and is not inferred from this synthetic reproduction.

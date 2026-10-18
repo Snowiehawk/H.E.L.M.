@@ -157,4 +157,51 @@ describe("actual React Flow event-to-viewport boundary in both consumers", () =>
     wheel(surface, 100, 400);
     expect(viewport(surface)).toEqual(pinched);
   });
+  it.each(["ide", "issues"])(
+    "keeps d3 and visible viewport in sync through %s marquee -> wheel -> Controls",
+    async (graph) => {
+      const ui = render(
+        <FunctionTabsProvider>
+          <Canvases />
+        </FunctionTabsProvider>,
+      );
+      if (graph === "issues") fireEvent.click(ui.getByText("Issues", { exact: true }));
+      const surface = ui.container.querySelectorAll(".react-flow")[graph === "ide" ? 0 : 1];
+      const pane = surface.querySelector(".react-flow__pane")!;
+      const before = viewport(surface);
+      if (graph === "issues")
+        fireEvent.keyDown(window, { key: "Shift", code: "ShiftLeft", shiftKey: true });
+      fireEvent.pointerDown(pane, {
+        pointerId: 1,
+        isPrimary: true,
+        button: 0,
+        buttons: 1,
+        clientX: 20,
+        clientY: 20,
+      });
+      fireEvent.pointerMove(pane, {
+        pointerId: 1,
+        isPrimary: true,
+        button: 0,
+        buttons: 1,
+        clientX: 220,
+        clientY: 160,
+      });
+      await waitFor(() => expect(surface.querySelector(".react-flow__selection")).toBeTruthy());
+      wheel(surface, 100, 100);
+      fireEvent.pointerUp(pane, {
+        pointerId: 1,
+        isPrimary: true,
+        button: 0,
+        buttons: 0,
+        clientX: 220,
+        clientY: 160,
+      });
+      if (graph === "issues")
+        fireEvent.keyUp(window, { key: "Shift", code: "ShiftLeft", shiftKey: false });
+      await waitFor(() => expect(surface.querySelector(".react-flow__selection")).toBeNull());
+      fireEvent.click(surface.querySelector(".react-flow__controls-zoomin")!);
+      await waitFor(() => expect(viewport(surface).zoom).toBeCloseTo(before.zoom * 1.2));
+    },
+  );
 });
