@@ -16,7 +16,7 @@ BOOTSTRAP_SCRIPT = REPO_ROOT / "scripts" / "bootstrap.py"
 AUDIT_SCRIPT = REPO_ROOT / "scripts" / "audit.py"
 PYTHON_CHECK_PATHS = ["src", "tests", "scripts", "tasks.py"]
 REQUIREMENTS_DIR = REPO_ROOT / "requirements"
-PYTHON_LOCK_VERSION = (3, 9)
+PYTHON_LOCK_VERSION = (3, 12)
 PYTHON_LOCK_FILES = (
     (REQUIREMENTS_DIR / "python-runtime.in", REQUIREMENTS_DIR / "python-runtime.txt"),
     (REQUIREMENTS_DIR / "python-dev.in", REQUIREMENTS_DIR / "python-dev.txt"),
@@ -45,7 +45,7 @@ def _same_python_tool(name: str) -> str:
     if os.name == "nt":
         candidates = [f"{name}.exe", f"{name}.cmd", name]
 
-    python_dir = Path(sys.executable).resolve().parent
+    python_dir = Path(sys.executable).absolute().parent
     scripts_dirs = [python_dir]
     if os.name == "nt":
         scripts_dirs.append(python_dir / "Scripts")
@@ -301,7 +301,7 @@ def check_python_locks(ctx) -> None:
             if actual != expected:
                 raise Exit(
                     f"{_repo_relative_posix(output_path)} is stale. "
-                    "Run `python -m invoke lock-python` with Python 3.9."
+                    "Run `python -m invoke lock-python` with Python 3.12."
                 )
 
 

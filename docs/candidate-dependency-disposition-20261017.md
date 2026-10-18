@@ -1,3 +1,8 @@
+> Development/CI follow-up: the owner later approved Python 3.12 and patched
+> development locks. See the [migration record](python312-migration-20261018.md).
+> Historical tests, installed candidates and runtime findings below retain their
+> original scope; they are not rerun claims for the migration.
+
 # Candidate dependency disposition, 2026-10-17
 
 This record describes the isolated audited candidate. It does not replace the

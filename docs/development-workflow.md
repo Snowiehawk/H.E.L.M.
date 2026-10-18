@@ -66,5 +66,6 @@ ZIP snapshot for a Git clone or describe candidate builds as releases.
 
 See [CI](ci.md), [packaging](desktop-packaging.md), and
 [the validated candidate record](validated-candidate-20261018.md) for checks and
-the retained platform-specific evidence limits. Python development/CI remains on
-3.9; C.L.E.A.N.'s documentation-tool Python version is not a HELM migration decision.
+the retained platform-specific evidence limits. The owner approved Python 3.12 for development/CI after the dependency review.
+See [the migration record](python312-migration-20261018.md); this does not change
+the installed application's bundled Python or authorize a merge.

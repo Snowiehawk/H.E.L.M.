@@ -8,7 +8,7 @@ validation.
 ## Python
 
 Python lockfiles are generated with the CI baseline interpreter, currently
-Python 3.9. Do not regenerate them with a newer local interpreter.
+Python 3.12. Use exactly that minor version for reproducible generation.
 
 Inputs:
 
@@ -24,7 +24,7 @@ requirements/python-runtime.txt
 requirements/python-dev.txt
 ```
 
-Regenerate both lockfiles from a Python 3.9 environment:
+Regenerate both lockfiles from a Python 3.12 environment:
 
 ```bash
 python -m invoke lock-python
@@ -44,6 +44,14 @@ python -m pip install -r requirements/python-dev.txt
 python -m pip install --no-deps -e .
 python -m pip check
 ```
+
+Both generated locks target the Python 3.12 validation environment. The
+conditional Python <3.10 typing-extensions dependency remains in the runtime
+input and package metadata resolution; pip-compile on 3.12 omits that inactive
+marker from its output. Python 3.9 source consumers should install the package
+with dependency resolution rather than treat this lock as cross-version. The
+shipping backend uses separate pinned interpreter/wheel inputs, which this
+development migration does not change.
 
 Runtime/release dependency review starts from `requirements/python-runtime.txt`.
 Development and CI tooling review starts from `requirements/python-dev.txt`.

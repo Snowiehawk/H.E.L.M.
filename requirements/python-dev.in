@@ -1,15 +1,19 @@
-# Development and CI dependencies for HELM.
+# Development and CI dependencies for HELM (Python 3.12+).
 -r python-runtime.in
 
 colorama>=0.4.6
 invoke>=2.2
 pip-audit>=2.7
-pip-tools>=7.5
-pytest>=7.0
+pip-tools>=7.6.2
+pytest>=9.0.3
 ruff>=0.8
 
-# Keep Python-version-specific transitive requirements explicit so the lockfiles
-# remain usable on supported local Python versions while being generated on 3.9.
-exceptiongroup>=1.3.1; python_version < "3.11"
-importlib-metadata>=8.7.1; python_full_version < "3.10.2"
+# Patched floors for development tooling and its transitive dependencies.
+filelock>=3.20.3
+msgpack>=1.2.1
+requests>=2.33.0
+urllib3>=2.8.0
+pip>=26.2
+setuptools>=83.0.0
+
 typing-extensions>=4.15.0; python_version < "3.13"

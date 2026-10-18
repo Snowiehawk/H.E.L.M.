@@ -1,3 +1,8 @@
+> Historical investigation at `846e237`: the owner subsequently approved the
+> Python 3.12 development/CI migration. See the [migration record](python312-migration-20261018.md)
+> for implementation and current validation; the observations below describe the
+> pre-migration lock and are retained as evidence.
+
 # Python development audit: baseline decision required
 
 PR #75's Python job completed lint/format and 171 tests (5 skipped), then failed

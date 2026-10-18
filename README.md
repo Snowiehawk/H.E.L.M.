@@ -92,11 +92,18 @@ Tests are written to run under `unittest` in this environment and remain compati
 
 For desktop work, the root `invoke` tasks automatically run inside `apps/desktop/` and default `HELM_WORKSPACE_ROOT` plus `HELM_PYTHON_BIN` to the repo-local venv when it exists. You can still override either environment variable manually if needed.
 
+Development bootstrap requires Python 3.12+; lock generation requires exactly
+3.12. Set `HELM_BOOTSTRAP_PYTHON_BIN` to an existing interpreter when needed.
+An existing older `.venv-helm-dev` must be preserved or renamed before recreating
+it; bootstrap never silently replaces it. Normal source installation still
+declares Python >=3.9; the dev lock is for Python 3.12+, not a universal 3.9 lock.
+The installed desktop app keeps its separately pinned bundled Python 3.13.16.
+
 The bootstrap script prints fully qualified follow-up commands that use the repo-local venv directly, so you do not have to activate the venv just to use HELM.
 
 Python CI and release validation install from committed lockfiles under
 `requirements/`. Regenerate those lockfiles only with the CI baseline Python
-version, currently Python 3.9, by running `python -m invoke lock-python`.
+version, currently Python 3.12, by running `python -m invoke lock-python`.
 
 ## CI / Quality Gates
 

@@ -8,6 +8,7 @@ import sys
 import time
 import unittest
 import uuid
+from unittest.mock import patch
 from pathlib import Path
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "bootstrap.py"
@@ -90,3 +91,45 @@ class BootstrapTests(unittest.TestCase):
             os.utime(stamp_path, (newer_time, newer_time))
 
             self.assertFalse(BOOTSTRAP.needs_refresh(stamp_path, [input_path]))
+
+
+class BootstrapPythonBaselineTests(unittest.TestCase):
+    def test_rejects_old_python_before_installing_dependencies(self) -> None:
+        for version in ((3, 9, 1), (3, 11, 9)):
+            with (
+                self.subTest(version=version),
+                patch.object(BOOTSTRAP.sys, "version_info", version),
+            ):
+                with self.assertRaisesRegex(BOOTSTRAP.BootstrapError, r"Python 3.12\+"):
+                    BOOTSTRAP.ensure_supported_python()
+
+    def test_accepts_baseline_and_newer_development_interpreters(self) -> None:
+        for version in ((3, 12, 0), (3, 14, 0)):
+            with (
+                self.subTest(version=version),
+                patch.object(BOOTSTRAP.sys, "version_info", version),
+            ):
+                BOOTSTRAP.ensure_supported_python()
+
+    def test_preserves_existing_old_venv_instead_of_replacing_it(self) -> None:
+        profile = BOOTSTRAP.get_platform_profile("Darwin")
+        with (
+            patch.object(BOOTSTRAP.Path, "exists", return_value=True),
+            patch.object(BOOTSTRAP.subprocess, "run") as run,
+            patch.object(BOOTSTRAP, "run_command") as install,
+        ):
+            run.return_value.returncode = 1
+            with self.assertRaisesRegex(BOOTSTRAP.BootstrapError, "will not replace"):
+                BOOTSTRAP.ensure_venv(profile)
+            install.assert_not_called()
+
+    def test_reuses_existing_supported_venv(self) -> None:
+        profile = BOOTSTRAP.get_platform_profile("Darwin")
+        with (
+            patch.object(BOOTSTRAP.Path, "exists", return_value=True),
+            patch.object(BOOTSTRAP.subprocess, "run") as run,
+            patch.object(BOOTSTRAP, "run_command") as install,
+        ):
+            run.return_value.returncode = 0
+            self.assertEqual(BOOTSTRAP.ensure_venv(profile), BOOTSTRAP.venv_python_path(profile))
+            install.assert_not_called()

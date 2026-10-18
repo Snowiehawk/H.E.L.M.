@@ -4,6 +4,7 @@ HELM currently runs GitHub Actions on Ubuntu for pull requests, pushes to `main`
 
 ## CI-equivalent local checks
 
+Use Python 3.12 (all three CI jobs use that baseline).
 Install Python dev dependencies from the committed lockfile, then install HELM
 without resolving dependencies again:
 
@@ -45,13 +46,14 @@ The bootstrap wrappers remain convenience entrypoints for local setup and app la
 .\helm.cmd bootstrap
 ```
 
-Those bootstrap commands install Python from `requirements/python-dev.txt` but may
+Bootstrap requires Python 3.12+ and rejects an older existing repo venv without
+deleting it. Those bootstrap commands install Python from `requirements/python-dev.txt` but may
 use `npm install` so first-run frontend setup is forgiving. They are not the
 CI-equivalent frontend dependency install. Use `npm ci` when validating
 lockfile-accurate CI behavior.
 
 Python lockfiles must be generated with the CI baseline Python version, currently
-Python 3.9:
+Python 3.12:
 
 ```bash
 python -m invoke lock-python

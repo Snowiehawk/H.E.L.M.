@@ -1,3 +1,8 @@
+> Development/CI follow-up: the owner later approved Python 3.12 and patched
+> development locks. See the [migration record](python312-migration-20261018.md).
+> Historical tests, installed candidates and runtime findings below retain their
+> original scope; they are not rerun claims for the migration.
+
 # Desktop packaging acceptance — 2026-10-17
 
 This is the historical installed-backend checkpoint. Its artifact hashes and

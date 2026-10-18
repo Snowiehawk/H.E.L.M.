@@ -61,7 +61,7 @@ function Test-UsablePython {
     )
 
     try {
-        & $Executable @PrefixArgs -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)" *> $null
+        & $Executable @PrefixArgs -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)" *> $null
         return $LASTEXITCODE -eq 0
     } catch {
         return $false
@@ -84,6 +84,10 @@ function Find-PythonLauncher {
     $override = $env:HELM_BOOTSTRAP_PYTHON_BIN
     if ($override -and (Test-Path $override) -and (Test-UsablePython -Executable $override)) {
         return New-PythonLauncher -Executable $override
+    }
+
+    if (Test-UsablePython -Executable "py" -PrefixArgs @("-3.12")) {
+        return New-PythonLauncher -Executable "py" -PrefixArgs @("-3.12")
     }
 
     if (Test-UsablePython -Executable "py" -PrefixArgs @("-3")) {
@@ -212,7 +216,7 @@ function Ensure-WindowsPython {
 
     $launcher = Find-PythonLauncher
     if (-not $launcher) {
-        throw "Python was installed, but HELM still cannot find a usable Python 3.9+ runtime."
+        throw "Python was installed, but HELM still cannot find a usable Python 3.12+ runtime."
     }
     return $launcher
 }

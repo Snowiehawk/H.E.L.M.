@@ -50,8 +50,8 @@ pinned and tested x86_64 runtime is added. Cross-building an Intel target from a
 arm64 host fails explicitly. A declared bundled runtime that is damaged fails at
 its installed path instead of silently choosing a system Python. A missing or malformed runtime manifest also fails closed. Older Mac
 bundles whose manifest explicitly declares external Python retain their existing
-contract. The shipping runtime does not change the Python 3.9 dev/CI
-baseline or approve the pending 3.12 migration.
+contract. The owner-approved development/CI baseline is Python 3.12. That migration
+does not change the pinned shipping interpreter, wheel inputs or installed candidates.
 
 The arm64 runtime is an isolated candidate pending native acceptance. Prior
 accepted Mac hashes in the dated native acceptance record used external Python.
