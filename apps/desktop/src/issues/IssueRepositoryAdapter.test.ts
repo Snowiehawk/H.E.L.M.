@@ -127,3 +127,52 @@ describe("IssueRepositoryAdapter", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 });
+
+describe("binary issue state refresh", () => {
+  it("publishes Open→Closed→Open atomically with the same native identity", async () => {
+    const open = issue(1);
+    const closed = { ...open, state: "CLOSED" as const, stateReason: "NOT_PLANNED" };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response(page([open])))
+      .mockResolvedValueOnce(response(page([closed])))
+      .mockResolvedValueOnce(response(page([open])));
+    const adapter = new IssueRepositoryAdapter(fetcher);
+    await adapter.load(repositoryName, TEST_TOKEN);
+    const id = adapter.getState().snapshot!.issues[0].id;
+    await adapter.refresh();
+    expect(adapter.getState().snapshot!.issues[0]).toMatchObject({ id, state: "CLOSED" });
+    await adapter.refresh();
+    expect(adapter.getState().snapshot!.issues[0]).toMatchObject({ id, state: "OPEN" });
+  });
+
+  it.each([undefined, null, "IN_PROGRESS"])(
+    "rejects unsupported initial state %s instead of guessing Open",
+    async (state) => {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(response(page([{ ...issue(1), state } as any])));
+      const adapter = new IssueRepositoryAdapter(fetcher);
+      await adapter.load(repositoryName, TEST_TOKEN);
+      expect(adapter.getState().status).toBe("error");
+      expect(adapter.getState().snapshot).toBeUndefined();
+    },
+  );
+
+  it("retains valid state on canceled refresh and ignores its late recolor", async () => {
+    const pending = deferred<Response>();
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response(page([issue(1)])))
+      .mockReturnValueOnce(pending.promise);
+    const adapter = new IssueRepositoryAdapter(fetcher);
+    await adapter.load(repositoryName, TEST_TOKEN);
+    const previous = adapter.getState().snapshot;
+    const refresh = adapter.refresh();
+    adapter.cancel();
+    pending.resolve(response(page([{ ...issue(1), state: "CLOSED" }])));
+    await refresh;
+    expect(adapter.getState().snapshot).toBe(previous);
+    expect(adapter.getState().snapshot!.issues[0].state).toBe("OPEN");
+  });
+});

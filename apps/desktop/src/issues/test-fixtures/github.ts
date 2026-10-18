@@ -6,7 +6,7 @@ export const repositoryName = "example/A.B.";
 export const reference = (number: number, repository = repositoryName) => ({
   id: `synthetic-${repository}-${number}`,
   number,
-  state: "OPEN" as const,
+  state: "OPEN" as "OPEN" | "CLOSED",
   title: `Synthetic issue ${number}`,
   url: `https://github.com/${repository}/issues/${number}`,
   repository: { nameWithOwner: repository },
@@ -14,7 +14,7 @@ export const reference = (number: number, repository = repositoryName) => ({
 
 export const issue = (number: number, blockers: number[] = [], blocking: number[] = []) => ({
   ...reference(number),
-  stateReason: null,
+  stateReason: null as string | null,
   createdAt: "2026-01-01T00:00:00Z",
   updatedAt: "2026-01-01T00:00:00Z",
   closedAt: null,

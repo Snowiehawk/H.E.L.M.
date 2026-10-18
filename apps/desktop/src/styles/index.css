@@ -2601,10 +2601,50 @@ button:disabled:hover {
 }
 
 .issue-graph-panel {
+  --issue-open-surface: #eaf7ee;
+  --issue-open-state: #176534;
+  --issue-closed-surface: #f5edfc;
+  --issue-closed-state: #71328f;
   display: flex;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+}
+
+:root[data-theme="dark"] .issue-graph-panel {
+  --issue-open-surface: #142c24;
+  --issue-open-state: #8ce3a4;
+  --issue-closed-surface: #2e2040;
+  --issue-closed-state: #ddb5fa;
+}
+
+.issue-graph-panel [data-issue-state="open"] {
+  --issue-state-surface: var(--issue-open-surface);
+  --issue-state-color: var(--issue-open-state);
+}
+
+.issue-graph-panel [data-issue-state="closed"] {
+  --issue-state-surface: var(--issue-closed-surface);
+  --issue-state-color: var(--issue-closed-state);
+}
+
+.issue-state-legend {
+  display: flex;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.issue-state-legend li {
+  white-space: nowrap;
+  color: var(--issue-state-color);
+}
+
+.issue-state-label {
+  color: var(--issue-state-color, var(--text-muted));
+  font-weight: 700;
 }
 
 .issue-graph-toolbar {
@@ -2616,7 +2656,7 @@ button:disabled:hover {
   border-bottom: 1px solid var(--line);
 }
 
-.issue-graph-toolbar span {
+.issue-graph-toolbar > span {
   flex: 1 1 200px;
   color: var(--text-muted);
   font-size: 12px;
@@ -2635,8 +2675,10 @@ button:disabled:hover {
   border: 1px solid var(--line-strong);
   border-radius: 14px;
   color: var(--text);
-  background: var(--surface-solid);
-  box-shadow: var(--shadow-card);
+  background: var(--issue-state-surface, var(--surface-solid));
+  box-shadow:
+    inset 5px 0 0 var(--issue-state-color, var(--line-strong)),
+    var(--shadow-card);
 }
 
 .issue-graph-card strong {
@@ -2658,6 +2700,11 @@ button:disabled:hover {
 .issue-graph-surface .react-flow__node.selected .issue-graph-card {
   border-color: var(--accent-strong);
   outline: 2px solid var(--accent);
+}
+
+.issue-graph-surface .react-flow__node:focus-visible .issue-graph-card {
+  outline: 3px solid var(--accent-strong);
+  outline-offset: 3px;
 }
 
 .issue-graph-surface .react-flow__edge-textbg {

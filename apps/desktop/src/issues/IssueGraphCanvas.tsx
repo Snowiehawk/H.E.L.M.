@@ -11,15 +11,20 @@ import {
 } from "@xyflow/react";
 import type { Node, NodeProps, ReactFlowInstance } from "@xyflow/react";
 import type { IssueGraph, IssueGraphNode } from "./issueGraph";
+import { issueState } from "./issueState";
 
 type IssueFlowNode = Node<{ issue: IssueGraphNode }, "issue">;
 
 function IssueCard({ data }: NodeProps<IssueFlowNode>) {
+  const state = issueState(data.issue.state);
   return (
-    <div className={`issue-graph-card${data.issue.external ? " is-external" : ""}`}>
+    <div
+      className={`issue-graph-card${data.issue.external ? " is-external" : ""}`}
+      data-issue-state={state.kind}
+    >
       <Handle type="target" position={Position.Left} isConnectable={false} />
       <span className="window-bar__eyebrow">
-        #{data.issue.number} · {data.issue.state.toLowerCase()}
+        #{data.issue.number} · <span className="issue-state-label">{state.label}</span>
         {data.issue.external ? " · external" : ""}
       </span>
       <strong>{data.issue.title}</strong>
@@ -53,7 +58,7 @@ export function IssueGraphCanvas({
         position: positions.get(issue.id) ?? issue.position,
         data: { issue },
         selected: issue.id === selectedId,
-        ariaLabel: `Issue ${issue.number}: ${issue.title}`,
+        ariaLabel: `Issue ${issue.number}: ${issue.title}, ${issueState(issue.state).label}${issue.external ? ", external" : ""}${issue.partial ? ", partial blocker data" : ""}`,
       }));
     });
   }, [graph, selectedId]);
@@ -76,6 +81,14 @@ export function IssueGraphCanvas({
     >
       <div className="issue-graph-toolbar">
         <span>Arrows run from blocker to blocked issue.</span>
+        <ul className="issue-state-legend" aria-label="Issue state legend">
+          <li data-issue-state="open">
+            <span aria-hidden="true">●</span> Open
+          </li>
+          <li data-issue-state="closed">
+            <span aria-hidden="true">●</span> Closed
+          </li>
+        </ul>
         {graph.partial ? (
           <span className="error-copy">Partial snapshot: blocker links may be missing.</span>
         ) : null}
