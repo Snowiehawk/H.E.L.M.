@@ -13,8 +13,10 @@ security/packaging/native fixes and branding are recorded in integration commit
 `280492f`. Its complete 392-file tree matches the isolated approved logo source
 commit `b3f545d6e102b7b842e06f818257f3b340f60079` byte for byte. That logo source
 already includes the validated dirty fixes; checking out the old base alone would
-omit them. Subsequent changes in this publication are workflow and evidence
-documentation only; the application source and lockfiles remain that exact snapshot.
+omit them. Subsequent publication changes add workflow/evidence documentation and two
+CI-pinned Ruff formatting corrections (one wrapped condition and one trailing
+blank line). Their parsed Python syntax trees are unchanged; application behavior,
+assets and lockfiles remain the validated snapshot.
 
 Retained source archives, identified by SHA-256:
 
@@ -104,3 +106,11 @@ The normal GitHub CI/audit results must be read separately from these focused
 checks. Publishing this branch does not clear a known dependency gate or grant
 merge/release approval. Installed QA applications remain separate from a laptop
 Git checkout; fetching or switching branches does not rebuild or replace them.
+
+## CI formatting follow-up
+
+The first GitHub Python job stopped at Ruff formatting in `graph_projection.py`
+and `python_adapter.py`. Running the committed Ruff 0.15.12 wrapped one condition
+and removed one trailing blank line. Python 3.9 parsed syntax trees before and
+after are identical. Full Ruff lint and formatting now pass (67 files). No
+dependency lock, Python baseline, audit exception or application behavior changed.

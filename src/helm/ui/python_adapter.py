@@ -366,4 +366,3 @@ class PythonRepoAdapter:
         self.parsed_modules = next_parsed_modules
         self.graph = build_repo_graph(self.root_path, self.parsed_modules)
         return tuple(reparsed)
-

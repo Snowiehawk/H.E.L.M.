@@ -255,7 +255,10 @@ class GraphProjector:
             )
         ]
 
-        if parsed_symbol.parent_symbol_id and parsed_symbol.parent_symbol_id in self.context.graph.nodes:
+        if (
+            parsed_symbol.parent_symbol_id
+            and parsed_symbol.parent_symbol_id in self.context.graph.nodes
+        ):
             parent_symbol = self.context.graph.nodes[parsed_symbol.parent_symbol_id]
             nodes[parent_symbol.node_id] = self._symbol_view_node(parent_symbol)
             edges.append(
