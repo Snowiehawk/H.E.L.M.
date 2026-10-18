@@ -19,8 +19,19 @@ export function useWorkspaceLauncher() {
     async (session: RepoSession) => {
       resetWorkspace();
       setSession(session);
-      const { jobId } = await adapter.startIndex(session.path);
-      navigate(`/indexing/${encodeURIComponent(jobId)}`);
+      try {
+        const { jobId } = await adapter.startIndex(session.path);
+        if (useUiStore.getState().repoSession?.id !== session.id) return;
+        useUiStore.setState({ indexingSession: { sessionId: session.id, jobId } });
+        navigate(`/indexing/${encodeURIComponent(jobId)}`);
+      } catch (reason) {
+        // This newly admitted session never became an editable workspace.
+        if (useUiStore.getState().repoSession?.id === session.id) {
+          resetWorkspace();
+          useUiStore.setState({ repoSession: undefined });
+        }
+        throw reason;
+      }
     },
     [adapter, navigate, resetWorkspace, setSession],
   );

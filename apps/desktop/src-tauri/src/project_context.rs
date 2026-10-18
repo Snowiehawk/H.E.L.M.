@@ -76,24 +76,62 @@ fn valid_repository(repository: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
 }
 
-fn terminate(child: &mut Child) {
+#[cfg(unix)]
+fn unix_group_signal(child: &Child, signal: std::ffi::c_int) -> std::io::Result<()> {
+    unsafe extern "C" {
+        fn kill(pid: std::ffi::c_int, sig: std::ffi::c_int) -> std::ffi::c_int;
+    }
+    let group_id = i32::try_from(child.id())
+        .ok()
+        .filter(|pid| *pid > 1)
+        .ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid owned group")
+        })?;
+    // Nonzero signals are used only while our fresh session leader is unreaped.
+    // Signal zero below is a read-only existence probe after reaping, never a signal.
+    if unsafe { kill(-group_id, signal) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(unix)]
+fn signal_owned_group(child: &Child, signal: std::ffi::c_int) -> bool {
+    match unix_group_signal(child, signal) {
+        Ok(()) => true,
+        Err(error) => error.raw_os_error() == Some(3),
+    } // ESRCH on macOS/Linux.
+}
+
+fn terminate(child: &mut Child) -> bool {
     #[cfg(unix)]
-    {
-        // The child owns a fresh process group. Stop Git and its transport helpers.
-        let _ = Command::new("kill")
-            .args(["-TERM", "--", &format!("-{}", child.id())])
-            .status();
-    }
+    let tree_stopped = {
+        // Keep the leader unreaped until after group KILL, reserving its PID/group
+        // identity even if TERM makes Git exit before a resistant helper does.
+        signal_owned_group(child, 15); // SIGTERM
+        std::thread::sleep(Duration::from_millis(200));
+        signal_owned_group(child, 9) // SIGKILL includes TERM-resistant helpers.
+    };
     #[cfg(windows)]
-    {
-        let _ = Command::new("taskkill")
-            .args(["/F", "/T", "/PID", &child.id().to_string()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
+    let tree_stopped = Command::new("taskkill")
+        .args(["/F", "/T", "/PID", &child.id().to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    #[cfg(not(any(unix, windows)))]
+    let tree_stopped = false;
     let _ = child.kill();
-    let _ = child.wait();
+    let reaped = child.wait().is_ok();
+    // macOS can report EPERM for a group containing only the dead leader. After
+    // reaping, an ESRCH from a read-only probe confirms that no helper survived.
+    // Never send another signal after the leader PID could have been reused.
+    #[cfg(unix)]
+    let tree_stopped = tree_stopped
+        || (reaped
+            && unix_group_signal(child, 0).is_err_and(|error| error.raw_os_error() == Some(3)));
+    tree_stopped && reaped
 }
 
 fn clone_owned(
@@ -169,14 +207,17 @@ fn clone_owned(
             }
         }
         if cancel.load(Ordering::SeqCst) || started.elapsed() > timeout {
-            terminate(&mut child);
-            break "cancelled";
+            break if terminate(&mut child) {
+                "cancelled"
+            } else {
+                "unknown"
+            };
         }
         std::thread::sleep(Duration::from_millis(40));
     };
     // Never recursively clean output: a user/other process may have added files.
     Ok(
-        json!({"outcome":outcome, "path":destination, "message": if outcome == "cloned" { "Clone complete. Verify the remote, then explicitly open this copy." } else { "Clone did not complete. Any attempt-owned output remains at this destination; inspect it before retrying. Existing Git/SSH access is separate from issue-token access." }}),
+        json!({"outcome":outcome, "path":destination, "message": if outcome == "cloned" { "Clone complete. Verify the remote, then explicitly open this copy." } else if outcome == "unknown" { "Clone process cleanup could not be confirmed. Do not activate this destination until its owned Git/helper processes have been inspected." } else { "Clone did not complete. Any attempt-owned output remains at this destination; inspect it before retrying. Existing Git/SSH access is separate from issue-token access." }}),
     )
 }
 
@@ -376,5 +417,48 @@ mod tests {
         .unwrap();
         assert!(["cancelled", "failed"].contains(&result["outcome"].as_str().unwrap()));
         assert!(target.is_dir());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn cancel_stops_term_resistant_helpers_without_signalling_an_unrelated_group() {
+        use std::os::unix::process::CommandExt;
+        let fixture = Fixture::new();
+        let ticks = fixture.0.join("owned-helper-ticks");
+        let mut owned = Command::new("sh");
+        owned.args(["-c", "trap '' TERM; (trap '' TERM; while :; do printf x >> \"$1\"; sleep 0.02; done) & wait", "owned-fixture"]).arg(&ticks)
+            .process_group(0).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        let mut owned = owned.spawn().unwrap();
+        let mut unrelated = Command::new("sleep")
+            .arg("5")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let started = Instant::now();
+        while std::fs::metadata(&ticks).map(|m| m.len()).unwrap_or(0) < 3
+            && started.elapsed() < Duration::from_secs(2)
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let ready = std::fs::metadata(&ticks).map(|m| m.len()).unwrap_or(0) >= 3;
+        let cleaned = terminate(&mut owned);
+        let size_at_return = std::fs::metadata(&ticks).map(|m| m.len()).unwrap_or(0);
+        std::thread::sleep(Duration::from_millis(160));
+        let stopped = std::fs::metadata(&ticks).map(|m| m.len()).unwrap_or(0) == size_at_return;
+        let unrelated_alive = unrelated.try_wait().unwrap().is_none();
+        // Clean a failed fixture before asserting; its live helper still owns this group.
+        if !stopped {
+            let _ = Command::new("/bin/kill")
+                .args(["-KILL", "--", &format!("-{}", owned.id())])
+                .status();
+        }
+        let _ = unrelated.kill();
+        let _ = unrelated.wait();
+        assert!(ready, "resistant helper never started");
+        assert!(cleaned, "owned process-group cleanup was not confirmed");
+        assert!(
+            stopped,
+            "owned helper kept writing after cancellation returned"
+        );
+        assert!(unrelated_alive, "another process group was signalled");
     }
 }

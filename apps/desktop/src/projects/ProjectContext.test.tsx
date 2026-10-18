@@ -190,7 +190,8 @@ describe("guarded shared context coordinator", () => {
     fireEvent.click(screen.getByText("Switch"));
     await screen.findByText(/New branch indexing failed/);
     expect(useUiStore.getState().graphTargetId).toBeUndefined();
-    expect(useUiStore.getState().repoSession?.path).toBe("/repo");
+    expect(useUiStore.getState().repoSession).toBeUndefined();
+    expect(screen.getByText(/checkout remains on feature/)).toBeInTheDocument();
   });
   it("restores metadata without opening a checkout or reviving an issue session", async () => {
     setup();

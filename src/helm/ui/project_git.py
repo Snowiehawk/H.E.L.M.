@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import signal
+import time
 from urllib.parse import urlsplit
 
 
@@ -41,6 +43,58 @@ def github_identity(remote: str) -> str | None:
     return f"{owner}/{name}".lower()
 
 
+GIT_TIMEOUT_SECONDS = 20
+GIT_TERMINATION_GRACE_SECONDS = 0.2
+
+
+class GitExecutionError(ValueError):
+    def __init__(self, message: str, *, timed_out: bool = False, cleanup_confirmed: bool = True):
+        super().__init__(message)
+        self.timed_out = timed_out
+        self.cleanup_confirmed = cleanup_confirmed
+
+
+def _terminate_owned_git(process: subprocess.Popen) -> bool:
+    """The unreaped session leader reserves its PID until the whole group is killed."""
+    confirmed = True
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            confirmed = False
+        # Do not poll/wait (and reap/reuse the leader PID) before the group KILL.
+        time.sleep(GIT_TERMINATION_GRACE_SECONDS)
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            confirmed = False
+    elif os.name == "nt":
+        try:
+            stopped = subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+            confirmed = stopped.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            confirmed = False
+    else:
+        confirmed = False
+    try:
+        process.kill()
+        process.communicate(timeout=2)
+    except (OSError, subprocess.TimeoutExpired):
+        confirmed = False
+    return confirmed
+
+
 def _git(root: Path, *args: str, optional: bool = False) -> bytes:
     environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
     for key in (
@@ -53,22 +107,33 @@ def _git(root: Path, *args: str, optional: bool = False) -> bytes:
     ):
         environment.pop(key, None)
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             ["git", "--no-optional-locks", "-C", str(root), *args],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            timeout=20,
-            check=False,
             env=environment,
+            start_new_session=os.name == "posix",
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
         )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise ValueError(
-            "Git is unavailable or timed out; the project state is unknown."
+    except OSError as error:
+        raise GitExecutionError("Git is unavailable; the project state is unknown.") from error
+    try:
+        output, _ = process.communicate(timeout=GIT_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired as error:
+        cleaned = _terminate_owned_git(process)
+        raise GitExecutionError(
+            "Git timed out. Its owned processes were stopped; inspect the actual checkout before retrying."
+            if cleaned
+            else "Git timed out and process cleanup could not be confirmed. Do not edit this checkout until its Git processes have been inspected.",
+            timed_out=True,
+            cleanup_confirmed=cleaned,
         ) from error
-    if result.returncode and not optional:
-        raise ValueError("Git inspection failed. Check the selected checkout and Git permissions.")
-    return result.stdout if result.returncode == 0 else b""
+    if process.returncode and not optional:
+        raise GitExecutionError(
+            "Git inspection or execution failed. Check the selected checkout and Git permissions."
+        )
+    return output if process.returncode == 0 else b""
 
 
 def inspect_project(repo: str) -> dict:
@@ -142,7 +207,11 @@ def inspect_project(repo: str) -> dict:
                 "kind": "push" if key.endswith(b".pushurl") else "fetch",
             }
         )
-    worktrees = _git(root, "worktree", "list", "--porcelain").count(b"worktree ")
+    # -z preserves raw paths; count record prefixes rather than text inside paths.
+    worktrees = sum(
+        record.startswith(b"worktree ")
+        for record in _git(root, "worktree", "list", "--porcelain", "-z").split(b"\0")
+    )
     git_dir = Path(os.fsdecode(_git(root, "rev-parse", "--absolute-git-dir")).strip()).resolve()
     linked_worktree = git_dir != (root / ".git").resolve()
     submodule = (
@@ -206,12 +275,18 @@ def switch_branch(repo: str, branch: str, fingerprint: str) -> dict:
         raise ValueError(
             "Choose an existing local branch. Fetch/tracking creation must be done explicitly outside this selector."
         )
+    execution_error = None
     outcome = "unchanged"
     try:
-        _git(Path(before["path"]), "switch", "--no-guess", branch)
+        # Git otherwise overwrites ignored, untracked paths by default. Let Git
+        # detect collisions at apply time, including paths absent from status.
+        _git(Path(before["path"]), "switch", "--no-guess", "--no-overwrite-ignore", branch)
         outcome = "switched"
-    except ValueError:
-        outcome = "failed"
+    except GitExecutionError as error:
+        execution_error = error
+        outcome = "timed-out" if error.timed_out else "failed"
+        if not error.cleanup_confirmed:
+            return {"outcome": "unknown", "actual": None, "message": str(error)}
     # Reconcile actual Git state after any execution result. Never promise rollback.
     try:
         actual = inspect_project(repo)
@@ -221,12 +296,18 @@ def switch_branch(repo: str, branch: str, fingerprint: str) -> dict:
             "actual": None,
             "message": "Git state could not be reconciled. Inspect this checkout before retrying.",
         }
-    if actual["branch"] == branch:
-        outcome = "switched"
+    if execution_error is None and actual["branch"] != branch:
+        outcome = "failed"
     return {
         "outcome": outcome,
         "actual": actual,
-        "message": None
-        if outcome == "switched"
-        else "Git refused the branch switch. Existing files were preserved; review Git state and retry.",
+        "executionFailed": execution_error is not None,
+        "contextChanged": actual["head"] != before["head"] or actual["branch"] != before["branch"],
+        "message": str(execution_error)
+        if execution_error
+        else (
+            None
+            if outcome == "switched"
+            else "Git refused the branch switch. Review the actual Git state before retrying."
+        ),
     }

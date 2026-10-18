@@ -1,6 +1,9 @@
 """Disposable real-Git fixtures for the shared-project mutation boundary."""
 
 import subprocess
+import os
+import shlex
+import time
 import tempfile
 from pathlib import Path
 import unittest
@@ -130,7 +133,8 @@ class ProjectGitTests(unittest.TestCase):
 
     def test_failed_git_probe_is_unknown_not_clean_and_hides_stderr(self):
         with patch(
-            "helm.ui.project_git.subprocess.run", side_effect=OSError("secret internal diagnostic")
+            "helm.ui.project_git.subprocess.Popen",
+            side_effect=OSError("secret internal diagnostic"),
         ):
             with self.assertRaisesRegex(ValueError, "unknown") as error:
                 inspect_project(str(self.root))
@@ -163,3 +167,133 @@ class ProjectGitTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed"):
             switch_branch(str(self.root), "other", info["fingerprint"])
         self.assertIsNone(github_identity("https://github.com:private-token/example/repo"))
+
+    def assert_ignored_path_collision_is_preserved(self, relative_path):
+        ignored_path = self.root / relative_path
+        ignore_rule = relative_path.split("/")[0]
+        (self.root / ".gitignore").write_text(f"/{ignore_rule}\n")
+        git(self.root, "add", ".gitignore")
+        git(self.root, "commit", "-m", "ignore local-only fixture")
+        git(self.root, "switch", "other")
+        ignored_path.parent.mkdir(parents=True, exist_ok=True)
+        ignored_path.write_bytes(b"target branch tracked bytes\n")
+        git(self.root, "add", "--", relative_path)
+        git(self.root, "commit", "-m", "track colliding fixture on target")
+        git(self.root, "switch", "dev")
+        ignored_path.parent.mkdir(parents=True, exist_ok=True)
+        original = b"synthetic local-only bytes\r\n\x00preserve exactly\xff"
+        ignored_path.write_bytes(original)
+        before = inspect_project(str(self.root))
+        self.assertEqual((before["staged"], before["unstaged"], before["untracked"]), (0, 0, 0))
+        self.assertEqual(
+            git(self.root, "check-ignore", "--", relative_path).strip(), relative_path.encode()
+        )
+
+        result = switch_branch(str(self.root), "other", before["fingerprint"])
+
+        self.assertEqual(result["outcome"], "failed")
+        self.assertEqual(result["actual"]["branch"], "dev")
+        self.assertEqual(result["actual"]["head"], before["head"])
+        self.assertEqual(result["actual"]["fingerprint"], before["fingerprint"])
+        self.assertEqual(ignored_path.read_bytes(), original)
+        self.assertEqual(git(self.root, "status", "--porcelain"), b"")
+        self.assertNotIn("synthetic local-only bytes", repr(result))
+
+    def test_switch_refuses_overwriting_an_ignored_env_file(self):
+        self.assert_ignored_path_collision_is_preserved(".env")
+
+    def test_switch_refuses_overwriting_an_ignored_python_config(self):
+        self.assert_ignored_path_collision_is_preserved("config.py")
+
+    def test_switch_refuses_overwriting_a_file_in_an_ignored_directory(self):
+        self.assert_ignored_path_collision_is_preserved(".env/config.py")
+
+    def test_switch_preserves_noncolliding_ignored_work(self):
+        (self.root / ".gitignore").write_text("/.env\n")
+        git(self.root, "add", ".gitignore")
+        git(self.root, "commit", "-m", "ignore local fixture")
+        original = b"synthetic local-only value\r\n"
+        ignored = self.root / ".env"
+        ignored.write_bytes(original)
+        before = inspect_project(str(self.root))
+        result = switch_branch(str(self.root), "other", before["fingerprint"])
+        self.assertEqual(result["outcome"], "switched")
+        self.assertEqual(result["actual"]["branch"], "other")
+        self.assertEqual(ignored.read_bytes(), original)
+
+    def test_single_worktree_path_text_is_not_counted_as_another_record(self):
+        # Move the owned fixture as a whole; the new root includes the record prefix text.
+        moved = self.root.parent / (self.root.name + " worktree demo ü")
+        self.root.rename(moved)
+        self.addCleanup(lambda: moved.rename(Path(self.temp.name)))
+        self.root = moved
+        info = inspect_project(str(self.root))
+        self.assertEqual(info["blocked"], [])
+        result = switch_branch(str(self.root), "other", info["fingerprint"])
+        self.assertEqual(result["outcome"], "switched")
+
+    @unittest.skipUnless(os.name == "posix", "POSIX owned-session hook fixture")
+    def test_switch_timeout_stops_resistant_hook_and_does_not_infer_success_from_head(self):
+        git(self.root, "switch", "other")
+        target_bytes = b"def target_branch(): pass\n"
+        (self.root / "sample.py").write_bytes(target_bytes)
+        git(self.root, "add", "sample.py")
+        git(self.root, "commit", "-m", "distinct target")
+        target_head = git(self.root, "rev-parse", "HEAD").decode().strip()
+        git(self.root, "switch", "dev")
+        delayed_write = self.root / ".git" / "unexpected-late-write"
+        started = self.root / ".git" / "hook-started"
+        hook = self.root / ".git" / "hooks" / "post-checkout"
+        hook.write_text(
+            "#!/bin/sh\ntrap '' TERM\n"
+            + f"printf started > {shlex.quote(str(started))}\n"
+            + "sleep 3\n"
+            + f"printf unsafe > {shlex.quote(str(delayed_write))}\n"
+        )
+        hook.chmod(0o755)
+        git(self.root, "config", "core.hooksPath", str(hook.parent))
+        before = inspect_project(str(self.root))
+        with patch("helm.ui.project_git.GIT_TIMEOUT_SECONDS", 1):
+            result = switch_branch(str(self.root), "other", before["fingerprint"])
+        self.assertTrue(started.exists(), repr(result))
+        self.assertEqual(result["outcome"], "timed-out")
+        self.assertTrue(result["executionFailed"])
+        self.assertTrue(result["contextChanged"])
+        self.assertEqual(result["actual"]["head"], target_head)
+        self.assertEqual(result["actual"]["branch"], "other")
+        time.sleep(3.1)
+        self.assertFalse(delayed_write.exists(), "a hook wrote after timeout was reported")
+        self.assertEqual((self.root / "sample.py").read_bytes(), target_bytes)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX failing-hook fixture")
+    def test_failed_hook_does_not_become_success_when_branch_changed(self):
+        hook = self.root / ".git" / "hooks" / "post-checkout"
+        hook.write_text("#!/bin/sh\nexit 23\n")
+        hook.chmod(0o755)
+        git(self.root, "config", "core.hooksPath", str(hook.parent))
+        before = inspect_project(str(self.root))
+        result = switch_branch(str(self.root), "other", before["fingerprint"])
+        self.assertEqual(result["outcome"], "failed")
+        self.assertTrue(result["executionFailed"])
+        self.assertTrue(result["contextChanged"])
+        self.assertEqual(result["actual"]["branch"], "other")
+
+    def test_unconfirmed_timeout_cleanup_refuses_admission_without_an_actual_snapshot(self):
+        from helm.ui.project_git import GitExecutionError, _git
+
+        before = inspect_project(str(self.root))
+
+        def failed_switch(root, *args, **kwargs):
+            if args[0] == "switch":
+                raise GitExecutionError(
+                    "Git timed out and cleanup could not be confirmed.",
+                    timed_out=True,
+                    cleanup_confirmed=False,
+                )
+            return _git(root, *args, **kwargs)
+
+        with patch("helm.ui.project_git._git", side_effect=failed_switch):
+            result = switch_branch(str(self.root), "other", before["fingerprint"])
+        self.assertEqual(result["outcome"], "unknown")
+        self.assertIsNone(result["actual"])
+        self.assertIn("cleanup could not be confirmed", result["message"])

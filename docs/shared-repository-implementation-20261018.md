@@ -145,3 +145,38 @@ These prevent treating a delayed native event or queued layout write as clean
 cross-branch state. An initial concurrent frontend run hit existing five-second
 interaction timeouts; its log is retained. Final verification is rerun with bounded
 workers after source changes, without increasing any test timeout.
+
+## Independent-review corrections
+
+The original candidate's clean-status guard did not cover ignored-path collisions:
+Git's default switch behavior could overwrite an ignored `.env`, `config.py`, or
+`.env/config.py` tracked by the target branch. Three disposable regressions failed
+on the original implementation. Switch now includes `--no-overwrite-ignore` so
+Git refuses collisions at apply time, preserving exact original bytes, HEAD/ref
+and status. Noncolliding ignored work remains usable and preserved.
+
+Worktree discovery now counts NUL-delimited porcelain record prefixes, not raw
+`worktree ` text inside paths; a single root containing `worktree demo` is admitted.
+Actual linked worktree setups remain refused under the documented first-slice policy.
+
+The failed-index screen now abandons only its matching, never-ready session/job
+when the user chooses Back to Welcome. Ready/replaced sessions cannot be cleared
+by an old failure. Welcome can return to an owned unready job, and synchronous
+index-start failure releases its never-ready session. Tests exercise failure ->
+Welcome -> recent/open/new-project retry, stale failures, and retained dirty-draft
+admission for a ready workspace. This is session-state recovery, not a Git rollback.
+
+Unix clone cancellation now TERM-signals the fresh owned process group, waits a
+200 ms grace period, then KILL-signals that entire group before reaping Git. The
+unreaped leader reserves group identity; only a read-only zero-signal existence
+probe may follow reaping. Unconfirmed cleanup is reported as unknown rather than
+successful cancellation. A resistant helper fixture reproduced continued writes
+before the fix; after it, writes stop and a separate process group stays alive.
+
+Python Git subprocesses also own a separate session/group. A timeout terminates
+the owned group (TERM/grace/KILL on POSIX; owned process tree on Windows) before
+reconciliation. A delayed, TERM-resistant post-checkout hook cannot write later.
+Timeout/nonzero execution remains a failed outcome even if Git already changed
+HEAD or branch; `executionFailed` and `contextChanged` keep those facts separate.
+Unknown cleanup returns no admission snapshot. The POSIX hook/process fixtures
+are real local subprocess tests; Windows and native WebView acceptance remain pending.

@@ -267,9 +267,23 @@ export function ProjectContextProvider({ children }: PropsWithChildren) {
       useUiStore.getState().resetWorkspace();
       useUiStore.getState().setSession(epochSession);
       persist({ ...recordRef.current, selectedPath: target.path });
-      const { jobId } = await adapter.startIndex(target.path);
-      tabs.activateIde();
-      navigate(`/indexing/${encodeURIComponent(jobId)}`);
+      try {
+        const { jobId } = await adapter.startIndex(target.path);
+        if (useUiStore.getState().repoSession?.id !== epochSession.id) return;
+        useUiStore.setState({ indexingSession: { sessionId: epochSession.id, jobId } });
+        tabs.activateIde();
+        navigate(`/indexing/${encodeURIComponent(jobId)}`);
+      } catch (reason) {
+        if (useUiStore.getState().repoSession?.id === epochSession.id) {
+          useUiStore.getState().resetWorkspace();
+          useUiStore.setState({ repoSession: undefined });
+          tabs.activateIde();
+          navigate("/");
+        }
+        throw new Error(
+          `${reason instanceof Error ? reason.message : "Indexing could not start."} The checkout remains on ${actualInspection.branch ?? "detached HEAD"}; choose a checkout to retry.`,
+        );
+      }
     } catch (e) {
       setError(
         e instanceof Error

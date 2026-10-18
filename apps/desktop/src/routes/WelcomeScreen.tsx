@@ -1,3 +1,5 @@
+import { useNavigate } from "react-router-dom";
+import { useUiStore } from "../store/uiStore";
 import { useQuery } from "@tanstack/react-query";
 import { DesktopWindow } from "../components/layout/DesktopWindow";
 import { AppWindowActions } from "../components/shared/AppWindowActions";
@@ -6,6 +8,9 @@ import { useDesktopAdapter } from "../lib/adapter";
 import { useWorkspaceLauncher } from "./useWorkspaceLauncher";
 
 export function WelcomeScreen() {
+  const navigate = useNavigate();
+  const pendingIndex = useUiStore((state) => state.indexingSession);
+  const sessionId = useUiStore((state) => state.repoSession?.id);
   const adapter = useDesktopAdapter();
   const { createAndIndexProject, error, isCreating, isOpening, openAndIndexRepo } =
     useWorkspaceLauncher();
@@ -34,6 +39,17 @@ export function WelcomeScreen() {
             Create a starter project or open a local repository and H.E.L.M. will index it, open at
             the architecture layer, and let you drill into symbols and flow only when you choose.
           </p>
+          {pendingIndex?.sessionId === sessionId && pendingIndex ? (
+            <p>
+              This checkout has not opened an editable workspace yet.{" "}
+              <button
+                className="secondary-button"
+                onClick={() => navigate(`/indexing/${encodeURIComponent(pendingIndex.jobId)}`)}
+              >
+                Return to indexing
+              </button>
+            </p>
+          ) : null}
           <div className="hero-card__actions">
             <button
               className="secondary-button"
