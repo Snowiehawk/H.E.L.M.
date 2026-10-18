@@ -34,7 +34,11 @@ after the fixed lock passed. A symlinked-interpreter regression test verifies
 that task tools come from the invoking venv rather than its resolved base Python.
 A separate system-3.9 venv with only unchanged runtime dependencies passes source
 compilation and 107 core runtime unittest cases. It is a compatibility probe, not
-a Python 3.9 development-tool audit. GitHub CI verification is pending publication.
+a Python 3.9 development-tool audit. The first migrated GitHub run passed Python (including audit) and Rust. Frontend
+passed 349/350 tests but exposed an eager assertion reading an asynchronously
+loaded editor before content arrived. Both analogous assertions now wait for the
+same content under the existing timeout; expectations and gates are unchanged.
+The complete local frontend suite then passes 350/350. Follow-up GitHub CI is pending.
 
 The isolated validation interpreter lives under the task workspace, not system
 Python. No native regression is claimed for this tooling-only change; source

@@ -1330,7 +1330,11 @@ describe("WorkspaceScreen", () => {
         { name: /Module source editor/i },
         { timeout: WORKSPACE_TEST_TIMEOUT_MS },
       );
-      expect((moduleEditor as HTMLTextAreaElement).value).toMatch(/def build_graph_summary/i);
+      await waitFor(
+        () =>
+          expect((moduleEditor as HTMLTextAreaElement).value).toMatch(/def build_graph_summary/i),
+        { timeout: WORKSPACE_TEST_TIMEOUT_MS },
+      );
       expect(within(expandedDrawer).getByText(/Source editor/i)).toBeInTheDocument();
       expect(useUiStore.getState().activeNodeId).toBeUndefined();
     },
@@ -1573,7 +1577,11 @@ describe("WorkspaceScreen", () => {
         { name: /Module source editor/i },
         { timeout: WORKSPACE_TEST_TIMEOUT_MS },
       );
-      expect((moduleEditor as HTMLTextAreaElement).value).toMatch(/def build_graph_summary/i);
+      await waitFor(
+        () =>
+          expect((moduleEditor as HTMLTextAreaElement).value).toMatch(/def build_graph_summary/i),
+        { timeout: WORKSPACE_TEST_TIMEOUT_MS },
+      );
       expect(await screen.findByText(/Source editor/i)).toBeInTheDocument();
       expect(useUiStore.getState().activeNodeId).toBeUndefined();
     },
