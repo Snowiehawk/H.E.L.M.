@@ -1,10 +1,10 @@
+import { GraphNavigation, navigationProps } from "./navigation/GraphNavigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useIdeActive } from "../../app/FunctionTabs";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import {
   Background,
   Controls,
-  PanOnScrollMode,
   ReactFlow,
   SelectionMode,
   getSmoothStepPath,
@@ -2080,10 +2080,7 @@ export function GraphCanvas({
         paneClickDistance={4}
         minZoom={MIN_GRAPH_ZOOM}
         maxZoom={MAX_GRAPH_ZOOM}
-        zoomOnScroll={false}
-        panOnScroll
-        panOnScrollMode={PanOnScrollMode.Free}
-        zoomActivationKeyCode="Alt"
+        {...navigationProps}
         panOnDrag={panModeActive}
         onConnect={(connection: Connection) => {
           if (
@@ -2269,6 +2266,7 @@ export function GraphCanvas({
           size={1}
           color={createModeActive ? "var(--accent-strong)" : "var(--line-strong)"}
         />
+        <GraphNavigation active={ideActive} minZoom={MIN_GRAPH_ZOOM} maxZoom={MAX_GRAPH_ZOOM} />
       </ReactFlow>
 
       {contextActionError ? (
