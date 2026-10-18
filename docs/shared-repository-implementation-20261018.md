@@ -180,3 +180,28 @@ Timeout/nonzero execution remains a failed outcome even if Git already changed
 HEAD or branch; `executionFailed` and `contextChanged` keep those facts separate.
 Unknown cleanup returns no admission snapshot. The POSIX hook/process fixtures
 are real local subprocess tests; Windows and native WebView acceptance remain pending.
+
+### Manual reindex ownership follow-up
+
+The failed-initial-index correction initially omitted the two WorkspaceScreen
+indexing entry points. Manual Reindex reached `done` without a matching job owner,
+so IndexingScreen could not return to the workspace; its error path and legacy
+workspace-open path also lacked ownership. Three real-route regressions failed
+before the follow-up and pass with ownership registration before navigation.
+
+The production indexing-entry audit is:
+
+| Entry point | Ownership handoff |
+| --- | --- |
+| Welcome / New Project via useWorkspaceLauncher.indexSession | Existing matching session/job registration, with a current-session fence |
+| Shared project / branch via ProjectContext.activate | Existing matching session/job registration, with a current-session fence |
+| WorkspaceScreen.openAndIndexRepo legacy fallback | Registers the returned job for the newly selected current session |
+| WorkspaceScreen.reindexCurrentRepo (Explorer and Overview) | Registers the returned job for the current session before opening Indexing |
+
+Both WorkspaceScreen paths ignore a late result after session replacement. Manual
+reindex start rejection stays in the workspace with a visible retryable error,
+without an owned job or an unhandled rejection. Regression coverage uses actual
+WorkspaceScreen and IndexingScreen routes for success, asynchronous failure,
+legacy open, immediate start failure/retry, and stale completion. Initial-index
+recovery and ready-workspace dirty-draft admission tests remain intact. No Git,
+credential, native control or merge behavior is changed by this follow-up.

@@ -22,6 +22,8 @@ import type {
 import { useUiStore } from "../store/uiStore";
 import { useUndoStore } from "../store/undoStore";
 import { WorkspaceScreen } from "./WorkspaceScreen";
+import { IndexingScreen } from "./IndexingScreen";
+import { WelcomeScreen } from "./WelcomeScreen";
 
 const WORKSPACE_TEST_TIMEOUT_MS = 15000;
 const BUILD_GRAPH_SUMMARY_SYMBOL_ID = "symbol:helm.ui.api:build_graph_summary";
@@ -212,6 +214,7 @@ function resetStore() {
     sidebarQuery: "",
     activeTab: "graph",
     repoSession,
+    indexingSession: undefined,
     activeFilePath: undefined,
     activeSymbolId: undefined,
     activeNodeId: repoSession.id,
@@ -5430,5 +5433,161 @@ describe("WorkspaceScreen", () => {
     });
     await user.hover(openInEditor);
     expect(help.getByText("Open file in default editor")).toBeInTheDocument();
+  });
+  it.each(["done", "error"] as const)(
+    "manual reindex registers ownership and handles %s progress",
+    async (status) => {
+      const adapter = new MockDesktopAdapter();
+      const repo = useUiStore.getState().repoSession!;
+      vi.spyOn(adapter, "startIndex").mockResolvedValue({ jobId: "manual-reindex" });
+      vi.spyOn(adapter, "subscribeIndexProgress").mockImplementation((jobId, callback) => {
+        callback({
+          jobId,
+          repoPath: repo.path,
+          status,
+          stage: "watch_ready",
+          processedModules: 3,
+          totalModules: 3,
+          symbolCount: 4,
+          message: "Manual index completed",
+          error: status === "error" ? "Synthetic reindex failure" : undefined,
+        });
+        return () => {};
+      });
+      const router = createMemoryRouter(
+        [
+          { path: "/workspace", element: <WorkspaceScreen /> },
+          { path: "/indexing/:jobId", element: <IndexingScreen /> },
+          { path: "/", element: <WelcomeScreen /> },
+        ],
+        { initialEntries: ["/workspace"] },
+      );
+      render(
+        <AppProviders adapter={adapter}>
+          <RouterProvider router={router} />
+        </AppProviders>,
+      );
+      fireEvent.click(await screen.findByRole("button", { name: "Reindex" }));
+      await screen.findByText("Manual index completed");
+      if (status === "done") {
+        await waitFor(() => expect(router.state.location.pathname).toBe("/workspace"));
+        expect(useUiStore.getState().repoSession?.id).toBe(repo.id);
+        expect(await screen.findByTestId("workspace-layout")).toBeInTheDocument();
+      } else {
+        fireEvent.click(await screen.findByRole("button", { name: "Back to Welcome" }));
+        await screen.findByRole("button", { name: "Open Local Repo" });
+        expect(router.state.location.pathname).toBe("/");
+        expect(useUiStore.getState().repoSession).toBeUndefined();
+      }
+      expect(useUiStore.getState().indexingSession).toBeUndefined();
+    },
+  );
+
+  it("legacy workspace open also hands its job ownership to IndexingScreen", async () => {
+    const adapter = new MockDesktopAdapter();
+    vi.spyOn(adapter, "startIndex").mockResolvedValue({ jobId: "workspace-open" });
+    vi.spyOn(adapter, "subscribeIndexProgress").mockImplementation((jobId, callback) => {
+      callback({
+        jobId,
+        repoPath: defaultRepoPath,
+        status: "done",
+        stage: "watch_ready",
+        processedModules: 3,
+        totalModules: 3,
+        symbolCount: 4,
+        message: "Workspace open indexed",
+      });
+      return () => {};
+    });
+    const router = createMemoryRouter(
+      [
+        { path: "/workspace", element: <WorkspaceScreen /> },
+        { path: "/indexing/:jobId", element: <IndexingScreen /> },
+        { path: "/", element: <WelcomeScreen /> },
+      ],
+      { initialEntries: ["/workspace"] },
+    );
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Open Repo" }));
+    await screen.findByText("Workspace open indexed");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/workspace"));
+    expect(useUiStore.getState().indexingSession).toBeUndefined();
+  });
+  it("manual reindex start failure stays recoverable in the active workspace", async () => {
+    const adapter = new MockDesktopAdapter();
+    const repo = useUiStore.getState().repoSession!;
+    const start = vi
+      .spyOn(adapter, "startIndex")
+      .mockRejectedValueOnce(new Error("Synthetic index start failure"))
+      .mockResolvedValue({ jobId: "retry-reindex" });
+    vi.spyOn(adapter, "subscribeIndexProgress").mockImplementation((jobId, callback) => {
+      callback({
+        jobId,
+        repoPath: repo.path,
+        status: "done",
+        stage: "watch_ready",
+        processedModules: 3,
+        totalModules: 3,
+        symbolCount: 4,
+        message: "Reindex retry complete",
+      });
+      return () => {};
+    });
+    const router = createMemoryRouter(
+      [
+        { path: "/workspace", element: <WorkspaceScreen /> },
+        { path: "/indexing/:jobId", element: <IndexingScreen /> },
+        { path: "/", element: <WelcomeScreen /> },
+      ],
+      { initialEntries: ["/workspace"] },
+    );
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Reindex" }));
+    await screen.findByText("Synthetic index start failure");
+    expect(router.state.location.pathname).toBe("/workspace");
+    expect(useUiStore.getState().repoSession?.id).toBe(repo.id);
+    expect(useUiStore.getState().indexingSession).toBeUndefined();
+    fireEvent.click(screen.getByRole("button", { name: "Reindex" }));
+    await screen.findByText("Reindex retry complete");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/workspace"));
+    expect(start).toHaveBeenCalledTimes(2);
+  });
+
+  it("manual reindex cannot publish ownership after another session replaces it", async () => {
+    const adapter = new MockDesktopAdapter();
+    let resolve!: (job: { jobId: string }) => void;
+    vi.spyOn(adapter, "startIndex").mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const router = createMemoryRouter(
+      [
+        { path: "/workspace", element: <WorkspaceScreen /> },
+        { path: "/indexing/:jobId", element: <IndexingScreen /> },
+      ],
+      { initialEntries: ["/workspace"] },
+    );
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Reindex" }));
+    const replacement = { ...useUiStore.getState().repoSession!, id: "replacement-session" };
+    act(() => useUiStore.getState().setSession(replacement));
+    await act(async () => resolve({ jobId: "old-session-index" }));
+    expect(router.state.location.pathname).toBe("/workspace");
+    expect(useUiStore.getState().repoSession?.id).toBe("replacement-session");
+    expect(useUiStore.getState().indexingSession).toBeUndefined();
   });
 });

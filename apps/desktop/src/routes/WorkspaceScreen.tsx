@@ -658,6 +658,8 @@ export function WorkspaceScreen() {
       resetWorkspace();
       setSession(session);
       const { jobId } = await adapter.startIndex(session.path);
+      if (useUiStore.getState().repoSession?.id !== session.id) return;
+      useUiStore.setState({ indexingSession: { sessionId: session.id, jobId } });
       navigate(`/indexing/${encodeURIComponent(jobId)}`);
     } catch (reason) {
       const message =
@@ -667,12 +669,23 @@ export function WorkspaceScreen() {
   };
 
   const reindexCurrentRepo = async () => {
-    if (!repoSession) {
-      return;
+    if (!repoSession) return;
+    setRepoOpenError(null);
+    try {
+      resetWorkspace();
+      const { jobId } = await adapter.startIndex(repoSession.path);
+      if (useUiStore.getState().repoSession?.id !== repoSession.id) return;
+      useUiStore.setState({ indexingSession: { sessionId: repoSession.id, jobId } });
+      navigate(`/indexing/${encodeURIComponent(jobId)}`);
+    } catch (reason) {
+      if (useUiStore.getState().repoSession?.id === repoSession.id) {
+        setRepoOpenError(
+          reason instanceof Error
+            ? reason.message
+            : "Unable to start reindexing. Retry from this workspace.",
+        );
+      }
     }
-    resetWorkspace();
-    const { jobId } = await adapter.startIndex(repoSession.path);
-    navigate(`/indexing/${encodeURIComponent(jobId)}`);
   };
 
   const handleRevealSource = async (nodeId: string) => {
