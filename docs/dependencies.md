@@ -98,8 +98,17 @@ removal condition. Prefer dependency upgrades over allowlist entries.
 
 ## Vendoring
 
-HELM currently has no vendored runtime dependencies. LibCST is supplied only by
-the declared Python dependency and the committed Python lockfiles.
+Development installs obtain LibCST and PyYAML through the declared Python
+dependencies and committed lockfiles. Windows x64 packaging additionally stages
+official embedded CPython and pinned wheels with verified SHA-256 hashes and
+license/metadata files. Generated distributions are not committed to the source
+tree. See [desktop packaging](desktop-packaging.md) for inputs, manifest and
+offline staging. Mac arm64 candidate builds pin a relocatable CPython 3.13.16
+runtime and matching wheels; Intel Mac retains the external Python contract.
+The scoped Monaco override pins DOMPurify 3.4.16 to repair the two saved low
+advisories without downgrading Monaco. The candidate lockfile audit reports zero
+npm findings. See [the candidate dependency disposition](candidate-dependency-disposition-20261017.md)
+for remaining Rust and Python development findings.
 
 Future vendoring requires a documented owner, upstream source and version,
 reproducible update command, audit process, and removal/review condition before

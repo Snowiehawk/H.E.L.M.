@@ -91,6 +91,7 @@ Tauri/Rust gates:
 
 ```bash
 cd apps/desktop
+npm run prepare:backend
 npm run build
 cd src-tauri
 cargo fmt -- --check
@@ -100,7 +101,7 @@ cd ../../..
 python scripts/audit.py cargo
 ```
 
-CI explicitly installs or verifies Rust `rustfmt` and `clippy` before running the Rust gates. Tauri validation is intentionally limited to frontend build plus `cargo fmt`, `cargo clippy`, and `cargo check` for this issue. A full packaged app build is deferred until it is proven stable and quiet on Ubuntu.
+CI explicitly installs or verifies Rust `rustfmt` and `clippy` before running the Rust gates. Tauri validation is intentionally limited to backend resource staging, frontend build, `cargo fmt`, `cargo clippy`, and `cargo check` for this issue. This CI gate does not build an installer or run native GUI acceptance. Run `cargo test --locked` separately for Rust regression tests. Backend staging selects the host target; Linux CI stages the external-Python backend contract and does not download the Mac or Windows interpreter.
 
 ## Security audit allowlist
 

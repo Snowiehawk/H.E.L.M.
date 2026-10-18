@@ -1848,12 +1848,14 @@ export function WorkspaceScreen() {
                     >
                       {inspectorPanelMode !== "hidden" ? (
                         <BlueprintInspector
-                          key={`inspector:${inspectorSelectionNode?.id ?? "none"}:${inspectorSourceTarget?.targetId ?? "no-source"}:${inspectorSourceVersion}`}
+                          key={`inspector:${inspectorSourceTarget?.targetId ?? inspectorSelectionNode?.id ?? "none"}:${inspectorSourceVersion}`}
                           selectedNode={inspectorSelectionNode}
                           sourceContextNode={inspectorSourceTarget?.node}
                           symbol={symbolQuery.data}
                           editableSource={effectiveEditableSource}
-                          editableSourceLoading={editableSourceQuery.isFetching}
+                          editableSourceLoading={
+                            editableSourceQuery.isFetching && !effectiveEditableSource
+                          }
                           editableSourceError={
                             editableSourceQuery.error instanceof Error
                               ? editableSourceQuery.error.message

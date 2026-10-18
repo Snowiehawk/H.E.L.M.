@@ -341,9 +341,10 @@ def format_tauri(ctx) -> None:
 
 @task(name="check-tauri")
 def check_tauri(ctx) -> None:
-    """Run frontend build plus Rust format, Clippy, and cargo check gates."""
+    """Stage backend resources, build frontend, and run Rust quality gates."""
     npm = _npm()
     cargo = _cargo()
+    _run([npm, "run", "prepare:backend"], cwd=DESKTOP_DIR)
     _run([npm, "run", "build"], cwd=DESKTOP_DIR)
     _run([cargo, "fmt", "--", "--check"], cwd=TAURI_DIR)
     _run([cargo, "clippy", "--locked", "--", "-D", "warnings"], cwd=TAURI_DIR)

@@ -12,7 +12,7 @@ H.E.L.M. is a bidirectional repo-to-graph structural editor for source code. Thi
 
 ## Current Workflow
 
-The first working slice is CLI-first and read-only:
+The CLI scans repositories and exports structural graph data:
 
 ```bash
 PYTHONPATH=src python3 -m helm.cli scan path/to/repo
@@ -57,7 +57,7 @@ The graph starts coarse and structural:
 - preserve source spans now so edit-time fidelity is possible later
 - keep the graph model independent from visualization libraries
 - resolve cross-file relationships conservatively
-- defer graph-to-source mutation until the read path is trustworthy
+- validate graph-to-source edits and journal mutations for recovery
 
 ## Development
 
@@ -65,7 +65,9 @@ The local desktop implementation includes a read-only **GitHub issues tab with i
 own issue graph**, independent of the IDE/code graph. It supports manual load/refresh,
 basic selection/details and fit controls, with memory-only credentials and layout.
 See [GitHub issue viewer: status, boundaries and plan](docs/github-issues.md).
-Live desktop fetching and real-repository visual acceptance remain unverified.
+Native Mac authenticated Load/Refresh and synthetic graph acceptance have been
+verified. Installed Windows editing acceptance and remaining graph coverage are
+recorded in [native acceptance](docs/native-acceptance-20261017.md).
 
 The package is laid out under `src/helm/`:
 
@@ -73,7 +75,7 @@ The package is laid out under `src/helm/`:
 - `graph`: domain graph types and graph construction
 - `ui`: summary/export adapters
 - `cli`: end-to-end orchestration
-- `editor`: intentionally deferred mutation interfaces
+- `editor`: structural edits, source replacement, flow edits and backend undo
 
 Tests are written to run under `unittest` in this environment and remain compatible with `pytest` later.
 
@@ -100,5 +102,7 @@ Use `npm ci` in `apps/desktop/` when you want the same dependency install behavi
 HELM repo mutations are journaled under `.helm/recovery/` so interrupted edits can be rolled back on the next open or before the next mutation. See `docs/recovery.md` for the lifecycle, ignore rules, and platform durability notes.
 
 Dependency pinning, audit, upgrade, and vendoring policy lives in
-`docs/dependencies.md`. HELM currently has no vendored runtime dependencies;
-LibCST is supplied by the normal Python dependency lockfiles.
+`docs/dependencies.md`. Windows installers package verified runtime distributions; development installs
+use the Python lockfiles. See [desktop packaging](docs/desktop-packaging.md) for
+the bundled Windows and candidate Mac arm64 runtimes, plus the legacy Intel Mac
+external-interpreter contract.

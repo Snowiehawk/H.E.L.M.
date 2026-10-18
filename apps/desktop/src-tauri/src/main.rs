@@ -24,9 +24,7 @@ use commands::{
 };
 use events::APP_MENU_EVENT;
 use repo_boundary::ActiveRepoBoundary;
-use tauri::Emitter;
-#[cfg(target_os = "macos")]
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use watcher::ActiveRepoWatcher;
 
 fn main() {
@@ -42,6 +40,10 @@ fn main() {
     });
 
     builder
+        .setup(|app| {
+            bridge::set_resource_dir(app.path().resource_dir()?);
+            Ok(())
+        })
         .on_menu_event(|app, event| {
             if let Some(action) = app_menu::menu_action_for_id(event.id().as_ref()) {
                 let _ = app.emit(APP_MENU_EVENT, GraphViewMenuActionPayload { action });

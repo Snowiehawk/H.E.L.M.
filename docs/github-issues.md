@@ -12,8 +12,10 @@ not yet provide search, transitive directional/depth focus, hierarchy or saved i
 layouts. Synthetic native WebView behavior and credential-free endpoint
 connectivity have been checked, followed by owner-authorized authenticated
 Load/Refresh acceptance in the native Mac app. A real Rust/Python scan/save/undo
-smoke test also passed. Full native editor-GUI regression and Windows acceptance
-remain unverified; this is a bounded local slice, not a feature-complete viewer.
+smoke test also passed. Native Mac editor-GUI regression and repaired Windows installer editing acceptance
+now pass. The exact coverage and remaining Windows graph checks are recorded in
+[native acceptance](native-acceptance-20261017.md). This remains a bounded local
+slice rather than a feature-complete viewer.
 
 Each desktop instance will accept a repository URL and personal access token,
 then fetch directly from GitHub on Load or Refresh. These are snapshots, not a
@@ -25,10 +27,10 @@ or automatic multi-computer synchronization.
 These commits exist only on the local `codex/atlas-issue-loader` branch based on
 `49b8e51`; they have not been pushed or merged:
 
-| Local commit / phase | Implemented behavior |
-| --- | --- |
-| `730b510` | Atlas-derived loader, schemas, trailing-dot parser fix, in-memory issue adapter, synthetic tests, MIT notices, and a welcome-screen import/count panel. |
-| `e7ffbca` | The explicitly approved GraphQL path added to production/development CSP connection lists, security regression test, and documentation update. |
+| Local commit / phase       | Implemented behavior                                                                                                                                             |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `730b510`                  | Atlas-derived loader, schemas, trailing-dot parser fix, in-memory issue adapter, synthetic tests, MIT notices, and a welcome-screen import/count panel.          |
+| `e7ffbca`                  | The explicitly approved GraphQL path added to production/development CSP connection lists, security regression test, and documentation update.                   |
 | Current local viewer phase | Separate desktop tab, issue-specific projection/canvas and details, memory-only layout, and synthetic state-isolation tests. No new dependencies or permissions. |
 
 The import controls now live in the GitHub issues tab, replacing the temporary
@@ -60,13 +62,13 @@ its own projection. It must not map them to code `symbol`, `calls` or
 `defines` semantics, widen the code graph to mix both sources, or inherit code
 editing actions such as source mutation and flow authoring.
 
-| Concern | Existing IDE/code functionality | Local GitHub issues functionality |
-| --- | --- | --- |
-| Source | Local repository, Tauri/Python indexing and source operations. | Direct read-only GitHub GraphQL queries. |
-| Domain | Code modules, symbols, imports, calls and flow. | GitHub issues and native blocker relationships. |
-| State | Existing code workspace/session, selection, filters and undo. | Separate issue session, selection, filters and request lifecycle. |
-| Canvas | Existing code graph and its editing behavior. | Its own issue graph; no shared nodes or cross-domain edges. |
-| Layout | Existing code view keys and repository layout file. | Separate `github-issues` namespace; initially memory only. |
+| Concern | Existing IDE/code functionality                                | Local GitHub issues functionality                                 |
+| ------- | -------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Source  | Local repository, Tauri/Python indexing and source operations. | Direct read-only GitHub GraphQL queries.                          |
+| Domain  | Code modules, symbols, imports, calls and flow.                | GitHub issues and native blocker relationships.                   |
+| State   | Existing code workspace/session, selection, filters and undo.  | Separate issue session, selection, filters and request lifecycle. |
+| Canvas  | Existing code graph and its editing behavior.                  | Its own issue graph; no shared nodes or cross-domain edges.       |
+| Layout  | Existing code view keys and repository layout file.            | Separate `github-issues` namespace; initially memory only.        |
 
 Shared styling, buttons, loading/error surfaces and genuinely domain-neutral
 React Flow primitives are reused. Reuse must not share mutable graph state,
@@ -173,10 +175,10 @@ and all Tauri capabilities are unchanged.
 
 This permits HTTPS connections to the fixed GraphQL path, without wildcard domains,
 new Tauri HTTP plugins, Rust commands, shell permissions or relaxation of other
-CSP directives. A configuration regression test locks this boundary. Live fetching
-in the desktop WebView remains **unverified**: tests use synthetic responses, and
-no real PAT or private repository data has been used. No browser-hosting work or
-proxy is included.
+CSP directives. A configuration regression test locks this boundary. Credential-free endpoint connectivity and owner-authorized authenticated native
+Mac Load/Refresh were subsequently verified, as recorded below. Routine regression
+tests use synthetic responses; no real PAT or private repository payload is
+retained in source or test artifacts. No browser-hosting work or proxy is included.
 
 ## Repository-local layouts: existing behavior and future direction
 
@@ -203,9 +205,10 @@ The implemented limits are material to any future reuse:
   conflict resolution, or protection against overwriting newer external positions.
   Invalid/conflicted JSON currently normalizes to an empty layout. Frontend write
   failures are swallowed to keep dragging interactive.
-- Rust currently serializes `pinned_node_ids`, while frontend normalization expects
-  `pinnedNodeIds`. This existing mismatch must be checked before reusing pin
-  persistence; it is not repaired by the importer work.
+- Code-layout pins use the canonical `pinnedNodeIds` field across Rust IPC and
+  disk storage. Legacy native `pinned_node_ids` files remain readable. The isolated
+  persistence repair is covered by native serialization and disk round-trip tests;
+  previously discarded pin values cannot be recovered from an empty saved array.
 
 No issue layout is persisted now. The future direction is to let users explicitly
 associate the issue viewer with a local target repository and version positions
@@ -272,6 +275,11 @@ automatic synchronization. It adds no network allowance beyond `e7ffbca`. Keep A
 until any replacement has been checked against its intended use.
 
 ## Verification record and acceptance criteria
+
+The paragraphs below retain the chronological implementation history. Later
+packaging/security remediation and the current native acceptance results are
+recorded in [native acceptance](native-acceptance-20261017.md); older test counts
+and audit findings below are historical, not the current gate disposition.
 
 Historical local verification of `730b510` passed 329 frontend tests across 40
 files (including 50 new importer tests), lint, formatting, and the production build.

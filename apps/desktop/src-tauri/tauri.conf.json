@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.openai.helm",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "node scripts/prepare-backend.mjs && npm run dev",
+    "beforeBuildCommand": "node scripts/prepare-backend.mjs && npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -80,6 +80,13 @@
   },
   "bundle": {
     "active": true,
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "nsis/branding.nsh"
+      }
+    },
+    "resources": { "packaged-backend/": "helm-runtime/" },
     "targets": "all",
     "icon": [
       "icons/32x32.png",

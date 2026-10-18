@@ -34,12 +34,13 @@ pub(crate) struct StoredGraphGroup {
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct StoredGraphViewLayout {
     #[serde(default)]
     pub(crate) nodes: StoredGraphNodeLayout,
     #[serde(default)]
     pub(crate) reroutes: Vec<StoredGraphRerouteNode>,
-    #[serde(default)]
+    #[serde(default, alias = "pinned_node_ids")]
     pub(crate) pinned_node_ids: Vec<String>,
     #[serde(default)]
     pub(crate) groups: Vec<StoredGraphGroup>,
@@ -133,12 +134,17 @@ fn normalize_graph_view_layout(value: &Value) -> StoredGraphViewLayout {
         if object.contains_key("nodes")
             || object.contains_key("reroutes")
             || object.contains_key("pinnedNodeIds")
+            || object.contains_key("pinned_node_ids")
             || object.contains_key("groups")
         {
             return StoredGraphViewLayout {
                 nodes: normalize_node_layout(object.get("nodes")),
                 reroutes: normalize_reroutes(object.get("reroutes")),
-                pinned_node_ids: normalize_pinned_node_ids(object.get("pinnedNodeIds")),
+                pinned_node_ids: normalize_pinned_node_ids(
+                    object
+                        .get("pinnedNodeIds")
+                        .or_else(|| object.get("pinned_node_ids")),
+                ),
                 groups: normalize_groups(object.get("groups")),
             };
         }
@@ -289,6 +295,7 @@ mod tests {
             "node:service".to_string(),
             StoredGraphNodePosition { x: 1.0, y: 2.0 },
         );
+        view.pinned_node_ids.push("node:service".to_string());
         layouts.views.insert("repo".to_string(), view);
 
         write_repo_graph_layouts(&canonical_repo, &layouts).expect("layout write should succeed");
@@ -304,6 +311,16 @@ mod tests {
                 .map(|position| (position.x, position.y)),
             Some((1.0, 2.0))
         );
+        assert_eq!(decoded.views["repo"].pinned_node_ids, ["node:service"]);
+        let encoded: Value = serde_json::from_str(
+            &fs::read_to_string(&layout_path).expect("layout file should be readable"),
+        )
+        .expect("layout file should contain JSON");
+        assert_eq!(
+            encoded["views"]["repo"]["pinnedNodeIds"],
+            serde_json::json!(["node:service"])
+        );
+        assert!(encoded["views"]["repo"].get("pinned_node_ids").is_none());
         let leftovers = fs::read_dir(
             layout_path
                 .parent()
@@ -315,5 +332,36 @@ mod tests {
         .count();
         assert_eq!(leftovers, 0);
         fs::remove_dir_all(repo_root).expect("test repo should be removed");
+    }
+
+    #[test]
+    fn frontend_layout_payload_retains_pins_across_native_serialization() {
+        let layout: StoredGraphViewLayout = serde_json::from_value(serde_json::json!({
+            "nodes": {"node:service": {"x": 10, "y": 20}},
+            "reroutes": [],
+            "pinnedNodeIds": ["node:service"],
+            "groups": []
+        }))
+        .expect("frontend layout should deserialize");
+        assert_eq!(layout.pinned_node_ids, ["node:service"]);
+        let encoded = serde_json::to_value(&layout).expect("native layout should serialize");
+        assert_eq!(
+            encoded["pinnedNodeIds"],
+            serde_json::json!(["node:service"])
+        );
+    }
+
+    #[test]
+    fn legacy_native_pin_field_is_read_without_overriding_canonical_pins() {
+        let legacy = normalize_repo_graph_layouts(serde_json::json!({
+            "views": {"repo": {"nodes": {}, "pinned_node_ids": ["legacy"]}}
+        }));
+        assert_eq!(legacy.views["repo"].pinned_node_ids, ["legacy"]);
+        let canonical = normalize_repo_graph_layouts(serde_json::json!({
+            "views": {"repo": {
+                "nodes": {}, "pinnedNodeIds": [], "pinned_node_ids": ["stale"]
+            }}
+        }));
+        assert!(canonical.views["repo"].pinned_node_ids.is_empty());
     }
 }

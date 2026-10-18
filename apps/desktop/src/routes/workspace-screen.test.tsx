@@ -1228,6 +1228,7 @@ describe("WorkspaceScreen", () => {
         editor.focus();
       });
       await user.keyboard("VALUE = 1");
+      expect(editor).toBeInTheDocument();
       await waitFor(() => expect(editor).toHaveValue("VALUE = 1"));
 
       const saveButton = within(inspectorDrawer).getByRole("button", { name: /Save/i });
@@ -4059,8 +4060,11 @@ describe("WorkspaceScreen", () => {
       expect(await screen.findByText(/Python source was left unchanged/i)).toBeInTheDocument();
       expect((await screen.findAllByText(/disconnected/i)).length).toBeGreaterThan(0);
       expect(
-        (screen.getByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement)
-          .value,
+        (
+          (await screen.findByRole("textbox", {
+            name: /Function source editor/i,
+          })) as HTMLTextAreaElement
+        ).value,
       ).toBe(sourceBeforeDelete);
     },
     WORKSPACE_TEST_TIMEOUT_MS,

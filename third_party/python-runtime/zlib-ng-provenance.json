@@ -1,0 +1,8 @@
+{
+  "upstreamArchiveURL": "https://github.com/python/cpython-source-deps/archive/refs/tags/zlib-ng-2.2.4.tar.gz",
+  "archiveSHA256": "00bbd88709bc416cb96160ab61d3e1c8f76e106799af7328d0fe434dc7dd5004",
+  "version": "2.2.4",
+  "member": "cpython-source-deps-zlib-ng-2.2.4/LICENSE.md",
+  "licenseSHA256": "6c9f0d975b41afaa34d22f55bb8986ce69e5cb7ad327cb2b28820cd425edf5ee",
+  "reason": "Runtime full metadata references this notice, but the pinned full runtime archive omits it; recovered from the exact pinned upstream component source"
+}

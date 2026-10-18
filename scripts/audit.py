@@ -156,17 +156,22 @@ def npm_advisory_ids(item: dict[str, Any]) -> list[str]:
 def npm_findings() -> list[Finding]:
     npm = resolve_command("npm")
     command = [npm, "audit", "--json"]
-    returncode, payload, stderr = run_json_command(command, cwd=REPO_ROOT / "apps" / "desktop")
+    returncode, payload, _stderr = run_json_command(command, cwd=REPO_ROOT / "apps" / "desktop")
 
-    if payload is None:
-        if returncode == 0:
-            return []
-        raise SystemExit(stderr or "npm audit failed without JSON output.")
+    if not isinstance(payload, dict):
+        raise SystemExit("npm audit did not produce a JSON report object.")
+    if "error" in payload:
+        raise SystemExit("npm audit returned an operational error.")
+    if returncode not in (0, 1):
+        raise SystemExit(f"npm audit failed with exit status {returncode}.")
 
-    findings: list[Finding] = []
-    vulnerabilities = payload.get("vulnerabilities", {})
+    vulnerabilities = payload.get("vulnerabilities")
     if not isinstance(vulnerabilities, dict):
         raise SystemExit("Unexpected npm audit JSON: missing vulnerabilities object.")
+    if returncode != 0 and not vulnerabilities:
+        raise SystemExit("npm audit failed without reporting vulnerabilities.")
+
+    findings: list[Finding] = []
 
     for package, vulnerability in vulnerabilities.items():
         if not isinstance(vulnerability, dict):
