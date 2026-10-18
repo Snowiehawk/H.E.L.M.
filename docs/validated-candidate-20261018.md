@@ -56,7 +56,7 @@ workspace tests hit timing/lookup limits during a concurrent production build.
 Those same four passed together in a subsequent isolated run (4 passed, 70 skipped).
 Both raw runs are retained; this is not labeled a single all-green suite run.
 
-Python 3.9 passed 47 selected tests and 25 subtests covering newline preservation,
+Local Python 3.14 passed 47 selected tests and 25 subtests covering newline preservation,
 bridge, packaging, tasks, audit parsing and desktop assets. Mac backend staging
 verified 1,564 resources. Rust formatting and all 29 Rust tests passed.
 Changed JavaScript/TypeScript/script ESLint checks passed. Strict Clippy with `-D warnings` also passed.
@@ -114,3 +114,11 @@ and `python_adapter.py`. Running the committed Ruff 0.15.12 wrapped one conditio
 and removed one trailing blank line. Python 3.9 parsed syntax trees before and
 after are identical. Full Ruff lint and formatting now pass (67 files). No
 dependency lock, Python baseline, audit exception or application behavior changed.
+
+## Development-audit follow-up
+
+The local focused interpreter was Python 3.14.4; the earlier label of 3.9 was
+incorrect. GitHub independently verified 171 tests on Python 3.9 (5 skipped).
+The exact 10 blocking findings, official fixed versions, reachability limits and
+required baseline decision are recorded in [the audit decision](python-audit-decision-20261018.md).
+No compatible official Python 3.9 updates were found; the audit gate remains intact.
