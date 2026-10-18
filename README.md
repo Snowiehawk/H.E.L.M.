@@ -80,6 +80,11 @@ Native Mac authenticated Load/Refresh and synthetic graph acceptance have been
 verified. Installed Windows editing acceptance and remaining graph coverage are
 recorded in [native acceptance](docs/native-acceptance-20261017.md).
 
+The shared-repository candidate adds an optional Project context panel for explicit
+IDE/Issues linking, verified local-copy selection, safe cloning and guarded local
+branch switching. Its native Mac/Windows combined acceptance remains pending; see
+[the implementation and evidence index](docs/shared-repository-implementation-20261018.md).
+
 The package is laid out under `src/helm/`:
 
 - `parser`: repo traversal and AST parsing into normalized IR

@@ -3,6 +3,7 @@ import type { GraphView } from "../../lib/adapter";
 import {
   clearStoredGraphLayoutSnapshotCache,
   graphLayoutViewKey,
+  hasPendingGraphLayoutWrites,
   peekStoredGraphLayout,
   readStoredGraphLayout,
   writeStoredGraphLayout,
@@ -209,5 +210,25 @@ describe("graphLayoutPersistence", () => {
       pinnedNodeIds: [],
       groups: [],
     });
+  });
+  it("blocks a project transition while its layout write is pending, including a failed write", async () => {
+    let reject!: (error: Error) => void;
+    invokeMock.mockImplementation(
+      () =>
+        new Promise((_resolve, rejectPromise) => {
+          reject = rejectPromise;
+        }),
+    );
+    const pending = writeStoredGraphLayout("/repo", "repo|repo-root", {
+      nodes: {},
+      reroutes: [],
+      pinnedNodeIds: [],
+      groups: [],
+    });
+    expect(hasPendingGraphLayoutWrites("/repo")).toBe(true);
+    expect(hasPendingGraphLayoutWrites("/other")).toBe(false);
+    reject(new Error("fixture disk failure"));
+    await pending;
+    expect(hasPendingGraphLayoutWrites("/repo")).toBe(false);
   });
 });

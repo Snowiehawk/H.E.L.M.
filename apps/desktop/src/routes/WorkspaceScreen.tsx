@@ -1,3 +1,5 @@
+import { useProjectContext } from "../projects/ProjectContext";
+import type { DraftSnapshot } from "../projects/model";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -94,6 +96,8 @@ import {
 } from "./WorkspaceScreen/workspaceScreenModel";
 
 export function WorkspaceScreen() {
+  const projectContext = useProjectContext();
+  const projectDraftSnapshot = useRef<DraftSnapshot>();
   const ideActive = useIdeActive();
   const adapter = useDesktopAdapter();
   const navigate = useNavigate();
@@ -255,6 +259,7 @@ export function WorkspaceScreen() {
   const currentFlowSymbolId = activeLevel === "flow" ? currentSymbolTargetId : undefined;
   const {
     activeFlowDraft,
+    flowDraftState,
     effectiveGraph,
     flowDraftSeedDocument,
     resetFlowDraftState,
@@ -641,6 +646,14 @@ export function WorkspaceScreen() {
     setRepoOpenError(null);
 
     try {
+      if (projectContext) {
+        if (!path)
+          throw new Error(
+            "Use Project context to inspect, register and choose a local copy explicitly.",
+          );
+        await projectContext.activate(path);
+        return;
+      }
       const session = await adapter.openRepo(path);
       resetWorkspace();
       setSession(session);
@@ -1264,6 +1277,51 @@ export function WorkspaceScreen() {
       current ? { ...current, selectedExpressionNodeId: nodeId } : current,
     );
   }, []);
+
+  projectDraftSnapshot.current = {
+    path: repoSession?.path ?? "",
+    revision: JSON.stringify([
+      inspectorDirty,
+      workspaceFileDirty,
+      flowDraftState?.status,
+      Boolean(createComposer),
+      Boolean(returnExpressionGraphView),
+      isSavingSource,
+      isSavingWorkspaceFile,
+      isSubmittingCreate,
+      isSubmittingExpressionGraph,
+    ]),
+    declaration: inspectorDirty,
+    workspaceFile: workspaceFileDirty,
+    flow: Boolean(
+      (flowDraftState && flowDraftState.status !== "idle") ||
+      createComposer ||
+      returnExpressionGraphView?.draftGraph ||
+      returnExpressionGraphView?.draftExpression !== undefined,
+    ),
+    busy:
+      isSavingSource || isSavingWorkspaceFile || isSubmittingCreate || isSubmittingExpressionGraph,
+    save: async () => {
+      if (inspectorDirty) {
+        if (
+          inspectorDraftStale ||
+          !inspectorDraftTargetId ||
+          inspectorDraftContentRef.current === undefined
+        )
+          throw new Error("Resolve the stale declaration draft in the IDE before retrying.");
+        await handleSaveInspectorDraft(inspectorDraftTargetId, inspectorDraftContentRef.current);
+      }
+      if (workspaceFileDirty) await saveWorkspaceFile();
+      if (projectDraftSnapshot.current?.flow)
+        throw new Error(
+          "Finish or save the flow/composer draft in its editor, then retry. It has been preserved.",
+        );
+    },
+  };
+  useEffect(
+    () => projectContext?.registerDraftProvider(() => projectDraftSnapshot.current!),
+    [projectContext?.registerDraftProvider],
+  );
 
   const requestInspectorClose = useCallback(async () => {
     const draftContent = inspectorDraftContentRef.current;

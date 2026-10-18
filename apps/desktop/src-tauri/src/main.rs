@@ -6,6 +6,7 @@ mod bridge;
 mod commands;
 mod events;
 mod graph_layout_storage;
+mod project_context;
 mod project_scaffold;
 mod repo_boundary;
 mod repo_file_actions;
@@ -23,6 +24,9 @@ use commands::{
     write_repo_graph_layout,
 };
 use events::APP_MENU_EVENT;
+use project_context::{
+    cancel_project_clone, clone_project, inspect_project, switch_project_branch, CloneJobs,
+};
 use repo_boundary::ActiveRepoBoundary;
 use tauri::{Emitter, Manager};
 use watcher::ActiveRepoWatcher;
@@ -31,6 +35,7 @@ fn main() {
     let builder = tauri::Builder::default()
         .manage(GraphViewMenuState::default())
         .manage(BackendService::default())
+        .manage(CloneJobs::default())
         .manage(ActiveRepoBoundary::default())
         .manage(ActiveRepoWatcher::default());
     #[cfg(target_os = "macos")]
@@ -51,6 +56,10 @@ fn main() {
         })
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            inspect_project,
+            switch_project_branch,
+            clone_project,
+            cancel_project_clone,
             backend_health,
             create_new_project,
             scan_repo_payload,

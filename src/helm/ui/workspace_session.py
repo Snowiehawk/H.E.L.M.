@@ -400,6 +400,9 @@ class WorkspaceSession:
 class WorkspaceSessionManager:
     _sessions: dict[str, WorkspaceSession] = field(default_factory=dict)
 
+    def invalidate(self, repo: str | Path) -> None:
+        self._sessions.pop(Path(repo).resolve().as_posix(), None)
+
     def ensure_session(self, repo: str | Path) -> WorkspaceSession:
         root_path = Path(repo).resolve().as_posix()
         session = self._sessions.get(root_path)
