@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GraphView } from "../../lib/adapter";
 import { GraphToolbar } from "./GraphToolbar";
 
@@ -26,7 +26,123 @@ const baseGraph: GraphView = {
   truncated: false,
 };
 
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+function renderMeasuredToolbar(observerAvailable = true) {
+  const size = { width: 1000, height: 600, toolbarWidth: 320, toolbarHeight: 52 };
+  const observers = new Set<{ callback: ResizeObserverCallback; targets: Set<Element> }>();
+  class ControlledResizeObserver {
+    targets = new Set<Element>();
+    constructor(public callback: ResizeObserverCallback) {
+      observers.add(this);
+    }
+    observe(target: Element) {
+      this.targets.add(target);
+    }
+    disconnect() {
+      observers.delete(this);
+    }
+  }
+  vi.stubGlobal("ResizeObserver", observerAvailable ? ControlledResizeObserver : undefined);
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => size.width);
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => size.height);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(() => size.toolbarWidth);
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(
+    () => size.toolbarHeight,
+  );
+  const view = render(
+    <div data-testid="toolbar-container">
+      <GraphToolbar
+        graph={baseGraph}
+        graphFilters={{ includeCalls: true, includeDefines: true, includeImports: true }}
+        graphSettings={{ includeExternalDependencies: false }}
+        highlightGraphPath={false}
+        showEdgeLabels={false}
+        canUndoLayout={false}
+        onSelectLevel={vi.fn()}
+        onDeclutter={vi.fn()}
+        onFitView={vi.fn()}
+        onToggleGraphFilter={vi.fn()}
+        onToggleGraphSetting={vi.fn()}
+        onToggleGraphPathHighlight={vi.fn()}
+        onToggleEdgeLabels={vi.fn()}
+        onUndoLayout={vi.fn()}
+      />
+    </div>,
+  );
+  const toolbar = view.container.querySelector(".graph-toolbar") as HTMLElement;
+  const notify = () =>
+    act(() => {
+      for (const observer of observers)
+        observer.callback([], observer as unknown as ResizeObserver);
+    });
+  return { ...view, toolbar, size, observers, notify };
+}
+
 describe("GraphToolbar", () => {
+  it.each([833, 600, 480])(
+    "reanchors without a graph change when zoom/resize shrinks the container to %ipx",
+    (width) => {
+      const view = renderMeasuredToolbar();
+      expect(view.toolbar.style.left).toBe("664px");
+      view.size.width = width;
+      view.notify();
+      expect(view.toolbar.style.left).toBe(`${width - 320 - 16}px`);
+      view.size.width = 1000;
+      view.notify();
+      expect(view.toolbar.style.left).toBe("664px");
+    },
+  );
+
+  it("preserves a dragged position until resize or toolbar growth requires clamping", () => {
+    const view = renderMeasuredToolbar();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Move graph controls" }), {
+      clientX: 664,
+      clientY: 16,
+    });
+    fireEvent.pointerMove(window, { clientX: 400, clientY: 400 });
+    fireEvent.pointerUp(window);
+    expect(view.toolbar.style.left).toBe("400px");
+    expect(view.toolbar.style.top).toBe("400px");
+    view.size.width = 800;
+    view.notify();
+    expect(view.toolbar.style.left).toBe("400px");
+    view.size.width = 600;
+    view.size.height = 300;
+    view.notify();
+    expect(view.toolbar.style.left).toBe("264px");
+    expect(view.toolbar.style.top).toBe("232px");
+    view.size.toolbarHeight = 180;
+    view.notify();
+    expect(view.toolbar.style.top).toBe("104px");
+    view.size.width = 1000;
+    view.notify();
+    expect(view.toolbar.style.left).toBe("264px");
+  });
+
+  it("keeps window resize functional without ResizeObserver and removes subscriptions on unmount", () => {
+    const view = renderMeasuredToolbar(false);
+    view.size.width = 600;
+    fireEvent(window, new Event("resize"));
+    expect(view.toolbar.style.left).toBe("264px");
+    const remove = vi.spyOn(window, "removeEventListener");
+    view.unmount();
+    expect(remove).toHaveBeenCalledWith("resize", expect.any(Function));
+  });
+
+  it("observes both container and toolbar size and disconnects on unmount", () => {
+    const view = renderMeasuredToolbar();
+    expect(view.observers.size).toBe(1);
+    const [observer] = view.observers;
+    expect(observer.targets.has(view.toolbar)).toBe(true);
+    expect(observer.targets.has(screen.getByTestId("toolbar-container"))).toBe(true);
+    view.unmount();
+    expect(view.observers.size).toBe(0);
+  });
+
   it("renders useful graph controls inline and forwards clicks", async () => {
     const user = userEvent.setup();
     const onToggleGraphFilter = vi.fn();

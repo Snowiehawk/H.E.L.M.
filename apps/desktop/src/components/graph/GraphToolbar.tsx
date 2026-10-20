@@ -82,35 +82,37 @@ export function GraphToolbar({
       return;
     }
 
-    if (!hasMoved) {
-      const initial = clampPosition(
-        {
-          x: container.clientWidth - toolbar.offsetWidth - TOOLBAR_MARGIN,
-          y: TOOLBAR_MARGIN,
-        },
-        container,
-        toolbar,
-      );
+    const updatePosition = () => {
       setPosition((current) => {
-        if (current && current.x === initial.x && current.y === initial.y) {
+        const requested =
+          hasMoved && current
+            ? current
+            : {
+                x: container.clientWidth - toolbar.offsetWidth - TOOLBAR_MARGIN,
+                y: TOOLBAR_MARGIN,
+              };
+        const next = clampPosition(requested, container, toolbar);
+        if (current && current.x === next.x && current.y === next.y) {
           return current;
         }
-        return initial;
+        return next;
       });
-      return;
-    }
+    };
 
-    setPosition((current) => {
-      if (!current) {
-        return current;
-      }
-      const next = clampPosition(current, container, toolbar);
-      if (next.x === current.x && next.y === current.y) {
-        return current;
-      }
-      return next;
-    });
-  }, [expanded, graph?.targetId, hasMoved, position]);
+    updatePosition();
+    // WebView zoom, window size and neighboring panels can all resize the
+    // graph without changing its target or React props. Toolbar expansion can
+    // change its own dimensions too. Keep both in the same CSS-pixel space.
+    const observer =
+      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(updatePosition);
+    observer?.observe(container);
+    observer?.observe(toolbar);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [expanded, graph?.targetId, hasMoved]);
 
   if (!graph) {
     return null;
