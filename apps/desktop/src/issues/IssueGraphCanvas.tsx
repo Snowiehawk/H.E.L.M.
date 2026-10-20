@@ -1,10 +1,11 @@
+import { GraphNavigation, navigationProps } from "../components/graph/navigation/GraphNavigation";
+import { useFunctionTabs } from "../app/FunctionTabs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
   Handle,
   MarkerType,
-  PanOnScrollMode,
   Position,
   ReactFlow,
   applyNodeChanges,
@@ -42,6 +43,7 @@ export function IssueGraphCanvas({
   selectedId?: string;
   onSelect: (id?: string) => void;
 }) {
+  const { activeView } = useFunctionTabs();
   const instance = useRef<ReactFlowInstance<IssueFlowNode> | null>(null);
   const [nodes, setNodes] = useState<IssueFlowNode[]>([]);
   useEffect(() => {
@@ -118,14 +120,12 @@ export function IssueGraphCanvas({
           nodesConnectable={false}
           edgesReconnectable={false}
           deleteKeyCode={null}
-          zoomOnScroll={false}
-          panOnScroll
-          panOnScrollMode={PanOnScrollMode.Free}
-          zoomActivationKeyCode="Alt"
+          {...navigationProps}
           minZoom={0.001}
           maxZoom={1.5}
           proOptions={{ hideAttribution: true }}
         >
+          <GraphNavigation active={activeView === "issues"} minZoom={0.001} maxZoom={1.5} />
           <Controls showInteractive={false} />
           <Background gap={32} color="var(--line)" />
         </ReactFlow>
