@@ -9,6 +9,7 @@ pytest>=9.0.3
 ruff>=0.8
 
 # Patched floors for development tooling and its transitive dependencies.
+certifi>=2026.10.19
 filelock>=3.20.3
 msgpack>=1.2.1
 requests>=2.33.0
