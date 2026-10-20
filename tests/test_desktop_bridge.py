@@ -38,6 +38,24 @@ def _unique_progress_stages(frames: list[dict]) -> list[str]:
 
 
 class DesktopBridgeTests(unittest.TestCase):
+    def test_health_handshake_requires_no_repo_and_identifies_loaded_backend(self) -> None:
+        incoming = io.StringIO(
+            json.dumps({"id": 1, "command": "health", "params": {}})
+            + "\n"
+            + json.dumps({"id": 2, "command": "shutdown", "params": {}})
+            + "\n"
+        )
+        outgoing = io.StringIO()
+        run_worker(incoming, outgoing)
+        replies = [json.loads(line) for line in outgoing.getvalue().splitlines()]
+        self.assertEqual([reply["id"] for reply in replies], [1, 2])
+        self.assertTrue(all(reply["ok"] for reply in replies))
+        self.assertEqual(
+            Path(replies[0]["result"]["backend_module"]).resolve(),
+            Path(__file__).resolve().parents[1] / "src/helm/ui/desktop_bridge.py",
+        )
+        self.assertTrue(replies[0]["result"]["python"])
+
     def test_scan_repo_to_payload_returns_workspace_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir) / "repo"

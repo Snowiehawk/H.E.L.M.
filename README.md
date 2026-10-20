@@ -10,9 +10,20 @@ H.E.L.M. is a bidirectional repo-to-graph structural editor for source code. Thi
 - build a domain-owned structural graph
 - print a CLI summary or export JSON
 
+## Repository branches
+
+`dev` is the default branch and the normal pull-request target. Work on a
+focused `noah/<purpose>` branch, then request review into `dev`. Stable work is
+promoted from `dev` to `main` through a separate reviewed pull request. A push or
+QA build is not a release. See the [development workflow](docs/development-workflow.md).
+
+For a Windows source checkout, use a normal project folder such as
+`D:\Projects\HELM`; packaged applications and disposable QA fixtures are separate.
+Cloning does not install or rebuild the desktop application.
+
 ## Current Workflow
 
-The first working slice is CLI-first and read-only:
+The CLI scans repositories and exports structural graph data:
 
 ```bash
 PYTHONPATH=src python3 -m helm.cli scan path/to/repo
@@ -57,9 +68,17 @@ The graph starts coarse and structural:
 - preserve source spans now so edit-time fidelity is possible later
 - keep the graph model independent from visualization libraries
 - resolve cross-file relationships conservatively
-- defer graph-to-source mutation until the read path is trustworthy
+- validate graph-to-source edits and journal mutations for recovery
 
 ## Development
+
+The local desktop implementation includes a read-only **GitHub issues tab with its
+own issue graph**, independent of the IDE/code graph. It supports manual load/refresh,
+basic selection/details and fit controls, with memory-only credentials and layout.
+See [GitHub issue viewer: status, boundaries and plan](docs/github-issues.md).
+Native Mac authenticated Load/Refresh and synthetic graph acceptance have been
+verified. Installed Windows editing acceptance and remaining graph coverage are
+recorded in [native acceptance](docs/native-acceptance-20261017.md).
 
 The package is laid out under `src/helm/`:
 
@@ -67,17 +86,24 @@ The package is laid out under `src/helm/`:
 - `graph`: domain graph types and graph construction
 - `ui`: summary/export adapters
 - `cli`: end-to-end orchestration
-- `editor`: intentionally deferred mutation interfaces
+- `editor`: structural edits, source replacement, flow edits and backend undo
 
 Tests are written to run under `unittest` in this environment and remain compatible with `pytest` later.
 
 For desktop work, the root `invoke` tasks automatically run inside `apps/desktop/` and default `HELM_WORKSPACE_ROOT` plus `HELM_PYTHON_BIN` to the repo-local venv when it exists. You can still override either environment variable manually if needed.
 
+Development bootstrap requires Python 3.12+; lock generation requires exactly
+3.12. Set `HELM_BOOTSTRAP_PYTHON_BIN` to an existing interpreter when needed.
+An existing older `.venv-helm-dev` must be preserved or renamed before recreating
+it; bootstrap never silently replaces it. Normal source installation still
+declares Python >=3.9; the dev lock is for Python 3.12+, not a universal 3.9 lock.
+The installed desktop app keeps its separately pinned bundled Python 3.13.16.
+
 The bootstrap script prints fully qualified follow-up commands that use the repo-local venv directly, so you do not have to activate the venv just to use HELM.
 
 Python CI and release validation install from committed lockfiles under
 `requirements/`. Regenerate those lockfiles only with the CI baseline Python
-version, currently Python 3.9, by running `python -m invoke lock-python`.
+version, currently Python 3.12, by running `python -m invoke lock-python`.
 
 ## CI / Quality Gates
 
@@ -94,5 +120,7 @@ Use `npm ci` in `apps/desktop/` when you want the same dependency install behavi
 HELM repo mutations are journaled under `.helm/recovery/` so interrupted edits can be rolled back on the next open or before the next mutation. See `docs/recovery.md` for the lifecycle, ignore rules, and platform durability notes.
 
 Dependency pinning, audit, upgrade, and vendoring policy lives in
-`docs/dependencies.md`. HELM currently has no vendored runtime dependencies;
-LibCST is supplied by the normal Python dependency lockfiles.
+`docs/dependencies.md`. Windows installers package verified runtime distributions; development installs
+use the Python lockfiles. See [desktop packaging](docs/desktop-packaging.md) for
+the bundled Windows and candidate Mac arm64 runtimes, plus the legacy Intel Mac
+external-interpreter contract.

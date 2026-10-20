@@ -4,6 +4,7 @@ fn main() {
     println!("cargo:rerun-if-changed=icons/128x128@2x.png");
     println!("cargo:rerun-if-changed=icons/icon.ico");
     println!("cargo:rerun-if-changed=icons/icon.icns");
+    println!("cargo:rerun-if-changed=nsis/branding.nsh");
     println!("cargo:rerun-if-changed=tauri.conf.json");
     tauri_build::build()
 }

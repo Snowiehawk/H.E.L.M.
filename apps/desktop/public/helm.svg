@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <title>H.E.L.M.</title>
+  <defs>
+    <linearGradient id="blue" x1="256" y1="128" x2="768" y2="896" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#29AEFF"/>
+      <stop offset="0.48" stop-color="#078BFA"/>
+      <stop offset="1" stop-color="#0061DB"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="512" y1="164" x2="512" y2="860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#65CDFF"/>
+      <stop offset="0.5" stop-color="#168FFD"/>
+      <stop offset="1" stop-color="#0051BE"/>
+    </linearGradient>
+    <linearGradient id="hub" x1="452" y1="414" x2="576" y2="612" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#35B7FF"/>
+      <stop offset="1" stop-color="#0070EC"/>
+    </linearGradient>
+    <path id="handle" d="M494 178V130C494 122 488 118 488 110V101C488 94 492 90 493 88L490 64C487 44 482 22 482 4C482-12 494-20 512-20S542-12 542 4C542 22 537 44 534 64L531 88C532 90 536 94 536 101V110C536 118 530 122 530 130V178Z"/>
+  </defs>
+  <!-- Scale the whole wheel to preserve long, shaped grips with 6% clear margins. -->
+  <g transform="translate(512 512) scale(0.84) translate(-512 -512)">
+  <g fill="url(#blue)" stroke="#0062CF" stroke-width="8" stroke-linejoin="round">
+    <use href="#handle"/>
+    <use href="#handle" transform="rotate(45 512 512)"/>
+    <use href="#handle" transform="rotate(90 512 512)"/>
+    <use href="#handle" transform="rotate(135 512 512)"/>
+    <use href="#handle" transform="rotate(180 512 512)"/>
+    <use href="#handle" transform="rotate(225 512 512)"/>
+    <use href="#handle" transform="rotate(270 512 512)"/>
+    <use href="#handle" transform="rotate(315 512 512)"/>
+    <path d="M484 198H540V826H484Z"/>
+    <path d="M198 484H826V540H198Z"/>
+    <path d="M484 198H540V826H484Z" transform="rotate(45 512 512)"/>
+    <path d="M484 198H540V826H484Z" transform="rotate(-45 512 512)"/>
+  </g>
+  <circle cx="512" cy="512" r="340" stroke="#0057C4" stroke-width="88"/>
+  <circle cx="512" cy="512" r="340" stroke="url(#blue)" stroke-width="76"/>
+  <circle cx="512" cy="512" r="374" stroke="url(#rim)" stroke-width="6"/>
+  <circle cx="512" cy="512" r="306" stroke="#57C7FF" stroke-width="5"/>
+  <circle cx="512" cy="512" r="108" fill="url(#hub)" stroke="#0062CF" stroke-width="12"/>
+  <circle cx="512" cy="512" r="101" stroke="#56C5FF" stroke-width="4"/>
+  </g>
+</svg>

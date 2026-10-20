@@ -1,6 +1,6 @@
 # H.E.L.M. Desktop
 
-Premium minimal desktop shell for exploring local repositories before editing them.
+Desktop shell for exploring and editing local Python repositories.
 
 ## Stack
 
@@ -14,10 +14,12 @@ Premium minimal desktop shell for exploring local repositories before editing th
 
 ## Current scope
 
-- Read-only repo onboarding
+- Local repository onboarding and scanning
 - UI-driven reindexing against the Python backbone
 - Three-pane workspace
 - File, symbol, and graph views
+- Source/structural editing with Save, Undo, Redo and recovery journaling
+- Separate read-only GitHub issues tab with memory-only credentials and layout
 - Browser-only mock mode plus live desktop transport
 
 ## How to run the UI
@@ -69,9 +71,9 @@ inv desktop
 
 If you prefer the module form, `python -m invoke ui` and `python -m invoke desktop` do the same thing.
 
-## Prerequisites
+## Development prerequisites
 
-- Node.js 18+
+- Node.js 20+ (required by the locked test runner and router)
 - npm 9+
 - Rust / Cargo
 - Python 3.9+
@@ -91,10 +93,10 @@ If you use zsh, keep `'.[dev]'` quoted so the shell does not expand the brackets
 
 Once the Tauri app is running:
 
-1. Click `Open Local Repo`.
+1. Choose `Open Repo` in an existing workspace or the local-repository control on the welcome screen.
 2. Choose the repo you want to scan.
 3. Let the indexing screen finish.
-4. Use `Reindex Repo` in the window header or `Reindex From UI` on the overview card to validate the live bridge again.
+4. Choose `Reindex` in the workspace explorer to scan the repository again.
 
 No CLI scan command is required for that workflow.
 
@@ -102,3 +104,12 @@ No CLI scan command is required for that workflow.
 
 - The frontend intentionally talks only to the adapter layer in `src/lib/adapter`.
 - The Tauri bridge invokes `python -m helm.ui.desktop_bridge` under the hood to fetch the real graph payload.
+
+## Packaged applications
+
+Windows x64 installers include a pinned Python runtime and backend dependencies.
+Mac arm64 candidate bundles include a pinned interpreter and runtime dependencies.
+Intel Mac bundles retain a compatible external Python contract. These
+contracts differ from the source-development prerequisites above. See
+[desktop packaging](../../docs/desktop-packaging.md) and the
+[native acceptance matrix](../../docs/native-acceptance-20261017.md).

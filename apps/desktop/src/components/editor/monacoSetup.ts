@@ -1,19 +1,19 @@
 import { loader } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
-import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
-import "monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution";
-import "monaco-editor/esm/vs/basic-languages/python/python.contribution";
-import "monaco-editor/esm/vs/basic-languages/xml/xml.contribution";
-import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution";
-import "monaco-editor/esm/vs/language/css/monaco.contribution";
-import "monaco-editor/esm/vs/language/html/monaco.contribution";
-import "monaco-editor/esm/vs/language/json/monaco.contribution";
-import "monaco-editor/esm/vs/language/typescript/monaco.contribution";
-import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
-import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
-import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
-import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
-import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
+import * as monaco from "monaco-editor/editor/editor.api.js";
+import "monaco-editor/languages/definitions/markdown/register.js";
+import "monaco-editor/languages/definitions/python/register.js";
+import "monaco-editor/languages/definitions/xml/register.js";
+import "monaco-editor/languages/definitions/yaml/register.js";
+import "monaco-editor/language/css/monaco.contribution";
+import "monaco-editor/language/html/monaco.contribution";
+import "monaco-editor/language/json/monaco.contribution";
+import "monaco-editor/language/typescript/monaco.contribution";
+import editorWorker from "monaco-editor/editor/editor.worker?worker";
+import cssWorker from "monaco-editor/language/css/css.worker?worker";
+import htmlWorker from "monaco-editor/language/html/html.worker?worker";
+import jsonWorker from "monaco-editor/language/json/json.worker?worker";
+import tsWorker from "monaco-editor/language/typescript/ts.worker?worker";
 
 declare global {
   interface Window {

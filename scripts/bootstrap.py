@@ -150,10 +150,10 @@ def resolve_command(command_name: str, profile: PlatformProfile) -> str:
 
 
 def ensure_supported_python() -> None:
-    if sys.version_info < (3, 9):
+    if sys.version_info < (3, 12):
         version = ".".join(str(part) for part in sys.version_info[:3])
         raise BootstrapError(
-            f"HELM requires Python 3.9+ for bootstrap, but the current interpreter is {version}."
+            f"HELM requires Python 3.12+ for development bootstrap, but the current interpreter is {version}."
         )
 
 
@@ -169,6 +169,17 @@ def ensure_desktop_layout() -> None:
 def ensure_venv(profile: PlatformProfile) -> Path:
     venv_python = venv_python_path(profile)
     if venv_python.exists():
+        supported = subprocess.run(
+            [str(venv_python), "-c", "import sys; sys.exit(sys.version_info < (3, 12))"],
+            check=False,
+            capture_output=True,
+        )
+        if supported.returncode:
+            raise BootstrapError(
+                f"Existing virtual environment at {VENV_DIR} requires Python 3.12+. "
+                "Preserve or rename it, then rerun bootstrap with Python 3.12+. "
+                "HELM will not replace it automatically."
+            )
         print_step(f"Using existing virtual environment at {VENV_DIR}.")
         return venv_python
 
@@ -291,13 +302,13 @@ def print_next_steps(profile: PlatformProfile, venv_python: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ensure_supported_python()
     parser = build_argument_parser()
     args = parser.parse_args(argv)
     profile = get_platform_profile()
     phases = selected_phases(python_only=args.python_only, ui_only=args.ui_only)
 
     try:
+        ensure_supported_python()
         print_step(f"Detected OS: {profile.name}.")
         venv_python = ensure_python_dependencies(profile, force=args.force)
         if "npm" in phases:

@@ -202,6 +202,9 @@ def _handle_worker_command(
     *,
     progress: _WorkerProgressReporter | None = None,
 ) -> dict[str, Any]:
+    if command == "health":
+        return {"python": sys.version.split()[0], "backend_module": str(Path(__file__).resolve())}
+
     repo = params.get("repo")
     if not isinstance(repo, str) and command != "shutdown":
         raise ValueError("Worker command requires a 'repo' string parameter.")

@@ -60,7 +60,7 @@ get_helm_profile() {
 
 python_usable() {
   local candidate="$1"
-  "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1
+  "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)' >/dev/null 2>&1
 }
 
 refresh_shell_commands() {
@@ -284,6 +284,11 @@ ensure_python_command() {
     return
   fi
 
+  if command_exists python3.12 && python_usable python3.12; then
+    HELM_PYTHON=python3.12
+    return
+  fi
+
   if command_exists python3 && python_usable python3; then
     HELM_PYTHON=python3
     return
@@ -320,7 +325,7 @@ ensure_python_command() {
     return
   fi
 
-  printf 'HELM could not find a usable Python 3.9+ runtime after installation.\n' >&2
+  printf 'HELM could not find a usable Python 3.12+ runtime after installation.\n' >&2
   exit 1
 }
 

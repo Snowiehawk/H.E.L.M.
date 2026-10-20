@@ -8,7 +8,7 @@ validation.
 ## Python
 
 Python lockfiles are generated with the CI baseline interpreter, currently
-Python 3.9. Do not regenerate them with a newer local interpreter.
+Python 3.12. Use exactly that minor version for reproducible generation.
 
 Inputs:
 
@@ -24,7 +24,7 @@ requirements/python-runtime.txt
 requirements/python-dev.txt
 ```
 
-Regenerate both lockfiles from a Python 3.9 environment:
+Regenerate both lockfiles from a Python 3.12 environment:
 
 ```bash
 python -m invoke lock-python
@@ -44,6 +44,14 @@ python -m pip install -r requirements/python-dev.txt
 python -m pip install --no-deps -e .
 python -m pip check
 ```
+
+Both generated locks target the Python 3.12 validation environment. The
+conditional Python <3.10 typing-extensions dependency remains in the runtime
+input and package metadata resolution; pip-compile on 3.12 omits that inactive
+marker from its output. Python 3.9 source consumers should install the package
+with dependency resolution rather than treat this lock as cross-version. The
+shipping backend uses separate pinned interpreter/wheel inputs, which this
+development migration does not change.
 
 Runtime/release dependency review starts from `requirements/python-runtime.txt`.
 Development and CI tooling review starts from `requirements/python-dev.txt`.
@@ -98,8 +106,17 @@ removal condition. Prefer dependency upgrades over allowlist entries.
 
 ## Vendoring
 
-HELM currently has no vendored runtime dependencies. LibCST is supplied only by
-the declared Python dependency and the committed Python lockfiles.
+Development installs obtain LibCST and PyYAML through the declared Python
+dependencies and committed lockfiles. Windows x64 packaging additionally stages
+official embedded CPython and pinned wheels with verified SHA-256 hashes and
+license/metadata files. Generated distributions are not committed to the source
+tree. See [desktop packaging](desktop-packaging.md) for inputs, manifest and
+offline staging. Mac arm64 candidate builds pin a relocatable CPython 3.13.16
+runtime and matching wheels; Intel Mac retains the external Python contract.
+The scoped Monaco override pins DOMPurify 3.4.16 to repair the two saved low
+advisories without downgrading Monaco. The candidate lockfile audit reports zero
+npm findings. See [the candidate dependency disposition](candidate-dependency-disposition-20261017.md)
+for remaining Rust and Python development findings.
 
 Future vendoring requires a documented owner, upstream source and version,
 reproducible update command, audit process, and removal/review condition before

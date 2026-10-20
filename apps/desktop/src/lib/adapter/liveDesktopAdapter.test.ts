@@ -943,8 +943,7 @@ describe("LiveDesktopAdapter", () => {
       },
     });
     resolveScan?.(payload);
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() => expect(states[states.length - 1]?.status).toBe("done"));
 
     unsubscribe();
 
@@ -977,5 +976,244 @@ describe("LiveDesktopAdapter", () => {
       repoPath: "/workspace/calculator",
       jobId,
     });
+  });
+  function emptyScan(repoPath: string) {
+    const report = {
+      module_count: 0,
+      symbol_count: 0,
+      import_edge_count: 0,
+      call_edge_count: 0,
+      unresolved_call_count: 0,
+      diagnostic_count: 0,
+    };
+    return {
+      summary: { repo_path: repoPath, ...report, modules: [] },
+      graph: {
+        root_path: repoPath,
+        repo_id: `repo:${repoPath}`,
+        nodes: [],
+        edges: [],
+        diagnostics: [],
+        unresolved_calls: [],
+        report,
+      },
+      workspace: {
+        language: "python",
+        default_level: "repo",
+        default_focus_node_id: `repo:${repoPath}`,
+        source_hidden_by_default: true,
+        supported_edit_kinds: [],
+        session_version: 1,
+      },
+    };
+  }
+  const health = {
+    mode: "live",
+    available: true,
+    python_command: "installed-python",
+    workspace_root: "/installed/backend",
+    note: "Current workspace ready",
+    live_sync_enabled: true,
+    sync_state: "synced",
+    last_sync_error: null,
+  };
+  const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+  function deferredResult() {
+    let resolve!: (value: unknown) => void;
+    const promise = new Promise((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  }
+
+  it("does not relabel a retired repository scan as the newly selected repository", async () => {
+    const old = deferredResult();
+    invokeMock.mockImplementation((command, args) =>
+      command === "backend_health"
+        ? Promise.resolve(health)
+        : args.repoPath === "/workspace/alpha"
+          ? old.promise
+          : Promise.resolve(emptyScan(args.repoPath)),
+    );
+    const adapter = new LiveDesktopAdapter();
+    await adapter.openRepo("/workspace/alpha");
+    await adapter.startIndex("/workspace/alpha");
+    await adapter.openRepo("/workspace/beta");
+    await adapter.startIndex("/workspace/beta");
+    await settle();
+    old.resolve(emptyScan("/workspace/alpha"));
+    await settle();
+    expect((await adapter.getOverview()).repo.path).toBe("/workspace/beta");
+    expect((await adapter.getOverview()).defaultFocusNodeId).toBe("repo:/workspace/beta");
+  });
+
+  it("clears indexed data on a new repository selection and ignores the pending old scan", async () => {
+    const old = deferredResult();
+    invokeMock.mockImplementation((command) =>
+      command === "backend_health" ? Promise.resolve(health) : old.promise,
+    );
+    const adapter = new LiveDesktopAdapter();
+    await adapter.openRepo("/workspace/alpha");
+    await adapter.startIndex("/workspace/alpha");
+    await adapter.openRepo("/workspace/beta");
+    old.resolve(emptyScan("/workspace/alpha"));
+    await settle();
+    await expect(adapter.getOverview()).rejects.toThrow("No repo has been indexed");
+  });
+
+  it("ignores an old scan whose health response arrives after a newer scan", async () => {
+    const oldHealth = deferredResult();
+    let first = true;
+    invokeMock.mockImplementation((command, args) => {
+      if (command !== "backend_health") return Promise.resolve(emptyScan(args.repoPath));
+      if (first) {
+        first = false;
+        return oldHealth.promise;
+      }
+      return Promise.resolve(health);
+    });
+    const adapter = new LiveDesktopAdapter();
+    await adapter.openRepo("/workspace/alpha");
+    await adapter.startIndex("/workspace/alpha");
+    await settle();
+    await adapter.openRepo("/workspace/beta");
+    await adapter.startIndex("/workspace/beta");
+    await settle();
+    oldHealth.resolve({ ...health, python_command: "retired-worker" });
+    await settle();
+    const overview = await adapter.getOverview();
+    expect(overview.defaultFocusNodeId).toBe("repo:/workspace/beta");
+    expect(overview.backend.pythonCommand).toBe("installed-python");
+  });
+
+  it("does not publish another repository's watcher events into the active workspace", async () => {
+    invokeMock.mockImplementation((command, args) =>
+      Promise.resolve(command === "backend_health" ? health : emptyScan(args.repoPath)),
+    );
+    const adapter = new LiveDesktopAdapter();
+    await adapter.openRepo("/workspace/beta");
+    await adapter.startIndex("/workspace/beta");
+    await settle();
+    const listener = vi.fn();
+    adapter.subscribeWorkspaceSync(listener);
+    eventState.callbacks.get("helm://workspace-sync")?.({
+      payload: {
+        repo_path: "/workspace/alpha",
+        session_version: 99,
+        reason: "external-change",
+        status: "error",
+        changed_relative_paths: ["old.py"],
+        needs_manual_resync: true,
+        message: "Retired repo error",
+        payload: emptyScan("/workspace/alpha"),
+      },
+    });
+    expect(listener).not.toHaveBeenCalled();
+    expect((await adapter.getOverview()).backend.note).toBe("Current workspace ready");
+  });
+
+  it("does not replace a new repository cache with a delayed workspace mutation result", async () => {
+    const old = deferredResult();
+    invokeMock.mockImplementation((command, args) =>
+      command === "create_workspace_entry"
+        ? old.promise
+        : Promise.resolve(command === "backend_health" ? health : emptyScan(args.repoPath)),
+    );
+    const adapter = new LiveDesktopAdapter();
+    await adapter.openRepo("/workspace/alpha");
+    await adapter.startIndex("/workspace/alpha");
+    await settle();
+    const mutation = adapter.createWorkspaceEntry("/workspace/alpha", {
+      kind: "file",
+      relativePath: "new.py",
+    });
+    await adapter.openRepo("/workspace/beta");
+    await adapter.startIndex("/workspace/beta");
+    await settle();
+    old.resolve({
+      relative_path: "new.py",
+      kind: "file",
+      changed_relative_paths: ["new.py"],
+      payload: emptyScan("/workspace/alpha"),
+    });
+    await mutation;
+    expect((await adapter.getOverview()).defaultFocusNodeId).toBe("repo:/workspace/beta");
+  });
+
+  it("does not restore a retired source edit cache after another repository is selected", async () => {
+    const old = deferredResult();
+    invokeMock.mockImplementation((command, args) =>
+      command === "save_node_source"
+        ? old.promise
+        : Promise.resolve(command === "backend_health" ? health : emptyScan(args.repoPath)),
+    );
+    const adapter = new LiveDesktopAdapter();
+    await adapter.openRepo("/workspace/alpha");
+    await adapter.startIndex("/workspace/alpha");
+    await settle();
+    const save = adapter.saveNodeSource("symbol:alpha:run", "def run(): pass\n");
+    await adapter.openRepo("/workspace/beta");
+    await adapter.startIndex("/workspace/beta");
+    await settle();
+    old.resolve({
+      edit: {
+        request: {},
+        summary: "saved",
+        touched_relative_paths: ["a.py"],
+        reparsed_relative_paths: [],
+        changed_node_ids: [],
+        warnings: [],
+      },
+      payload: emptyScan("/workspace/alpha"),
+    });
+    await save;
+    expect((await adapter.getOverview()).repo.path).toBe("/workspace/beta");
+  });
+
+  it("reports indexing done only after the returned workspace is cached", async () => {
+    const pending = deferredResult();
+    invokeMock.mockImplementation((command) =>
+      command === "backend_health" ? Promise.resolve(health) : pending.promise,
+    );
+    const adapter = new LiveDesktopAdapter();
+    const { jobId } = await adapter.startIndex("/workspace/beta");
+    const states: IndexingJobState[] = [];
+    adapter.subscribeIndexProgress(jobId, (state) => states.push(state));
+    eventState.callbacks.get("helm://index-progress")?.({
+      payload: {
+        job_id: jobId,
+        repo_path: "/workspace/beta",
+        status: "done",
+        stage: "watch_ready",
+        processed_modules: 0,
+        total_modules: 0,
+        symbol_count: 0,
+        message: "ready",
+        progress_percent: 100,
+      },
+    });
+    expect(states.some((state) => state.status === "done")).toBe(false);
+    pending.resolve(emptyScan("/workspace/beta"));
+    await settle();
+    expect(states[states.length - 1]?.status).toBe("done");
+    expect((await adapter.getOverview()).repo.path).toBe("/workspace/beta");
+  });
+
+  it("assigns distinct indexing jobs even when requests start in the same millisecond", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1234);
+    const pending = deferredResult();
+    invokeMock.mockImplementation((command) =>
+      command === "backend_health" ? Promise.resolve(health) : pending.promise,
+    );
+    try {
+      const adapter = new LiveDesktopAdapter();
+      const first = await adapter.startIndex("/workspace/beta");
+      const second = await adapter.startIndex("/workspace/beta");
+      expect(first.jobId).not.toBe(second.jobId);
+      pending.resolve(emptyScan("/workspace/beta"));
+      await settle();
+    } finally {
+      now.mockRestore();
+    }
   });
 });

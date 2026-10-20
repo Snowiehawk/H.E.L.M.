@@ -15,9 +15,15 @@ dependencies = ["libcst>=1.8.6"]
 dev = [
     "invoke>=2.2",
     "pip-audit>=2.7",
-    "pip-tools>=7.5",
-    "pytest>=7.0",
+    "pip-tools>=7.6.2",
+    "pytest>=9.0.3",
     "ruff>=0.8",
+    "filelock>=3.20.3",
+    "msgpack>=1.2.1",
+    "requests>=2.33.0",
+    "urllib3>=2.8.0",
+    "pip>=26.2",
+    "setuptools>=83.0.0",
 ]
 
 [project.scripts]
@@ -31,6 +37,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py39"
@@ -47,6 +54,8 @@ extend-exclude = [
     "apps/desktop/node_modules",
     "apps/desktop/src-tauri/gen",
     "apps/desktop/src-tauri/target",
+    "apps/desktop/src-tauri/packaged-backend",
+    "apps/desktop/src-tauri/.runtime-cache",
     "build",
     "dist",
 ]

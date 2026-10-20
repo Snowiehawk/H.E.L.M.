@@ -1,4 +1,4 @@
-import { PropsWithChildren, useEffect, useState } from "react";
+import { PropsWithChildren, useEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -7,6 +7,7 @@ import { AdapterProvider, createDesktopAdapter, DesktopAdapter } from "../lib/ad
 import { PreferencesDialog } from "../components/shared/PreferencesDialog";
 import { useUiStore } from "../store/uiStore";
 import { useUndoStore } from "../store/undoStore";
+import { useIdeActive } from "./FunctionTabs";
 
 const APP_MENU_EVENT = "helm://app-menu";
 
@@ -96,6 +97,9 @@ function UiScaleBridge() {
 }
 
 function NativeMacMenuBridge() {
+  const ideActive = useIdeActive();
+  const ideActiveRef = useRef(ideActive);
+  ideActiveRef.current = ideActive;
   const graphFilters = useUiStore((state) => state.graphFilters);
   const highlightGraphPath = useUiStore((state) => state.highlightGraphPath);
   const showEdgeLabels = useUiStore((state) => state.showEdgeLabels);
@@ -117,6 +121,14 @@ function NativeMacMenuBridge() {
 
     void (async () => {
       const detach = await listen<{ action?: string }>(APP_MENU_EVENT, (event) => {
+        const action = event.payload?.action;
+        if (!ideActiveRef.current && (action === "undo" || action === "redo")) {
+          if (isNativeTextEditingTarget(document.activeElement)) {
+            dispatchNativeBrowserEditCommand(action);
+          }
+          return;
+        }
+        if (!ideActiveRef.current && action?.startsWith("toggle-")) return;
         switch (event.payload?.action) {
           case "undo":
             dispatchGlobalUndo();
@@ -169,6 +181,7 @@ function NativeMacMenuBridge() {
       unlisten?.();
     };
   }, [
+    ideActive,
     decreaseUiScale,
     increaseUiScale,
     resetUiScale,
@@ -292,6 +305,7 @@ function dispatchGlobalRedo() {
 }
 
 function GlobalUndoRedoBridge() {
+  const ideActive = useIdeActive();
   const repoSessionId = useUiStore((state) => state.repoSession?.id);
   const resetUndoSession = useUndoStore((state) => state.resetSession);
 
@@ -302,6 +316,7 @@ function GlobalUndoRedoBridge() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
+        !ideActive ||
         event.defaultPrevented ||
         !(event.metaKey || event.ctrlKey) ||
         event.altKey ||
@@ -329,7 +344,7 @@ function GlobalUndoRedoBridge() {
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, []);
+  }, [ideActive]);
 
   return null;
 }

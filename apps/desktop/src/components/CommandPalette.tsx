@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useDesktopAdapter } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
+import { useIdeActive } from "../app/FunctionTabs";
 
 export function CommandPalette() {
+  const ideActive = useIdeActive();
   const adapter = useDesktopAdapter();
   const paletteOpen = useUiStore((state) => state.paletteOpen);
   const setPaletteOpen = useUiStore((state) => state.setPaletteOpen);
@@ -19,11 +21,12 @@ export function CommandPalette() {
         includeFiles: true,
         includeSymbols: true,
       }),
-    enabled: paletteOpen,
+    enabled: paletteOpen && ideActive,
   });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (!ideActive) return;
       const trigger = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
       if (trigger) {
         event.preventDefault();
@@ -37,18 +40,19 @@ export function CommandPalette() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [setPaletteOpen]);
+  }, [setPaletteOpen, ideActive]);
 
   useEffect(() => {
+    if (!ideActive) return;
     if (!paletteOpen) {
       setQuery("");
       return;
     }
 
     inputRef.current?.focus();
-  }, [paletteOpen]);
+  }, [paletteOpen, ideActive]);
 
-  if (!paletteOpen) {
+  if (!paletteOpen || !ideActive) {
     return null;
   }
 

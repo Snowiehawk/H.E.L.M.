@@ -1228,6 +1228,7 @@ describe("WorkspaceScreen", () => {
         editor.focus();
       });
       await user.keyboard("VALUE = 1");
+      expect(editor).toBeInTheDocument();
       await waitFor(() => expect(editor).toHaveValue("VALUE = 1"));
 
       const saveButton = within(inspectorDrawer).getByRole("button", { name: /Save/i });
@@ -1329,7 +1330,11 @@ describe("WorkspaceScreen", () => {
         { name: /Module source editor/i },
         { timeout: WORKSPACE_TEST_TIMEOUT_MS },
       );
-      expect((moduleEditor as HTMLTextAreaElement).value).toMatch(/def build_graph_summary/i);
+      await waitFor(
+        () =>
+          expect((moduleEditor as HTMLTextAreaElement).value).toMatch(/def build_graph_summary/i),
+        { timeout: WORKSPACE_TEST_TIMEOUT_MS },
+      );
       expect(within(expandedDrawer).getByText(/Source editor/i)).toBeInTheDocument();
       expect(useUiStore.getState().activeNodeId).toBeUndefined();
     },
@@ -1572,7 +1577,11 @@ describe("WorkspaceScreen", () => {
         { name: /Module source editor/i },
         { timeout: WORKSPACE_TEST_TIMEOUT_MS },
       );
-      expect((moduleEditor as HTMLTextAreaElement).value).toMatch(/def build_graph_summary/i);
+      await waitFor(
+        () =>
+          expect((moduleEditor as HTMLTextAreaElement).value).toMatch(/def build_graph_summary/i),
+        { timeout: WORKSPACE_TEST_TIMEOUT_MS },
+      );
       expect(await screen.findByText(/Source editor/i)).toBeInTheDocument();
       expect(useUiStore.getState().activeNodeId).toBeUndefined();
     },
@@ -4059,8 +4068,11 @@ describe("WorkspaceScreen", () => {
       expect(await screen.findByText(/Python source was left unchanged/i)).toBeInTheDocument();
       expect((await screen.findAllByText(/disconnected/i)).length).toBeGreaterThan(0);
       expect(
-        (screen.getByRole("textbox", { name: /Function source editor/i }) as HTMLTextAreaElement)
-          .value,
+        (
+          (await screen.findByRole("textbox", {
+            name: /Function source editor/i,
+          })) as HTMLTextAreaElement
+        ).value,
       ).toBe(sourceBeforeDelete);
     },
     WORKSPACE_TEST_TIMEOUT_MS,

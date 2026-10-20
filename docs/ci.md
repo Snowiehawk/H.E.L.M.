@@ -4,6 +4,7 @@ HELM currently runs GitHub Actions on Ubuntu for pull requests, pushes to `main`
 
 ## CI-equivalent local checks
 
+Use Python 3.12 (all three CI jobs use that baseline).
 Install Python dev dependencies from the committed lockfile, then install HELM
 without resolving dependencies again:
 
@@ -45,13 +46,14 @@ The bootstrap wrappers remain convenience entrypoints for local setup and app la
 .\helm.cmd bootstrap
 ```
 
-Those bootstrap commands install Python from `requirements/python-dev.txt` but may
+Bootstrap requires Python 3.12+ and rejects an older existing repo venv without
+deleting it. Those bootstrap commands install Python from `requirements/python-dev.txt` but may
 use `npm install` so first-run frontend setup is forgiving. They are not the
 CI-equivalent frontend dependency install. Use `npm ci` when validating
 lockfile-accurate CI behavior.
 
 Python lockfiles must be generated with the CI baseline Python version, currently
-Python 3.9:
+Python 3.12:
 
 ```bash
 python -m invoke lock-python
@@ -91,6 +93,7 @@ Tauri/Rust gates:
 
 ```bash
 cd apps/desktop
+npm run prepare:backend
 npm run build
 cd src-tauri
 cargo fmt -- --check
@@ -100,7 +103,7 @@ cd ../../..
 python scripts/audit.py cargo
 ```
 
-CI explicitly installs or verifies Rust `rustfmt` and `clippy` before running the Rust gates. Tauri validation is intentionally limited to frontend build plus `cargo fmt`, `cargo clippy`, and `cargo check` for this issue. A full packaged app build is deferred until it is proven stable and quiet on Ubuntu.
+CI explicitly installs or verifies Rust `rustfmt` and `clippy` before running the Rust gates. Tauri validation is intentionally limited to backend resource staging, frontend build, `cargo fmt`, `cargo clippy`, and `cargo check` for this issue. This CI gate does not build an installer or run native GUI acceptance. Run `cargo test --locked` separately for Rust regression tests. Backend staging selects the host target; Linux CI stages the external-Python backend contract and does not download the Mac or Windows interpreter.
 
 ## Security audit allowlist
 

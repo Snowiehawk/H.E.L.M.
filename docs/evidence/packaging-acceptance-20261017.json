@@ -1,0 +1,349 @@
+{
+  "acceptanceDateUTC": "2026-10-17",
+  "sourceBaseCommit": "2b9eb5d1bb108d560f59a8751c475df2cd2bfe82",
+  "sourceFilesVerified": 378,
+  "sourceArchiveSHA256": "9604db44071211d43b48cae07d67282cddce2ae0836fac58c5c78ba397cdc696",
+  "installer": {
+    "filename": "HELM-standalone-Windows-x64-setup.exe",
+    "bytes": 16465981,
+    "sha256": "cbb130030a2651ae577fd7bb595115180452784ff245b18a1be442d305e8ac5e",
+    "installedExecutableSHA256": "ff6e1ef7983132f01f28aac5e52079200e97e14f5b1f7e912387fb1c56347126"
+  },
+  "freshWindowsClone": {
+    "networkDisconnected": true,
+    "globalPythonCommandsPresentBeforeInstall": false,
+    "developmentCheckoutPresent": false,
+    "installerExit": 0,
+    "relocatedWithSpacesAndUnicode": true,
+    "installedResourcesVerified": 404,
+    "pythonVersion": "3.13.16",
+    "loadedBackendFromInstalledResources": true,
+    "externalPythonOrCheckoutOverrides": false,
+    "scan": true,
+    "saveUndoRedoExactCRLF": true,
+    "fixtureRestored": true,
+    "byteStages": {
+      "original": {
+        "sha256": "be2e51181b0f5876ab714284ddce3359db2c27596112a00362b5b786d605a936",
+        "bytes": 91
+      },
+      "saved": {
+        "sha256": "866ab6cc952cb2729790de2ce3ca86d22d313b8113d181a0589dcc3801a7f4a8",
+        "bytes": 87
+      },
+      "undone": {
+        "sha256": "be2e51181b0f5876ab714284ddce3359db2c27596112a00362b5b786d605a936",
+        "bytes": 91
+      },
+      "redone": {
+        "sha256": "866ab6cc952cb2729790de2ce3ca86d22d313b8113d181a0589dcc3801a7f4a8",
+        "bytes": 87
+      },
+      "restored": {
+        "sha256": "be2e51181b0f5876ab714284ddce3359db2c27596112a00362b5b786d605a936",
+        "bytes": 91
+      }
+    }
+  },
+  "completedAutomatedTests": {
+    "frontend": 342,
+    "python": 163,
+    "rust": 18,
+    "python39Compatibility": 163
+  },
+  "typingRegression": {
+    "status": "fixed",
+    "cause": "Inspector React key changed from a missing selection node to the loaded module during asynchronous graph refresh, remounting the editor and dropping focus while typing.",
+    "fix": "Use stable source target identity; do not replace existing source with loading state during background fetch.",
+    "focusedTestPassed": true,
+    "fullFrontendSuitePassed": true,
+    "windowsFinalSourceTestPassed": true,
+    "windowsWorkspaceSourceSHA256": "d55e6e94add354c96a744164e4b8608ddecc3fb35fc0f5745bf9bf7cd948d5ff"
+  },
+  "macPackagedBackend": {
+    "resourcesVerified": 39,
+    "scan": true,
+    "saveUndoRedoExactCRLF": true,
+    "externalInterpreterContractRemains": true
+  },
+  "pendingAcceptance": [
+    "Fresh Windows native GUI interaction",
+    "Mac native GUI regression",
+    "Repaired installer verification on physical Windows laptop"
+  ],
+  "securityDisposition": {
+    "npmLowFindings": 2,
+    "npmModerateHighCriticalFindings": 0,
+    "cargoVulnerabilitiesCount": 0,
+    "cargoInformationalWarnings": [
+      "RUSTSEC-2025-0057",
+      "RUSTSEC-2024-0370",
+      "RUSTSEC-2024-0429",
+      "RUSTSEC-2026-0097"
+    ],
+    "bundledPythonRuntimeDependencyFindings": 0,
+    "developmentCIBaselineUnchanged": "Python3.9; proposed3.12 awaits separate owner decision",
+    "pythonDevelopmentAudit": {
+      "auditSource": "security-python-dev-final-audit.json",
+      "packagesAudited": 43,
+      "affectedPackages": 7,
+      "advisoryRecords": 15,
+      "unallowedByCurrentExactIDParser": 15,
+      "advisoriesWithExistingAllowlistedAlias": 4,
+      "fixedReleaseMetadataVerifiedFromOfficialPyPI": true,
+      "developmentCIBaseline": "3.9 unchanged",
+      "proposedBaseline": "3.12 pending separate owner decision",
+      "disposition": "Development security gate is not clean; fixed releases requirePython>=3.10. No baseline migration or allowlist expansion applied. Existing GHSA exceptions do not match these saved PYSEC primary IDs under current exact-ID parser.",
+      "listedDevelopmentPackagesPresentInShippedManifest": [],
+      "packages": [
+        {
+          "package": "filelock",
+          "lockedVersion": "3.19.1",
+          "minimumFixedVersionForAllSavedFindings": "3.20.3",
+          "fixedReleaseRequiresPython": ">=3.10",
+          "metadataURL": "https://pypi.org/project/filelock/3.20.3/",
+          "advisories": [
+            {
+              "id": "PYSEC-2026-1375",
+              "aliases": [
+                "CVE-2025-68146",
+                "GHSA-w853-jp5j-5j7f"
+              ],
+              "fixVersions": [
+                "3.20.1"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": true
+            },
+            {
+              "id": "PYSEC-2026-1374",
+              "aliases": [
+                "GHSA-qmgc-5h2g-mvrw",
+                "CVE-2026-22701"
+              ],
+              "fixVersions": [
+                "3.20.3"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": true
+            }
+          ]
+        },
+        {
+          "package": "msgpack",
+          "lockedVersion": "1.1.2",
+          "minimumFixedVersionForAllSavedFindings": "1.2.1",
+          "fixedReleaseRequiresPython": ">=3.10",
+          "metadataURL": "https://pypi.org/project/msgpack/1.2.1/",
+          "advisories": [
+            {
+              "id": "PYSEC-2026-3625",
+              "aliases": [
+                "CVE-2026-57585",
+                "GHSA-6v7p-g79w-8964"
+              ],
+              "fixVersions": [
+                "1.2.1"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": false
+            }
+          ]
+        },
+        {
+          "package": "pytest",
+          "lockedVersion": "8.4.2",
+          "minimumFixedVersionForAllSavedFindings": "9.0.3",
+          "fixedReleaseRequiresPython": ">=3.10",
+          "metadataURL": "https://pypi.org/project/pytest/9.0.3/",
+          "advisories": [
+            {
+              "id": "PYSEC-2026-1845",
+              "aliases": [
+                "CVE-2025-71176",
+                "GHSA-6w46-j5rx-g56g"
+              ],
+              "fixVersions": [
+                "9.0.3"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": true
+            }
+          ]
+        },
+        {
+          "package": "requests",
+          "lockedVersion": "2.32.5",
+          "minimumFixedVersionForAllSavedFindings": "2.33.0",
+          "fixedReleaseRequiresPython": ">=3.10",
+          "metadataURL": "https://pypi.org/project/requests/2.33.0/",
+          "advisories": [
+            {
+              "id": "PYSEC-2026-2275",
+              "aliases": [
+                "GHSA-gc5v-m9x4-r6x2",
+                "CVE-2026-25645"
+              ],
+              "fixVersions": [
+                "2.33.0"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": true
+            }
+          ]
+        },
+        {
+          "package": "urllib3",
+          "lockedVersion": "2.6.3",
+          "minimumFixedVersionForAllSavedFindings": "2.8.0",
+          "fixedReleaseRequiresPython": ">=3.10",
+          "metadataURL": "https://pypi.org/project/urllib3/2.8.0/",
+          "advisories": [
+            {
+              "id": "PYSEC-2026-142",
+              "aliases": [
+                "GHSA-mf9v-mfxr-j63j",
+                "CVE-2026-44432"
+              ],
+              "fixVersions": [
+                "2.7.0"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": false
+            },
+            {
+              "id": "PYSEC-2026-141",
+              "aliases": [
+                "CVE-2026-44431",
+                "GHSA-qccp-gfcp-xxvc"
+              ],
+              "fixVersions": [
+                "2.7.0"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": false
+            },
+            {
+              "id": "PYSEC-2026-4177",
+              "aliases": [
+                "CVE-2026-97689",
+                "GHSA-vxq7-64xx-v4gw"
+              ],
+              "fixVersions": [
+                "2.8.0"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": false
+            },
+            {
+              "id": "PYSEC-2026-4176",
+              "aliases": [
+                "GHSA-gh4c-6fx4-qh6g",
+                "CVE-2026-97688"
+              ],
+              "fixVersions": [
+                "2.8.0"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": false
+            },
+            {
+              "id": "PYSEC-2026-4175",
+              "aliases": [
+                "GHSA-8988-9cw3-xx77",
+                "CVE-2026-97687"
+              ],
+              "fixVersions": [
+                "2.8.0"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": false
+            }
+          ]
+        },
+        {
+          "package": "pip",
+          "lockedVersion": "26.0.1",
+          "minimumFixedVersionForAllSavedFindings": "26.2",
+          "fixedReleaseRequiresPython": ">=3.10",
+          "metadataURL": "https://pypi.org/project/pip/26.2/",
+          "advisories": [
+            {
+              "id": "PYSEC-2026-196",
+              "aliases": [
+                "GHSA-wf93-45jw-7689",
+                "CVE-2026-8643"
+              ],
+              "fixVersions": [
+                "26.1.2"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": false
+            },
+            {
+              "id": "PYSEC-2026-2875",
+              "aliases": [
+                "GHSA-58qw-9mgm-455v",
+                "CVE-2026-3219"
+              ],
+              "fixVersions": [
+                "26.1"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": false
+            },
+            {
+              "id": "PYSEC-2026-2876",
+              "aliases": [
+                "CVE-2026-6357",
+                "GHSA-jp4c-xjxw-mgf9"
+              ],
+              "fixVersions": [
+                "26.1"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": false
+            },
+            {
+              "id": "PYSEC-2026-3721",
+              "aliases": [
+                "CVE-2026-13346",
+                "GHSA-qwm4-qh6w-59xr"
+              ],
+              "fixVersions": [
+                "26.2"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": false
+            }
+          ]
+        },
+        {
+          "package": "setuptools",
+          "lockedVersion": "82.0.1",
+          "minimumFixedVersionForAllSavedFindings": "83.0.0",
+          "fixedReleaseRequiresPython": ">=3.10",
+          "metadataURL": "https://pypi.org/project/setuptools/83.0.0/",
+          "advisories": [
+            {
+              "id": "PYSEC-2026-3447",
+              "aliases": [
+                "GHSA-h35f-9h28-mq5c",
+                "CVE-2026-59890",
+                "BIT-setuptools-2026-59890"
+              ],
+              "fixVersions": [
+                "83.0.0"
+              ],
+              "allowedByCurrentExactIDParser": false,
+              "hasAllowlistedAlias": false
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "merged": false,
+  "published": false,
+  "VMDeletionAuthorized": false
+}

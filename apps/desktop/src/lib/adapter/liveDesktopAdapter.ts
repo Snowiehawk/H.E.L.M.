@@ -99,6 +99,9 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   readonly isMock = false;
 
   private currentSession?: RepoSession;
+  private sessionGeneration = 0;
+  private nextIndexJob = 0;
+  private activeScanJobId?: string;
   private backendStatus: BackendStatus = {
     mode: "live",
     available: false,
@@ -123,10 +126,18 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   }
 
   private handleIndexProgress(raw: RawIndexProgressEvent) {
-    this.updateJob(raw.job_id, toIndexingJobState(raw));
+    if (
+      raw.job_id !== this.activeScanJobId ||
+      normalizePath(raw.repo_path) !== this.currentSession?.path
+    )
+      return;
+    // The worker's done event can precede the invocation result. Publish done only
+    // after runScan has committed the cache needed by the workspace screen.
+    if (raw.status !== "done") this.updateJob(raw.job_id, toIndexingJobState(raw));
   }
 
   private handleWorkspaceSync(raw: RawWorkspaceSyncEvent) {
+    if (this.currentSession && normalizePath(raw.repo_path) !== this.currentSession.path) return;
     const nextBackend = backendStatusFromSyncEvent(this.backendStatus, raw);
     this.backendStatus = nextBackend;
 
@@ -148,15 +159,13 @@ export class LiveDesktopAdapter implements DesktopAdapter {
 
   async openRepo(path?: string): Promise<RepoSession> {
     const session = await openRepoSession(open, path);
-    this.currentSession = session;
+    this.selectSession(session);
     return session;
   }
 
   async createProject(): Promise<RepoSession | null> {
     const session = await createProjectSession(save, invokeCommand);
-    if (session) {
-      this.currentSession = session;
-    }
+    if (session) this.selectSession(session);
     return session;
   }
 
@@ -177,14 +186,21 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   }
 
   async startIndex(repoPath: string): Promise<{ jobId: string }> {
-    const jobId = `index:${repoPath}:${Date.now()}`;
+    const jobId = `index:${repoPath}:${Date.now()}:${++this.nextIndexJob}`;
+    const session =
+      this.currentSession?.path === normalizePath(repoPath)
+        ? this.currentSession
+        : buildRepoSessionFromPath(repoPath);
+    const generation = ++this.sessionGeneration;
+    this.currentSession = session;
+    this.activeScanJobId = jobId;
     const job: ScanJob = {
       state: initialIndexingJobState(jobId, repoPath),
       listeners: new Set(),
     };
     this.jobs.set(jobId, job);
     this.scanCache = undefined;
-    void this.runScan(jobId);
+    void this.runScan(jobId, session, generation);
     return { jobId };
   }
 
@@ -240,8 +256,9 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     repoPath: string,
     request: WorkspaceFileMutationRequest,
   ): Promise<WorkspaceFileMutationResult> {
+    const generation = this.sessionGeneration;
     const { result, payload } = await createWorkspaceEntryCommand(invokeCommand, repoPath, request);
-    this.applyWorkspaceMutationPayload(repoPath, payload);
+    this.applyWorkspaceMutationPayload(repoPath, payload, generation);
     return result;
   }
 
@@ -251,6 +268,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     content: string,
     expectedVersion: string,
   ): Promise<WorkspaceFileMutationResult> {
+    const generation = this.sessionGeneration;
     const { result, payload } = await saveWorkspaceFileCommand(
       invokeCommand,
       repoPath,
@@ -258,7 +276,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       content,
       expectedVersion,
     );
-    this.applyWorkspaceMutationPayload(repoPath, payload);
+    this.applyWorkspaceMutationPayload(repoPath, payload, generation);
     return result;
   }
 
@@ -266,8 +284,9 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     repoPath: string,
     request: WorkspaceFileMoveRequest,
   ): Promise<WorkspaceFileMutationResult> {
+    const generation = this.sessionGeneration;
     const { result, payload } = await moveWorkspaceEntryCommand(invokeCommand, repoPath, request);
-    this.applyWorkspaceMutationPayload(repoPath, payload);
+    this.applyWorkspaceMutationPayload(repoPath, payload, generation);
     return result;
   }
 
@@ -275,8 +294,9 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     repoPath: string,
     request: WorkspaceFileDeleteRequest,
   ): Promise<WorkspaceFileMutationResult> {
+    const generation = this.sessionGeneration;
     const { result, payload } = await deleteWorkspaceEntryCommand(invokeCommand, repoPath, request);
-    this.applyWorkspaceMutationPayload(repoPath, payload);
+    this.applyWorkspaceMutationPayload(repoPath, payload, generation);
     return result;
   }
 
@@ -325,16 +345,22 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   }
 
   async applyStructuralEdit(request: StructuralEditRequest): Promise<StructuralEditResult> {
+    const generation = this.sessionGeneration;
     const cache = this.requireScanCache();
     const { result, payload } = await applyStructuralEditCommand(invokeCommand, cache, request);
-    this.scanCache = buildScanCache(payload, cache.session, cache.backend);
+    if (this.isCurrentSession(cache.session.path, generation)) {
+      this.scanCache = buildScanCache(payload, cache.session, cache.backend);
+    }
     return result;
   }
 
   async applyBackendUndo(transaction: BackendUndoTransaction) {
+    const generation = this.sessionGeneration;
     const cache = this.requireScanCache();
     const { result, payload } = await applyBackendUndoCommand(invokeCommand, cache, transaction);
-    this.scanCache = buildScanCache(payload, cache.session, cache.backend);
+    if (this.isCurrentSession(cache.session.path, generation)) {
+      this.scanCache = buildScanCache(payload, cache.session, cache.backend);
+    }
     return result;
   }
 
@@ -347,6 +373,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   }
 
   async saveNodeSource(targetId: string, content: string): Promise<StructuralEditResult> {
+    const generation = this.sessionGeneration;
     const cache = this.requireScanCache();
     const { result, payload } = await saveNodeSourceCommand(
       invokeCommand,
@@ -354,7 +381,9 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       targetId,
       content,
     );
-    this.scanCache = buildScanCache(payload, cache.session, cache.backend);
+    if (this.isCurrentSession(cache.session.path, generation)) {
+      this.scanCache = buildScanCache(payload, cache.session, cache.backend);
+    }
     return result;
   }
 
@@ -378,7 +407,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     return getOverviewData(this.requireScanCache());
   }
 
-  private async runScan(jobId: string) {
+  private async runScan(jobId: string, session: RepoSession, generation: number) {
     const job = this.jobs.get(jobId);
     if (!job) {
       return;
@@ -389,9 +418,10 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     try {
       const startedAt = Date.now();
       const payload = await scanRepoPayload(invokeCommand, repoPath, jobId);
+      if (!this.isCurrentScan(jobId, repoPath, generation)) return;
       const completedAt = Date.now();
-      const backend = await this.getBackendStatus();
-      const session = this.currentSession ?? buildRepoSessionFromPath(repoPath);
+      const backend = await getLiveBackendStatus(invokeCommand, this.backendStatus);
+      if (!this.isCurrentScan(jobId, repoPath, generation)) return;
       this.backendStatus = {
         ...backend,
         available: true,
@@ -424,6 +454,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
         });
       }
     } catch (reason) {
+      if (!this.isCurrentScan(jobId, repoPath, generation)) return;
       const message = toMessage(reason);
       const currentState = this.jobs.get(jobId)?.state;
       this.backendStatus = {
@@ -440,6 +471,24 @@ export class LiveDesktopAdapter implements DesktopAdapter {
         error: message,
       });
     }
+  }
+
+  private selectSession(session: RepoSession) {
+    ++this.sessionGeneration;
+    this.currentSession = session;
+    this.scanCache = undefined;
+    this.activeScanJobId = undefined;
+  }
+
+  private isCurrentSession(repoPath: string, generation: number): boolean {
+    return (
+      generation === this.sessionGeneration &&
+      (!this.currentSession || this.currentSession.path === normalizePath(repoPath))
+    );
+  }
+
+  private isCurrentScan(jobId: string, repoPath: string, generation: number): boolean {
+    return jobId === this.activeScanJobId && this.isCurrentSession(repoPath, generation);
   }
 
   private updateJob(jobId: string, nextState: IndexingJobState) {
@@ -459,8 +508,12 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     return this.scanCache;
   }
 
-  private applyWorkspaceMutationPayload(repoPath: string, payload?: RawScanPayload | null) {
-    if (!payload) {
+  private applyWorkspaceMutationPayload(
+    repoPath: string,
+    payload: RawScanPayload | null | undefined,
+    generation: number,
+  ) {
+    if (!payload || !this.isCurrentSession(repoPath, generation)) {
       return;
     }
 

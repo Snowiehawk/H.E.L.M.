@@ -365,7 +365,7 @@ def _capture_undo_file_snapshots(
                 UndoFileSnapshot(
                     relative_path=normalized_relative_path,
                     existed=True,
-                    content=source_path.read_text(encoding="utf-8"),
+                    content=source_path.read_bytes().decode("utf-8"),
                 )
             )
             continue
@@ -677,7 +677,7 @@ def _replace_symbol_source(
     )
 
     source_path = Path(parsed.module.file_path)
-    module = cst.parse_module(source_path.read_text(encoding="utf-8"))
+    module = cst.parse_module(source_path.read_bytes().decode("utf-8"))
     replacement = _parse_replacement_statement(symbol, request.content or "")
     if symbol.kind == SymbolKind.VARIABLE:
         replaced = False

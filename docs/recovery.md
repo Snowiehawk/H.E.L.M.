@@ -39,6 +39,20 @@ Recovery is idempotent. If rollback is interrupted, the next recovery pass conti
 
 Backend responses may include `recovery_events`. The desktop UI surfaces those events as concise activity warnings so the user knows HELM rolled back an interrupted mutation. There is no recovery dashboard in this issue.
 
+## Bridge interruption after a mutation
+
+A normal backend validation rejection is returned to the caller without restarting
+the healthy worker or discarding its workspace and Undo session. Only a transport
+or protocol failure invalidates the cached worker.
+
+The desktop bridge automatically retries only known read/index requests after a
+worker failure. It does not replay source edits, workspace mutations, Undo, or
+unknown commands: the worker may have committed the change before its response
+pipe failed. The UI can therefore report a failed request even when its mutation
+committed. Inspect the file and rescan before deciding whether to repeat the
+operation. Recovery rolls back an interrupted, uncommitted journal; it does not
+undo an already committed mutation solely because its response was lost.
+
 ## Recursive operation previews
 
 Recursive workspace move and delete operations require a backend preview before apply. The backend builds a sorted canonical impact manifest with the operation kind, source path, target path when present, entry kind, child paths and kinds, sizes, mtimes, supported symlink metadata, and aggregate counts. HELM hashes that manifest into an opaque `impactFingerprint`.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useIdeActive } from "../../app/FunctionTabs";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import {
   Background,
@@ -285,6 +286,7 @@ export function GraphCanvas({
   onDeleteSymbolNode?: (nodeId: string) => void;
 }) {
   const { setTransientHelpTarget } = useWorkspaceHelp();
+  const ideActive = useIdeActive();
   const blueprint = useMemo(() => (graph ? buildBlueprintPresentation(graph) : undefined), [graph]);
   const denseGraph = (graph?.nodes.length ?? 0) > 12;
   const fitViewOptions = useMemo(
@@ -1245,6 +1247,7 @@ export function GraphCanvas({
     };
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
+      if (!ideActive) return;
       const panelContainsTarget = Boolean(
         panelRef.current && event.target instanceof Node && panelRef.current.contains(event.target),
       );
@@ -1295,6 +1298,7 @@ export function GraphCanvas({
       panel?.removeEventListener("keydown", handlePanelKeyDown);
     };
   }, [
+    ideActive,
     canPinNodes,
     createGroupFromSelection,
     memberNodeIdsByGroupId,

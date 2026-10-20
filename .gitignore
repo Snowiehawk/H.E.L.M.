@@ -6,6 +6,8 @@ build/
 dist/
 apps/desktop/node_modules/
 apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/packaged-backend/
+apps/desktop/src-tauri/.runtime-cache/
 *.egg-info/
 .venv/
 .venv-helm-dev/
