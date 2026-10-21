@@ -86,6 +86,7 @@ interface Committed {
   journalCount: number;
   applyCount: number;
   replyLost: boolean;
+  replyLossErrno: number | null;
   preparedSource: PreparedSource;
 }
 interface WorkerReply {
@@ -461,6 +462,7 @@ describe.skipIf(!enabled)(
       await waitFor(() => expect(useExecutionActions.getState().canStop).toBe(false));
       const committed = await assertRealCommit(fixture.bridge, fixture.ready);
       expect(committed.replyLost).toBe(true);
+      expect(process.platform === "win32" ? [22, 32] : [32]).toContain(committed.replyLossErrno);
       expect(fixture.bridge.stdoutReply).toBeUndefined();
       expect((await fixture.bridge.closed).code).toBe(74);
       expect(fixture.model.error).toMatch(/transport failed.*74/);
@@ -522,6 +524,7 @@ describe.skipIf(!enabled)(
         await waitFor(() => expect(useExecutionActions.getState().canStop).toBe(false));
         const committed = await assertRealCommit(fixture.bridge, fixture.ready);
         expect(committed.replyLost).toBe(false);
+        expect(committed.replyLossErrno).toBeNull();
         expect(fixture.bridge.stdoutReply?.ok).toBe(true);
         expect(fixture.model.draft).toBe(originalDraft);
         expect(fixture.model.dirty).toBe(false);

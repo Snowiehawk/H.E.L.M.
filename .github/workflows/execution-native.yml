@@ -47,6 +47,7 @@ jobs:
         run: |
           set +x
           set -euo pipefail
+          unset GIT_TRACE GIT_TRACE_PACKET GIT_TRACE_CURL GIT_CURL_VERBOSE
           checkout_token="${HELM_CI_CHECKOUT_TOKEN:?}"
           unset HELM_CI_CHECKOUT_TOKEN
           trap 'unset checkout_token HELM_CI_AUTH_HEADER HELM_CI_CHECKOUT_TOKEN' EXIT
@@ -63,7 +64,6 @@ jobs:
           HELM_CI_AUTH_HEADER="AUTHORIZATION: basic $(printf '%s' "x-access-token:$checkout_token" | base64 | tr -d '\r\n')"
           export HELM_CI_AUTH_HEADER
           unset checkout_token
-          export GIT_TRACE=0 GIT_TRACE_PACKET=0 GIT_TRACE_CURL=0 GIT_CURL_VERBOSE=0
           git -c credential.helper= --config-env=http.https://github.com/.extraheader=HELM_CI_AUTH_HEADER -C "$source_root" fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           unset HELM_CI_AUTH_HEADER
           fetched_sha="$(git -C "$source_root" rev-parse --verify 'FETCH_HEAD^{commit}')"

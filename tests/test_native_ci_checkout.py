@@ -59,7 +59,7 @@ class NativeCheckoutTests(unittest.TestCase):
 args = sys.argv[1:]
 kind = next((k for k in ('fetch', 'checkout', 'init', 'remote', 'rev-parse') if k in args), 'other')
 header = os.environ.get('HELM_CI_AUTH_HEADER')
-record = {'kind':kind, 'hasToken':'HELM_CI_CHECKOUT_TOKEN' in os.environ, 'hasHeader':header is not None}
+record = {'kind':kind, 'hasToken':'HELM_CI_CHECKOUT_TOKEN' in os.environ, 'hasHeader':header is not None, 'hasTrace':any(k in os.environ for k in ('GIT_TRACE','GIT_TRACE_PACKET','GIT_TRACE_CURL','GIT_CURL_VERBOSE'))}
 with open(os.environ['FIXTURE_LOG'], 'a') as log:
     log.write(json.dumps(record)+'\\n')
 if kind == 'fetch':
@@ -104,6 +104,10 @@ sys.exit(subprocess.run([os.environ['FIXTURE_GIT'], *args]).returncode)
             GITHUB_OUTPUT=str(self.output),
             RUNNER_TEMP=str(self.runner),
             HELM_CI_CHECKOUT_TOKEN=token,
+            GIT_TRACE="1",
+            GIT_TRACE_PACKET="1",
+            GIT_TRACE_CURL="1",
+            GIT_CURL_VERBOSE="1",
             FIXTURE_GIT=self.real_git,
             FIXTURE_REMOTE=str(self.remote),
             FIXTURE_OTHER_SHA=self.other,
@@ -148,6 +152,7 @@ sys.exit(subprocess.run([os.environ['FIXTURE_GIT'], *args]).returncode)
             self.assertNotIn(forbidden, config)
         calls = self.calls()
         self.assertFalse(any(c["hasToken"] for c in calls))
+        self.assertFalse(any(c["hasTrace"] for c in calls))
         self.assertEqual([c["kind"] for c in calls if c["hasHeader"]], ["fetch"])
         self.assertTrue(any(c["kind"] == "checkout" for c in calls))
 

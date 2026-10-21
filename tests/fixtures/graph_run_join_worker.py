@@ -16,6 +16,7 @@ only this literal disposable project can be mutated by the accepted request.
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import io
 import json
@@ -194,12 +195,21 @@ def main() -> int:
 
             desktop_bridge._handle_worker_command = record_actual_commit
             reply_lost = False
+            reply_loss_errno = None
             try:
                 # The real worker writes/flushes its real response on stdout.
                 # No fake output object or injected JS transport error is used.
                 desktop_bridge.run_worker(io.StringIO(json.dumps(request) + "\n"), sys.stdout)
-            except BrokenPipeError:
+            except OSError as error:
+                # Windows CRT writes to a closed pipe may report EINVAL rather
+                # than EPIPE (CPython bpo-35754). This fixture still requires a
+                # real I/O failure plus the real successful commit below.
+                if error.errno != errno.EPIPE and not (
+                    sys.platform == "win32" and error.errno == errno.EINVAL
+                ):
+                    raise
                 reply_lost = True
+                reply_loss_errno = error.errno
             finally:
                 desktop_bridge._handle_worker_command = actual
             if (
@@ -228,6 +238,7 @@ def main() -> int:
                 journalCount=len(list((root / ".helm/recovery/journals").glob("*.json"))),
                 preparedSource=proof,
                 replyLost=reply_lost,
+                replyLossErrno=reply_loss_errno,
             )
             if reply_lost:
                 # Real stdout EPIPE would otherwise be retried during interpreter

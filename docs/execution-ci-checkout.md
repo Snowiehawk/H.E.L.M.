@@ -12,9 +12,12 @@ The next actual Windows run passed checkout and tool setup, then `pip check` exp
 
 The portable regression suite executes the actual workflow Bash with real local Git and a synthetic transport. It tests exact detached source and credential lifetime, fetch failure, wrong fetched commit before checkout, malformed repository/revision/run identity, existing directory and dangling-link preservation, plus workflow routing. Initial draft failures exposed reliance on legacy Bash's `errexit` handling for `[[...]]`; validation now exits explicitly. Those failed experiments are retained. Local fixtures do not emulate Windows filesystem behavior: the new hosted Windows run must prove actual checkout and subsequent source checks. Installed/WebView/ConPTY acceptance remains a separate gate.
 
+The third actual Windows run passed checkout, isolated dependencies and Python preparation tests. Its deliberately closed stdout graph/Run fixture then reported Windows `EINVAL`, rather than POSIX `EPIPE`. The test helper now recognizes those narrow platform errors around the real worker write, records the errno and still requires a real successful graph commit, missing reply, exit 74 and no Run/replay. Normal replies require no loss errno. This changes only the fixture; the production worker's error handling remains unchanged. Fetch tracing is also unset rather than set to `0`: the observed Windows HTTP authorization lines were redacted, and no credential value is retained as evidence.
+
 Primary references:
 
 - [Pinned checkout workspace validation](https://github.com/actions/checkout/blob/11d5960a326750d5838078e36cf38b85af677262/src/input-helper.ts).
 - [Microsoft Windows filename rules](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file).
 - [GitHub reserved variables and runner temporary directories](https://docs.github.com/en/actions/reference/workflows-and-actions/variables).
 - [Git command-scoped environment configuration](https://git-scm.com/docs/git/2.53.0#Documentation/git.txt---config-envltnamegtltenvvargt).
+- [CPython Windows broken-pipe error behavior](https://bugs.python.org/issue35754).
