@@ -9,6 +9,19 @@ from tests.helpers import write_repo_files
 
 
 class PythonParserTests(unittest.TestCase):
+    def test_unicode_ast_byte_columns_keep_character_slice_offsets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = 'label = "🧭 café"; result = helper("🧭")\n'
+            write_repo_files(root, {"unicode.py": source})
+            module = discover_python_modules(root).modules[0]
+            parsed = PythonModuleParser().parse_module(module)
+            call = next(call for call in parsed.calls if call.callee_expr == "helper")
+            self.assertEqual(source[call.span.start_offset : call.span.end_offset], 'helper("🧭")')
+            self.assertEqual(
+                call.span.start_column, len(source[: source.index("helper")].encode("utf-8"))
+            )
+
     def test_extracts_symbols_imports_and_calls(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

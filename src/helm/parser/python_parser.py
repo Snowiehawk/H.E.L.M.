@@ -43,6 +43,11 @@ class PythonModuleParser:
             )
             return ParsedModule(module=module, diagnostics=(diagnostic,))
 
+        return self.parse_source(module, source)
+
+    def parse_source(self, module: ModuleRef, source: str) -> ParsedModule:
+        """Parse supplied source without reopening its possibly changed file."""
+        source_path = Path(module.file_path)
         line_starts = _line_starts(source)
         try:
             tree = ast.parse(source, filename=str(source_path))
@@ -310,6 +315,17 @@ def _offset_for_position(line_starts: list[int], line: int, column: int) -> int:
     return line_starts[line_index] + max(column, 0)
 
 
+def _offset_for_ast_position(source: str, line_starts: list[int], line: int, column: int) -> int:
+    # AST columns count UTF-8 bytes; SourceSpan offsets slice decoded Python text.
+    # Keep the published columns as bytes for graph/diagnostic mapping, and convert
+    # only the absolute text offset. SyntaxError columns already count characters.
+    line_index = max(min(line - 1, len(line_starts) - 1), 0)
+    start = line_starts[line_index]
+    end = line_starts[line_index + 1] if line_index + 1 < len(line_starts) else len(source)
+    prefix = source[start:end].encode("utf-8")[: max(column, 0)]
+    return start + len(prefix.decode("utf-8"))
+
+
 def _span_for_node(
     file_path: str, source: str, line_starts: list[int], node: ast.AST
 ) -> SourceSpan:
@@ -317,8 +333,8 @@ def _span_for_node(
     start_column = getattr(node, "col_offset", 0)
     end_line = getattr(node, "end_lineno", start_line)
     end_column = getattr(node, "end_col_offset", start_column)
-    start_offset = _offset_for_position(line_starts, start_line, start_column)
-    end_offset = _offset_for_position(line_starts, end_line, end_column)
+    start_offset = _offset_for_ast_position(source, line_starts, start_line, start_column)
+    end_offset = _offset_for_ast_position(source, line_starts, end_line, end_column)
     source_length = len(source)
     return SourceSpan(
         file_path=file_path,
@@ -350,7 +366,7 @@ def _span_for_symbol_node(
     )
     start_line = getattr(first_decorator, "lineno", span.start_line)
     start_column = max(getattr(first_decorator, "col_offset", span.start_column) - 1, 0)
-    start_offset = _offset_for_position(line_starts, start_line, start_column)
+    start_offset = _offset_for_ast_position(source, line_starts, start_line, start_column)
     return SourceSpan(
         file_path=file_path,
         start_line=start_line,

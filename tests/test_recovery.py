@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import libcst as cst
+
 from helm.editor import apply_structural_edit, serialize_edit_request
 from helm.io_atomic import atomic_write_text
 from helm.graph import EdgeKind, build_repo_graph
@@ -36,6 +38,47 @@ def parse_repo(root: Path):
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_rejected_source_save_keeps_unchanged_file_identity_and_allows_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / "service.py"
+            original = b"def run():\r\n    return 1\r\n"
+            source.write_bytes(original)
+            session = WorkspaceSession.open(root)
+            before = source.stat()
+
+            with self.assertRaises(cst.ParserSyntaxError):
+                session.save_node_source("symbol:service:run", "def run(:\n    pass")
+
+            self.assertEqual(source.read_bytes(), original)
+            after = source.stat()
+            self.assertEqual(after.st_ino, before.st_ino)
+            self.assertEqual(after.st_mtime_ns, before.st_mtime_ns)
+            self.assertEqual(recover_pending(root), ())
+            session.save_node_source("symbol:service:run", "def run():\n    return 2\n")
+            self.assertEqual(source.read_bytes(), original.replace(b"return 1", b"return 2"))
+
+    def test_rollback_restores_changed_bytes_even_when_file_stat_signature_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            path = root / "file.txt"
+            path.write_bytes(b"before")
+            before = path.stat()
+
+            def mutate_then_fail() -> None:
+                path.write_bytes(b"after!")
+                os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+                raise ValueError("failed after writing")
+
+            with self.assertRaisesRegex(ValueError, "failed after writing"):
+                run_journaled_mutation(
+                    root,
+                    kind="test.same-stat-change",
+                    preimages=(JournalPreimage("file.txt"),),
+                    mutation=mutate_then_fail,
+                )
+            self.assertEqual(path.read_bytes(), b"before")
+
     def test_atomic_write_preserves_old_content_after_replace_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "file.txt"

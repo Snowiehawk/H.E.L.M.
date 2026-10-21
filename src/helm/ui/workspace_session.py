@@ -128,8 +128,12 @@ class WorkspaceSession:
         response["payload"] = self.build_payload()
         return response
 
-    def save_node_source(self, target_id: str, content: str) -> dict[str, Any]:
-        response = self.adapter.save_node_source(target_id, content)
+    def save_node_source(
+        self, target_id: str, content: str, *, expected_source: str | None = None
+    ) -> dict[str, Any]:
+        response = self.adapter.save_node_source(
+            target_id, content, expected_source=expected_source
+        )
         self.session_version += 1
         response["payload"] = self.build_payload()
         return response
@@ -399,6 +403,9 @@ class WorkspaceSession:
 @dataclass
 class WorkspaceSessionManager:
     _sessions: dict[str, WorkspaceSession] = field(default_factory=dict)
+
+    def invalidate(self, repo: str | Path) -> None:
+        self._sessions.pop(Path(repo).resolve().as_posix(), None)
 
     def ensure_session(self, repo: str | Path) -> WorkspaceSession:
         root_path = Path(repo).resolve().as_posix()

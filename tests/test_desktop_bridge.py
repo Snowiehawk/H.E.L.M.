@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from helm.editor.flow_model import import_flow_document_from_function_source
 from helm.ui.desktop_bridge import (
@@ -21,6 +22,7 @@ from helm.ui.desktop_bridge import (
     save_workspace_file_payload,
     scan_repo_to_payload,
 )
+from helm.ui.project_git import GitExecutionError
 from tests.helpers import write_repo_files
 
 
@@ -38,6 +40,28 @@ def _unique_progress_stages(frames: list[dict]) -> list[str]:
 
 
 class DesktopBridgeTests(unittest.TestCase):
+    def test_worker_marks_only_explicit_unknown_git_ownership_for_native_admission(self) -> None:
+        incoming = io.StringIO(
+            "\n".join(
+                json.dumps({"id": index, "command": "inspect-project", "params": {}})
+                for index in range(1, 4)
+            )
+            + "\n"
+        )
+        outgoing = io.StringIO()
+        failures = [
+            GitExecutionError("Synthetic unknown helper", cleanup_confirmed=False),
+            GitExecutionError("Synthetic confirmed timeout", timed_out=True),
+            ValueError("Synthetic ordinary source validation rejection"),
+        ]
+        with mock.patch("helm.ui.desktop_bridge._handle_worker_command", side_effect=failures):
+            self.assertEqual(run_worker(incoming, outgoing), 0)
+        replies = [json.loads(line) for line in outgoing.getvalue().splitlines()]
+        self.assertTrue(all(not reply["ok"] for reply in replies))
+        self.assertTrue(replies[0]["ownership_uncertain"])
+        self.assertNotIn("ownership_uncertain", replies[1])
+        self.assertNotIn("ownership_uncertain", replies[2])
+
     def test_health_handshake_requires_no_repo_and_identifies_loaded_backend(self) -> None:
         incoming = io.StringIO(
             json.dumps({"id": 1, "command": "health", "params": {}})
