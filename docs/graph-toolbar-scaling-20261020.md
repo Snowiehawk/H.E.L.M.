@@ -72,8 +72,13 @@ follow-up does not rebuild, install, launch, publish or promote either app.
 ## Focused publication target
 
 The publication branch extracts this four-file correction onto `dev`
-`801388c18172927d205874e2c4db0e4d1f0172c1`. It does not import the terminal,
+`5d39e929ef5a33a58430679085a4621658150f85`, including the independently reviewed
+dependency-only security repair in PR #133. It does not import the terminal,
 updater or later Light/HELM theme implementation. The Light/Dark/HELM browser
 results above and the later `c9c94ef` native checks belong to their historical
 combined sources; they are not rendered or native acceptance of this extraction.
-Fresh target validation and its independent review are recorded separately.
+Fresh target validation first used `801388c`, then repeated on the PR #133
+dependency baseline: six new regressions fail before the correction and all
+eight component cases pass after it; all 356 frontend tests, TypeScript, lint
+and formatting pass with one worker. These are source checks, with independent
+review, rather than new native acceptance or completion of #113/#118.
