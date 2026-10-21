@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 
 TAURI_SRC = Path("apps/desktop/src-tauri/src")
@@ -10,6 +11,13 @@ EXTRACTED_MODULES = {
     "atomic_file.rs",
     "bridge.rs",
     "commands.rs",
+    "maintenance.rs",
+    "execution_policy.rs",
+    "execution_preparation.rs",
+    "execution_supervisor.rs",
+    "execution_navigation.rs",
+    "execution_work.rs",
+    "run_config.rs",
     "events.rs",
     "graph_layout_storage.rs",
     "project_scaffold.rs",
@@ -28,8 +36,7 @@ def test_tauri_modules_do_not_import_main_or_forbidden_siblings() -> None:
 
     for module_name in EXTRACTED_MODULES:
         source = _source(repo_root, module_name)
-        assert "crate::main" not in source, module_name
-        assert "super::main" not in source, module_name
+        assert not re.search(r"\b(?:crate|super)::main\b", source), module_name
         assert "mod main" not in source, module_name
 
     bridge = _source(repo_root, "bridge.rs")

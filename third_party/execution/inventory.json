@@ -1,0 +1,111 @@
+{
+  "newRustDependencies": [
+    {
+      "name": "cfg_aliases",
+      "version": "0.1.1",
+      "license": "MIT",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e",
+      "notices": [
+        "cfg_aliases-0.1.1-NOTICES.md",
+        "cfg_aliases-0.1.1-LICENSE"
+      ]
+    },
+    {
+      "name": "downcast-rs",
+      "version": "1.2.1",
+      "license": "MIT/Apache-2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2",
+      "notices": [
+        "downcast-rs-1.2.1-LICENSE-APACHE",
+        "downcast-rs-1.2.1-LICENSE-MIT"
+      ]
+    },
+    {
+      "name": "filedescriptor",
+      "version": "0.8.3",
+      "license": "MIT",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "e40758ed24c9b2eeb76c35fb0aebc66c626084edd827e07e1552279814c6682d",
+      "notices": [
+        "filedescriptor-0.8.3-LICENSE.md"
+      ]
+    },
+    {
+      "name": "lazy_static",
+      "version": "1.5.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb",
+      "notices": [
+        "lazy_static-1.5.1-LICENSE-APACHE",
+        "lazy_static-1.5.1-LICENSE-MIT"
+      ]
+    },
+    {
+      "name": "nix",
+      "version": "0.28.0",
+      "license": "MIT",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "ab2156c4fce2f8df6c499cc1c763e4394b7482525bf2a9701c9d79d215f519e4",
+      "notices": [
+        "nix-0.28.0-LICENSE"
+      ]
+    },
+    {
+      "name": "portable-pty",
+      "version": "0.9.0",
+      "license": "MIT",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "b4a596a2b3d2752d94f51fac2d4a96737b8705dddd311a32b9af47211f08671e",
+      "notices": [
+        "portable-pty-0.9.0-LICENSE.md"
+      ]
+    },
+    {
+      "name": "serial2",
+      "version": "0.2.38",
+      "license": "BSD-2-Clause OR Apache-2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "b16809bc35793b19ce4e0c53924bc0dce3937f15487997cfdaed936004180730",
+      "notices": [
+        "serial2-0.2.38-LICENSE-APACHE",
+        "serial2-0.2.38-LICENSE-BSD"
+      ]
+    },
+    {
+      "name": "shared_library",
+      "version": "0.1.9",
+      "license": "Apache-2.0/MIT",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "5a9e7e0f2bfae24d8a5b5a66c5b257a83c7412304311512a0c054cd5e619da11",
+      "notices": [
+        "shared_library-0.1.9-LICENSE-APACHE",
+        "shared_library-0.1.9-LICENSE-MIT"
+      ]
+    },
+    {
+      "name": "shell-words",
+      "version": "1.1.1",
+      "license": "MIT/Apache-2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77",
+      "notices": [
+        "shell-words-1.1.1-LICENSE-APACHE",
+        "shell-words-1.1.1-LICENSE-MIT"
+      ]
+    },
+    {
+      "name": "winreg",
+      "version": "0.10.1",
+      "license": "MIT",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "80d0f4e272c85def139476380b12f9ac60926689dd2e01d4923222f40580869d",
+      "notices": [
+        "winreg-0.10.1-LICENSE"
+      ]
+    }
+  ],
+  "review": "Added for Unix PTY support; Windows execution uses direct Job/ConPTY APIs. Cargo.lock is authoritative."
+}

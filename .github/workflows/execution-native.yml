@@ -1,0 +1,110 @@
+name: Native execution checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/execution-native.yml"
+      - "apps/desktop/src/execution/**"
+      - "apps/desktop/src-tauri/**"
+      - "apps/desktop/package*.json"
+      - "src/helm/**"
+      - "tests/test_run_preparation.py"
+      - "tests/test_run_preparation_joined.py"
+      - "tests/fixtures/graph_run_join_worker.py"
+      - "tests/test_execution_package_verifier.py"
+      - "scripts/package_desktop_backend.py"
+      - "scripts/verify_execution_package.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  execution:
+    name: Native execution (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: "1"
+      RUST_TEST_THREADS: "1"
+      PYTHONPATH: src
+    steps:
+      - name: Check out exact source without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up development Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install locked build/test dependencies
+        run: |
+          python -m pip install -r requirements/python-dev.txt
+          python -m pip install --no-deps -e .
+          python -m pip check
+          npm ci --prefix apps/desktop --ignore-scripts
+
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup component add rustfmt clippy
+
+      - name: Record exact runner and source identity
+        shell: bash
+        run: |
+          mkdir -p execution-evidence
+          git rev-parse HEAD > execution-evidence/source-sha.txt
+          git status --porcelain --untracked-files=no > execution-evidence/source-status.txt
+          python -c "import platform,sys,json; print(json.dumps({'platform':platform.platform(),'architecture':platform.machine(),'buildPython':sys.version,'scope':'native source tests; installed GUI acceptance remains pending'},indent=2))" > execution-evidence/runner.json
+          cargo --version > execution-evidence/cargo-version.txt
+          rustc --version > execution-evidence/rust-version.txt
+          node --version > execution-evidence/node-version.txt
+
+      - name: Verify source preparation and package receipt boundaries
+        run: python -m unittest tests.test_run_preparation tests.test_run_preparation_joined tests.test_execution_package_verifier -v 2>&1 | tee execution-evidence/python-execution.log
+
+      - name: Check execution frontend with actual Python joins and production web assets
+        working-directory: apps/desktop
+        run: |
+          export HELM_TEST_PYTHON="$(python -c 'import sys; print(sys.executable)')"
+          export HELM_TEST_SOURCE_ROOT="$GITHUB_WORKSPACE"
+          npm test -- src/execution --maxWorkers=1 2>&1 | tee ../../execution-evidence/frontend-execution.log
+          npm run build 2>&1 | tee ../../execution-evidence/frontend-build.log
+
+      - name: Stage existing pinned backend resources
+        working-directory: apps/desktop
+        run: npm run prepare:backend 2>&1 | tee ../../execution-evidence/backend-staging.log
+
+      - name: Verify staged backend inventory without launching project code
+        run: python scripts/verify_execution_package.py runtime apps/desktop/src-tauri/packaged-backend 2>&1 | tee execution-evidence/runtime-inventory.log
+
+      - name: Check native execution policy, configuration and lifecycle
+        working-directory: apps/desktop/src-tauri
+        run: |
+          cargo test --locked -- --test-threads=1 2>&1 | tee ../../../execution-evidence/native-execution.log
+
+      - name: Retain private workflow evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-execution-${{ runner.os }}-${{ github.sha }}
+          path: execution-evidence/
+          retention-days: 14
