@@ -4863,3 +4863,44 @@ body.graph-pan-cursor-dragging * {
     flex: 1 1 120px;
   }
 }
+
+.project-context-panel {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-solid);
+  font-size: 0.85rem;
+}
+.project-context-panel summary {
+  cursor: pointer;
+  padding-left: 80px;
+}
+.project-context-panel fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  border: 0;
+  padding: 0.7rem 0;
+}
+.project-context-panel p {
+  flex-basis: 100%;
+  margin: 0.2rem 0;
+  overflow-wrap: anywhere;
+}
+.project-context-panel input:not([type="checkbox"]) {
+  min-width: 15rem;
+}
+.project-context-panel select {
+  max-width: 30rem;
+}
+.function-workspace-panels {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.project-context-panel {
+  flex-shrink: 0;
+  max-height: 45vh;
+  overflow: auto;
+}

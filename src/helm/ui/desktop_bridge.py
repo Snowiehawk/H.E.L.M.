@@ -209,6 +209,19 @@ def _handle_worker_command(
     if not isinstance(repo, str) and command != "shutdown":
         raise ValueError("Worker command requires a 'repo' string parameter.")
 
+    if command in {"inspect-project", "switch-project-branch"}:
+        from helm.ui.project_git import inspect_project, switch_branch
+
+        if command == "inspect-project":
+            return inspect_project(repo)
+        if not isinstance(params.get("branch"), str) or not isinstance(
+            params.get("fingerprint"), str
+        ):
+            raise ValueError("Branch switching requires a local ref and admission fingerprint.")
+        result = switch_branch(repo, params["branch"], params["fingerprint"])
+        _SESSION_MANAGER.invalidate(repo)
+        return result
+
     top_n = params.get("top_n", 24)
     if not isinstance(top_n, int):
         raise ValueError("Worker command requires 'top_n' to be an integer.")

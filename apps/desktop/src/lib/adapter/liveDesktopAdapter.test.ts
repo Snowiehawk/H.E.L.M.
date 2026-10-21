@@ -1216,4 +1216,70 @@ describe("LiveDesktopAdapter", () => {
       now.mockRestore();
     }
   });
+  it("rejects queued watcher events from a prior branch epoch, including the same path", () => {
+    const adapter = new LiveDesktopAdapter();
+    const update = vi.fn();
+    adapter.subscribeWorkspaceSync(update);
+    adapter.acceptProjectContextEpoch(2);
+    const event = {
+      repo_path: "/repo",
+      session_version: 1,
+      reason: "changed",
+      status: "synced",
+      changed_relative_paths: [],
+      needs_manual_resync: false,
+    };
+    eventState.callbacks.get("helm://workspace-sync")?.({ payload: { ...event, contextEpoch: 1 } });
+    expect(update).not.toHaveBeenCalled();
+    eventState.callbacks.get("helm://workspace-sync")?.({ payload: { ...event, contextEpoch: 2 } });
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it("tracks an in-flight mutation and clears the guard on failure", async () => {
+    const adapter = new LiveDesktopAdapter();
+    setRepoPathScanCache(adapter);
+    let reject!: (reason: Error) => void;
+    invokeMock.mockImplementation(
+      () =>
+        new Promise((_resolve, rejectPromise) => {
+          reject = rejectPromise;
+        }),
+    );
+    const save = adapter.saveNodeSource("symbol:calculator:run", "def run(): pass");
+    expect(adapter.hasPendingProjectMutation()).toBe(true);
+    reject(new Error("fixture save failed"));
+    await expect(save).rejects.toThrow("fixture save failed");
+    expect(adapter.hasPendingProjectMutation()).toBe(false);
+  });
+  it("accepts the actual native camelCase watcher wire contract after an epoch change", () => {
+    const adapter = new LiveDesktopAdapter(),
+      update = vi.fn();
+    adapter.acceptProjectContextEpoch(4);
+    adapter.subscribeWorkspaceSync(update);
+    eventState.callbacks.get("helm://workspace-sync")?.({
+      payload: {
+        contextEpoch: 4,
+        repoPath: "/repo",
+        sessionVersion: 2,
+        reason: "changed",
+        status: "synced",
+        changedRelativePaths: ["new.py"],
+        needsManualResync: false,
+        snapshot: {
+          repoId: "repo",
+          defaultFocusNodeId: "module:new",
+          defaultLevel: "module",
+          nodeIds: ["module:new"],
+        },
+      },
+    });
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath: "/repo",
+        sessionVersion: 2,
+        changedRelativePaths: ["new.py"],
+        snapshot: expect.objectContaining({ defaultFocusNodeId: "module:new" }),
+      }),
+    );
+  });
 });

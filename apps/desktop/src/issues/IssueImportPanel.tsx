@@ -1,3 +1,5 @@
+import { useProjectContext } from "../projects/ProjectContext";
+import { parseRepositoryInput } from "./github/parse-repository";
 import { useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
 import type { FormEvent } from "react";
 import { dependencyEdges } from "./dependencies";
@@ -8,6 +10,7 @@ export function IssueImportPanel({
 }: {
   adapter?: IssueRepositoryAdapter;
 }) {
+  const project = useProjectContext();
   const [adapter] = useState(() => suppliedAdapter ?? new IssueRepositoryAdapter());
   const state = useSyncExternalStore(adapter.subscribe, adapter.getState);
   const [repository, setRepository] = useState("");
@@ -20,6 +23,12 @@ export function IssueImportPanel({
 
   const load = (event: FormEvent) => {
     event.preventDefault();
+    try {
+      const parsed = parseRepositoryInput(repository);
+      project?.setIssueRepository(`${parsed.owner}/${parsed.name}`);
+    } catch {
+      /* The issue adapter supplies its existing validation message. */
+    }
     const submittedToken = token;
     setToken("");
     void adapter.load(repository, submittedToken);
@@ -29,6 +38,20 @@ export function IssueImportPanel({
     <section className="issue-import-panel" aria-labelledby={`${id}-heading`}>
       <h3 id={`${id}-heading`}>GitHub issues</h3>
       <p>Read-only import. Load or refresh to fetch the latest issues and native blockers.</p>
+      {project?.record.linked &&
+      project.record.issueRepository &&
+      repository.toLowerCase() !== project.record.issueRepository ? (
+        <button
+          type="button"
+          onClick={() => {
+            adapter.clear();
+            setToken("");
+            setRepository(project.record.issueRepository!);
+          }}
+        >
+          Use linked repository {project.record.issueRepository}
+        </button>
+      ) : null}
       <form className="issue-import-form" onSubmit={load}>
         <label htmlFor={`${id}-repo`}>Repository URL or owner/name</label>
         <input

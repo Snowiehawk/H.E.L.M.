@@ -272,6 +272,10 @@ export async function readStoredGraphLayout(
   }
 }
 
+const pendingLayoutWrites = new Map<string, number>();
+export const hasPendingGraphLayoutWrites = (repoPath: string) =>
+  (pendingLayoutWrites.get(repoPath) ?? 0) > 0;
+
 export async function writeStoredGraphLayout(
   repoPath: string | undefined,
   viewKey: string | undefined,
@@ -284,6 +288,7 @@ export async function writeStoredGraphLayout(
   const normalizedLayout = normalizeLayout(layout);
   setStoredGraphLayoutSnapshot(repoPath, viewKey, normalizedLayout);
 
+  pendingLayoutWrites.set(repoPath, (pendingLayoutWrites.get(repoPath) ?? 0) + 1);
   try {
     await invoke("write_repo_graph_layout", {
       repoPath,
@@ -292,5 +297,9 @@ export async function writeStoredGraphLayout(
     });
   } catch {
     // Ignore persistence failures and keep dragging interactive.
+  } finally {
+    const remaining = (pendingLayoutWrites.get(repoPath) ?? 1) - 1;
+    if (remaining) pendingLayoutWrites.set(repoPath, remaining);
+    else pendingLayoutWrites.delete(repoPath);
   }
 }

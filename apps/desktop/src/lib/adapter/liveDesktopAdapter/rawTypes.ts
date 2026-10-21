@@ -250,6 +250,7 @@ export interface RawWorkspaceSyncSnapshot {
 }
 
 export interface RawWorkspaceSyncEvent {
+  contextEpoch?: number;
   repo_path: string;
   session_version: number;
   reason: string;
@@ -449,4 +450,69 @@ export interface ScanCache {
   relativePathByAbsolute: Map<string, string>;
   absolutePathByRelative: Map<string, string>;
   searchEntries: SearchResult[];
+}
+
+/** Native event structs use serde camelCase; older test/worker records use snake_case. */
+export interface NativeWorkspaceSyncEvent {
+  contextEpoch?: number;
+  repoPath: string;
+  sessionVersion: number;
+  reason: string;
+  status: WorkspaceSyncState;
+  changedRelativePaths: string[];
+  needsManualResync: boolean;
+  payload?: RawScanPayload | null;
+  message?: string | null;
+  snapshot?: {
+    repoId: string;
+    defaultFocusNodeId: string;
+    defaultLevel: GraphAbstractionLevel;
+    nodeIds: string[];
+  } | null;
+}
+export interface NativeIndexProgressEvent {
+  jobId: string;
+  repoPath: string;
+  status: IndexingJobState["status"];
+  stage: IndexStage;
+  processedModules: number;
+  totalModules: number;
+  symbolCount: number;
+  message: string;
+  progressPercent?: number | null;
+  error?: string | null;
+}
+export function normalizeWorkspaceSyncWire(
+  raw: RawWorkspaceSyncEvent | NativeWorkspaceSyncEvent,
+): RawWorkspaceSyncEvent {
+  if ("repo_path" in raw) return raw;
+  return {
+    ...raw,
+    repo_path: raw.repoPath,
+    session_version: raw.sessionVersion,
+    changed_relative_paths: raw.changedRelativePaths,
+    needs_manual_resync: raw.needsManualResync,
+    snapshot: raw.snapshot
+      ? {
+          repo_id: raw.snapshot.repoId,
+          default_focus_node_id: raw.snapshot.defaultFocusNodeId,
+          default_level: raw.snapshot.defaultLevel,
+          node_ids: raw.snapshot.nodeIds,
+        }
+      : null,
+  };
+}
+export function normalizeIndexProgressWire(
+  raw: RawIndexProgressEvent | NativeIndexProgressEvent,
+): RawIndexProgressEvent {
+  if ("repo_path" in raw) return raw;
+  return {
+    ...raw,
+    job_id: raw.jobId,
+    repo_path: raw.repoPath,
+    processed_modules: raw.processedModules,
+    total_modules: raw.totalModules,
+    symbol_count: raw.symbolCount,
+    progress_percent: raw.progressPercent,
+  };
 }

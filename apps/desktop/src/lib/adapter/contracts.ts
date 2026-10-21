@@ -622,6 +622,8 @@ export interface OverviewData {
 }
 
 export interface DesktopAdapter {
+  hasPendingProjectMutation?: () => boolean;
+  acceptProjectContextEpoch?: (epoch: number) => void;
   readonly isMock: boolean;
   openRepo(path?: string): Promise<RepoSession>;
   createProject(): Promise<RepoSession | null>;

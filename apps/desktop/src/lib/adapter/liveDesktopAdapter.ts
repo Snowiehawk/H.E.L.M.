@@ -39,6 +39,8 @@ import {
   parseFlowExpressionCommand,
 } from "./liveDesktopAdapter/graphFlow";
 import type {
+  NativeIndexProgressEvent,
+  NativeWorkspaceSyncEvent,
   RawIndexProgressEvent,
   RawScanPayload,
   RawWorkspaceSyncEvent,
@@ -93,11 +95,35 @@ import {
   saveWorkspaceFileCommand,
 } from "./liveDesktopAdapter/workspaceFiles";
 
+import {
+  normalizeIndexProgressWire,
+  normalizeWorkspaceSyncWire,
+} from "./liveDesktopAdapter/rawTypes";
+
 const invokeCommand = invoke as InvokeCommand;
 
 export class LiveDesktopAdapter implements DesktopAdapter {
   readonly isMock = false;
 
+  private pendingProjectMutations = 0;
+  hasPendingProjectMutation() {
+    return this.pendingProjectMutations > 0;
+  }
+  private async trackProjectMutation<T>(operation: () => Promise<T>): Promise<T> {
+    this.pendingProjectMutations++;
+    try {
+      return await operation();
+    } finally {
+      this.pendingProjectMutations--;
+    }
+  }
+  private projectContextEpoch?: number;
+  acceptProjectContextEpoch(epoch: number) {
+    this.projectContextEpoch = epoch;
+    ++this.sessionGeneration;
+    this.scanCache = undefined;
+    this.activeScanJobId = undefined;
+  }
   private currentSession?: RepoSession;
   private sessionGeneration = 0;
   private nextIndexJob = 0;
@@ -117,12 +143,18 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   private workspaceSyncUnlisten?: Promise<UnlistenFn>;
 
   constructor() {
-    this.indexProgressUnlisten = listen<RawIndexProgressEvent>("helm://index-progress", (event) => {
-      this.handleIndexProgress(event.payload);
-    }).catch(() => () => {});
-    this.workspaceSyncUnlisten = listen<RawWorkspaceSyncEvent>("helm://workspace-sync", (event) => {
-      this.handleWorkspaceSync(event.payload);
-    }).catch(() => () => {});
+    this.indexProgressUnlisten = listen<RawIndexProgressEvent | NativeIndexProgressEvent>(
+      "helm://index-progress",
+      (event) => {
+        this.handleIndexProgress(normalizeIndexProgressWire(event.payload));
+      },
+    ).catch(() => () => {});
+    this.workspaceSyncUnlisten = listen<RawWorkspaceSyncEvent | NativeWorkspaceSyncEvent>(
+      "helm://workspace-sync",
+      (event) => {
+        this.handleWorkspaceSync(normalizeWorkspaceSyncWire(event.payload));
+      },
+    ).catch(() => () => {});
   }
 
   private handleIndexProgress(raw: RawIndexProgressEvent) {
@@ -137,6 +169,8 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   }
 
   private handleWorkspaceSync(raw: RawWorkspaceSyncEvent) {
+    if (this.projectContextEpoch !== undefined && raw.contextEpoch !== this.projectContextEpoch)
+      return;
     if (this.currentSession && normalizePath(raw.repo_path) !== this.currentSession.path) return;
     const nextBackend = backendStatusFromSyncEvent(this.backendStatus, raw);
     this.backendStatus = nextBackend;
@@ -257,7 +291,9 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     request: WorkspaceFileMutationRequest,
   ): Promise<WorkspaceFileMutationResult> {
     const generation = this.sessionGeneration;
-    const { result, payload } = await createWorkspaceEntryCommand(invokeCommand, repoPath, request);
+    const { result, payload } = await this.trackProjectMutation(() =>
+      createWorkspaceEntryCommand(invokeCommand, repoPath, request),
+    );
     this.applyWorkspaceMutationPayload(repoPath, payload, generation);
     return result;
   }
@@ -269,12 +305,8 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     expectedVersion: string,
   ): Promise<WorkspaceFileMutationResult> {
     const generation = this.sessionGeneration;
-    const { result, payload } = await saveWorkspaceFileCommand(
-      invokeCommand,
-      repoPath,
-      relativePath,
-      content,
-      expectedVersion,
+    const { result, payload } = await this.trackProjectMutation(() =>
+      saveWorkspaceFileCommand(invokeCommand, repoPath, relativePath, content, expectedVersion),
     );
     this.applyWorkspaceMutationPayload(repoPath, payload, generation);
     return result;
@@ -285,7 +317,9 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     request: WorkspaceFileMoveRequest,
   ): Promise<WorkspaceFileMutationResult> {
     const generation = this.sessionGeneration;
-    const { result, payload } = await moveWorkspaceEntryCommand(invokeCommand, repoPath, request);
+    const { result, payload } = await this.trackProjectMutation(() =>
+      moveWorkspaceEntryCommand(invokeCommand, repoPath, request),
+    );
     this.applyWorkspaceMutationPayload(repoPath, payload, generation);
     return result;
   }
@@ -295,7 +329,9 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     request: WorkspaceFileDeleteRequest,
   ): Promise<WorkspaceFileMutationResult> {
     const generation = this.sessionGeneration;
-    const { result, payload } = await deleteWorkspaceEntryCommand(invokeCommand, repoPath, request);
+    const { result, payload } = await this.trackProjectMutation(() =>
+      deleteWorkspaceEntryCommand(invokeCommand, repoPath, request),
+    );
     this.applyWorkspaceMutationPayload(repoPath, payload, generation);
     return result;
   }
@@ -347,7 +383,9 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   async applyStructuralEdit(request: StructuralEditRequest): Promise<StructuralEditResult> {
     const generation = this.sessionGeneration;
     const cache = this.requireScanCache();
-    const { result, payload } = await applyStructuralEditCommand(invokeCommand, cache, request);
+    const { result, payload } = await this.trackProjectMutation(() =>
+      applyStructuralEditCommand(invokeCommand, cache, request),
+    );
     if (this.isCurrentSession(cache.session.path, generation)) {
       this.scanCache = buildScanCache(payload, cache.session, cache.backend);
     }
@@ -357,7 +395,9 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   async applyBackendUndo(transaction: BackendUndoTransaction) {
     const generation = this.sessionGeneration;
     const cache = this.requireScanCache();
-    const { result, payload } = await applyBackendUndoCommand(invokeCommand, cache, transaction);
+    const { result, payload } = await this.trackProjectMutation(() =>
+      applyBackendUndoCommand(invokeCommand, cache, transaction),
+    );
     if (this.isCurrentSession(cache.session.path, generation)) {
       this.scanCache = buildScanCache(payload, cache.session, cache.backend);
     }
@@ -375,11 +415,8 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   async saveNodeSource(targetId: string, content: string): Promise<StructuralEditResult> {
     const generation = this.sessionGeneration;
     const cache = this.requireScanCache();
-    const { result, payload } = await saveNodeSourceCommand(
-      invokeCommand,
-      cache,
-      targetId,
-      content,
+    const { result, payload } = await this.trackProjectMutation(() =>
+      saveNodeSourceCommand(invokeCommand, cache, targetId, content),
     );
     if (this.isCurrentSession(cache.session.path, generation)) {
       this.scanCache = buildScanCache(payload, cache.session, cache.backend);
