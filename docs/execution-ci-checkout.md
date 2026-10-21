@@ -22,6 +22,8 @@ Those checkout and build corrections subsequently passed actual Mac source check
 
 The bounded runtime correction normalizes only executable argv0 separators; literal arguments and explicit shell text retain their bytes. Before native allocation, explicit system-shell and batch-wrapper runs convert a verbatim drive cwd to an ordinary absolute DOS spelling and require that both canonicalize to the same folder. UNC/device, nonabsolute, ambiguous and legacy-length-exceeding shell cwd paths refuse without choosing another directory. Direct native executable cwd handling is unchanged. No drive mapping, shell startup hook, registry or long-path setting is changed. This conservative CMD boundary permits at most 259 UTF-16 units excluding NUL. The real Run test additionally checks its actual child cwd; output, exit, Job cleanup and work-admission assertions remain required for Run and ConPTY. Source regressions do not replace installed Windows/ConPTY acceptance.
 
+The next actual Windows run passed 90 of 91 tests, including Run output/cwd and directory identity/refusal. The remaining ConPTY marker appeared in the parent job's redirected stdout rather than its terminal pipe. Microsoft Terminal's maintainers document that Windows can duplicate redirected parent standard handles even with inheritance disabled. Startup now explicitly selects standard handles for both branches: terminal handles remain null so ConPTY supplies its own; Run keeps its existing restricted pipes. No additional handles are inherited and no console/cleanup timing changes. The real ConPTY test requires both stdout and stderr markers in the captured terminal stream, plus its existing exit, resize, Job, I/O and work-release checks. Actual successful hosted execution remains required.
+
 Primary references:
 
 - [Pinned checkout workspace validation](https://github.com/actions/checkout/blob/11d5960a326750d5838078e36cf38b85af677262/src/input-helper.ts).
@@ -33,3 +35,4 @@ Primary references:
 - [CMD syntax and command parsing](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/cmd).
 - [Microsoft explanation of CMD's UNC cwd restriction](https://devblogs.microsoft.com/oldnewthing/20070215-05/?p=28003).
 - [Windows legacy path limit and verbatim path semantics](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation).
+- [Microsoft Terminal maintainers on redirected-parent ConPTY handles](https://github.com/microsoft/terminal/discussions/15814).

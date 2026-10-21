@@ -971,6 +971,10 @@ fn spawn_owned(
     let mut attributes = Attributes::new(1)?;
     let mut startup: STARTUPINFOEXW = unsafe { zeroed() };
     startup.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
+    // A console child can receive duplicated parent redirected std handles
+    // even with bInheritHandles=false. Explicit nulls make ConPTY connect its
+    // own handles instead; the Run branch below supplies its restricted pipes.
+    startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
     let mut inherited = Vec::<HANDLE>::new();
     if terminal {
         let (input_read, input_write) = pipe(false)?;
@@ -1048,7 +1052,6 @@ fn spawn_owned(
             },
             "Unable to allocate closed run input.",
         )?;
-        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
         startup.StartupInfo.hStdInput = stdin.0;
         startup.StartupInfo.hStdOutput = stdout_write.0;
         startup.StartupInfo.hStdError = stderr_write.0;
@@ -1472,7 +1475,7 @@ mod tests {
             mut io,
             mut readers,
         } = spawn(
-            &fixture_spec("echo HELM-owned-terminal&exit /b 0"),
+            &fixture_spec("echo HELM-owned-terminal&echo HELM-terminal-stderr 1>&2&exit /b 0"),
             true,
             24,
             80,
@@ -1505,6 +1508,10 @@ mod tests {
         assert!(
             String::from_utf8_lossy(&bytes).contains("HELM-owned-terminal"),
             "Owned terminal output did not contain its marker: {bytes:?}"
+        );
+        assert!(
+            String::from_utf8_lossy(&bytes).contains("HELM-terminal-stderr"),
+            "Owned terminal error output escaped its terminal: {bytes:?}"
         );
     }
     #[test]
