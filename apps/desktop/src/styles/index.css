@@ -3444,6 +3444,7 @@ body.graph-pan-cursor-dragging * {
   position: absolute;
   z-index: 14;
   min-width: 0;
+  width: min(320px, calc(100% - 32px));
   max-width: min(320px, calc(100% - 32px));
 }
 
