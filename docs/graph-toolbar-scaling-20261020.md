@@ -6,7 +6,7 @@ wrapped **Fit view**. Resetting to 100% restored it. Resizing the same app from
 1480×940 to its configured 1180×760 minimum also left the card mostly outside
 the right edge. The native repro required neither dragging nor a graph change.
 
-This correction starts from accepted combined source
+The original correction described below started from accepted combined source
 `78dce9db625eb3c3b7875f5d85a963701073e65c` on the isolated
 `noah/graph-toolbar-scale` branch. It addresses the graph-controls and supported
 size/scaling criteria in [#118](https://github.com/Snowiehawk/H.E.L.M./issues/118)
@@ -68,3 +68,12 @@ unavailable or failing native cells keep the corresponding issue open.
 
 Frozen `78dce9d` and `5f788d6` apps remain historical QA artifacts. This source
 follow-up does not rebuild, install, launch, publish or promote either app.
+
+## Focused publication target
+
+The publication branch extracts this four-file correction onto `dev`
+`801388c18172927d205874e2c4db0e4d1f0172c1`. It does not import the terminal,
+updater or later Light/HELM theme implementation. The Light/Dark/HELM browser
+results above and the later `c9c94ef` native checks belong to their historical
+combined sources; they are not rendered or native acceptance of this extraction.
+Fresh target validation and its independent review are recorded separately.
