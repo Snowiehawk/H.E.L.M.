@@ -18,6 +18,10 @@ The subsequent jobs passed all 123 execution frontend tests on both platforms. W
 
 That run's Mac Vite build exhausted its roughly 2 GiB Node heap. Only the hosted Mac web-build command now uses a bounded 2.5 GiB heap; an initial probe records physical memory, pressure and actual heap limit, and refuses admission below 6 GiB total or 50% free memory. Standard hosted arm64 Macs have 7 GB RAM. The runner label, build inputs, application code and machine settings are unchanged. This is build-resource tuning, not a product or acceptance change; actual successful builds remain the gate.
 
+Those checkout and build corrections subsequently passed actual Mac source checks (124 native tests) and the Windows web/backend stages. Windows reached its native tests and exposed two genuine shell-output failures. A diagnostic-only follow-up retained read results and synthetic bytes: reads succeeded, but CMD rejected the canonical verbatim working directory as UNC and reported a malformed command. The selected CMD invocation also contained `System32/cmd.exe`; CMD interprets switches in its own command line, unlike the `CreateProcessW` executable-path lookup.
+
+The bounded runtime correction normalizes only executable argv0 separators; literal arguments and explicit shell text retain their bytes. Before native allocation, explicit system-shell and batch-wrapper runs convert a verbatim drive cwd to an ordinary absolute DOS spelling and require that both canonicalize to the same folder. UNC/device, nonabsolute, ambiguous and legacy-length-exceeding shell cwd paths refuse without choosing another directory. Direct native executable cwd handling is unchanged. No drive mapping, shell startup hook, registry or long-path setting is changed. This conservative CMD boundary permits at most 259 UTF-16 units excluding NUL. The real Run test additionally checks its actual child cwd; output, exit, Job cleanup and work-admission assertions remain required for Run and ConPTY. Source regressions do not replace installed Windows/ConPTY acceptance.
+
 Primary references:
 
 - [Pinned checkout workspace validation](https://github.com/actions/checkout/blob/11d5960a326750d5838078e36cf38b85af677262/src/input-helper.ts).
@@ -26,3 +30,6 @@ Primary references:
 - [Git command-scoped environment configuration](https://git-scm.com/docs/git/2.53.0#Documentation/git.txt---config-envltnamegtltenvvargt).
 - [CPython Windows broken-pipe error behavior](https://bugs.python.org/issue35754).
 - [GitHub standard hosted runner specifications](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+- [CMD syntax and command parsing](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/cmd).
+- [Microsoft explanation of CMD's UNC cwd restriction](https://devblogs.microsoft.com/oldnewthing/20070215-05/?p=28003).
+- [Windows legacy path limit and verbatim path semantics](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation).

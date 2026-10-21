@@ -689,12 +689,15 @@ fn quote_arg(argument: &str) -> String {
     result
 }
 fn command_line(executable: &str, args: &[String], shell_command: Option<&str>) -> String {
+    // CreateProcess accepts slash separators, but cmd.exe also parses its own
+    // argv0 and can mistake a path's /cmd.exe for the /C command switch.
+    let executable = executable.replace('/', "\\");
     if let Some(raw) = shell_command {
         // cmd.exe uses its own /S /C grammar. C-runtime escaping here would
         // insert literal backslashes before quotes and alter the shell command.
-        format!("{} /D /S /C \"{}\"", quote_arg(executable), raw)
+        format!("{} /D /S /C \"{}\"", quote_arg(&executable), raw)
     } else {
-        let mut command = vec![quote_arg(executable)];
+        let mut command = vec![quote_arg(&executable)];
         command.extend(args.iter().map(|argument| quote_arg(argument)));
         command.join(" ")
     }
@@ -724,6 +727,92 @@ fn environment(spec: &LaunchSpec) -> Result<Vec<u16>, String> {
         return Err("Selected Windows environment exceeds 32767 characters.".into());
     }
     Ok(result)
+}
+
+fn cmd_component_is_representable(name: &str) -> bool {
+    if name.is_empty()
+        || name.ends_with('.')
+        || name.ends_with(' ')
+        || name
+            .chars()
+            .any(|c| c <= '\u{1f}' || "<>:\"/\\|?*".contains(c))
+    {
+        return false;
+    }
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(' ')
+        .to_uppercase();
+    if matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) {
+        return false;
+    }
+    let port = stem
+        .strip_prefix("COM")
+        .or_else(|| stem.strip_prefix("LPT"));
+    !port.is_some_and(|suffix| {
+        matches!(
+            suffix,
+            "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+        )
+    })
+}
+
+fn cmd_directory_candidate(cwd: &Path) -> Result<PathBuf, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::{Component, Prefix};
+    let unsupported = || {
+        "System shell requires a representable absolute drive working directory. UNC, device and long paths cannot be used safely with cmd.exe; select a native executable instead. No fallback directory was chosen.".to_string()
+    };
+    let mut components = cwd.components();
+    let drive = match components.next() {
+        Some(Component::Prefix(prefix)) => match prefix.kind() {
+            Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => drive,
+            _ => return Err(unsupported()),
+        },
+        _ => return Err(unsupported()),
+    };
+    if components.next() != Some(Component::RootDir) {
+        return Err(unsupported());
+    }
+    let mut candidate = PathBuf::from(format!("{}:\\", char::from(drive)));
+    for component in components {
+        match component {
+            Component::Normal(name) => {
+                // std canonicalize can retain verbatim NTFS names. Admit DOS
+                // names explicitly before using canonical identity as a check.
+                if !name.to_str().is_some_and(cmd_component_is_representable) {
+                    return Err(unsupported());
+                }
+                candidate.push(name);
+            }
+            _ => return Err(unsupported()),
+        }
+    }
+    // cmd's non-verbatim DOS cwd must fit the legacy MAX_PATH boundary,
+    // including its terminating NUL. Never rely on a host long-path setting.
+    if candidate.as_os_str().encode_wide().count() >= 260 {
+        return Err(unsupported());
+    }
+    Ok(candidate)
+}
+
+fn cmd_working_directory(cwd: &Path) -> Result<PathBuf, String> {
+    let candidate = cmd_directory_candidate(cwd)?;
+    let original = cwd
+        .canonicalize()
+        .map_err(|_| "System shell working directory is unavailable; no fallback was chosen.")?;
+    let checked = candidate.canonicalize().map_err(|_| {
+        "System shell working directory cannot be represented safely; no fallback was chosen."
+    })?;
+    if checked != original {
+        return Err("System shell working-directory spelling resolves to a different folder; no fallback was chosen.".into());
+    }
+    Ok(candidate)
 }
 
 // Typed quarantine includes both real processes and helper-only startup work.
@@ -846,6 +935,14 @@ fn spawn_owned(
     rows: u16,
     cols: u16,
 ) -> Result<Spawned, String> {
+    // Rust canonicalization emits a verbatim path. cmd treats that as UNC and
+    // silently switches cwd, so admit only a proven equivalent DOS spelling.
+    let selected_cwd = if spec.windows_shell_command.is_some() {
+        cmd_working_directory(&spec.cwd)?
+    } else {
+        spec.cwd.clone()
+    };
+    let cwd = path_wide(&selected_cwd)?;
     let owner = provisional
         .resources
         .as_mut()
@@ -985,7 +1082,6 @@ fn spawn_owned(
     if command.len() > 32767 {
         return Err("Windows command line exceeds 32767 characters.".into());
     }
-    let cwd = path_wide(&spec.cwd)?;
     let environment = environment(spec)?;
     let mut information: PROCESS_INFORMATION = unsafe { zeroed() };
     let flags = CREATE_SUSPENDED
@@ -1165,6 +1261,14 @@ mod tests {
     fn explicit_shell_text_keeps_cmd_quotes_without_crt_backslashes() {
         assert_eq!(
             command_line(
+                "C:\\Windows\\System32/cmd.exe",
+                &[],
+                Some("echo HELM-owned-run&exit /b 23")
+            ),
+            r#""C:\Windows\System32\cmd.exe" /D /S /C "echo HELM-owned-run&exit /b 23""#,
+        );
+        assert_eq!(
+            command_line(
                 "C:\\Windows\\System32\\cmd.exe",
                 &[],
                 Some(r#""C:\space Ω\tool.cmd" "two words""#)
@@ -1175,6 +1279,103 @@ mod tests {
             command_line("tool.exe", &["one two".into(), "&".into()], None),
             r#""tool.exe" "one two" "&""#,
         );
+        assert_eq!(
+            command_line("C:/space Ω/tool.exe", &["/literal/path".into()], None),
+            r#""C:\space Ω\tool.exe" "/literal/path""#,
+        );
+    }
+    #[test]
+    fn cmd_components_refuse_dos_aliases_without_rewriting_names() {
+        for name in [
+            ".venv",
+            "space café",
+            "子🧭",
+            "COM10",
+            "LPT0",
+            "normal .file",
+        ] {
+            assert!(cmd_component_is_representable(name), "{name}");
+        }
+        for name in [
+            "",
+            ".",
+            "..",
+            "shadow.",
+            "shadow ",
+            "nul",
+            "CON.txt",
+            "LPT1.log",
+            "com¹",
+            "LPT².txt",
+            "con .txt",
+            "CONOUT$",
+            "a:b",
+            "a?b",
+            "a/b",
+            "a\\b",
+            "a\u{1f}b",
+        ] {
+            assert!(!cmd_component_is_representable(name), "{name}");
+        }
+    }
+    #[cfg(windows)]
+    #[test]
+    fn cmd_directory_spelling_is_bounded_and_preserves_drive_components() {
+        assert_eq!(
+            cmd_directory_candidate(Path::new(r"\\?\C:\space café\子")).unwrap(),
+            PathBuf::from(r"C:\space café\子")
+        );
+        assert_eq!(
+            cmd_directory_candidate(Path::new(r"\\?\C:\")).unwrap(),
+            PathBuf::from(r"C:\")
+        );
+        for path in [
+            r"\\server\share\folder",
+            r"\\?\UNC\server\share\folder",
+            r"\\.\C:\folder",
+            r"\\?\Volume{00000000-0000-0000-0000-000000000000}\folder",
+            r"C:relative",
+            r"relative",
+            r"C:\folder\..\other",
+        ] {
+            assert!(cmd_directory_candidate(Path::new(path)).is_err(), "{path}");
+        }
+        // Include a surrogate pair so the boundary is UTF-16 units, not bytes
+        // or Unicode scalar count: 3 + 254 + 2 = 259, plus NUL = MAX_PATH.
+        let longest = format!("C:\\{}🧭", "x".repeat(254));
+        assert!(cmd_directory_candidate(Path::new(&longest)).is_ok());
+        assert!(cmd_directory_candidate(Path::new(&(longest + "x"))).is_err());
+    }
+    #[cfg(windows)]
+    #[test]
+    fn cmd_directory_round_trip_refuses_dos_alias_to_different_folder() {
+        let root = std::env::temp_dir().join(format!(
+            "helm-cmd-cwd café {}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let canonical = root.canonicalize().unwrap();
+        let candidate = cmd_working_directory(&canonical).unwrap();
+        assert_eq!(candidate.canonicalize().unwrap(), canonical);
+        assert!(candidate
+            .to_string_lossy()
+            .starts_with(|c: char| c.is_ascii_alphabetic()));
+        // Verbatim NTFS names can differ from their DOS spelling. Removing a
+        // prefix alone would launch in shadow instead of the selected shadow.
+        let ordinary = canonical.join("shadow");
+        let distinct = canonical.join("shadow.");
+        std::fs::create_dir(&ordinary).unwrap();
+        std::fs::create_dir(&distinct).unwrap();
+        assert_ne!(
+            ordinary.canonicalize().unwrap(),
+            distinct.canonicalize().unwrap()
+        );
+        assert!(cmd_working_directory(&distinct).is_err());
+        std::fs::remove_dir_all(&canonical).unwrap();
     }
     #[cfg(windows)]
     fn fixture_spec(command: &str) -> LaunchSpec {
@@ -1203,7 +1404,7 @@ mod tests {
         let gate = crate::maintenance::Gate::default();
         let lease = ExecutionWork::new(gate.work().unwrap());
         let spawned = spawn(
-            &fixture_spec("echo HELM-owned-run&exit /b 23"),
+            &fixture_spec("echo HELM-owned-run&cd&exit /b 23"),
             false,
             24,
             80,
@@ -1248,6 +1449,17 @@ mod tests {
             output.iter().any(|(stream, _, bytes)| stream == "stdout"
                 && String::from_utf8_lossy(bytes).contains("HELM-owned-run")),
             "Owned Run output did not contain its marker: {output:?}"
+        );
+        let expected_cwd = cmd_working_directory(&std::env::temp_dir().canonicalize().unwrap())
+            .unwrap()
+            .to_string_lossy()
+            .to_lowercase();
+        assert!(
+            output.iter().any(|(stream, _, bytes)| stream == "stdout"
+                && String::from_utf8_lossy(bytes)
+                    .lines()
+                    .any(|line| line.to_lowercase() == expected_cwd)),
+            "Owned Run did not retain the selected cwd: {output:?}"
         );
     }
     #[cfg(windows)]
