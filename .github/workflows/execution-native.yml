@@ -91,9 +91,22 @@ jobs:
           cache: ${{ runner.os != 'Windows' && 'npm' || '' }}
           cache-dependency-path: apps/desktop/package-lock.json
 
+      - name: Isolate Windows Python dependencies from hosted tools
+        if: runner.os == 'Windows'
+        working-directory: ${{ steps.windows_source.outputs.root || github.workspace }}
+        run: |
+          set -euo pipefail
+          venv_root="$(cygpath -m "$RUNNER_TEMP")/helm-python-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          [[ ! -e "$venv_root" && ! -L "$venv_root" ]] || { printf '%s\n' 'Python environment already exists.' >&2; exit 1; }
+          python -m venv "$venv_root"
+          "$venv_root/Scripts/python.exe" -c "import sys, sysconfig; assert sys.prefix != sys.base_prefix; print(sysconfig.get_path('scripts'))" >> "$GITHUB_PATH"
+
       - name: Install locked build/test dependencies
         working-directory: ${{ steps.windows_source.outputs.root || github.workspace }}
         run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            python -c "import sys; assert sys.prefix != sys.base_prefix, 'Expected isolated CI Python'" || exit 1
+          fi
           python -m pip install -r requirements/python-dev.txt
           python -m pip install --no-deps -e .
           python -m pip check
@@ -113,7 +126,7 @@ jobs:
           mkdir -p execution-evidence
           git rev-parse HEAD > execution-evidence/source-sha.txt
           git status --porcelain --untracked-files=no > execution-evidence/source-status.txt
-          python -c "import platform,sys,json; print(json.dumps({'platform':platform.platform(),'architecture':platform.machine(),'buildPython':sys.version,'scope':'native source tests; installed GUI acceptance remains pending'},indent=2))" > execution-evidence/runner.json
+          python -c "import platform,sys,json; print(json.dumps({'platform':platform.platform(),'architecture':platform.machine(),'buildPython':sys.version,'pythonExecutable':sys.executable,'pythonPrefix':sys.prefix,'scope':'native source tests; installed GUI acceptance remains pending'},indent=2))" > execution-evidence/runner.json
           cargo --version > execution-evidence/cargo-version.txt
           rustc --version > execution-evidence/rust-version.txt
           node --version > execution-evidence/node-version.txt
