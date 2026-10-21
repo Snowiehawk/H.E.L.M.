@@ -12,6 +12,24 @@ pub(crate) const MENU_ID_SHOW_IMPORTS: &str = "graph-view.show-imports";
 pub(crate) const MENU_ID_SHOW_DEFINES: &str = "graph-view.show-defines";
 pub(crate) const MENU_ID_HIGHLIGHT_PATH: &str = "graph-view.highlight-path";
 pub(crate) const MENU_ID_SHOW_EDGE_LABELS: &str = "graph-view.show-edge-labels";
+pub(crate) const MENU_ID_QUIT: &str = "app.quit";
+#[cfg(any(target_os = "macos", test))]
+const QUIT_ACCELERATOR: &str = "CmdOrCtrl+Q";
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum NativeMenuAction {
+    RequestQuit,
+    Renderer(&'static str),
+}
+
+pub(crate) fn native_menu_action(id: &str) -> Option<NativeMenuAction> {
+    if id == MENU_ID_QUIT {
+        Some(NativeMenuAction::RequestQuit)
+    } else {
+        menu_action_for_id(id).map(NativeMenuAction::Renderer)
+    }
+}
+
 pub(crate) const MENU_ID_NEW_PROJECT: &str = "app.new-project";
 pub(crate) const MENU_ID_UNDO: &str = "app.undo";
 pub(crate) const MENU_ID_REDO: &str = "app.redo";
@@ -141,6 +159,15 @@ pub(crate) fn build_macos_app_menu(
     )?;
     let undo = MenuItem::with_id(app, MENU_ID_UNDO, "Undo", true, Some("CmdOrCtrl+Z"))?;
     let redo = MenuItem::with_id(app, MENU_ID_REDO, "Redo", true, Some("CmdOrCtrl+Shift+Z"))?;
+    // AppKit's predefined Quit invokes terminate: and bypasses ExitRequested.
+    // A custom menu action enters HELM's preventable cleanup/exit route instead.
+    let quit = MenuItem::with_id(
+        app,
+        MENU_ID_QUIT,
+        format!("Quit {}", pkg_info.name),
+        true,
+        Some(QUIT_ACCELERATOR),
+    )?;
     let preferences = MenuItem::with_id(
         app,
         MENU_ID_PREFERENCES,
@@ -197,7 +224,7 @@ pub(crate) fn build_macos_app_menu(
                     &PredefinedMenuItem::hide(app, None)?,
                     &PredefinedMenuItem::hide_others(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::quit(app, None)?,
+                    &quit,
                 ],
             )?,
             &Submenu::with_items(
@@ -284,5 +311,35 @@ pub(crate) fn menu_action_for_id(id: &str) -> Option<&'static str> {
         MENU_ID_HIGHLIGHT_PATH => Some("toggle-path-highlight"),
         MENU_ID_SHOW_EDGE_LABELS => Some("toggle-edge-labels"),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod quit_routing_tests {
+    use super::*;
+
+    #[test]
+    fn quit_routes_natively_without_a_renderer_action() {
+        assert_eq!(
+            native_menu_action("app.quit"),
+            Some(NativeMenuAction::RequestQuit)
+        );
+        assert_eq!(menu_action_for_id("app.quit"), None);
+        assert_eq!(QUIT_ACCELERATOR, "CmdOrCtrl+Q");
+    }
+
+    #[test]
+    fn ordinary_menu_actions_keep_their_renderer_route() {
+        for (id, action) in [
+            (MENU_ID_NEW_PROJECT, "new-project"),
+            (MENU_ID_UNDO, "undo"),
+            (MENU_ID_PREFERENCES, "preferences"),
+        ] {
+            assert_eq!(
+                native_menu_action(id),
+                Some(NativeMenuAction::Renderer(action))
+            );
+        }
+        assert_eq!(native_menu_action("unknown"), None);
     }
 }

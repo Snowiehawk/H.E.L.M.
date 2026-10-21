@@ -1,4 +1,4 @@
-﻿import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type {
@@ -39,6 +39,8 @@ import {
   parseFlowExpressionCommand,
 } from "./liveDesktopAdapter/graphFlow";
 import type {
+  NativeIndexProgressEvent,
+  NativeWorkspaceSyncEvent,
   RawIndexProgressEvent,
   RawScanPayload,
   RawWorkspaceSyncEvent,
@@ -93,13 +95,21 @@ import {
   saveWorkspaceFileCommand,
 } from "./liveDesktopAdapter/workspaceFiles";
 
+import {
+  normalizeIndexProgressWire,
+  normalizeWorkspaceSyncWire,
+} from "./liveDesktopAdapter/rawTypes";
+
 const invokeCommand = invoke as InvokeCommand;
 
 export class LiveDesktopAdapter implements DesktopAdapter {
   readonly isMock = false;
 
+  private repositoryContextEpoch?: number;
+  private scanAdmissionPending = false;
   private currentSession?: RepoSession;
   private sessionGeneration = 0;
+  private repositoryRequest = 0;
   private nextIndexJob = 0;
   private activeScanJobId?: string;
   private backendStatus: BackendStatus = {
@@ -117,15 +127,25 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   private workspaceSyncUnlisten?: Promise<UnlistenFn>;
 
   constructor() {
-    this.indexProgressUnlisten = listen<RawIndexProgressEvent>("helm://index-progress", (event) => {
-      this.handleIndexProgress(event.payload);
-    }).catch(() => () => {});
-    this.workspaceSyncUnlisten = listen<RawWorkspaceSyncEvent>("helm://workspace-sync", (event) => {
-      this.handleWorkspaceSync(event.payload);
-    }).catch(() => () => {});
+    this.indexProgressUnlisten = listen<RawIndexProgressEvent | NativeIndexProgressEvent>(
+      "helm://index-progress",
+      (event) => {
+        this.handleIndexProgress(normalizeIndexProgressWire(event.payload));
+      },
+    ).catch(() => () => {});
+    this.workspaceSyncUnlisten = listen<RawWorkspaceSyncEvent | NativeWorkspaceSyncEvent>(
+      "helm://workspace-sync",
+      (event) => {
+        this.handleWorkspaceSync(normalizeWorkspaceSyncWire(event.payload));
+      },
+    ).catch(() => () => {});
   }
 
   private handleIndexProgress(raw: RawIndexProgressEvent) {
+    // Native async progress can reach the WebView after the invoke result. Once
+    // its cached result is final, an old progress/error must not strand routing.
+    const final = this.jobs.get(raw.job_id)?.state.status;
+    if (final === "done" || final === "error") return;
     if (
       raw.job_id !== this.activeScanJobId ||
       normalizePath(raw.repo_path) !== this.currentSession?.path
@@ -137,6 +157,12 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   }
 
   private handleWorkspaceSync(raw: RawWorkspaceSyncEvent) {
+    if (this.scanAdmissionPending) return;
+    if (
+      this.repositoryContextEpoch !== undefined &&
+      raw.contextEpoch !== this.repositoryContextEpoch
+    )
+      return;
     if (this.currentSession && normalizePath(raw.repo_path) !== this.currentSession.path) return;
     const nextBackend = backendStatusFromSyncEvent(this.backendStatus, raw);
     this.backendStatus = nextBackend;
@@ -158,13 +184,24 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   }
 
   async openRepo(path?: string): Promise<RepoSession> {
-    const session = await openRepoSession(open, path);
+    const request = ++this.repositoryRequest;
+    const generation = this.sessionGeneration;
+    const selected = await openRepoSession(open, path);
+    this.assertRepositoryRequest(request, generation);
+    const canonicalPath = await invokeCommand<string>("canonicalize_repo_path", {
+      repoPath: selected.path,
+    });
+    this.assertRepositoryRequest(request, generation);
+    const session = buildRepoSessionFromPath(canonicalPath);
     this.selectSession(session);
     return session;
   }
 
   async createProject(): Promise<RepoSession | null> {
+    const request = ++this.repositoryRequest;
+    const generation = this.sessionGeneration;
     const session = await createProjectSession(save, invokeCommand);
+    this.assertRepositoryRequest(request, generation);
     if (session) this.selectSession(session);
     return session;
   }
@@ -186,13 +223,21 @@ export class LiveDesktopAdapter implements DesktopAdapter {
   }
 
   async startIndex(repoPath: string): Promise<{ jobId: string }> {
-    const jobId = `index:${repoPath}:${Date.now()}:${++this.nextIndexJob}`;
+    this.scanAdmissionPending = true;
+    const request = ++this.repositoryRequest;
+    const previousGeneration = this.sessionGeneration;
+    // Reindex can receive a selected repository alias directly.
+    // Resolve it through the same native validator used by scans and watchers.
+    const canonicalPath = await invokeCommand<string>("canonicalize_repo_path", { repoPath });
+    this.assertRepositoryRequest(request, previousGeneration);
     const session =
-      this.currentSession?.path === normalizePath(repoPath)
+      this.currentSession?.path === normalizePath(canonicalPath)
         ? this.currentSession
-        : buildRepoSessionFromPath(repoPath);
-    const generation = ++this.sessionGeneration;
-    this.currentSession = session;
+        : buildRepoSessionFromPath(canonicalPath);
+    repoPath = session.path;
+    const jobId = `index:${repoPath}:${Date.now()}:${++this.nextIndexJob}`;
+    this.selectSession(session);
+    const generation = this.sessionGeneration;
     this.activeScanJobId = jobId;
     const job: ScanJob = {
       state: initialIndexingJobState(jobId, repoPath),
@@ -372,7 +417,11 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     return getEditableNodeSourceCommand(invokeCommand, this.requireScanCache(), targetId);
   }
 
-  async saveNodeSource(targetId: string, content: string): Promise<StructuralEditResult> {
+  async saveNodeSource(
+    targetId: string,
+    content: string,
+    expectedSource?: string,
+  ): Promise<StructuralEditResult> {
     const generation = this.sessionGeneration;
     const cache = this.requireScanCache();
     const { result, payload } = await saveNodeSourceCommand(
@@ -380,6 +429,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       cache,
       targetId,
       content,
+      expectedSource,
     );
     if (this.isCurrentSession(cache.session.path, generation)) {
       this.scanCache = buildScanCache(payload, cache.session, cache.backend);
@@ -419,6 +469,13 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       const startedAt = Date.now();
       const payload = await scanRepoPayload(invokeCommand, repoPath, jobId);
       if (!this.isCurrentScan(jobId, repoPath, generation)) return;
+      // Adopt only the genuine current scan receipt. Unlike an external context
+      // invalidation, this does not retire the scan whose readiness we are admitting.
+      if (payload.contextEpoch !== undefined) {
+        if (!Number.isSafeInteger(payload.contextEpoch) || payload.contextEpoch < 0)
+          throw new Error("The native scan returned an invalid repository epoch.");
+        this.repositoryContextEpoch = payload.contextEpoch;
+      }
       const completedAt = Date.now();
       const backend = await getLiveBackendStatus(invokeCommand, this.backendStatus);
       if (!this.isCurrentScan(jobId, repoPath, generation)) return;
@@ -431,6 +488,7 @@ export class LiveDesktopAdapter implements DesktopAdapter {
       };
       this.scanCache = buildScanCache(payload, session, this.backendStatus);
       this.currentSession = session;
+      this.scanAdmissionPending = false;
       rememberRecentRepo(session);
 
       const currentState = this.jobs.get(jobId)?.state;
@@ -473,7 +531,17 @@ export class LiveDesktopAdapter implements DesktopAdapter {
     }
   }
 
+  private assertRepositoryRequest(request: number, generation: number) {
+    if (request !== this.repositoryRequest || generation !== this.sessionGeneration) {
+      throw new Error(
+        "Repository selection was superseded. Open or reindex the current repository again.",
+      );
+    }
+  }
+
   private selectSession(session: RepoSession) {
+    this.scanAdmissionPending = true;
+    ++this.repositoryRequest;
     ++this.sessionGeneration;
     this.currentSession = session;
     this.scanCache = undefined;

@@ -1,5 +1,9 @@
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{atomic::AtomicU64, Mutex};
+
+// Native session epoch, also used by watcher events. Future scoped branch
+// replacement must use this counter rather than introducing a second epoch.
+pub(crate) static CONTEXT_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
 pub(crate) struct ResolvedRepoPath {
@@ -241,6 +245,53 @@ mod tests {
             std::process::id(),
             nonce
         ))
+    }
+
+    #[test]
+    fn canonical_identity_command_resolves_dot_segments_and_rejects_invalid_roots() {
+        let parent = unique_test_project_parent("identity-café");
+        let root = parent.join("repository");
+        fs::create_dir_all(root.join("child")).unwrap();
+        fs::write(root.join("file.py"), "pass\n").unwrap();
+        let expected = normalize_path(&root.canonicalize().unwrap());
+        // The renderer passes the serialized identity back to native commands.
+        assert_eq!(
+            crate::commands::canonicalize_repo_path(expected.clone()).unwrap(),
+            expected
+        );
+        let selected = root.join("child").join("..");
+        assert_eq!(
+            crate::commands::canonicalize_repo_path(format!("{}/", selected.display())).unwrap(),
+            expected
+        );
+        for invalid in [
+            String::new(),
+            "relative/repository".to_string(),
+            "null\0root".to_string(),
+            root.join("missing").to_string_lossy().into_owned(),
+            root.join("file.py").to_string_lossy().into_owned(),
+        ] {
+            assert!(crate::commands::canonicalize_repo_path(invalid).is_err());
+        }
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn canonical_identity_command_matches_scan_identity_for_a_symlink() {
+        use std::os::unix::fs::symlink;
+        let parent = unique_test_project_parent("identity-symlink");
+        let root = parent.join("real");
+        let alias = parent.join("selected");
+        fs::create_dir_all(&root).unwrap();
+        symlink(&root, &alias).unwrap();
+        let selected = alias.to_string_lossy().into_owned();
+        let scan_identity = normalize_path(&canonicalize_repo_root(&selected).unwrap());
+        assert_eq!(
+            crate::commands::canonicalize_repo_path(selected).unwrap(),
+            scan_identity
+        );
+        fs::remove_dir_all(parent).unwrap();
     }
 
     fn active_boundary_for_repo(repo_root: &Path) -> ActiveRepoBoundary {

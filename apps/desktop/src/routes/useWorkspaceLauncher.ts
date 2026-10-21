@@ -1,3 +1,7 @@
+import {
+  assertWorkspaceMutationAdmission,
+  isWorkspaceInstallationFrozen,
+} from "../execution/mutationTracking";
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useDesktopAdapter, type RepoSession } from "../lib/adapter";
@@ -15,9 +19,25 @@ export function useWorkspaceLauncher() {
 
   const indexSession = useCallback(
     async (session: RepoSession) => {
+      assertWorkspaceMutationAdmission();
       resetWorkspace();
       setSession(session);
-      const { jobId } = await adapter.startIndex(session.path);
+      let jobId: string;
+      try {
+        ({ jobId } = await adapter.startIndex(session.path));
+      } catch (reason) {
+        if (
+          !isWorkspaceInstallationFrozen() &&
+          useUiStore.getState().repoSession?.id === session.id
+        ) {
+          resetWorkspace();
+          useUiStore.setState({ repoSession: undefined });
+        }
+        throw reason;
+      }
+      assertWorkspaceMutationAdmission();
+      if (useUiStore.getState().repoSession?.id !== session.id) return;
+      useUiStore.setState({ indexingSession: { sessionId: session.id, jobId } });
       navigate(`/indexing/${encodeURIComponent(jobId)}`);
     },
     [adapter, navigate, resetWorkspace, setSession],
@@ -25,11 +45,13 @@ export function useWorkspaceLauncher() {
 
   const openAndIndexRepo = useCallback(
     async (path?: string) => {
+      if (isWorkspaceInstallationFrozen()) return;
       setError(null);
       setIsOpening(true);
 
       try {
         const session = await adapter.openRepo(path);
+        assertWorkspaceMutationAdmission();
         await indexSession(session);
       } catch (reason) {
         const message =
@@ -48,11 +70,13 @@ export function useWorkspaceLauncher() {
   );
 
   const createAndIndexProject = useCallback(async () => {
+    if (isWorkspaceInstallationFrozen()) return;
     setError(null);
     setIsCreating(true);
 
     try {
       const session = await adapter.createProject();
+      assertWorkspaceMutationAdmission();
       if (!session) {
         return;
       }

@@ -49,6 +49,11 @@ A desktop shell now lives under `apps/desktop/`.
 
 The desktop flow is now the preferred way to validate the frontend/backend integration without running manual scan commands in the terminal.
 
+The execution review candidate adds explicitly trusted project runs and a separate
+interactive terminal/output sidebar. Its source checks and remaining installed/native
+gates are recorded in [the foundation review](docs/execution-foundation-review.md).
+This source review is not a release or permission to replace an installed application.
+
 On supported systems, HELM can now auto-install missing machine-level prerequisites:
 
 - Windows uses `winget`, the official Python install manager, Rustup, and Visual Studio Build Tools when needed.

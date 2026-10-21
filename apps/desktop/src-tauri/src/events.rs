@@ -18,6 +18,7 @@ pub(crate) struct WorkspaceSyncSnapshot {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceSyncEventPayload {
+    pub(crate) context_epoch: u64,
     pub(crate) repo_path: String,
     pub(crate) session_version: u64,
     pub(crate) reason: String,

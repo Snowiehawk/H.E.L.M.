@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useDesktopAdapter } from "../lib/adapter";
 import { useUiStore } from "../store/uiStore";
+import { useExecutionActions } from "../execution/actions";
 import { useIdeActive } from "../app/FunctionTabs";
 
 export function CommandPalette() {
   const ideActive = useIdeActive();
+  const execution = useExecutionActions();
   const adapter = useDesktopAdapter();
   const paletteOpen = useUiStore((state) => state.paletteOpen);
   const setPaletteOpen = useUiStore((state) => state.setPaletteOpen);
@@ -81,6 +83,35 @@ export function CommandPalette() {
           placeholder="Search files, symbols, or graph anchors"
         />
         <div className="palette__results">
+          {[
+            {
+              label: `Save and Run ${execution.configName ?? "selected configuration"}`,
+              enabled: execution.canRun,
+              action: execution.run,
+            },
+            { label: "Stop project run", enabled: execution.canStop, action: execution.stop },
+            {
+              label: `Restart ${execution.configName ?? "selected configuration"}`,
+              enabled: execution.canRestart,
+              action: execution.restart,
+            },
+            { label: "Show Terminal and Run Output", enabled: true, action: execution.show },
+          ]
+            .filter((item) => !query || item.label.toLowerCase().includes(query.toLowerCase()))
+            .map((item) => (
+              <button
+                key={item.label}
+                className="palette__result"
+                type="button"
+                disabled={!item.enabled}
+                onClick={() => {
+                  setPaletteOpen(false);
+                  item.action();
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
           {!results.length && !resultsQuery.isFetching ? (
             <div className="palette__empty">
               <h3>Jump anywhere</h3>

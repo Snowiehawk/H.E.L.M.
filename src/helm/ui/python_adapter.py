@@ -19,6 +19,7 @@ from helm.editor.models import (
 from helm.graph import NodeKind, RepoGraph, build_repo_graph
 from helm.graph.models import GraphAbstractionLevel, GraphView
 from helm.parser import ParsedModule, PythonModuleParser, discover_python_modules
+from helm.recovery import recover_pending, repo_mutation_lock
 from helm.ui.api import build_export_payload, build_graph_summary
 from helm.ui.flow_projection import get_flow_view as project_flow_view
 from helm.ui.graph_projection import (
@@ -296,24 +297,43 @@ class PythonRepoAdapter:
         )
         return {"undo": enriched.to_dict(), "payload": self.build_payload()}
 
-    def save_node_source(self, target_id: str, content: str) -> dict[str, Any]:
-        node = self._projection_context().require_graph_node(target_id)
-        if node.kind == NodeKind.MODULE:
-            return self.apply_edit(
+    def save_node_source(
+        self, target_id: str, content: str, *, expected_source: str | None = None
+    ) -> dict[str, Any]:
+        # The service serializes requests; the repo lock also excludes other HELM
+        # mutation owners between the optimistic check and journal preparation.
+        # Check after recovery and before creating a new journal, so refusal never
+        # rolls a newer external edit back to an old preimage.
+        with repo_mutation_lock(self.root_path):
+            recovered = (
+                [event.to_dict() for event in recover_pending(self.root_path)]
+                if expected_source is not None
+                else []
+            )
+            if expected_source is not None:
+                current = self.get_editable_node_source(target_id)
+                if current["content"] != expected_source:
+                    raise ValueError(
+                        "This declaration changed on disk. Reload it before saving again."
+                    )
+            node = self._projection_context().require_graph_node(target_id)
+            response = self.apply_edit(
                 StructuralEditRequest(
-                    kind=StructuralEditKind.REPLACE_MODULE_SOURCE,
+                    kind=(
+                        StructuralEditKind.REPLACE_MODULE_SOURCE
+                        if node.kind == NodeKind.MODULE
+                        else StructuralEditKind.REPLACE_SYMBOL_SOURCE
+                    ),
                     target_id=target_id,
                     content=content,
                 )
             )
-
-        return self.apply_edit(
-            StructuralEditRequest(
-                kind=StructuralEditKind.REPLACE_SYMBOL_SOURCE,
-                target_id=target_id,
-                content=content,
-            )
-        )
+            if recovered:
+                response["edit"]["recovery_events"] = [
+                    *recovered,
+                    *response["edit"].get("recovery_events", []),
+                ]
+            return response
 
     def parse_flow_expression(
         self,

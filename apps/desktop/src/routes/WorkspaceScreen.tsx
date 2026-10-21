@@ -1,3 +1,7 @@
+import {
+  registerWorkspacePreparation,
+  type WorkspacePreparationSnapshot,
+} from "../execution/preparation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -74,6 +78,7 @@ import { useInspectorSourceState } from "./WorkspaceScreen/useInspectorSourceSta
 import { useWorkspaceFileOperations } from "./WorkspaceScreen/useWorkspaceFileOperations";
 import { useWorkspaceLayout } from "./WorkspaceScreen/useWorkspaceLayout";
 import { useWorkspaceSyncEffects } from "./WorkspaceScreen/useWorkspaceSyncEffects";
+import { useExecutionSourceNavigation } from "./WorkspaceScreen/useExecutionSourceNavigation";
 import {
   invalidateWorkspaceDataQueries,
   workspaceQueryKeys,
@@ -94,6 +99,19 @@ import {
 } from "./WorkspaceScreen/workspaceScreenModel";
 
 export function WorkspaceScreen() {
+  const [diagnosticHighlight, setDiagnosticHighlight] = useState<{
+    path: string;
+    version: string;
+    line: number;
+    column: number;
+  }>();
+  const runPreparationSnapshot = useRef<WorkspacePreparationSnapshot>();
+  const runDraftContextRevision = useRef("");
+  const runDraftBaselines = useRef<{
+    declaration?: string;
+    file?: string;
+    fileSelected: boolean;
+  }>({ fileSelected: false });
   const ideActive = useIdeActive();
   const adapter = useDesktopAdapter();
   const navigate = useNavigate();
@@ -255,6 +273,7 @@ export function WorkspaceScreen() {
   const currentFlowSymbolId = activeLevel === "flow" ? currentSymbolTargetId : undefined;
   const {
     activeFlowDraft,
+    flowDraftState,
     effectiveGraph,
     flowDraftSeedDocument,
     resetFlowDraftState,
@@ -424,6 +443,7 @@ export function WorkspaceScreen() {
     effectiveInspectorNode,
     handleInspectorEditorStateChange,
     inspectorDirty,
+    inspectorDraftBaselineRef,
     inspectorDraftStale,
     inspectorHighlightRange,
     inspectorNode,
@@ -525,6 +545,7 @@ export function WorkspaceScreen() {
     moveWorkspaceEntry,
     resetWorkspaceFileState,
     saveWorkspaceFile,
+    saveWorkspaceFileVerified,
     selectWorkspaceFile,
     setActiveWorkspaceFilePath,
     setWorkspaceFileDraft,
@@ -532,6 +553,7 @@ export function WorkspaceScreen() {
     setWorkspaceFileStale,
     workspaceFileDirty,
     workspaceFileDraft,
+    workspaceFileDraftRef,
     workspaceFileError,
     workspaceFileQuery,
     workspaceFileSaveError,
@@ -582,7 +604,9 @@ export function WorkspaceScreen() {
 
   const inspectorDraftTargetId = effectiveEditableSource?.editable
     ? effectiveEditableSource.targetId
-    : undefined;
+    : inspectorDirty
+      ? inspectorDraftBaselineRef.current?.targetId
+      : undefined;
 
   const {
     handleClearGraphSelection,
@@ -645,6 +669,8 @@ export function WorkspaceScreen() {
       resetWorkspace();
       setSession(session);
       const { jobId } = await adapter.startIndex(session.path);
+      if (useUiStore.getState().repoSession?.id !== session.id) return;
+      useUiStore.setState({ indexingSession: { sessionId: session.id, jobId } });
       navigate(`/indexing/${encodeURIComponent(jobId)}`);
     } catch (reason) {
       const message =
@@ -654,12 +680,23 @@ export function WorkspaceScreen() {
   };
 
   const reindexCurrentRepo = async () => {
-    if (!repoSession) {
-      return;
+    if (!repoSession) return;
+    setRepoOpenError(null);
+    try {
+      resetWorkspace();
+      const { jobId } = await adapter.startIndex(repoSession.path);
+      if (useUiStore.getState().repoSession?.id !== repoSession.id) return;
+      useUiStore.setState({ indexingSession: { sessionId: repoSession.id, jobId } });
+      navigate(`/indexing/${encodeURIComponent(jobId)}`);
+    } catch (reason) {
+      if (useUiStore.getState().repoSession?.id === repoSession.id) {
+        setRepoOpenError(
+          reason instanceof Error
+            ? reason.message
+            : "Unable to start reindexing. Retry from this workspace.",
+        );
+      }
     }
-    resetWorkspace();
-    const { jobId } = await adapter.startIndex(repoSession.path);
-    navigate(`/indexing/${encodeURIComponent(jobId)}`);
   };
 
   const handleRevealSource = async (nodeId: string) => {
@@ -812,17 +849,59 @@ export function WorkspaceScreen() {
   );
 
   const handleSaveNodeSource = async (targetId: string, content: string) => {
+    if (effectiveEditableSource?.targetId !== targetId || !effectiveEditableSource.editable) {
+      throw new Error(
+        "This source is no longer editable. Reload or dismiss its retained draft before saving.",
+      );
+    }
     if (inspectorDraftStale) {
       throw new Error(
         "This draft is stale because the file changed outside H.E.L.M. Reload from disk before saving again.",
       );
     }
 
+    const savedSessionId = repoSession?.id;
+    const draftBeforeSave = inspectorDraftContentRef.current;
     setIsSavingSource(true);
     try {
-      const result = await adapter.saveNodeSource(targetId, content);
+      const expectedSource =
+        inspectorDraftBaselineRef.current?.targetId === targetId
+          ? inspectorDraftBaselineRef.current.content
+          : undefined;
+      if (expectedSource === undefined) {
+        throw new Error(
+          "The declaration source baseline is unavailable. Reload its editor before saving.",
+        );
+      }
+      const result = await adapter.saveNodeSource(targetId, content, expectedSource);
       surfaceRecoveryEvents(result.recoveryEvents);
       recordBackendUndoTransaction(result.undoTransaction, result.summary);
+      const verifiedSource = await adapter.getEditableNodeSource(targetId);
+      // Declaration replacement explicitly normalizes outer whitespace and the
+      // existing source reader normalizes CRLF. Match that documented editor
+      // contract while still requiring an authoritative read of the saved text.
+      const normalized = (value: string) => value.replaceAll("\r\n", "\n").trim();
+      if (normalized(verifiedSource.content) !== normalized(content)) {
+        throw new Error(
+          "The declaration save did not confirm the requested source. Review it before Run.",
+        );
+      }
+      const refreshedSource = await refreshWorkspaceData(targetId);
+      if (
+        refreshedSource?.targetId !== targetId ||
+        normalized(refreshedSource.content) !== normalized(content)
+      )
+        throw new Error(
+          "The refreshed declaration did not confirm the requested source. Review it before Run.",
+        );
+      if (
+        useUiStore.getState().repoSession?.id !== savedSessionId ||
+        inspectorDraftContentRef.current !== draftBeforeSave
+      ) {
+        throw new Error(
+          "The workspace or declaration draft changed while saving. The current draft is preserved.",
+        );
+      }
       setDismissedPeekNodeId(undefined);
       setInspectorPanelMode("expanded");
       setLastEdit(result);
@@ -831,10 +910,10 @@ export function WorkspaceScreen() {
       setInspectorTargetId(targetId);
       setInspectorDirty(false);
       setInspectorDraftStale(false);
-      inspectorDraftContentRef.current = content;
-      const refreshedSource = await refreshWorkspaceData(targetId);
+      inspectorDraftContentRef.current = refreshedSource.content;
       setInspectorEditableSourceOverride(refreshedSource);
       setInspectorSourceVersion((current) => current + 1);
+      return refreshedSource.content;
     } finally {
       setIsSavingSource(false);
     }
@@ -1264,6 +1343,196 @@ export function WorkspaceScreen() {
       current ? { ...current, selectedExpressionNodeId: nodeId } : current,
     );
   }, []);
+
+  // This ref is read on demand, so edits while already dirty are visible even
+  // when a Monaco callback updates only its content ref and does not rerender.
+  runDraftContextRevision.current = JSON.stringify([
+    inspectorDraftTargetId,
+    activeWorkspaceFilePath,
+    activeFlowDraft?.document,
+    createComposer,
+    returnExpressionGraphView,
+  ]);
+  runDraftBaselines.current = {
+    // A graph preview is not a source owner. Any orphan buffer still fails the
+    // provider's baseline-availability check rather than adopting cached text.
+    declaration: inspectorPanelMode !== "hidden" ? effectiveEditableSource?.content : undefined,
+    file: activeWorkspaceFile?.content,
+    fileSelected: Boolean(activeWorkspaceFilePath),
+  };
+  const runRevisionParts = useCallback(
+    () => [
+      runPreparationSnapshot.current?.repoPath ?? "",
+      runPreparationSnapshot.current?.sessionId ?? "",
+      inspectorDraftContentRef.current,
+      workspaceFileDraftRef.current,
+      runDraftContextRevision.current,
+    ],
+    [workspaceFileDraftRef],
+  );
+  const hasInspectorSourceOwner = inspectorPanelMode !== "hidden";
+  const preparationLoading =
+    overviewQuery.isPending ||
+    workspaceFilesQuery.isPending ||
+    (!effectiveGraph && graphQuery.isFetching) ||
+    Boolean(
+      hasInspectorSourceOwner &&
+      inspectorSourceTarget &&
+      editableSourceQuery.isFetching &&
+      !effectiveEditableSource,
+    ) ||
+    Boolean(activeWorkspaceFilePath && workspaceFileQuery.isFetching && !activeWorkspaceFile);
+  const preparationError = Boolean(
+    overviewQuery.error ||
+    workspaceFilesQuery.error ||
+    graphQuery.error ||
+    (hasInspectorSourceOwner && inspectorSourceTarget && editableSourceQuery.error) ||
+    (activeWorkspaceFilePath && (workspaceFileQuery.error || workspaceFileError)),
+  );
+  runPreparationSnapshot.current = {
+    repoPath: repoSession?.path ?? "",
+    sessionId: repoSession?.id ?? "",
+    availability: preparationError
+      ? "error"
+      : preparationLoading
+        ? "loading"
+        : !repoSession ||
+            (hasInspectorSourceOwner && inspectorSourceTarget && !effectiveEditableSource) ||
+            (activeWorkspaceFilePath && !activeWorkspaceFile)
+          ? "unavailable"
+          : "ready",
+    dirty: Boolean(
+      inspectorDirty ||
+      workspaceFileDirty ||
+      (flowDraftState && flowDraftState.status !== "idle") ||
+      createComposer ||
+      returnExpressionGraphView?.draftGraph ||
+      returnExpressionGraphView?.draftExpression !== undefined,
+    ),
+    stale: inspectorDraftStale || workspaceFileStale,
+    busy:
+      isSavingSource || isSavingWorkspaceFile || isSubmittingCreate || isSubmittingExpressionGraph,
+    revision: "", // Recomputed by the provider below from live draft contents.
+    blockers: [
+      ...(inspectorDraftStale ? ["Reload or resolve the stale declaration draft before Run."] : []),
+      ...(workspaceFileStale ? ["Reload or resolve the stale workspace file before Run."] : []),
+      ...(isSavingSource ||
+      isSavingWorkspaceFile ||
+      isSubmittingCreate ||
+      isSubmittingExpressionGraph
+        ? ["Wait for the current editor mutation to finish before Run."]
+        : []),
+      ...(flowDraftState && flowDraftState.status !== "idle"
+        ? ["Finish and synchronize the flow draft in its editor before Run."]
+        : []),
+      ...(createComposer ? ["Finish or cancel the create composer before Run."] : []),
+      ...(returnExpressionGraphView?.draftGraph ||
+      returnExpressionGraphView?.draftExpression !== undefined
+        ? ["Finish or cancel the expression draft before Run."]
+        : []),
+      ...(inspectorDirty && workspaceFileDirty && inspectorSourcePath === activeWorkspaceFilePath
+        ? [
+            "The declaration and file editor both edit the same file. Save one and reconcile the other before Run.",
+          ]
+        : []),
+      ...(inspectorDirty &&
+      (!inspectorDraftTargetId || inspectorDraftContentRef.current === undefined)
+        ? ["The declaration draft cannot be verified. Reopen its editor before Run."]
+        : []),
+    ],
+    saves: [
+      ...(inspectorDirty && inspectorDraftTargetId && inspectorDraftContentRef.current !== undefined
+        ? [
+            async () => {
+              const before = runRevisionParts();
+              const confirmedContent = await handleSaveNodeSource(
+                inspectorDraftTargetId,
+                inspectorDraftContentRef.current!,
+              );
+              // Certify only this verified declaration's canonical text. Keep
+              // every other captured target/draft unchanged in the expected
+              // revision, so concurrent edits cannot be adopted by the save.
+              const after = [...before];
+              after[2] = confirmedContent;
+              return {
+                previousRevision: JSON.stringify(before),
+                revision: JSON.stringify(after),
+              };
+            },
+          ]
+        : []),
+      ...(workspaceFileDirty
+        ? [
+            async () => {
+              await saveWorkspaceFileVerified();
+            },
+          ]
+        : []),
+    ],
+  };
+  useEffect(
+    () =>
+      registerWorkspacePreparation(() => {
+        const snapshot = runPreparationSnapshot.current!;
+        return {
+          ...snapshot,
+          // Monaco may update its content ref without another React render.
+          // Read both contents and baseline availability at admission time.
+          availability:
+            (inspectorDraftContentRef.current !== undefined &&
+              runDraftBaselines.current.declaration === undefined) ||
+            (runDraftBaselines.current.fileSelected && runDraftBaselines.current.file === undefined)
+              ? "unavailable"
+              : snapshot.availability,
+          dirty:
+            snapshot.dirty ||
+            (inspectorDraftContentRef.current !== undefined &&
+              inspectorDraftContentRef.current !== runDraftBaselines.current.declaration) ||
+            (runDraftBaselines.current.fileSelected &&
+              workspaceFileDraftRef.current !== runDraftBaselines.current.file),
+          // Draft targets and complete flow/composer state, not just booleans.
+          revision: JSON.stringify(runRevisionParts()),
+        };
+      }),
+    [runRevisionParts],
+  );
+
+  useExecutionSourceNavigation({
+    session: repoSession,
+    adapter,
+    graphFilters,
+    graphSettings,
+    hasUnsavedDrafts: () =>
+      Boolean(
+        inspectorDirty ||
+        workspaceFileDirty ||
+        (inspectorDraftContentRef.current !== undefined &&
+          inspectorDraftContentRef.current !== effectiveEditableSource?.content) ||
+        (activeWorkspaceFile && workspaceFileDraftRef.current !== activeWorkspaceFile.content),
+      ),
+    openFile: (location, file) => {
+      if (!repoSession) return;
+      queryClient.setQueryData(
+        workspaceQueryKeys.workspaceFile(repoSession.id, location.relativePath),
+        file,
+      );
+      selectWorkspaceFile(location.relativePath);
+      setDiagnosticHighlight(
+        location.sourceMatches
+          ? {
+              path: location.relativePath,
+              version: file.version,
+              line: location.line,
+              column: location.column,
+            }
+          : undefined,
+      );
+    },
+    focusSymbol: (nodeId) => {
+      focusGraph(nodeId, "symbol");
+      selectNode(nodeId);
+    },
+  });
 
   const requestInspectorClose = useCallback(async () => {
     const draftContent = inspectorDraftContentRef.current;
@@ -1802,6 +2071,17 @@ export function WorkspaceScreen() {
 
                   {activeWorkspaceFilePath ? (
                     <WorkspaceFileEditorPanel
+                      highlightRange={
+                        diagnosticHighlight?.path === activeWorkspaceFilePath &&
+                        diagnosticHighlight.version === activeWorkspaceFile?.version
+                          ? {
+                              startLine: diagnosticHighlight.line,
+                              endLine: diagnosticHighlight.line,
+                              startColumn: diagnosticHighlight.column - 1,
+                              endColumn: diagnosticHighlight.column,
+                            }
+                          : undefined
+                      }
                       file={activeWorkspaceFile}
                       draft={workspaceFileDraft}
                       dirty={workspaceFileDirty}
@@ -1880,7 +2160,9 @@ export function WorkspaceScreen() {
                           onRemoveFlowFunctionInput={removeFlowFunctionInputWithConfirmation}
                           onOpenNodeInDefaultEditor={handleOpenNodeInDefaultEditor}
                           onRevealNodeInFileExplorer={handleRevealNodeInFileExplorer}
-                          onSaveSource={handleSaveNodeSource}
+                          onSaveSource={async (targetId, content) => {
+                            await handleSaveNodeSource(targetId, content);
+                          }}
                           onEditorStateChange={handleInspectorEditorStateChange}
                           onDismissSource={() => setRevealedSource(undefined)}
                           onClose={handleCollapseInspector}

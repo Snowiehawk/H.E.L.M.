@@ -1,0 +1,182 @@
+name: Native execution checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/execution-native.yml"
+      - "apps/desktop/src/execution/**"
+      - "apps/desktop/src-tauri/**"
+      - "apps/desktop/package*.json"
+      - "src/helm/**"
+      - "tests/test_run_preparation.py"
+      - "tests/test_run_preparation_joined.py"
+      - "tests/fixtures/graph_run_join_worker.py"
+      - "tests/test_execution_package_verifier.py"
+      - "scripts/package_desktop_backend.py"
+      - "scripts/verify_execution_package.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  execution:
+    name: Native execution (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: "1"
+      RUST_TEST_THREADS: "1"
+      PYTHONPATH: src
+    steps:
+      # checkout validates GITHUB_WORKSPACE before its path input. This repo's
+      # trailing period makes that generated path unusable on Windows.
+      - name: Check out exact source in a Windows-safe temporary directory
+        if: runner.os == 'Windows'
+        id: windows_source
+        working-directory: ${{ runner.temp }}
+        env:
+          HELM_CI_CHECKOUT_TOKEN: ${{ github.token }}
+        run: |
+          set +x
+          set -euo pipefail
+          unset GIT_TRACE GIT_TRACE_PACKET GIT_TRACE_CURL GIT_CURL_VERBOSE
+          checkout_token="${HELM_CI_CHECKOUT_TOKEN:?}"
+          unset HELM_CI_CHECKOUT_TOKEN
+          trap 'unset checkout_token HELM_CI_AUTH_HEADER HELM_CI_CHECKOUT_TOKEN' EXIT
+          refuse() { printf '%s\n' "$1" >&2; exit 1; }
+          [[ "$GITHUB_SERVER_URL" == "https://github.com" ]] || refuse 'Unexpected checkout server.'
+          [[ "$GITHUB_REPOSITORY" == "Snowiehawk/H.E.L.M." ]] || refuse 'Unexpected checkout repository.'
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || refuse 'Expected exact commit SHA.'
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || refuse 'Invalid run identity.'
+          source_root="$(cygpath -m "$RUNNER_TEMP")/helm-native-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          [[ ! -e "$source_root" && ! -L "$source_root" ]] || refuse 'Checkout target already exists.'
+          mkdir -- "$source_root"
+          git -C "$source_root" init
+          git -C "$source_root" remote add origin https://github.com/Snowiehawk/H.E.L.M..git
+          HELM_CI_AUTH_HEADER="AUTHORIZATION: basic $(printf '%s' "x-access-token:$checkout_token" | base64 | tr -d '\r\n')"
+          export HELM_CI_AUTH_HEADER
+          unset checkout_token
+          git -c credential.helper= --config-env=http.https://github.com/.extraheader=HELM_CI_AUTH_HEADER -C "$source_root" fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          unset HELM_CI_AUTH_HEADER
+          fetched_sha="$(git -C "$source_root" rev-parse --verify 'FETCH_HEAD^{commit}')"
+          [[ "$fetched_sha" == "$GITHUB_SHA" ]] || refuse 'Fetched revision differs from requested SHA.'
+          git -c core.autocrlf=false -C "$source_root" checkout --detach "$fetched_sha"
+          [[ "$(git -C "$source_root" rev-parse HEAD)" == "$GITHUB_SHA" ]] || refuse 'Checked out revision differs from requested SHA.'
+          printf 'root=%s\n' "$source_root" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact source without persisted credentials
+        if: runner.os != 'Windows'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up development Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: ${{ runner.os != 'Windows' && 'pip' || '' }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: ${{ runner.os != 'Windows' && 'npm' || '' }}
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Isolate Windows Python dependencies from hosted tools
+        if: runner.os == 'Windows'
+        working-directory: ${{ steps.windows_source.outputs.root || github.workspace }}
+        run: |
+          set -euo pipefail
+          venv_root="$(cygpath -m "$RUNNER_TEMP")/helm-python-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          [[ ! -e "$venv_root" && ! -L "$venv_root" ]] || { printf '%s\n' 'Python environment already exists.' >&2; exit 1; }
+          python -m venv "$venv_root"
+          "$venv_root/Scripts/python.exe" -c "import sys, sysconfig; assert sys.prefix != sys.base_prefix; print(sysconfig.get_path('scripts'))" >> "$GITHUB_PATH"
+
+      - name: Install locked build/test dependencies
+        working-directory: ${{ steps.windows_source.outputs.root || github.workspace }}
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            python -c "import sys; assert sys.prefix != sys.base_prefix, 'Expected isolated CI Python'" || exit 1
+          fi
+          python -m pip install -r requirements/python-dev.txt
+          python -m pip install --no-deps -e .
+          python -m pip check
+          npm ci --prefix apps/desktop --ignore-scripts
+
+      - name: Set up Rust stable
+        working-directory: ${{ steps.windows_source.outputs.root || github.workspace }}
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup component add rustfmt clippy
+
+      - name: Record exact runner and source identity
+        working-directory: ${{ steps.windows_source.outputs.root || github.workspace }}
+        shell: bash
+        run: |
+          mkdir -p execution-evidence
+          git rev-parse HEAD > execution-evidence/source-sha.txt
+          git status --porcelain --untracked-files=no > execution-evidence/source-status.txt
+          python -c "import platform,sys,json; print(json.dumps({'platform':platform.platform(),'architecture':platform.machine(),'buildPython':sys.version,'pythonExecutable':sys.executable,'pythonPrefix':sys.prefix,'scope':'native source tests; installed GUI acceptance remains pending'},indent=2))" > execution-evidence/runner.json
+          cargo --version > execution-evidence/cargo-version.txt
+          rustc --version > execution-evidence/rust-version.txt
+          node --version > execution-evidence/node-version.txt
+
+      - name: Verify source preparation and package receipt boundaries
+        working-directory: ${{ steps.windows_source.outputs.root || github.workspace }}
+        run: python -m unittest tests.test_run_preparation tests.test_run_preparation_joined tests.test_execution_package_verifier -v 2>&1 | tee execution-evidence/python-execution.log
+
+      - name: Check execution frontend with actual Python joins and production web assets
+        working-directory: ${{ steps.windows_source.outputs.root || github.workspace }}/apps/desktop
+        run: |
+          export HELM_TEST_PYTHON="$(python -c 'import sys; print(sys.executable)')"
+          export HELM_TEST_SOURCE_ROOT="$(git rev-parse --show-toplevel)"
+          npm test -- src/execution --maxWorkers=1 2>&1 | tee ../../execution-evidence/frontend-execution.log
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            node --max-old-space-size=2560 --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { writeFileSync } from 'node:fs';
+          import os from 'node:os';
+          import v8 from 'node:v8';
+          const pressure = execFileSync('/usr/bin/memory_pressure', ['-Q'], { encoding: 'utf8' });
+          const match = pressure.match(/free percentage: (\d+)%/);
+          const record = { totalBytes: os.totalmem(), freePercent: match ? Number(match[1]) : null,
+            configuredHeapMiB: 2560, heapLimitBytes: v8.getHeapStatistics().heap_size_limit };
+          writeFileSync('../../execution-evidence/web-build-memory.json', JSON.stringify(record, null, 2));
+          if (record.totalBytes < 6 * 1024 ** 3 || record.freePercent === null || record.freePercent < 50)
+            throw new Error('Hosted Mac web-build memory admission refused.');
+          JS
+            NODE_OPTIONS="--max-old-space-size=2560" npm run build 2>&1 | tee ../../execution-evidence/frontend-build.log
+          else
+            npm run build 2>&1 | tee ../../execution-evidence/frontend-build.log
+          fi
+
+      - name: Stage existing pinned backend resources
+        working-directory: ${{ steps.windows_source.outputs.root || github.workspace }}/apps/desktop
+        run: npm run prepare:backend 2>&1 | tee ../../execution-evidence/backend-staging.log
+
+      - name: Verify staged backend inventory without launching project code
+        working-directory: ${{ steps.windows_source.outputs.root || github.workspace }}
+        run: python scripts/verify_execution_package.py runtime apps/desktop/src-tauri/packaged-backend 2>&1 | tee execution-evidence/runtime-inventory.log
+
+      - name: Check native execution policy, configuration and lifecycle
+        working-directory: ${{ steps.windows_source.outputs.root || github.workspace }}/apps/desktop/src-tauri
+        run: |
+          cargo test --locked -- --test-threads=1 2>&1 | tee ../../../execution-evidence/native-execution.log
+
+      - name: Retain private workflow evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-execution-${{ runner.os }}-${{ github.sha }}
+          path: ${{ steps.windows_source.outputs.root || github.workspace }}/execution-evidence/
+          retention-days: 14

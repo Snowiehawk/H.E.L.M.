@@ -14,6 +14,7 @@ export interface InspectorCodeSurfaceProps {
   className?: string;
   dataTestId?: string;
   highlightRange?: SourceRange;
+  focusOnReveal?: boolean;
 }
 
 type MonacoSurfaceComponent =

@@ -61,6 +61,16 @@ impl Drop for RepoWatcherHandle {
 }
 
 impl ActiveRepoWatcher {
+    pub(crate) fn stop(&self) -> Result<(), String> {
+        let old = self
+            .handle
+            .lock()
+            .map_err(|_| "Unable to stop the repository watcher.")?
+            .take();
+        drop(old);
+        Ok(())
+    }
+
     pub(crate) fn watch_repo(
         &self,
         app: &AppHandle<Wry>,
@@ -119,12 +129,15 @@ impl ActiveRepoWatcher {
         let thread_service = service.clone();
         let thread_repo_root = normalized_repo_root.clone();
         let thread_repo_path = normalized_repo_path.clone();
+        let context_epoch =
+            crate::repo_boundary::CONTEXT_EPOCH.load(std::sync::atomic::Ordering::SeqCst);
         let thread = thread::spawn(move || {
             run_repo_watch_loop(
                 thread_app,
                 thread_service,
                 thread_repo_root,
                 thread_repo_path,
+                context_epoch,
                 event_rx,
                 stop_rx,
             )
@@ -153,6 +166,7 @@ fn run_repo_watch_loop(
     service: BackendService,
     repo_root: PathBuf,
     repo_path: String,
+    context_epoch: u64,
     event_rx: mpsc::Receiver<notify::Result<Event>>,
     stop_rx: mpsc::Receiver<()>,
 ) {
@@ -170,6 +184,7 @@ fn run_repo_watch_loop(
                     emit_workspace_sync_event(
                         &app,
                         WorkspaceSyncEventPayload {
+                            context_epoch,
                             repo_path: repo_path.clone(),
                             session_version: 0,
                             reason: "watcher-rescan".to_string(),
@@ -191,6 +206,7 @@ fn run_repo_watch_loop(
                 emit_workspace_sync_event(
                     &app,
                     WorkspaceSyncEventPayload {
+                        context_epoch,
                         repo_path: repo_path.clone(),
                         session_version: 0,
                         reason: "watcher-error".to_string(),
@@ -218,6 +234,7 @@ fn run_repo_watch_loop(
                 emit_workspace_sync_event(
                     &app,
                     WorkspaceSyncEventPayload {
+                        context_epoch,
                         repo_path: repo_path.clone(),
                         session_version: 0,
                         reason: "external-change".to_string(),
@@ -251,6 +268,7 @@ fn run_repo_watch_loop(
                         emit_workspace_sync_event(
                             &progress_app,
                             WorkspaceSyncEventPayload {
+                                context_epoch,
                                 repo_path: progress_repo_path.clone(),
                                 session_version: 0,
                                 reason: "external-change".to_string(),
@@ -275,6 +293,7 @@ fn run_repo_watch_loop(
                         emit_workspace_sync_event(
                             &app,
                             WorkspaceSyncEventPayload {
+                                context_epoch,
                                 repo_path: repo_path.clone(),
                                 session_version,
                                 reason: "external-change".to_string(),
@@ -292,6 +311,7 @@ fn run_repo_watch_loop(
                         emit_workspace_sync_event(
                             &app,
                             WorkspaceSyncEventPayload {
+                                context_epoch,
                                 repo_path: repo_path.clone(),
                                 session_version: 0,
                                 reason: "external-change".to_string(),

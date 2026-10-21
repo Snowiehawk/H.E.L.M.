@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from helm.graph.models import GraphAbstractionLevel
+from helm.ui.project_git import GitExecutionError
 from helm.ui.workspace_session import WorkspaceSession, WorkspaceSessionManager
 
 _SESSION_MANAGER = WorkspaceSessionManager()
@@ -203,11 +204,36 @@ def _handle_worker_command(
     progress: _WorkerProgressReporter | None = None,
 ) -> dict[str, Any]:
     if command == "health":
-        return {"python": sys.version.split()[0], "backend_module": str(Path(__file__).resolve())}
+        from helm import __version__
+
+        return {
+            "python": sys.version.split()[0],
+            "backend_module": str(Path(__file__).resolve()),
+            "backend_version": __version__,
+            "protocol": 1,
+        }
 
     repo = params.get("repo")
     if not isinstance(repo, str) and command != "shutdown":
         raise ValueError("Worker command requires a 'repo' string parameter.")
+
+    if command == "prepare-run-source":
+        from helm.ui.run_preparation import prepare_run_source
+
+        return prepare_run_source(repo)
+
+    if command in {"inspect-project", "switch-project-branch"}:
+        from helm.ui.project_git import inspect_project, switch_branch
+
+        if command == "inspect-project":
+            return inspect_project(repo)
+        if not isinstance(params.get("branch"), str) or not isinstance(
+            params.get("fingerprint"), str
+        ):
+            raise ValueError("Branch switching requires a local ref and admission fingerprint.")
+        result = switch_branch(repo, params["branch"], params["fingerprint"])
+        _SESSION_MANAGER.invalidate(repo)
+        return result
 
     top_n = params.get("top_n", 24)
     if not isinstance(top_n, int):
@@ -262,11 +288,14 @@ def _handle_worker_command(
     if command == "save-node-source":
         target_id = params.get("target_id")
         content = params.get("content")
+        expected_source = params.get("expected_source")
         if not isinstance(target_id, str) or not isinstance(content, str):
             raise ValueError(
                 "save-node-source requires 'target_id' and 'content' string parameters."
             )
-        return session.save_node_source(target_id, content)
+        if expected_source is not None and not isinstance(expected_source, str):
+            raise ValueError("save-node-source 'expected_source' must be a string when provided.")
+        return session.save_node_source(target_id, content, expected_source=expected_source)
 
     if command == "parse-flow-expression":
         expression = params.get("expression")
@@ -458,6 +487,10 @@ def run_worker(stdin: Any = None, stdout: Any = None) -> int:
             if progress_reporter is not None:
                 progress_reporter.emit_error(str(exc))
             response = {"id": request_id, "ok": False, "error": str(exc)}
+            if isinstance(exc, GitExecutionError) and not exc.cleanup_confirmed:
+                # Native admission cannot infer helper cleanup from a valid
+                # protocol error reply or the Python leader's eventual exit.
+                response["ownership_uncertain"] = True
 
         output_stream.write(json.dumps(response, sort_keys=True))
         output_stream.write("\n")

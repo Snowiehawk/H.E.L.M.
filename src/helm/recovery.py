@@ -340,6 +340,20 @@ class JournalOperation:
             stage_path = self.staging_dir / _required_string(entry, "stage_path")
             if not stage_path.is_file():
                 raise ValueError(f"Missing staged file preimage for {relative_path}.")
+            # Validation can fail before touching this file. Replacing an
+            # unchanged preimage creates a spurious filesystem change and makes
+            # the editor's still-valid draft stale after its own rejected save.
+            if target_path.is_file() and not target_path.is_symlink():
+                current = target_path.stat()
+                staged = stage_path.stat()
+                if (
+                    current.st_mode == staged.st_mode
+                    and current.st_mtime_ns == staged.st_mtime_ns
+                    and current.st_size == staged.st_size
+                    and getattr(current, "st_flags", 0) == getattr(staged, "st_flags", 0)
+                    and target_path.read_bytes() == stage_path.read_bytes()
+                ):
+                    return
             _remove_path(target_path)
             target_path.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_bytes(target_path, stage_path.read_bytes())

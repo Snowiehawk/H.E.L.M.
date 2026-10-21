@@ -3,6 +3,8 @@ import type { DesktopAdapter } from "./contracts";
 import { LiveDesktopAdapter } from "./liveDesktopAdapter";
 import { MockDesktopAdapter } from "./mockDesktopAdapter";
 
+import { trackDesktopMutations } from "../../execution/mutationTracking";
+
 const AdapterContext = createContext<DesktopAdapter | null>(null);
 
 export function createDesktopAdapter(): DesktopAdapter {
@@ -21,7 +23,7 @@ export function useDesktopAdapter(): DesktopAdapter {
   if (!adapter) {
     throw new Error("Desktop adapter missing from context.");
   }
-  return adapter;
+  return trackDesktopMutations(adapter);
 }
 
 export * from "./contracts";

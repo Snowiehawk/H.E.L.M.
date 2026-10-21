@@ -1,3 +1,4 @@
+import { useUndoStore } from "../store/undoStore";
 import { useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { DesktopWindow } from "../components/layout/DesktopWindow";
@@ -66,16 +67,48 @@ export function IndexingScreen() {
   }, [progress?.recoveryEvents, setLastActivity]);
 
   useEffect(() => {
-    if (progress?.status !== "done") {
+    const owned = useUiStore.getState().indexingSession;
+    if (
+      progress?.status !== "done" ||
+      !owned ||
+      owned.jobId !== jobId ||
+      owned.sessionId !== session?.id
+    ) {
       return;
     }
 
     const timer = window.setTimeout(() => {
+      if (
+        useUiStore.getState().indexingSession?.jobId !== jobId ||
+        useUiStore.getState().repoSession?.id !== session?.id
+      )
+        return;
+      useUiStore.setState({ indexingSession: undefined });
       navigate("/workspace");
     }, 700);
 
     return () => window.clearTimeout(timer);
-  }, [navigate, progress?.status]);
+  }, [navigate, progress?.status, jobId, session?.id]);
+
+  const backToWelcome = () => {
+    const state = useUiStore.getState();
+    const owned = state.indexingSession;
+    if (
+      progress?.status === "error" &&
+      progress.jobId === jobId &&
+      owned?.jobId === jobId &&
+      owned.sessionId === state.repoSession?.id
+    ) {
+      // Only this failed, never-ready index session can be abandoned. A later
+      // workspace (and its drafts) must never be cleared by a stale error view.
+      state.resetWorkspace();
+      useUiStore.setState({ repoSession: undefined });
+      useUndoStore.getState().resetSession(undefined);
+      navigate("/");
+      return;
+    }
+    navigate(state.repoSession ? "/workspace" : "/");
+  };
 
   const totalModules = progress?.totalModules ?? 0;
   const processedModules = progress?.processedModules ?? 0;
@@ -148,7 +181,7 @@ export function IndexingScreen() {
           </div>
           {progress?.error ? <p className="error-copy">{progress.error}</p> : null}
           {progress?.status === "error" ? (
-            <button className="ghost-button" type="button" onClick={() => navigate("/")}>
+            <button className="ghost-button" type="button" onClick={backToWelcome}>
               Back to Welcome
             </button>
           ) : null}

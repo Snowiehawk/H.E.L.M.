@@ -9,6 +9,9 @@ vi.mock("../editor/InspectorCodeSurface", () => ({
     className,
     dataTestId,
     highlightRange,
+    path,
+    startLine,
+    startColumn,
     readOnly,
     value,
   }: {
@@ -16,6 +19,9 @@ vi.mock("../editor/InspectorCodeSurface", () => ({
     className?: string;
     dataTestId?: string;
     highlightRange?: SourceRange;
+    path?: string;
+    startLine?: number;
+    startColumn?: number;
     readOnly: boolean;
     value: string;
   }) => (
@@ -24,6 +30,9 @@ vi.mock("../editor/InspectorCodeSurface", () => ({
       className={className}
       data-highlight-end-line={highlightRange?.endLine}
       data-highlight-start-line={highlightRange?.startLine}
+      data-path={path}
+      data-start-line={startLine}
+      data-start-column={startColumn}
       data-read-only={readOnly ? "true" : "false"}
       data-testid={dataTestId}
     >
@@ -81,6 +90,41 @@ describe("BlueprintInspector", () => {
       "false",
     );
     expect(screen.getByLabelText(/Function source editor/i)).toHaveTextContent("def calculate");
+  });
+
+  it("honors same-text source metadata and read-only updates", () => {
+    const source = buildEditableSource();
+    const props = {
+      selectedNode: buildNode(),
+      editableSourceLoading: false,
+      isSavingSource: false,
+      onClose: vi.fn(),
+      onDismissSource: vi.fn(),
+      onEditorStateChange: vi.fn(),
+      onSaveSource: vi.fn(),
+    };
+    const { rerender } = render(<BlueprintInspector {...props} editableSource={source} />);
+    rerender(
+      <BlueprintInspector
+        {...props}
+        editableSource={{ ...source, path: "moved.py", startLine: 80, startColumn: 5, endLine: 90 }}
+      />,
+    );
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-path", "moved.py");
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-start-line", "80");
+    expect(screen.getByTestId("inspector-inline-editor")).toHaveAttribute("data-start-column", "5");
+    rerender(
+      <BlueprintInspector
+        {...props}
+        editableSource={{ ...source, editable: false, reason: "Read only now" }}
+      />,
+    );
+    expect(screen.queryByTestId("inspector-inline-editor")).not.toBeInTheDocument();
+    expect(screen.getByTestId("inspector-readonly-source")).toHaveAttribute(
+      "data-read-only",
+      "true",
+    );
+    expect(props.onSaveSource).not.toHaveBeenCalled();
   });
 
   it("opens an inspector context menu with source actions", async () => {

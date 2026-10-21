@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { trackDesktopMutations, workspaceMutationState } from "../../execution/mutationTracking";
 
-const { invokeMock } = vi.hoisted(() => ({
+const { invokeMock, canonicalizeMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
+  canonicalizeMock: vi.fn(),
 }));
 const eventState = vi.hoisted(() => ({
   callbacks: new Map<string, (event: { payload: unknown }) => void>(),
@@ -15,7 +17,8 @@ const { openDialogMock, saveDialogMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: invokeMock,
+  invoke: (command: string, args?: Record<string, unknown>) =>
+    command === "canonicalize_repo_path" ? canonicalizeMock(args) : invokeMock(command, args),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -64,6 +67,8 @@ describe("LiveDesktopAdapter", () => {
 
   beforeEach(() => {
     invokeMock.mockReset();
+    canonicalizeMock.mockReset();
+    canonicalizeMock.mockImplementation(async ({ repoPath }) => repoPath);
     listenMock.mockReset();
     openDialogMock.mockReset();
     saveDialogMock.mockReset();
@@ -1026,6 +1031,178 @@ describe("LiveDesktopAdapter", () => {
     return { promise, resolve };
   }
 
+  const canonicalCases = [
+    ["symlink", "/fixtures/selected-alias", "/fixtures/real-repository"],
+    ["non-canonical", "/fixtures/real-repository/../real-repository/", "/fixtures/real-repository"],
+  ] as const;
+
+  it.each(canonicalCases)(
+    "accepts canonical native progress for a %s repository path",
+    async (_kind, selected, canonical) => {
+      const pending = deferredResult();
+      canonicalizeMock.mockResolvedValue(canonical);
+      invokeMock.mockImplementation((command) => {
+        return command === "backend_health" ? Promise.resolve(health) : pending.promise;
+      });
+      const adapter = new LiveDesktopAdapter();
+      const session = await adapter.openRepo(selected);
+      expect(session.path).toBe(canonical);
+      const { jobId } = await adapter.startIndex(selected);
+      expect(canonicalizeMock).toHaveBeenNthCalledWith(1, { repoPath: selected });
+      expect(canonicalizeMock).toHaveBeenNthCalledWith(2, { repoPath: selected });
+      expect(invokeMock).toHaveBeenCalledWith("scan_repo_payload", { repoPath: canonical, jobId });
+      const states: IndexingJobState[] = [];
+      adapter.subscribeIndexProgress(jobId, (state) => states.push(state));
+      try {
+        eventState.callbacks.get("helm://index-progress")?.({
+          payload: {
+            jobId,
+            repoPath: canonical,
+            status: "running",
+            stage: "discover",
+            processedModules: 1,
+            totalModules: 2,
+            symbolCount: 0,
+            message: "Canonical native progress",
+            progressPercent: 42,
+          },
+        });
+        expect(states.some((state) => state.progressPercent === 42)).toBe(true);
+      } finally {
+        pending.resolve(emptyScan(canonical));
+        await settle();
+      }
+      expect(states[states.length - 1]?.status).toBe("done");
+    },
+  );
+
+  it.each(canonicalCases)(
+    "refreshes indexed data from canonical native sync for a %s repository path",
+    async (_kind, selected, canonical) => {
+      canonicalizeMock.mockResolvedValue(canonical);
+      invokeMock.mockImplementation((command) =>
+        Promise.resolve(
+          command === "backend_health" ? health : { ...emptyScan(canonical), contextEpoch: 4 },
+        ),
+      );
+      const adapter = new LiveDesktopAdapter();
+      await adapter.openRepo(selected);
+      await adapter.startIndex(selected);
+      await settle();
+      const update = vi.fn();
+      adapter.subscribeWorkspaceSync(update);
+      const payload = emptyScan(canonical);
+      payload.summary.module_count = 2;
+      payload.graph.report.module_count = 2;
+      eventState.callbacks.get("helm://workspace-sync")?.({
+        payload: {
+          contextEpoch: 4,
+          repoPath: canonical,
+          sessionVersion: 2,
+          reason: "external-change",
+          status: "synced",
+          changedRelativePaths: ["external.py"],
+          needsManualResync: false,
+          payload,
+        },
+      });
+      expect(update).toHaveBeenCalledOnce();
+      expect((await adapter.getOverview()).metrics).toContainEqual({
+        label: "Modules",
+        value: "2",
+      });
+    },
+  );
+
+  it.each(["open", "index"] as const)(
+    "canonicalizes a direct %s request without depending on a prior selection",
+    async (operation) => {
+      canonicalizeMock.mockResolvedValue("/workspace/real");
+      invokeMock.mockImplementation((command) =>
+        Promise.resolve(command === "backend_health" ? health : emptyScan("/workspace/real")),
+      );
+      const adapter = new LiveDesktopAdapter();
+      if (operation === "open") {
+        expect((await adapter.openRepo("/workspace/alias")).path).toBe("/workspace/real");
+        expect(invokeMock).not.toHaveBeenCalled();
+      } else {
+        const { jobId } = await adapter.startIndex("/workspace/alias");
+        expect(invokeMock).toHaveBeenCalledWith("scan_repo_payload", {
+          repoPath: "/workspace/real",
+          jobId,
+        });
+        await settle();
+        expect((await adapter.getOverview()).repo.path).toBe("/workspace/real");
+      }
+    },
+  );
+
+  it.each([
+    ["open", "open"],
+    ["open", "index"],
+    ["index", "open"],
+    ["index", "index"],
+  ] as const)(
+    "rejects an old %s resolution after a newer %s request, including the same path",
+    async (first, second) => {
+      const pending = deferredResult();
+      canonicalizeMock.mockImplementationOnce(() => pending.promise);
+      invokeMock.mockImplementation((command, args) =>
+        Promise.resolve(command === "backend_health" ? health : emptyScan(args.repoPath)),
+      );
+      const adapter = new LiveDesktopAdapter();
+      const stale =
+        first === "open"
+          ? adapter.openRepo("/workspace/repo")
+          : adapter.startIndex("/workspace/repo");
+      const rejection = expect(stale).rejects.toThrow("Repository selection was superseded");
+      await settle();
+      expect(canonicalizeMock).toHaveBeenCalledTimes(1);
+      if (second === "open") await adapter.openRepo("/workspace/repo");
+      else await adapter.startIndex("/workspace/repo");
+      pending.resolve("/workspace/repo");
+      await rejection;
+      await settle();
+      expect(
+        invokeMock.mock.calls.filter(([command]) => command === "scan_repo_payload"),
+      ).toHaveLength(second === "index" ? 1 : 0);
+    },
+  );
+
+  it("rejects a superseded folder dialog before resolving its selected path", async () => {
+    const pending = deferredResult();
+    openDialogMock.mockImplementationOnce(() => pending.promise);
+    const adapter = new LiveDesktopAdapter();
+    const stale = adapter.openRepo();
+    const rejection = expect(stale).rejects.toThrow("Repository selection was superseded");
+    await adapter.openRepo("/workspace/new");
+    pending.resolve("/workspace/old");
+    await rejection;
+    expect(canonicalizeMock).toHaveBeenCalledExactlyOnceWith({ repoPath: "/workspace/new" });
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["open", "index"] as const)(
+    "retains the current cache when a %s identity cannot be resolved",
+    async (operation) => {
+      invokeMock.mockImplementation((command, args) =>
+        Promise.resolve(command === "backend_health" ? health : emptyScan(args.repoPath)),
+      );
+      const adapter = new LiveDesktopAdapter();
+      await adapter.startIndex("/workspace/current");
+      await settle();
+      invokeMock.mockClear();
+      canonicalizeMock.mockRejectedValueOnce(new Error("Repository path is not a directory"));
+      await expect(
+        operation === "open"
+          ? adapter.openRepo("/workspace/file")
+          : adapter.startIndex("/workspace/file"),
+      ).rejects.toThrow("Repository path is not a directory");
+      expect((await adapter.getOverview()).repo.path).toBe("/workspace/current");
+      expect(invokeMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("does not relabel a retired repository scan as the newly selected repository", async () => {
     const old = deferredResult();
     invokeMock.mockImplementation((command, args) =>
@@ -1140,6 +1317,23 @@ describe("LiveDesktopAdapter", () => {
     expect((await adapter.getOverview()).defaultFocusNodeId).toBe("repo:/workspace/beta");
   });
 
+  it("preserves native source validation messages and clears shared mutation ownership for retry", async () => {
+    invokeMock.mockImplementation((command, args) =>
+      command === "save_node_source"
+        ? Promise.reject("Invalid Python declaration: expected a name")
+        : Promise.resolve(command === "backend_health" ? health : emptyScan(args.repoPath)),
+    );
+    const adapter = trackDesktopMutations(new LiveDesktopAdapter());
+    await adapter.openRepo("/workspace/alpha");
+    await adapter.startIndex("/workspace/alpha");
+    await settle();
+    await expect(adapter.saveNodeSource("symbol:alpha:run", "def run(:")).rejects.toThrow(
+      "Invalid Python declaration: expected a name",
+    );
+    expect(workspaceMutationState().active).toBe(0);
+    expect((await adapter.getOverview()).repo.path).toBe("/workspace/alpha");
+  });
+
   it("does not restore a retired source edit cache after another repository is selected", async () => {
     const old = deferredResult();
     invokeMock.mockImplementation((command, args) =>
@@ -1199,6 +1393,37 @@ describe("LiveDesktopAdapter", () => {
     expect((await adapter.getOverview()).repo.path).toBe("/workspace/beta");
   });
 
+  it("keeps a completed cached index final when delayed progress arrives", async () => {
+    invokeMock.mockImplementation((command) =>
+      Promise.resolve(command === "backend_health" ? health : emptyScan("/workspace/beta")),
+    );
+    const adapter = new LiveDesktopAdapter();
+    const { jobId } = await adapter.startIndex("/workspace/beta");
+    const states: IndexingJobState[] = [];
+    adapter.subscribeIndexProgress(jobId, (state) => states.push(state));
+    await settle();
+    expect(states[states.length - 1]?.status).toBe("done");
+    const finalCount = states.length;
+    for (const status of ["running", "error"] as const) {
+      eventState.callbacks.get("helm://index-progress")?.({
+        payload: {
+          job_id: jobId,
+          repo_path: "/workspace/beta",
+          status,
+          stage: "cache_finalize",
+          processed_modules: 0,
+          total_modules: 0,
+          symbol_count: 0,
+          message: "late progress",
+          progress_percent: 95,
+        },
+      });
+    }
+    expect(states[states.length - 1]?.status).toBe("done");
+    expect(states).toHaveLength(finalCount);
+    expect((await adapter.getOverview()).repo.path).toBe("/workspace/beta");
+  });
+
   it("assigns distinct indexing jobs even when requests start in the same millisecond", async () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(1234);
     const pending = deferredResult();
@@ -1215,5 +1440,117 @@ describe("LiveDesktopAdapter", () => {
     } finally {
       now.mockRestore();
     }
+  });
+  it.each(["success", "failure"] as const)(
+    "refuses stale same-path watcher refreshes during and after a %s reindex",
+    async (outcome) => {
+      const adapter = new LiveDesktopAdapter();
+      invokeMock.mockImplementation((command) =>
+        Promise.resolve(
+          command === "backend_health"
+            ? health
+            : { ...emptyScan("/workspace/current"), contextEpoch: 1 },
+        ),
+      );
+      await adapter.startIndex("/workspace/current");
+      await settle();
+      const update = vi.fn();
+      adapter.subscribeWorkspaceSync(update);
+      let resolveScan!: (value: ReturnType<typeof emptyScan> & { contextEpoch: number }) => void;
+      let rejectScan!: (reason: Error) => void;
+      const scan = new Promise<ReturnType<typeof emptyScan> & { contextEpoch: number }>(
+        (resolve, reject) => {
+          resolveScan = resolve;
+          rejectScan = reject;
+        },
+      );
+      invokeMock.mockImplementation((command) =>
+        command === "backend_health" ? Promise.resolve(health) : scan,
+      );
+      await adapter.startIndex("/workspace/current");
+      const event = {
+        contextEpoch: 1,
+        repoPath: "/workspace/current",
+        sessionVersion: 99,
+        reason: "external-change",
+        status: "synced",
+        changedRelativePaths: ["retired.py"],
+        needsManualResync: false,
+      };
+      eventState.callbacks.get("helm://workspace-sync")?.({ payload: event });
+      expect(update).not.toHaveBeenCalled();
+      if (outcome === "success")
+        resolveScan({ ...emptyScan("/workspace/current"), contextEpoch: 2 });
+      else rejectScan(new Error("Actual reindex failed"));
+      await settle();
+      eventState.callbacks.get("helm://workspace-sync")?.({ payload: event });
+      expect(update).not.toHaveBeenCalled();
+      eventState.callbacks.get("helm://workspace-sync")?.({
+        payload: { ...event, contextEpoch: 2 },
+      });
+      expect(update).toHaveBeenCalledTimes(outcome === "success" ? 1 : 0);
+    },
+  );
+
+  it("adopts the genuine current scan epoch before admitting watcher refreshes", async () => {
+    const adapter = new LiveDesktopAdapter();
+    const payload = { ...emptyScan("/workspace/current"), contextEpoch: 7 };
+    invokeMock.mockImplementation((command) =>
+      Promise.resolve(command === "backend_health" ? health : payload),
+    );
+    await adapter.startIndex("/workspace/current");
+    await settle();
+    const update = vi.fn();
+    adapter.subscribeWorkspaceSync(update);
+    const event = {
+      repoPath: "/workspace/current",
+      sessionVersion: 1,
+      reason: "external-change",
+      status: "synced",
+      changedRelativePaths: ["current.py"],
+      needsManualResync: false,
+    };
+    eventState.callbacks.get("helm://workspace-sync")?.({ payload: { ...event, contextEpoch: 6 } });
+    expect(update).not.toHaveBeenCalled();
+    eventState.callbacks.get("helm://workspace-sync")?.({ payload: { ...event, contextEpoch: 7 } });
+    expect(update).toHaveBeenCalledOnce();
+  });
+
+  it("accepts the actual native camelCase watcher wire contract after an authoritative scan", async () => {
+    const adapter = new LiveDesktopAdapter(),
+      update = vi.fn();
+    invokeMock.mockImplementation((command) =>
+      Promise.resolve(
+        command === "backend_health" ? health : { ...emptyScan("/repo"), contextEpoch: 4 },
+      ),
+    );
+    await adapter.startIndex("/repo");
+    await settle();
+    adapter.subscribeWorkspaceSync(update);
+    eventState.callbacks.get("helm://workspace-sync")?.({
+      payload: {
+        contextEpoch: 4,
+        repoPath: "/repo",
+        sessionVersion: 2,
+        reason: "changed",
+        status: "synced",
+        changedRelativePaths: ["new.py"],
+        needsManualResync: false,
+        snapshot: {
+          repoId: "repo",
+          defaultFocusNodeId: "module:new",
+          defaultLevel: "module",
+          nodeIds: ["module:new"],
+        },
+      },
+    });
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath: "/repo",
+        sessionVersion: 2,
+        changedRelativePaths: ["new.py"],
+        snapshot: expect.objectContaining({ defaultFocusNodeId: "module:new" }),
+      }),
+    );
   });
 });

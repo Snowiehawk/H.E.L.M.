@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { FlowFunctionInput } from "../../lib/adapter";
 import { AppContextMenu, clampAppContextMenuPosition } from "../shared/AppContextMenu";
@@ -23,10 +23,10 @@ export function BlueprintInspector({
   moduleActionNode,
   destinationModulePaths,
   symbol,
-  editableSource,
+  editableSource: incomingEditableSource,
   editableSourceLoading,
   editableSourceError,
-  draftStale,
+  draftStale: workspaceDraftStale,
   revealedSource,
   lastActivity,
   isSavingSource,
@@ -46,8 +46,46 @@ export function BlueprintInspector({
   onDismissSource,
   onClose,
 }: BlueprintInspectorProps) {
-  const [draftSource, setDraftSource] = useState(() => editableSource?.content ?? "");
+  const [loadedSource, setDraftBaseline] = useState(incomingEditableSource);
+  const [draftSource, setDraftSource] = useState(() => incomingEditableSource?.content ?? "");
   const [sourceError, setSourceError] = useState<string | null>(null);
+  // Keep the source preimage with the buffer that was actually loaded. A query
+  // refresh must neither manufacture a draft from clean old text nor rebase a
+  // genuine unsaved draft onto newer disk content. Reconcile before committing
+  // children/effects, so preparation never sees the intermediate mismatch.
+  if (
+    !(incomingEditableSource === undefined && editableSourceLoading) &&
+    (incomingEditableSource?.targetId !== loadedSource?.targetId ||
+      (incomingEditableSource?.content !== loadedSource?.content &&
+        draftSource === (loadedSource?.content ?? "") &&
+        !workspaceDraftStale))
+  ) {
+    setDraftBaseline(incomingEditableSource);
+    setDraftSource(incomingEditableSource?.content ?? "");
+    setSourceError(null);
+  }
+  const sourceChanged = Boolean(
+    loadedSource &&
+    incomingEditableSource?.targetId === loadedSource.targetId &&
+    incomingEditableSource.content !== loadedSource.content,
+  );
+  // Text is the optimistic-save preimage; current permissions, source mapping
+  // and presentation metadata still come from the latest query response.
+  const editableSource = useMemo(
+    () =>
+      incomingEditableSource && loadedSource?.targetId === incomingEditableSource.targetId
+        ? { ...incomingEditableSource, content: loadedSource.content }
+        : loadedSource,
+    [incomingEditableSource, loadedSource],
+  );
+  const retainedReadOnlyDraft = Boolean(
+    incomingEditableSource &&
+    !incomingEditableSource.editable &&
+    loadedSource &&
+    incomingEditableSource.targetId === loadedSource.targetId &&
+    draftSource !== loadedSource.content,
+  );
+  const draftStale = workspaceDraftStale || sourceChanged || retainedReadOnlyDraft;
   const [structuralActionError, setStructuralActionError] = useState<string | null>(null);
   const [contextActionError, setContextActionError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<InspectorContextMenuState | null>(null);
@@ -63,7 +101,6 @@ export function BlueprintInspector({
   >({});
   const [newFlowInputName, setNewFlowInputName] = useState("");
   const [newFlowInputDefault, setNewFlowInputDefault] = useState("");
-  const previousEditableTargetIdRef = useRef<string | undefined>(undefined);
 
   const viewModel = buildBlueprintInspectorViewModel({
     selectedNode,
@@ -125,7 +162,8 @@ export function BlueprintInspector({
   };
 
   const handleCancel = () => {
-    setDraftSource(editableSource?.content ?? "");
+    setDraftBaseline(incomingEditableSource);
+    setDraftSource(incomingEditableSource?.content ?? "");
     setSourceError(null);
   };
 
@@ -150,37 +188,25 @@ export function BlueprintInspector({
     });
 
   useEffect(() => {
-    if (!editableSource && editableSourceLoading) {
-      return;
-    }
-
-    const nextTargetId = editableSource?.targetId;
-    if (nextTargetId !== previousEditableTargetIdRef.current) {
-      previousEditableTargetIdRef.current = nextTargetId;
-      setDraftSource(editableSource?.content ?? "");
-      setSourceError(null);
-      return;
-    }
-
-    if (!viewModel.dirty && !draftStale) {
-      setDraftSource(editableSource?.content ?? "");
-      setSourceError(null);
-    }
-  }, [
-    draftStale,
-    editableSource?.content,
-    editableSource?.targetId,
-    editableSourceLoading,
-    viewModel.dirty,
-  ]);
-
-  useEffect(() => {
-    if (viewModel.canEditInline) {
-      onEditorStateChange(draftSource, viewModel.dirty);
+    if (viewModel.canEditInline || retainedReadOnlyDraft) {
+      onEditorStateChange(
+        draftSource,
+        viewModel.dirty || retainedReadOnlyDraft,
+        editableSource,
+        sourceChanged || retainedReadOnlyDraft,
+      );
       return;
     }
     onEditorStateChange(undefined, false);
-  }, [draftSource, onEditorStateChange, viewModel.canEditInline, viewModel.dirty]);
+  }, [
+    draftSource,
+    editableSource,
+    onEditorStateChange,
+    sourceChanged,
+    retainedReadOnlyDraft,
+    viewModel.canEditInline,
+    viewModel.dirty,
+  ]);
 
   useEffect(() => {
     setRenameValue(selectedNode?.label ?? "");
@@ -351,6 +377,7 @@ export function BlueprintInspector({
           sourceError={sourceError}
           sourceLanguage={viewModel.sourceLanguage}
           onCancel={handleCancel}
+          retainedDraft={retainedReadOnlyDraft ? draftSource : undefined}
           onChangeDraftSource={setDraftSource}
           onOpenContextMenu={openContextMenu}
           onSave={handleSave}

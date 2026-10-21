@@ -179,6 +179,7 @@ export function BlueprintInspectorDrawer({
       aria-label="Inspector drawer"
       className={`blueprint-inspector-drawer blueprint-inspector-drawer--${mode}`}
       data-mode={mode}
+      data-narrow-layout={narrowLayout}
       data-testid="blueprint-inspector-drawer"
       style={drawerHeightStyle}
     >

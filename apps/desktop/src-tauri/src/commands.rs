@@ -1,6 +1,8 @@
 use crate::app_menu::{self, GraphViewMenuState};
 use crate::bridge::{self, BackendHealth, BackendService, WorkerProgressPayload};
 use crate::events::{emit_index_progress_event, IndexProgressEventPayload};
+use crate::execution_policy::ExecutionPolicy;
+use crate::execution_supervisor::ExecutionSupervisor;
 use crate::graph_layout_storage::{
     read_repo_graph_layouts, write_repo_graph_layouts, StoredGraphViewLayout,
 };
@@ -14,7 +16,7 @@ use crate::repo_file_actions::{
 use crate::watcher::{ActiveRepoWatcher, WORKSPACE_SYNC_TOP_N};
 use serde_json::{json, Value};
 use std::path::Path;
-use tauri::{AppHandle, State, Wry};
+use tauri::{AppHandle, Manager, State, Wry};
 
 fn to_index_progress_event(
     job_id: &str,
@@ -36,83 +38,137 @@ fn to_index_progress_event(
 }
 
 #[tauri::command]
-pub(crate) fn backend_health(service: State<'_, BackendService>) -> Result<BackendHealth, String> {
-    bridge::backend_health(service.inner())
+pub(crate) async fn backend_health(
+    service: State<'_, BackendService>,
+) -> Result<BackendHealth, String> {
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _work = crate::maintenance::work()?;
+        bridge::backend_health(&service)
+    })
+    .await
+    .map_err(|_| "Backend health worker was interrupted. Existing ownership remains unconfirmed; no automatic retry was performed.".to_string())?
+}
+
+// Resolve identity without activating a repository, changing trust, or starting a scan.
+#[tauri::command]
+pub(crate) fn canonicalize_repo_path(repo_path: String) -> Result<String, String> {
+    let _work = crate::maintenance::work()?;
+    canonicalize_repo_root(&repo_path).map(|root| normalize_path(&root))
 }
 
 #[tauri::command]
-pub(crate) fn scan_repo_payload(
+pub(crate) async fn scan_repo_payload(
     app: AppHandle<Wry>,
-    service: State<'_, BackendService>,
-    watcher: State<'_, ActiveRepoWatcher>,
-    active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
     job_id: String,
 ) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        scan_repo_payload_sync(app, repo_path, job_id)
+    }).await.map_err(|_| "Workspace scan worker was interrupted. Index state is unconfirmed; inspect the current workspace before retrying. No automatic retry was performed.".to_string())?
+}
+
+// A rescan replaces the authoritative worker session even at the same path.
+// Keep its lifecycle boundary independent of the WebView while the caller's
+// already-acquired Work spans worker I/O and the resulting commit/watch setup.
+fn execute_scan_replacement<T>(
+    policy: &ExecutionPolicy,
+    execution: &ExecutionSupervisor,
+    stop_watcher: impl FnOnce() -> Result<(), String>,
+    replace: impl FnOnce(u64) -> Result<T, String>,
+) -> Result<T, String> {
+    let _execution_transition = policy.begin_transition()?;
+    execution.shutdown_all()?;
+    stop_watcher()?;
+    let context_epoch =
+        crate::repo_boundary::CONTEXT_EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    replace(context_epoch)
+}
+
+fn scan_repo_payload_sync(
+    app: AppHandle<Wry>,
+    repo_path: String,
+    job_id: String,
+) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
+    let service = app.state::<BackendService>();
+    let watcher = app.state::<ActiveRepoWatcher>();
+    let active_repo = app.state::<ActiveRepoBoundary>();
+    let policy = app.state::<ExecutionPolicy>();
+    let execution = app.state::<ExecutionSupervisor>();
     let canonical_repo_root = canonicalize_repo_root(&repo_path)?;
-    let repo_path = normalize_path(&canonical_repo_root);
-    let progress_app = app.clone();
-    let progress_job_id = job_id.clone();
-    let progress_repo_path = repo_path.clone();
-    let payload = service.request_with_progress(
-        "full-resync",
-        json!({
-            "repo": repo_path.clone(),
-            "top_n": WORKSPACE_SYNC_TOP_N,
-            "emit_progress": true,
-        }),
-        Some(move |progress: WorkerProgressPayload| {
+    execute_scan_replacement(
+        policy.inner(),
+        execution.inner(),
+        || watcher.stop(),
+        |context_epoch| {
+            let repo_path = normalize_path(&canonical_repo_root);
+            let progress_app = app.clone();
+            let progress_job_id = job_id.clone();
+            let progress_repo_path = repo_path.clone();
+            let mut payload = service.request_with_progress(
+                "full-resync",
+                json!({
+                    "repo": repo_path.clone(),
+                    "top_n": WORKSPACE_SYNC_TOP_N,
+                    "emit_progress": true,
+                }),
+                Some(move |progress: WorkerProgressPayload| {
+                    emit_index_progress_event(
+                        &progress_app,
+                        to_index_progress_event(&progress_job_id, &progress_repo_path, progress),
+                    );
+                }),
+            )?;
+
+            let module_count = payload
+                .get("graph")
+                .and_then(|graph| graph.get("report"))
+                .and_then(|report| report.get("module_count"))
+                .and_then(Value::as_u64)
+                .and_then(|value| usize::try_from(value).ok())
+                .unwrap_or(0);
+            let symbol_count = payload
+                .get("graph")
+                .and_then(|graph| graph.get("report"))
+                .and_then(|report| report.get("symbol_count"))
+                .and_then(Value::as_u64)
+                .and_then(|value| usize::try_from(value).ok())
+                .unwrap_or(0);
+
+            active_repo.set_active_repo(canonical_repo_root)?;
+            payload["contextEpoch"] = json!(context_epoch);
+            let watch_ready_message =
+                match watcher.watch_repo(&app, service.inner().clone(), &repo_path) {
+                    Ok(()) => {
+                        service.mark_synced();
+                        "Workspace ready. Watching for workspace changes.".to_string()
+                    }
+                    Err(err) => {
+                        service.mark_manual_resync_required(err);
+                        "Workspace ready. Live sync needs manual reindex.".to_string()
+                    }
+                };
+
             emit_index_progress_event(
-                &progress_app,
-                to_index_progress_event(&progress_job_id, &progress_repo_path, progress),
+                &app,
+                IndexProgressEventPayload {
+                    job_id,
+                    repo_path: repo_path.clone(),
+                    status: "done".to_string(),
+                    stage: "watch_ready".to_string(),
+                    processed_modules: module_count,
+                    total_modules: module_count,
+                    symbol_count,
+                    message: watch_ready_message,
+                    progress_percent: Some(100),
+                    error: None,
+                },
             );
-        }),
-    )?;
 
-    let module_count = payload
-        .get("graph")
-        .and_then(|graph| graph.get("report"))
-        .and_then(|report| report.get("module_count"))
-        .and_then(Value::as_u64)
-        .and_then(|value| usize::try_from(value).ok())
-        .unwrap_or(0);
-    let symbol_count = payload
-        .get("graph")
-        .and_then(|graph| graph.get("report"))
-        .and_then(|report| report.get("symbol_count"))
-        .and_then(Value::as_u64)
-        .and_then(|value| usize::try_from(value).ok())
-        .unwrap_or(0);
-
-    active_repo.set_active_repo(canonical_repo_root)?;
-    let watch_ready_message = match watcher.watch_repo(&app, service.inner().clone(), &repo_path) {
-        Ok(()) => {
-            service.mark_synced();
-            "Workspace ready. Watching for workspace changes.".to_string()
-        }
-        Err(err) => {
-            service.mark_manual_resync_required(err);
-            "Workspace ready. Live sync needs manual reindex.".to_string()
-        }
-    };
-
-    emit_index_progress_event(
-        &app,
-        IndexProgressEventPayload {
-            job_id,
-            repo_path: repo_path.clone(),
-            status: "done".to_string(),
-            stage: "watch_ready".to_string(),
-            processed_modules: module_count,
-            total_modules: module_count,
-            symbol_count,
-            message: watch_ready_message,
-            progress_percent: Some(100),
-            error: None,
+            Ok(payload)
         },
-    );
-
-    Ok(payload)
+    )
 }
 
 #[tauri::command]
@@ -124,6 +180,7 @@ pub(crate) fn graph_view(
     level: String,
     filters_json: String,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     let filters: Value = serde_json::from_str(&filters_json)
         .map_err(|err| format!("Unable to decode graph filters: {}", err))?;
@@ -145,6 +202,7 @@ pub(crate) fn flow_view(
     repo_path: String,
     symbol_id: String,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     service.request(
         "flow-view",
@@ -162,6 +220,7 @@ pub(crate) fn apply_structural_edit(
     repo_path: String,
     request_json: String,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     service.request(
         "apply-edit",
@@ -179,6 +238,7 @@ pub(crate) fn reveal_source(
     repo_path: String,
     target_id: String,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     service.request(
         "reveal-source",
@@ -196,6 +256,7 @@ pub(crate) fn editable_node_source(
     repo_path: String,
     target_id: String,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     service.request(
         "editable-source",
@@ -213,7 +274,9 @@ pub(crate) fn save_node_source(
     repo_path: String,
     target_id: String,
     content_json: String,
+    expected_source: Option<String>,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     let content: Value = serde_json::from_str(&content_json)
         .map_err(|err| format!("Unable to decode replacement source: {}", err))?;
@@ -226,6 +289,7 @@ pub(crate) fn save_node_source(
             "repo": repo_path,
             "target_id": target_id,
             "content": content,
+            "expected_source": expected_source,
         }),
     )
 }
@@ -238,6 +302,7 @@ pub(crate) fn parse_flow_expression(
     expression: String,
     input_slots_json: String,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     let input_slot_by_name: Value = serde_json::from_str(&input_slots_json)
         .map_err(|err| format!("Unable to decode expression input slots: {}", err))?;
@@ -258,6 +323,7 @@ pub(crate) fn apply_backend_undo(
     repo_path: String,
     transaction_json: String,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     service.request(
         "apply-undo",
@@ -274,6 +340,7 @@ pub(crate) fn read_repo_graph_layout(
     repo_path: String,
     view_key: String,
 ) -> Result<StoredGraphViewLayout, String> {
+    let _work = crate::maintenance::work()?;
     let repo_root = active_repo.command_repo_root(&repo_path)?;
     let layouts = read_repo_graph_layouts(&repo_root)?;
     Ok(layouts.views.get(&view_key).cloned().unwrap_or_default())
@@ -286,6 +353,7 @@ pub(crate) fn write_repo_graph_layout(
     view_key: String,
     layout_json: String,
 ) -> Result<(), String> {
+    let _work = crate::maintenance::work()?;
     let repo_root = active_repo.command_repo_root(&repo_path)?;
     let layout: StoredGraphViewLayout = serde_json::from_str(&layout_json)
         .map_err(|err| format!("Unable to decode graph layout payload: {}", err))?;
@@ -300,12 +368,14 @@ pub(crate) fn read_repo_file(
     repo_path: String,
     relative_path: String,
 ) -> Result<String, String> {
+    let _work = crate::maintenance::work()?;
     let target = active_repo.resolve_existing_target(&repo_path, &relative_path)?;
     read_text_file(&target.target_path, &target.relative_path)
 }
 
 #[tauri::command]
 pub(crate) fn create_new_project(project_path: String) -> Result<NewProjectResult, String> {
+    let _work = crate::maintenance::work()?;
     let path = validate_new_project_path(&project_path)?;
     create_python_package_project(&path)
 }
@@ -316,6 +386,7 @@ pub(crate) fn list_workspace_files(
     active_repo: State<'_, ActiveRepoBoundary>,
     repo_path: String,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     service.request(
         "list-workspace-files",
@@ -332,6 +403,7 @@ pub(crate) fn read_workspace_file(
     repo_path: String,
     relative_path: String,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     let target = active_repo.resolve_existing_target(&repo_path, &relative_path)?;
     service.request(
@@ -353,6 +425,7 @@ pub(crate) fn preview_workspace_file_operation(
     source_relative_path: Option<String>,
     target_directory_relative_path: Option<String>,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     let relative_path = relative_path
         .map(|path| active_repo.resolve_existing_target(&repo_path, &path))
@@ -392,6 +465,7 @@ pub(crate) fn create_workspace_entry(
     relative_path: String,
     content: Option<String>,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     let target = active_repo.resolve_creatable_target(&repo_path, &relative_path)?;
     service.request(
@@ -415,6 +489,7 @@ pub(crate) fn save_workspace_file(
     content: String,
     expected_version: String,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     let target = active_repo.resolve_creatable_target(&repo_path, &relative_path)?;
     service.request(
@@ -438,6 +513,7 @@ pub(crate) fn move_workspace_entry(
     target_directory_relative_path: String,
     expected_impact_fingerprint: Option<String>,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     let source = active_repo.resolve_existing_target(&repo_path, &source_relative_path)?;
     let target_directory_relative_path = if target_directory_relative_path.trim().is_empty() {
@@ -477,6 +553,7 @@ pub(crate) fn delete_workspace_entry(
     relative_path: String,
     expected_impact_fingerprint: Option<String>,
 ) -> Result<Value, String> {
+    let _work = crate::maintenance::work()?;
     let repo_path = active_repo.command_repo_path(&repo_path)?;
     let target = active_repo.resolve_existing_target(&repo_path, &relative_path)?;
     service.request(
@@ -496,6 +573,7 @@ pub(crate) fn open_repo_path_in_default_editor(
     repo_path: String,
     relative_path: String,
 ) -> Result<(), String> {
+    let _work = crate::maintenance::work()?;
     let target = active_repo.resolve_existing_target(&repo_path, &relative_path)?;
     open_path_in_default_editor(&target.target_path)
 }
@@ -506,6 +584,7 @@ pub(crate) fn reveal_repo_path_in_file_explorer(
     repo_path: String,
     relative_path: String,
 ) -> Result<(), String> {
+    let _work = crate::maintenance::work()?;
     let target = active_repo.resolve_existing_target(&repo_path, &relative_path)?;
     reveal_path_in_file_explorer(&target.target_path)
 }
@@ -515,5 +594,10 @@ pub(crate) fn sync_graph_view_menu_state(
     state: tauri::State<'_, GraphViewMenuState>,
     state_json: String,
 ) -> Result<(), String> {
+    let _work = crate::maintenance::work()?;
     app_menu::sync_graph_view_menu_state(state.inner(), &state_json)
 }
+
+#[cfg(test)]
+#[path = "execution_scan_replacement_tests.rs"]
+mod scan_replacement_tests;

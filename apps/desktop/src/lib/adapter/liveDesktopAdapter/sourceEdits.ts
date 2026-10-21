@@ -17,7 +17,7 @@ import type {
   ScanCache,
 } from "./rawTypes";
 import { relativePathForNode } from "./scanCache";
-import { normalizePath, toRecoveryEvents, type InvokeCommand } from "./shared";
+import { normalizePath, toMessage, toRecoveryEvents, type InvokeCommand } from "./shared";
 
 export type EditMutationCommandResult = { result: StructuralEditResult; payload: RawScanPayload };
 export type UndoMutationCommandResult = { result: BackendUndoResult; payload: RawScanPayload };
@@ -246,11 +246,16 @@ export async function saveNodeSourceCommand(
   cache: ScanCache,
   targetId: string,
   content: string,
+  expectedSource?: string,
 ): Promise<EditMutationCommandResult> {
   const response = await invokeCommand<RawApplyEditResponse>("save_node_source", {
     repoPath: cache.session.path,
     targetId,
     contentJson: JSON.stringify(content),
+    ...(expectedSource === undefined ? {} : { expectedSource }),
+  }).catch((reason: unknown) => {
+    // Tauri rejects with a string; the inspector presents Error.message.
+    throw new Error(toMessage(reason));
   });
   return { result: toStructuralEditResult(response.edit), payload: response.payload };
 }

@@ -1,7 +1,7 @@
 import { InspectorCodeSurface } from "../../components/editor/InspectorCodeSurface";
 import { inferInspectorLanguage } from "../../components/editor/inspectorLanguage";
 import { StatusPill } from "../../components/shared/StatusPill";
-import type { WorkspaceFileContents } from "../../lib/adapter";
+import type { SourceRange, WorkspaceFileContents } from "../../lib/adapter";
 
 export function WorkspaceFileEditorPanel({
   file,
@@ -16,6 +16,7 @@ export function WorkspaceFileEditorPanel({
   onChange,
   onClose,
   onSave,
+  highlightRange,
 }: {
   file?: WorkspaceFileContents;
   draft: string;
@@ -29,6 +30,7 @@ export function WorkspaceFileEditorPanel({
   onChange: (content: string) => void;
   onClose: () => void;
   onSave: () => void;
+  highlightRange?: SourceRange;
 }) {
   const language = inferInspectorLanguage({
     editablePath: file?.relativePath,
@@ -73,6 +75,8 @@ export function WorkspaceFileEditorPanel({
             path={file.relativePath}
             readOnly={false}
             value={draft}
+            highlightRange={highlightRange}
+            focusOnReveal={Boolean(highlightRange)}
             onChange={onChange}
           />
           {stale ? (
@@ -112,6 +116,8 @@ export function WorkspaceFileEditorPanel({
             path={file.relativePath}
             readOnly
             value={file.content}
+            highlightRange={highlightRange}
+            focusOnReveal={Boolean(highlightRange)}
           />
           <div className="info-card">
             <strong>Read only</strong>
