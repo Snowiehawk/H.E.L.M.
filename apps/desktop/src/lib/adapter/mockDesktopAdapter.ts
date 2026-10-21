@@ -595,8 +595,18 @@ export class MockDesktopAdapter implements DesktopAdapter {
     return buildEditableNodeSource(this.workspace, targetId);
   }
 
-  async saveNodeSource(targetId: string, content: string): Promise<StructuralEditResult> {
+  async saveNodeSource(
+    targetId: string,
+    content: string,
+    expectedSource?: string,
+  ): Promise<StructuralEditResult> {
     await delay(120);
+    if (
+      expectedSource !== undefined &&
+      buildEditableNodeSource(this.workspace, targetId).content !== expectedSource
+    ) {
+      throw new Error("This declaration changed on disk. Reload it before saving again.");
+    }
     const snapshot = cloneWorkspaceState(this.workspace);
     const result = applyMockEdit(this.workspace, {
       kind: targetId.startsWith("module:") ? "replace_module_source" : "replace_symbol_source",

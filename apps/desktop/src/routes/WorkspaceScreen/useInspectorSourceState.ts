@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
@@ -47,6 +47,7 @@ export function useInspectorSourceState({
   const [inspectorTargetId, setInspectorTargetId] = useState<string | undefined>(undefined);
   const [inspectorSnapshot, setInspectorSnapshot] = useState<GraphView["nodes"][number]>();
   const [inspectorDirty, setInspectorDirty] = useState(false);
+  const inspectorDraftBaselineRef = useRef<EditableNodeSource | undefined>(undefined);
   const [inspectorDraftStale, setInspectorDraftStale] = useState(false);
   const [inspectorEditableSourceOverride, setInspectorEditableSourceOverride] = useState<
     EditableNodeSource | undefined
@@ -181,6 +182,19 @@ export function useInspectorSourceState({
     );
 
   useEffect(() => {
+    // The override certifies immediate post-mutation readback. Once the query
+    // confirms those bytes it becomes the owner again, so later refetches are
+    // not hidden indefinitely behind a successful save's snapshot.
+    if (
+      inspectorEditableSourceOverride &&
+      editableSourceQuery.data?.targetId === inspectorEditableSourceOverride.targetId &&
+      editableSourceQuery.data.content === inspectorEditableSourceOverride.content
+    ) {
+      setInspectorEditableSourceOverride(undefined);
+    }
+  }, [editableSourceQuery.data, inspectorEditableSourceOverride]);
+
+  useEffect(() => {
     if (
       inspectorEditableSourceOverride &&
       inspectorEditableSourceOverride.targetId !== inspectorSourceTarget?.targetId
@@ -199,7 +213,9 @@ export function useInspectorSourceState({
     if (
       effectiveEditableSource?.content !== undefined &&
       currentDraft !== undefined &&
-      currentDraft === effectiveEditableSource.content
+      currentDraft === effectiveEditableSource.content &&
+      inspectorDraftBaselineRef.current?.targetId === effectiveEditableSource.targetId &&
+      inspectorDraftBaselineRef.current.content === effectiveEditableSource.content
     ) {
       setInspectorDraftStale(false);
     }
@@ -211,8 +227,11 @@ export function useInspectorSourceState({
   ]);
 
   const handleInspectorEditorStateChange = useCallback(
-    (content?: string, dirty?: boolean) => {
+    (content?: string, dirty?: boolean, baseline?: EditableNodeSource, sourceChanged?: boolean) => {
       inspectorDraftContentRef.current = content;
+      inspectorDraftBaselineRef.current = baseline;
+      if (sourceChanged) setInspectorDraftStale(true);
+      else if (!dirty) setInspectorDraftStale(false);
       setInspectorDirty((current) => {
         const next = Boolean(dirty);
         return current === next ? current : next;
@@ -226,6 +245,7 @@ export function useInspectorSourceState({
     setInspectorTargetId(undefined);
     setInspectorSnapshot(undefined);
     inspectorDraftContentRef.current = undefined;
+    inspectorDraftBaselineRef.current = undefined;
     setInspectorDirty(false);
     setInspectorDraftStale(false);
     setInspectorEditableSourceOverride(undefined);
@@ -239,6 +259,7 @@ export function useInspectorSourceState({
     effectiveInspectorNode,
     handleInspectorEditorStateChange,
     inspectorDirty,
+    inspectorDraftBaselineRef,
     inspectorDraftStale,
     inspectorHighlightRange,
     inspectorNode,

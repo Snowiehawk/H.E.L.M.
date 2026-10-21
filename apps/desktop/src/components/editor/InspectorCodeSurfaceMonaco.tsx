@@ -20,6 +20,7 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
   path,
   readOnly,
   highlightRange,
+  focusOnReveal,
   startLine,
   startColumn,
   value,
@@ -81,9 +82,28 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
       const model = editorInstance.getModel();
       if (model) {
         monacoInstance.editor.setModelLanguage(model, language);
+        const range = normalizeHighlightRange(highlightRange, model, startLine, startColumn ?? 0);
+        if (range) {
+          decorationIdsRef.current = editorInstance.deltaDecorations(
+            [],
+            [
+              {
+                range,
+                options: {
+                  className: "inspector-code-surface__range-highlight",
+                  inlineClassName: "inspector-code-surface__range-highlight-inline",
+                  stickiness:
+                    monacoInstance.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+                },
+              },
+            ],
+          );
+          editorInstance.revealRangeInCenterIfOutsideViewport(range);
+          if (focusOnReveal) editorInstance.focus();
+        }
       }
     },
-    [language],
+    [language, highlightRange, startLine, startColumn, focusOnReveal],
   );
 
   useEffect(() => {
@@ -128,8 +148,9 @@ export const InspectorCodeSurfaceMonaco = memo(function InspectorCodeSurfaceMona
 
     if (normalizedRange) {
       editorInstance.revealRangeInCenterIfOutsideViewport(normalizedRange);
+      if (focusOnReveal) editorInstance.focus();
     }
-  }, [highlightRange, startColumn, startLine, value]);
+  }, [highlightRange, startColumn, startLine, value, focusOnReveal]);
 
   useEffect(
     () => () => {

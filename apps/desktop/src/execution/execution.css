@@ -1,0 +1,259 @@
+.execution-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  position: relative;
+}
+.execution-workspace-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.execution-workspace-main .window-shell {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+.execution-workspace-main .window-bar {
+  flex-wrap: wrap;
+}
+.execution-workspace-main .window-bar__actions {
+  max-width: 100%;
+}
+.execution-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-solid);
+  color: var(--text);
+}
+.execution-toolbar button,
+.execution-toolbar select,
+.execution-sidebar button,
+.execution-sidebar select,
+.execution-sidebar input,
+.execution-sidebar textarea {
+  color: var(--text);
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font: inherit;
+}
+.execution-toolbar button:disabled,
+.execution-sidebar button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.execution-toolbar button:focus-visible,
+.execution-sidebar :focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+.execution-sidebar {
+  position: relative;
+  flex: 0 0 var(--execution-width);
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  background: var(--surface-solid);
+  color: var(--text);
+}
+.execution-sidebar[hidden] {
+  display: none;
+}
+.execution-panel-body {
+  height: calc(100vh - 110px);
+  min-height: 400px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 10px;
+}
+.execution-resizer {
+  position: absolute;
+  left: -5px;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 10;
+}
+.execution-resizer:hover,
+.execution-resizer:focus-visible {
+  background: var(--accent);
+}
+.execution-trust {
+  font-size: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.execution-trust p {
+  color: var(--text-muted);
+  margin: 5px 0 8px;
+}
+.execution-tabs,
+.execution-actions,
+.execution-config-actions {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.execution-tabs [aria-selected="true"] {
+  background: var(--accent);
+  border-color: var(--accent-strong);
+}
+.execution-tab-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.execution-tab-panel[hidden] {
+  display: none;
+}
+.execution-terminal {
+  flex: 1;
+  min-height: 250px;
+  background: var(--terminal-background, var(--surface-solid));
+  color: var(--terminal-foreground, var(--text));
+  padding: 6px;
+  overflow: hidden;
+}
+.execution-output {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  flex: 1;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 10px;
+  background: var(--terminal-background, var(--surface-solid));
+  color: var(--terminal-foreground, var(--text));
+}
+.execution-error {
+  border: 1px solid currentColor;
+  padding: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.execution-runtime {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+}
+.execution-config-editor,
+.execution-config-form,
+.execution-config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.execution-config-form {
+  gap: 14px;
+}
+.execution-config-field textarea {
+  min-height: 70px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.execution-diagnostics {
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 180px;
+  overflow: auto;
+}
+/* Inspector/file-editor siblings must not consume the graph's entire height.
+   Keep the canvas useful and let this pane scroll to the remaining controls. */
+.execution-workspace--sidebar-open .blueprint-main {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.execution-workspace--sidebar-open .blueprint-main__body {
+  min-height: min-content;
+}
+.execution-workspace--sidebar-open .blueprint-graph-shell__canvas {
+  min-height: 320px;
+}
+/* Expanded module controls can be taller than the reduced main canvas. */
+.execution-workspace--sidebar-open .graph-toolbar--floating {
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
+}
+/* At high UI scales the minimum native window cannot fit both columns.
+   Preserve the main controls and live session in normal flow; scroll vertically. */
+.execution-workspace--stacked {
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.execution-workspace--stacked .execution-workspace-main {
+  /* The narrow explorer uses 38vh: retain graph room in tall windows too. */
+  flex: 0 0 max(840px, calc(38vh + 600px));
+  min-height: 840px;
+}
+.execution-workspace--stacked .execution-sidebar {
+  flex: 0 0 auto;
+  width: 100%;
+  border-left: 0;
+  border-top: 1px solid var(--line);
+}
+.execution-workspace--stacked .execution-panel-body {
+  height: 460px;
+  min-height: 0;
+}
+.execution-preserved-views {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 10px;
+}
+.execution-preserved-views[hidden] {
+  display: none;
+}
+
+.blueprint-inspector .sidebar-card__header {
+  flex-wrap: wrap;
+}
+/* The terminal and explorer can narrow this pane without narrowing the window.
+   Use the drawer's existing measured-width layout, including revealed source. */
+.blueprint-inspector-drawer[data-narrow-layout="true"]
+  .blueprint-inspector-drawer__body
+  > .blueprint-inspector {
+  grid-template-columns: 1fr;
+  padding: 0 10px 10px;
+}
+
+.blueprint-inspector-drawer[data-narrow-layout="true"]
+  .blueprint-inspector-drawer__body
+  > .blueprint-inspector
+  :is(
+    .blueprint-inspector__section--selection,
+    .blueprint-inspector__section--last-edit,
+    .blueprint-inspector__section--editor,
+    .blueprint-inspector__section--revealed
+  ) {
+  grid-column: 1;
+  grid-row: auto;
+}
+
+/* The execution toolbar is a sibling of the existing view shell. */
+.execution-workspace-main > .function-tabs-shell {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}

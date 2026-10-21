@@ -4863,3 +4863,51 @@ body.graph-pan-cursor-dragging * {
     flex: 1 1 120px;
   }
 }
+
+/* New terminal roles follow the existing theme and remain overridable by later theme styles. */
+:root {
+  --terminal-background: #fafafa;
+  --terminal-foreground: #20252b;
+  --terminal-cursor: #265a9e;
+  --terminal-selection: #c8dbf2;
+  --terminal-link: #245fa5;
+  --terminal-ansi-black: #20252b;
+  --terminal-ansi-red: #a4282d;
+  --terminal-ansi-green: #216339;
+  --terminal-ansi-yellow: #755300;
+  --terminal-ansi-blue: #245fa5;
+  --terminal-ansi-magenta: #843b8b;
+  --terminal-ansi-cyan: #156775;
+  --terminal-ansi-white: #575e68;
+  --terminal-ansi-bright-black: #68717d;
+  --terminal-ansi-bright-red: #bd3038;
+  --terminal-ansi-bright-green: #287a44;
+  --terminal-ansi-bright-yellow: #8c6200;
+  --terminal-ansi-bright-blue: #316db8;
+  --terminal-ansi-bright-magenta: #9748a2;
+  --terminal-ansi-bright-cyan: #197a87;
+  --terminal-ansi-bright-white: #20252b;
+}
+:root[data-theme="dark"] {
+  --terminal-background: #161a20;
+  --terminal-foreground: #e5e9ef;
+  --terminal-cursor: #91bcf2;
+  --terminal-selection: #334b6c;
+  --terminal-link: #91bcf2;
+  --terminal-ansi-black: #59616d;
+  --terminal-ansi-red: #f08a91;
+  --terminal-ansi-green: #91d5a2;
+  --terminal-ansi-yellow: #e7cc81;
+  --terminal-ansi-blue: #91bcf2;
+  --terminal-ansi-magenta: #d4a4de;
+  --terminal-ansi-cyan: #88d3dd;
+  --terminal-ansi-white: #d5dbe4;
+  --terminal-ansi-bright-black: #929ba8;
+  --terminal-ansi-bright-red: #ffa4a9;
+  --terminal-ansi-bright-green: #a8eab8;
+  --terminal-ansi-bright-yellow: #f6df9b;
+  --terminal-ansi-bright-blue: #adcfff;
+  --terminal-ansi-bright-magenta: #e8b9f1;
+  --terminal-ansi-bright-cyan: #a3e7ee;
+  --terminal-ansi-bright-white: #ffffff;
+}

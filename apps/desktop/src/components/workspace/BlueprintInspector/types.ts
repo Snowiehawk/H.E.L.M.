@@ -72,7 +72,12 @@ export type BlueprintInspectorProps = {
   onOpenNodeInDefaultEditor?: (targetId: string) => void | Promise<void>;
   onRevealNodeInFileExplorer?: (targetId: string) => void | Promise<void>;
   onSaveSource: (targetId: string, content: string) => Promise<void>;
-  onEditorStateChange: (content?: string, dirty?: boolean) => void;
+  onEditorStateChange: (
+    content?: string,
+    dirty?: boolean,
+    baseline?: EditableNodeSource,
+    sourceChanged?: boolean,
+  ) => void;
   onDismissSource: () => void;
   onClose: () => void;
 };

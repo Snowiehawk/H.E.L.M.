@@ -677,7 +677,11 @@ export interface DesktopAdapter {
   applyBackendUndo(transaction: BackendUndoTransaction): Promise<BackendUndoResult>;
   revealSource(targetId: string): Promise<RevealedSource>;
   getEditableNodeSource(targetId: string): Promise<EditableNodeSource>;
-  saveNodeSource(targetId: string, content: string): Promise<StructuralEditResult>;
+  saveNodeSource(
+    targetId: string,
+    content: string,
+    expectedSource?: string,
+  ): Promise<StructuralEditResult>;
   openNodeInDefaultEditor(targetId: string): Promise<void>;
   openPathInDefaultEditor(relativePath: string): Promise<void>;
   revealNodeInFileExplorer(targetId: string): Promise<void>;

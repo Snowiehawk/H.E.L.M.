@@ -20,6 +20,7 @@ export function SourcePanel({
   nodePath,
   sourceError,
   sourceLanguage,
+  retainedDraft,
   onCancel,
   onChangeDraftSource,
   onOpenContextMenu,
@@ -39,6 +40,7 @@ export function SourcePanel({
   nodePath?: string;
   sourceError?: string | null;
   sourceLanguage: string;
+  retainedDraft?: string;
   onCancel: () => void;
   onChangeDraftSource: (value: string) => void;
   onOpenContextMenu: OpenInspectorContextMenu;
@@ -145,6 +147,15 @@ export function SourcePanel({
         </>
       ) : editableSource ? (
         <>
+          {retainedDraft !== undefined ? (
+            <div className="info-card blueprint-inspector__error-card">
+              <strong>Unsaved draft retained</strong>
+              <p>
+                This source is now read-only. Your draft is shown below. Dismiss the inspector to
+                discard it.
+              </p>
+            </div>
+          ) : null}
           <InspectorCodeSurface
             ariaLabel={`Read-only ${editableNodeKind ?? "code"} source`}
             className="blueprint-code-details"
@@ -156,7 +167,7 @@ export function SourcePanel({
             readOnly
             startLine={editableSource.startLine}
             startColumn={editableSource.startColumn}
-            value={editableSource.content}
+            value={retainedDraft ?? editableSource.content}
           />
           <div className="info-card">
             <strong>{editableSource.nodeKind}</strong>

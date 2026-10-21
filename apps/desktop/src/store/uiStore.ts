@@ -102,6 +102,7 @@ interface UiState {
   sidebarQuery: string;
   activeTab: WorkspaceTab;
   repoSession?: RepoSession;
+  indexingSession?: { sessionId: string; jobId: string };
   activeFilePath?: string;
   activeSymbolId?: string;
   activeNodeId?: string;
@@ -198,6 +199,7 @@ export const useUiStore = create<UiState>((set) => ({
   setSession: (repoSession) =>
     set({
       repoSession,
+      indexingSession: undefined,
       activeTab: "graph",
       activeFilePath: undefined,
       activeSymbolId: undefined,
@@ -330,6 +332,7 @@ export const useUiStore = create<UiState>((set) => ({
   setLastActivity: (lastActivity) => set({ lastActivity }),
   resetWorkspace: () =>
     set({
+      indexingSession: undefined,
       sidebarQuery: "",
       activeTab: "graph",
       activeFilePath: undefined,

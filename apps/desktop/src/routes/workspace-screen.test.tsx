@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "../app/AppProviders";
@@ -22,6 +23,13 @@ import type {
 import { useUiStore } from "../store/uiStore";
 import { useUndoStore } from "../store/undoStore";
 import { WorkspaceScreen } from "./WorkspaceScreen";
+import {
+  assertWorkspacePreparationCurrent,
+  prepareWorkspaceToRun,
+  readWorkspacePreparationSnapshot,
+} from "../execution/preparation";
+import { IndexingScreen } from "./IndexingScreen";
+import { WelcomeScreen } from "./WelcomeScreen";
 
 const WORKSPACE_TEST_TIMEOUT_MS = 15000;
 const BUILD_GRAPH_SUMMARY_SYMBOL_ID = "symbol:helm.ui.api:build_graph_summary";
@@ -212,6 +220,7 @@ function resetStore() {
     sidebarQuery: "",
     activeTab: "graph",
     repoSession,
+    indexingSession: undefined,
     activeFilePath: undefined,
     activeSymbolId: undefined,
     activeNodeId: repoSession.id,
@@ -1076,6 +1085,496 @@ describe("WorkspaceScreen", () => {
     confirmDialogMock.mockResolvedValue(true);
   });
 
+  it("reports a mounted workspace with unresolved authoritative data as unavailable for install", async () => {
+    const adapter = new MockDesktopAdapter();
+    vi.spyOn(adapter, "getOverview").mockReturnValue(new Promise(() => {}));
+    const router = createMemoryRouter([{ path: "/workspace", element: <WorkspaceScreen /> }], {
+      initialEntries: ["/workspace"],
+    });
+    const view = render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+    await waitFor(() => expect(readWorkspacePreparationSnapshot()?.availability).toBe("loading"));
+    expect(readWorkspacePreparationSnapshot()?.dirty).toBe(false);
+    view.unmount();
+    expect(readWorkspacePreparationSnapshot()).toBeUndefined();
+  });
+
+  it("admits Run with an unopened inspector after entering a module graph", async () => {
+    const adapter = new MockDesktopAdapter();
+    const sourceRead = vi.spyOn(adapter, "getEditableNodeSource");
+    const router = createMemoryRouter([{ path: "/workspace", element: <WorkspaceScreen /> }], {
+      initialEntries: ["/workspace"],
+    });
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+    const graph = within(document.querySelector(".graph-panel") as HTMLElement);
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    await graph.findByText("build_graph_summary");
+    expect(sourceRead).not.toHaveBeenCalled();
+    await waitFor(() => expect(readWorkspacePreparationSnapshot()?.availability).toBe("ready"));
+    const snapshot = readWorkspacePreparationSnapshot()!;
+    expect(snapshot.stale).toBe(false);
+    expect(snapshot.dirty).toBe(false);
+    const freeze = vi.fn(async () => ({
+      repoPath: snapshot.repoPath,
+      files: [],
+      indexedSymbols: [],
+    }));
+    await expect(
+      prepareWorkspaceToRun(snapshot.repoPath, snapshot.sessionId, freeze),
+    ).resolves.toBeDefined();
+    expect(freeze).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["loading", "error"])(
+    "recovers Run after dismissing a %s source inspector",
+    async (state) => {
+      const adapter = new MockDesktopAdapter();
+      vi.spyOn(adapter, "getEditableNodeSource").mockImplementation(() =>
+        state === "loading"
+          ? new Promise(() => {})
+          : Promise.reject(new Error("source unavailable")),
+      );
+      const router = createMemoryRouter([{ path: "/workspace", element: <WorkspaceScreen /> }], {
+        initialEntries: ["/workspace"],
+      });
+      render(
+        <AppProviders adapter={adapter}>
+          <RouterProvider router={router} />
+        </AppProviders>,
+      );
+      const graph = within(document.querySelector(".graph-panel") as HTMLElement);
+      fireEvent.doubleClick(await graph.findByText("api.py"));
+      const node = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+      fireEvent.click(within(node as HTMLElement).getByText("Inspect"));
+      await waitFor(() => expect(readWorkspacePreparationSnapshot()?.availability).toBe(state), {
+        timeout: 5000,
+      });
+      fireEvent.click(screen.getByTestId("blueprint-inspector-drawer-toggle"));
+      const dismiss = await screen.findByRole("button", { name: "Dismiss inspector target" });
+      const blocked = readWorkspacePreparationSnapshot()!;
+      const freeze = vi.fn(async () => ({
+        repoPath: blocked.repoPath,
+        files: [],
+        indexedSymbols: [],
+      }));
+      await expect(
+        prepareWorkspaceToRun(blocked.repoPath, blocked.sessionId, freeze),
+      ).rejects.toThrow(/unavailable, stale or busy/);
+      expect(freeze).not.toHaveBeenCalled();
+      fireEvent.click(dismiss);
+      await waitFor(() => expect(readWorkspacePreparationSnapshot()?.availability).toBe("ready"));
+      await expect(
+        prepareWorkspaceToRun(blocked.repoPath, blocked.sessionId, freeze),
+      ).resolves.toBeDefined();
+      expect(freeze).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("recovers Run after canceling and closing a file without reopening the inspector", async () => {
+    const user = userEvent.setup();
+    const adapter = new MockDesktopAdapter();
+    const sourceRead = vi.spyOn(adapter, "getEditableNodeSource");
+    const router = createMemoryRouter([{ path: "/workspace", element: <WorkspaceScreen /> }], {
+      initialEntries: ["/workspace"],
+    });
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+    const graph = within(document.querySelector(".graph-panel") as HTMLElement);
+    fireEvent.doubleClick(await graph.findByText("api.py"));
+    await graph.findByText("build_graph_summary");
+    await user.click(screen.getByRole("button", { name: "New File" }));
+    await user.clear(screen.getByRole("textbox", { name: "New file path" }));
+    await user.type(screen.getByRole("textbox", { name: "New file path" }), "recovery.txt");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    const editor = await screen.findByRole("textbox", { name: "Edit recovery.txt" });
+    fireEvent.change(editor, { target: { value: "discard this draft" } });
+    const panel = within(document.querySelector(".workspace-file-editor") as HTMLElement);
+    await user.click(panel.getByRole("button", { name: "Cancel" }));
+    expect(editor).toHaveValue("");
+    expect(readWorkspacePreparationSnapshot()?.dirty).toBe(false);
+    await user.click(panel.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(readWorkspacePreparationSnapshot()?.availability).toBe("ready"));
+    expect(sourceRead).not.toHaveBeenCalled();
+    const snapshot = readWorkspacePreparationSnapshot()!;
+    await expect(
+      prepareWorkspaceToRun(snapshot.repoPath, snapshot.sessionId, async () => ({
+        repoPath: snapshot.repoPath,
+        files: [],
+        indexedSymbols: [],
+      })),
+    ).resolves.toBeDefined();
+  });
+
+  it.each([
+    { clean: true, module: true },
+    { clean: false, module: true },
+    { clean: true, module: false },
+    { clean: false, module: false },
+  ])(
+    "preserves source ownership when inspector refetches an external edit %j",
+    async ({ clean, module }) => {
+      const adapter = new MockDesktopAdapter();
+      const getSource = adapter.getEditableNodeSource.bind(adapter);
+      const baseline = 'print("RESTORED_RESULT")\n#xxxxxxxxxxxxxxx\n';
+      const prefix = "#" + "x".repeat(40) + "\n";
+      expect(new TextEncoder().encode(baseline)).toHaveLength(42);
+      let diskContent = prefix + baseline;
+      expect(new TextEncoder().encode(diskContent)).toHaveLength(84);
+      let pendingRead: Promise<void> | undefined;
+      let failRead = false;
+      const read = vi.spyOn(adapter, "getEditableNodeSource").mockImplementation(async (id) => {
+        await pendingRead;
+        if (failRead) throw new Error("Synthetic source read failure");
+        return { ...(await getSource(id)), content: diskContent };
+      });
+      const saveSource = adapter.saveNodeSource.bind(adapter);
+      const save = vi
+        .spyOn(adapter, "saveNodeSource")
+        .mockImplementation(async (id, content, expected) => {
+          // This fixture models disk independently of the adapter's built-in
+          // example repository, so enforce CAS against this fixture's bytes.
+          if (expected !== diskContent) throw new Error("Fixture source changed on disk");
+          const result = await saveSource(id, content);
+          diskContent = content;
+          return result;
+        });
+      let client: QueryClient | undefined;
+      function CaptureClient() {
+        client = useQueryClient();
+        client.setDefaultOptions({ queries: { retry: false } });
+        return null;
+      }
+      const router = createMemoryRouter([{ path: "/workspace", element: <WorkspaceScreen /> }], {
+        initialEntries: ["/workspace"],
+      });
+      render(
+        <AppProviders adapter={adapter}>
+          <CaptureClient />
+          <RouterProvider router={router} />
+        </AppProviders>,
+      );
+      const graph = within(document.querySelector(".graph-panel") as HTMLElement);
+      const moduleNode = (await graph.findByText("api.py")).closest(".graph-node");
+      let node = moduleNode;
+      if (!module) {
+        fireEvent.doubleClick(moduleNode as HTMLElement);
+        node = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+      }
+      fireEvent.click(within(node as HTMLElement).getByText("Inspect"));
+      let editor = await screen.findByRole("textbox", {
+        name: module ? /Module source editor/i : /Function source editor/i,
+      });
+      await waitFor(() => expect(editor).toHaveValue(diskContent));
+      const draft = "# genuine unsaved café 🧭\n";
+      if (!clean) fireEvent.change(editor, { target: { value: draft } });
+      if (!clean) {
+        let finishRead!: () => void;
+        pendingRead = new Promise<void>((resolve) => {
+          finishRead = resolve;
+        });
+        failRead = true;
+        let refresh!: Promise<void>;
+        act(() => {
+          refresh = client!.invalidateQueries({ queryKey: ["editable-node-source"] });
+        });
+        expect(readWorkspacePreparationSnapshot()?.dirty).toBe(true);
+        expect(save).not.toHaveBeenCalled();
+        await act(async () => {
+          finishRead();
+          await refresh;
+        });
+        await waitFor(() => expect(readWorkspacePreparationSnapshot()?.availability).toBe("error"));
+        expect(save).not.toHaveBeenCalled();
+        failRead = false;
+        pendingRead = undefined;
+      }
+      const readsBefore = read.mock.calls.length;
+      diskContent = baseline;
+      // Refetch without a watcher notification also happens on focus/invalidation.
+      await act(async () => {
+        await client!.invalidateQueries({ queryKey: ["editable-node-source"] });
+      });
+      await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(readsBefore));
+      editor = await screen.findByRole("textbox", {
+        name: module ? /Module source editor/i : /Function source editor/i,
+      });
+      const freeze = vi.fn(async () => ({
+        repoPath: defaultRepoPath,
+        files: [],
+        indexedSymbols: [],
+      }));
+      if (clean) {
+        await waitFor(() => expect(editor).toHaveValue(diskContent));
+        expect(readWorkspacePreparationSnapshot()?.dirty).toBe(false);
+        const snapshot = readWorkspacePreparationSnapshot()!;
+        await prepareWorkspaceToRun(snapshot.repoPath, snapshot.sessionId, freeze);
+        expect(freeze).toHaveBeenCalledTimes(1);
+      } else {
+        expect(editor).toHaveValue(draft);
+        await waitFor(() => expect(readWorkspacePreparationSnapshot()?.stale).toBe(true));
+        const snapshot = readWorkspacePreparationSnapshot()!;
+        await expect(
+          prepareWorkspaceToRun(snapshot.repoPath, snapshot.sessionId, freeze),
+        ).rejects.toThrow();
+        expect(freeze).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole("button", { name: "Reload from Disk" }));
+        await waitFor(() => expect(editor).toHaveValue(diskContent));
+        await waitFor(() => expect(readWorkspacePreparationSnapshot()?.stale).toBe(false));
+      }
+      expect(save).not.toHaveBeenCalled();
+      expect(diskContent).toBe(baseline);
+      // A later explicit edit saves against the freshly loaded 42-byte preimage,
+      // never the old 84-byte snapshot. Exercise the actual save/CAS boundary.
+      fireEvent.change(editor, { target: { value: draft } });
+      const snapshot = readWorkspacePreparationSnapshot()!;
+      await prepareWorkspaceToRun(snapshot.repoPath, snapshot.sessionId, freeze);
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(save.mock.calls[0]?.[2]).toBe(baseline);
+      expect(diskContent).toBe(draft);
+      await waitFor(() => expect(readWorkspacePreparationSnapshot()?.dirty).toBe(false));
+      editor = await screen.findByRole("textbox", {
+        name: module ? /Module source editor/i : /Function source editor/i,
+      });
+      const laterDraft = draft + "# later unsaved\n";
+      if (!clean) fireEvent.change(editor, { target: { value: laterDraft } });
+      diskContent = baseline;
+      await act(async () => {
+        await client!.invalidateQueries({ queryKey: ["editable-node-source"] });
+      });
+      editor = await screen.findByRole("textbox", {
+        name: module ? /Module source editor/i : /Function source editor/i,
+      });
+      if (clean) {
+        await waitFor(() => expect(editor).toHaveValue(baseline));
+        const ready = readWorkspacePreparationSnapshot()!;
+        await prepareWorkspaceToRun(ready.repoPath, ready.sessionId, freeze);
+      } else {
+        expect(editor).toHaveValue(laterDraft);
+        await waitFor(() => expect(readWorkspacePreparationSnapshot()?.stale).toBe(true));
+        const stale = readWorkspacePreparationSnapshot()!;
+        await expect(
+          prepareWorkspaceToRun(stale.repoPath, stale.sessionId, freeze),
+        ).rejects.toThrow();
+      }
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(diskContent).toBe(baseline);
+    },
+    WORKSPACE_TEST_TIMEOUT_MS,
+  );
+
+  it.each([false, true])(
+    "retains a dirty inspector and its Run obligation after initialReadOnly=%s",
+    async (initialReadOnly) => {
+      const adapter = new MockDesktopAdapter();
+      const getSource = adapter.getEditableNodeSource.bind(adapter);
+      let readOnly = initialReadOnly;
+      vi.spyOn(adapter, "getEditableNodeSource").mockImplementation(async (id) => ({
+        ...(await getSource(id)),
+        editable: !readOnly,
+      }));
+      const save = vi.spyOn(adapter, "saveNodeSource");
+      let client: QueryClient | undefined;
+      function CaptureClient() {
+        client = useQueryClient();
+        return null;
+      }
+      const router = createMemoryRouter([{ path: "/workspace", element: <WorkspaceScreen /> }], {
+        initialEntries: ["/workspace"],
+      });
+      render(
+        <AppProviders adapter={adapter}>
+          <CaptureClient />
+          <RouterProvider router={router} />
+        </AppProviders>,
+      );
+      const graph = within(document.querySelector(".graph-panel") as HTMLElement);
+      fireEvent.doubleClick(await graph.findByText("api.py"));
+      const node = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+      fireEvent.click(within(node as HTMLElement).getByText("Inspect"));
+      if (initialReadOnly) {
+        await screen.findByTestId("inspector-readonly-source");
+        readOnly = false;
+        await act(async () => {
+          await client!.invalidateQueries({ queryKey: ["editable-node-source"] });
+        });
+      }
+      const editor = await screen.findByRole("textbox", { name: /Function source editor/i });
+      const draft = (editor as HTMLTextAreaElement).value + "\n# retained café 🧭";
+      fireEvent.change(editor, { target: { value: draft } });
+      readOnly = true;
+      await act(async () => {
+        await client!.invalidateQueries({ queryKey: ["editable-node-source"] });
+      });
+      expect(await screen.findByText("Unsaved draft retained")).toBeInTheDocument();
+      expect(screen.getByTestId("inspector-readonly-source")).toHaveTextContent(
+        "# retained café 🧭",
+      );
+      await waitFor(() => expect(readWorkspacePreparationSnapshot()?.stale).toBe(true));
+      expect(readWorkspacePreparationSnapshot()?.dirty).toBe(true);
+      const snapshot = readWorkspacePreparationSnapshot()!;
+      const freeze = vi.fn(async () => ({
+        repoPath: snapshot.repoPath,
+        files: [],
+        indexedSymbols: [],
+      }));
+      await expect(
+        prepareWorkspaceToRun(snapshot.repoPath, snapshot.sessionId, freeze),
+      ).rejects.toThrow();
+      expect(save).not.toHaveBeenCalled();
+      expect(freeze).not.toHaveBeenCalled();
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+      fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss inspector target" }));
+      expect(confirm).toHaveBeenCalled();
+      expect(screen.getByText("Unsaved draft retained")).toBeInTheDocument();
+      confirm.mockReturnValue(true);
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss inspector target" }));
+      await waitFor(() =>
+        expect(screen.queryByText("Unsaved draft retained")).not.toBeInTheDocument(),
+      );
+      confirm.mockRestore();
+    },
+  );
+
+  it(
+    "admits the first Save and Run after declaration readback normalizes its outer newline",
+    async () => {
+      const adapter = new MockDesktopAdapter();
+      const save = vi.spyOn(adapter, "saveNodeSource");
+      const getSource = adapter.getEditableNodeSource.bind(adapter);
+      vi.spyOn(adapter, "getEditableNodeSource").mockImplementation(async (targetId) => {
+        const source = await getSource(targetId);
+        return save.mock.calls.length
+          ? { ...source, content: source.content.trimEnd() + "\n" }
+          : source;
+      });
+      const router = createMemoryRouter([{ path: "/workspace", element: <WorkspaceScreen /> }], {
+        initialEntries: ["/workspace"],
+      });
+      render(
+        <AppProviders adapter={adapter}>
+          <RouterProvider router={router} />
+        </AppProviders>,
+      );
+      const graph = within(document.querySelector(".graph-panel") as HTMLElement);
+      fireEvent.doubleClick(await graph.findByText("api.py"));
+      const node = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+      fireEvent.click(within(node as HTMLElement).getByText("Inspect"));
+      const editor = await screen.findByRole("textbox", { name: /Function source editor/i });
+      const loadedBaseline = (editor as HTMLTextAreaElement).value;
+      const draft = loadedBaseline.trimEnd() + "\n# café 🧭";
+      fireEvent.change(editor, { target: { value: draft } });
+      const snapshot = readWorkspacePreparationSnapshot()!;
+      expect(snapshot.dirty).toBe(true);
+      const freeze = vi.fn(async () => ({
+        repoPath: snapshot.repoPath,
+        files: [],
+        indexedSymbols: [],
+      }));
+      const receipt = await prepareWorkspaceToRun(snapshot.repoPath, snapshot.sessionId, freeze);
+      expect(() => assertWorkspacePreparationCurrent(receipt)).not.toThrow();
+      await waitFor(() => expect(readWorkspacePreparationSnapshot()?.dirty).toBe(false));
+      expect(() => assertWorkspacePreparationCurrent(receipt)).not.toThrow();
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(save.mock.calls[0]?.[2]).toBe(loadedBaseline);
+      expect(freeze).toHaveBeenCalledTimes(1);
+      expect(await screen.findByRole("textbox", { name: /Function source editor/i })).toHaveValue(
+        draft + "\n",
+      );
+    },
+    WORKSPACE_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "exposes live declaration content revisions to installation admission while already dirty",
+    async () => {
+      const router = createMemoryRouter([{ path: "/workspace", element: <WorkspaceScreen /> }], {
+        initialEntries: ["/workspace"],
+      });
+      render(
+        <AppProviders adapter={new MockDesktopAdapter()}>
+          <RouterProvider router={router} />
+        </AppProviders>,
+      );
+      const graph = within(document.querySelector(".graph-panel") as HTMLElement);
+      fireEvent.doubleClick(await graph.findByText("api.py"));
+      const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+      fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+      const editor = await screen.findByRole("textbox", { name: /Function source editor/i });
+      const original = (editor as HTMLTextAreaElement).value;
+      fireEvent.change(editor, { target: { value: `${original}\n# first edit` } });
+      const first = readWorkspacePreparationSnapshot();
+      expect(first?.dirty).toBe(true);
+      fireEvent.change(editor, { target: { value: `${original}\n# second edit` } });
+      const second = readWorkspacePreparationSnapshot();
+      expect(second?.dirty).toBe(true);
+      expect(second?.revision).not.toBe(first?.revision);
+    },
+    WORKSPACE_TEST_TIMEOUT_MS,
+  );
+
+  it.each(["\n", "\r\n", "\n# a later edit"])(
+    "preserves a real edit %j during declaration readback and refuses Run",
+    async (suffix) => {
+      const adapter = new MockDesktopAdapter();
+      const save = vi.spyOn(adapter, "saveNodeSource");
+      const getSource = adapter.getEditableNodeSource.bind(adapter);
+      let edited = false;
+      let currentDraft = "";
+      vi.spyOn(adapter, "getEditableNodeSource").mockImplementation(async (targetId) => {
+        const source = await getSource(targetId);
+        if (!save.mock.calls.length) return source;
+        if (!edited) {
+          edited = true;
+          fireEvent.change(screen.getByRole("textbox", { name: /Function source editor/i }), {
+            target: { value: currentDraft + suffix },
+          });
+        }
+        return { ...source, content: source.content.trimEnd() + "\n" };
+      });
+      const router = createMemoryRouter([{ path: "/workspace", element: <WorkspaceScreen /> }], {
+        initialEntries: ["/workspace"],
+      });
+      render(
+        <AppProviders adapter={adapter}>
+          <RouterProvider router={router} />
+        </AppProviders>,
+      );
+      const graph = within(document.querySelector(".graph-panel") as HTMLElement);
+      fireEvent.doubleClick(await graph.findByText("api.py"));
+      const node = (await graph.findByText("build_graph_summary")).closest(".graph-node");
+      fireEvent.click(within(node as HTMLElement).getByText("Inspect"));
+      const editor = await screen.findByRole("textbox", { name: /Function source editor/i });
+      currentDraft = (editor as HTMLTextAreaElement).value.trimEnd() + "\n# café 🧭";
+      fireEvent.change(editor, { target: { value: currentDraft } });
+      const snapshot = readWorkspacePreparationSnapshot()!;
+      const freeze = vi.fn(async () => ({
+        repoPath: snapshot.repoPath,
+        files: [],
+        indexedSymbols: [],
+      }));
+      await expect(
+        prepareWorkspaceToRun(snapshot.repoPath, snapshot.sessionId, freeze),
+      ).rejects.toThrow("declaration draft changed while saving");
+      expect(freeze).not.toHaveBeenCalled();
+      // The textarea test surface follows the browser's CRLF -> LF value rule.
+      expect(screen.getByRole("textbox", { name: /Function source editor/i })).toHaveValue(
+        (currentDraft + suffix).replaceAll("\r\n", "\n"),
+      );
+    },
+    WORKSPACE_TEST_TIMEOUT_MS,
+  );
+
   it(
     "resizes the explorer panel and restores the saved width",
     async () => {
@@ -1239,7 +1738,8 @@ describe("WorkspaceScreen", () => {
       await user.click(saveButton);
 
       await waitFor(() => expect(saveSourceSpy).toHaveBeenCalledTimes(1));
-      expect(saveSourceSpy).toHaveBeenCalledWith("module:test", "VALUE = 1");
+      // A newly created empty module still supplies its exact authoritative baseline.
+      expect(saveSourceSpy).toHaveBeenCalledWith("module:test", "VALUE = 1", "");
       await waitFor(() =>
         expect(screen.getByRole("textbox", { name: /Module source editor/i })).toHaveValue(
           "VALUE = 1",
@@ -4941,12 +5441,25 @@ describe("WorkspaceScreen", () => {
 
   it("does not toggle the inspector drawer while typing in the editor", async () => {
     const user = userEvent.setup();
+    const adapter = new MockDesktopAdapter();
+    let releaseSource!: () => void;
+    const sourceGate = new Promise<void>((resolve) => {
+      releaseSource = resolve;
+    });
+    const originalGetSource = adapter.getEditableNodeSource.bind(adapter);
+    const getSource = vi
+      .spyOn(adapter, "getEditableNodeSource")
+      .mockImplementation(async (targetId) => {
+        const source = await originalGetSource(targetId);
+        await sourceGate;
+        return source;
+      });
     const router = createMemoryRouter([{ path: "/workspace", element: <WorkspaceScreen /> }], {
       initialEntries: ["/workspace"],
     });
 
     render(
-      <AppProviders adapter={new MockDesktopAdapter()}>
+      <AppProviders adapter={adapter}>
         <RouterProvider router={router} />
       </AppProviders>,
     );
@@ -4959,8 +5472,24 @@ describe("WorkspaceScreen", () => {
 
     const functionNode = (await graph.findByText("build_graph_summary")).closest(".graph-node");
     expect(functionNode).not.toBeNull();
-    fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
+    try {
+      fireEvent.click(within(functionNode as HTMLElement).getByText("Inspect"));
 
+      expect(getSource).toHaveBeenCalledWith(BUILD_GRAPH_SUMMARY_SYMBOL_ID);
+      expect(screen.getByTestId("blueprint-inspector-drawer")).toHaveAttribute(
+        "data-mode",
+        "expanded",
+      );
+      expect(screen.getByText("Loading source...")).toBeInTheDocument();
+      // This test checks typing/Space handling, not response speed. Wait for the
+      // actual source request rather than spending the DOM lookup's 1s budget on it.
+      await act(async () => {
+        releaseSource();
+        await getSource.mock.results[0].value;
+      });
+    } finally {
+      releaseSource();
+    }
     const editor = await screen.findByRole("textbox", { name: /Function source editor/i });
     const originalValue = (editor as HTMLTextAreaElement).value;
 
@@ -5430,5 +5959,161 @@ describe("WorkspaceScreen", () => {
     });
     await user.hover(openInEditor);
     expect(help.getByText("Open file in default editor")).toBeInTheDocument();
+  });
+  it.each(["done", "error"] as const)(
+    "manual reindex registers ownership and handles %s progress",
+    async (status) => {
+      const adapter = new MockDesktopAdapter();
+      const repo = useUiStore.getState().repoSession!;
+      vi.spyOn(adapter, "startIndex").mockResolvedValue({ jobId: "manual-reindex" });
+      vi.spyOn(adapter, "subscribeIndexProgress").mockImplementation((jobId, callback) => {
+        callback({
+          jobId,
+          repoPath: repo.path,
+          status,
+          stage: "watch_ready",
+          processedModules: 3,
+          totalModules: 3,
+          symbolCount: 4,
+          message: "Manual index completed",
+          error: status === "error" ? "Synthetic reindex failure" : undefined,
+        });
+        return () => {};
+      });
+      const router = createMemoryRouter(
+        [
+          { path: "/workspace", element: <WorkspaceScreen /> },
+          { path: "/indexing/:jobId", element: <IndexingScreen /> },
+          { path: "/", element: <WelcomeScreen /> },
+        ],
+        { initialEntries: ["/workspace"] },
+      );
+      render(
+        <AppProviders adapter={adapter}>
+          <RouterProvider router={router} />
+        </AppProviders>,
+      );
+      fireEvent.click(await screen.findByRole("button", { name: "Reindex" }));
+      await screen.findByText("Manual index completed");
+      if (status === "done") {
+        await waitFor(() => expect(router.state.location.pathname).toBe("/workspace"));
+        expect(useUiStore.getState().repoSession?.id).toBe(repo.id);
+        expect(await screen.findByTestId("workspace-layout")).toBeInTheDocument();
+      } else {
+        fireEvent.click(await screen.findByRole("button", { name: "Back to Welcome" }));
+        await screen.findByRole("button", { name: "Open Local Repo" });
+        expect(router.state.location.pathname).toBe("/");
+        expect(useUiStore.getState().repoSession).toBeUndefined();
+      }
+      expect(useUiStore.getState().indexingSession).toBeUndefined();
+    },
+  );
+
+  it("legacy workspace open also hands its job ownership to IndexingScreen", async () => {
+    const adapter = new MockDesktopAdapter();
+    vi.spyOn(adapter, "startIndex").mockResolvedValue({ jobId: "workspace-open" });
+    vi.spyOn(adapter, "subscribeIndexProgress").mockImplementation((jobId, callback) => {
+      callback({
+        jobId,
+        repoPath: defaultRepoPath,
+        status: "done",
+        stage: "watch_ready",
+        processedModules: 3,
+        totalModules: 3,
+        symbolCount: 4,
+        message: "Workspace open indexed",
+      });
+      return () => {};
+    });
+    const router = createMemoryRouter(
+      [
+        { path: "/workspace", element: <WorkspaceScreen /> },
+        { path: "/indexing/:jobId", element: <IndexingScreen /> },
+        { path: "/", element: <WelcomeScreen /> },
+      ],
+      { initialEntries: ["/workspace"] },
+    );
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Open Repo" }));
+    await screen.findByText("Workspace open indexed");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/workspace"));
+    expect(useUiStore.getState().indexingSession).toBeUndefined();
+  });
+  it("manual reindex start failure stays recoverable in the active workspace", async () => {
+    const adapter = new MockDesktopAdapter();
+    const repo = useUiStore.getState().repoSession!;
+    const start = vi
+      .spyOn(adapter, "startIndex")
+      .mockRejectedValueOnce(new Error("Synthetic index start failure"))
+      .mockResolvedValue({ jobId: "retry-reindex" });
+    vi.spyOn(adapter, "subscribeIndexProgress").mockImplementation((jobId, callback) => {
+      callback({
+        jobId,
+        repoPath: repo.path,
+        status: "done",
+        stage: "watch_ready",
+        processedModules: 3,
+        totalModules: 3,
+        symbolCount: 4,
+        message: "Reindex retry complete",
+      });
+      return () => {};
+    });
+    const router = createMemoryRouter(
+      [
+        { path: "/workspace", element: <WorkspaceScreen /> },
+        { path: "/indexing/:jobId", element: <IndexingScreen /> },
+        { path: "/", element: <WelcomeScreen /> },
+      ],
+      { initialEntries: ["/workspace"] },
+    );
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Reindex" }));
+    await screen.findByText("Synthetic index start failure");
+    expect(router.state.location.pathname).toBe("/workspace");
+    expect(useUiStore.getState().repoSession?.id).toBe(repo.id);
+    expect(useUiStore.getState().indexingSession).toBeUndefined();
+    fireEvent.click(screen.getByRole("button", { name: "Reindex" }));
+    await screen.findByText("Reindex retry complete");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/workspace"));
+    expect(start).toHaveBeenCalledTimes(2);
+  });
+
+  it("manual reindex cannot publish ownership after another session replaces it", async () => {
+    const adapter = new MockDesktopAdapter();
+    let resolve!: (job: { jobId: string }) => void;
+    vi.spyOn(adapter, "startIndex").mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const router = createMemoryRouter(
+      [
+        { path: "/workspace", element: <WorkspaceScreen /> },
+        { path: "/indexing/:jobId", element: <IndexingScreen /> },
+      ],
+      { initialEntries: ["/workspace"] },
+    );
+    render(
+      <AppProviders adapter={adapter}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Reindex" }));
+    const replacement = { ...useUiStore.getState().repoSession!, id: "replacement-session" };
+    act(() => useUiStore.getState().setSession(replacement));
+    await act(async () => resolve({ jobId: "old-session-index" }));
+    expect(router.state.location.pathname).toBe("/workspace");
+    expect(useUiStore.getState().repoSession?.id).toBe("replacement-session");
+    expect(useUiStore.getState().indexingSession).toBeUndefined();
   });
 });
