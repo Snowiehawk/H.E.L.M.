@@ -14,6 +14,10 @@ The portable regression suite executes the actual workflow Bash with real local 
 
 The third actual Windows run passed checkout, isolated dependencies and Python preparation tests. Its deliberately closed stdout graph/Run fixture then reported Windows `EINVAL`, rather than POSIX `EPIPE`. The test helper now recognizes those narrow platform errors around the real worker write, records the errno and still requires a real successful graph commit, missing reply, exit 74 and no Run/replay. Normal replies require no loss errno. This changes only the fixture; the production worker's error handling remains unchanged. Fetch tracing is also unset rather than set to `0`: the observed Windows HTTP authorization lines were redacted, and no credential value is retained as evidence.
 
+The subsequent jobs passed all 123 execution frontend tests on both platforms. Windows then exposed host `core.autocrlf` conversion through the existing raw SVG integrity check. Checkout now disables that conversion for its single command, preserving committed bytes without regenerating or weakening asset checks. The real-Git regression injects `autocrlf=true` and compares raw bytes; it failed with CRLF before the correction. No global or persistent repository Git setting changes.
+
+That run's Mac Vite build exhausted its roughly 2 GiB Node heap. Only the hosted Mac web-build command now uses a bounded 2.5 GiB heap; an initial probe records physical memory, pressure and actual heap limit, and refuses admission below 6 GiB total or 50% free memory. Standard hosted arm64 Macs have 7 GB RAM. The runner label, build inputs, application code and machine settings are unchanged. This is build-resource tuning, not a product or acceptance change; actual successful builds remain the gate.
+
 Primary references:
 
 - [Pinned checkout workspace validation](https://github.com/actions/checkout/blob/11d5960a326750d5838078e36cf38b85af677262/src/input-helper.ts).
@@ -21,3 +25,4 @@ Primary references:
 - [GitHub reserved variables and runner temporary directories](https://docs.github.com/en/actions/reference/workflows-and-actions/variables).
 - [Git command-scoped environment configuration](https://git-scm.com/docs/git/2.53.0#Documentation/git.txt---config-envltnamegtltenvvargt).
 - [CPython Windows broken-pipe error behavior](https://bugs.python.org/issue35754).
+- [GitHub standard hosted runner specifications](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).

@@ -108,6 +108,9 @@ sys.exit(subprocess.run([os.environ['FIXTURE_GIT'], *args]).returncode)
             GIT_TRACE_PACKET="1",
             GIT_TRACE_CURL="1",
             GIT_CURL_VERBOSE="1",
+            GIT_CONFIG_COUNT="1",
+            GIT_CONFIG_KEY_0="core.autocrlf",
+            GIT_CONFIG_VALUE_0="true",
             FIXTURE_GIT=self.real_git,
             FIXTURE_REMOTE=str(self.remote),
             FIXTURE_OTHER_SHA=self.other,
@@ -141,7 +144,7 @@ sys.exit(subprocess.run([os.environ['FIXTURE_GIT'], *args]).returncode)
         self.assertEqual(
             self.git("symbolic-ref", "-q", "HEAD", cwd=self.target, check=False).returncode, 1
         )
-        self.assertEqual((self.target / "value.txt").read_text(), "first café\n")
+        self.assertEqual((self.target / "value.txt").read_bytes(), "first café\n".encode())
         self.assertEqual(self.output.read_text(), f"root={self.target}\n")
         self.assertEqual(
             self.git("remote", "get-url", "origin", cwd=self.target).stdout.strip(),

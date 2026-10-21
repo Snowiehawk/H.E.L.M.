@@ -68,7 +68,7 @@ jobs:
           unset HELM_CI_AUTH_HEADER
           fetched_sha="$(git -C "$source_root" rev-parse --verify 'FETCH_HEAD^{commit}')"
           [[ "$fetched_sha" == "$GITHUB_SHA" ]] || refuse 'Fetched revision differs from requested SHA.'
-          git -C "$source_root" checkout --detach "$fetched_sha"
+          git -c core.autocrlf=false -C "$source_root" checkout --detach "$fetched_sha"
           [[ "$(git -C "$source_root" rev-parse HEAD)" == "$GITHUB_SHA" ]] || refuse 'Checked out revision differs from requested SHA.'
           printf 'root=%s\n' "$source_root" >> "$GITHUB_OUTPUT"
 
@@ -141,7 +141,24 @@ jobs:
           export HELM_TEST_PYTHON="$(python -c 'import sys; print(sys.executable)')"
           export HELM_TEST_SOURCE_ROOT="$(git rev-parse --show-toplevel)"
           npm test -- src/execution --maxWorkers=1 2>&1 | tee ../../execution-evidence/frontend-execution.log
-          npm run build 2>&1 | tee ../../execution-evidence/frontend-build.log
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            node --max-old-space-size=2560 --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { writeFileSync } from 'node:fs';
+          import os from 'node:os';
+          import v8 from 'node:v8';
+          const pressure = execFileSync('/usr/bin/memory_pressure', ['-Q'], { encoding: 'utf8' });
+          const match = pressure.match(/free percentage: (\d+)%/);
+          const record = { totalBytes: os.totalmem(), freePercent: match ? Number(match[1]) : null,
+            configuredHeapMiB: 2560, heapLimitBytes: v8.getHeapStatistics().heap_size_limit };
+          writeFileSync('../../execution-evidence/web-build-memory.json', JSON.stringify(record, null, 2));
+          if (record.totalBytes < 6 * 1024 ** 3 || record.freePercent === null || record.freePercent < 50)
+            throw new Error('Hosted Mac web-build memory admission refused.');
+          JS
+            NODE_OPTIONS="--max-old-space-size=2560" npm run build 2>&1 | tee ../../execution-evidence/frontend-build.log
+          else
+            npm run build 2>&1 | tee ../../execution-evidence/frontend-build.log
+          fi
 
       - name: Stage existing pinned backend resources
         working-directory: ${{ steps.windows_source.outputs.root || github.workspace }}/apps/desktop
