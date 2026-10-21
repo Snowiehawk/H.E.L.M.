@@ -1220,8 +1220,8 @@ mod tests {
             let tx = tx.clone();
             std::thread::spawn(move || {
                 let mut bytes = Vec::new();
-                let _ = reader.read_to_end(&mut bytes);
-                let _ = tx.send((stream, bytes));
+                let result = reader.read_to_end(&mut bytes);
+                let _ = tx.send((stream, result, bytes));
             });
         }
         drop(tx);
@@ -1240,8 +1240,15 @@ mod tests {
         let output: Vec<_> = (0..2)
             .map(|_| rx.recv_timeout(Duration::from_secs(2)).unwrap())
             .collect();
-        assert!(output.iter().any(|(stream, bytes)| stream == "stdout"
-            && String::from_utf8_lossy(bytes).contains("HELM-owned-run")));
+        assert!(
+            output.iter().all(|(_, result, _)| result.is_ok()),
+            "Owned Run output read failed: {output:?}"
+        );
+        assert!(
+            output.iter().any(|(stream, _, bytes)| stream == "stdout"
+                && String::from_utf8_lossy(bytes).contains("HELM-owned-run")),
+            "Owned Run output did not contain its marker: {output:?}"
+        );
     }
     #[cfg(windows)]
     #[test]
@@ -1264,8 +1271,8 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let mut bytes = Vec::new();
-            let _ = reader.read_to_end(&mut bytes);
-            let _ = tx.send(bytes);
+            let result = reader.read_to_end(&mut bytes);
+            let _ = tx.send((result, bytes));
         });
         io.resize(36, 110).unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
@@ -1278,9 +1285,14 @@ mod tests {
         assert!(gate.install().is_err());
         lease.confirmed_cleanup();
         assert!(gate.install().is_ok());
+        let (result, bytes) = rx.recv_timeout(Duration::from_secs(2)).unwrap();
         assert!(
-            String::from_utf8_lossy(&rx.recv_timeout(Duration::from_secs(2)).unwrap())
-                .contains("HELM-owned-terminal")
+            result.is_ok(),
+            "Owned terminal read failed: {result:?}; {bytes:?}"
+        );
+        assert!(
+            String::from_utf8_lossy(&bytes).contains("HELM-owned-terminal"),
+            "Owned terminal output did not contain its marker: {bytes:?}"
         );
     }
     #[test]
